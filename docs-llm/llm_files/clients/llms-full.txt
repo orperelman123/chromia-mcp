@@ -1,0 +1,2370 @@
+# CHROMIA CLIENTS DOCUMENTATION
+Generated on: 2025-07-24 18:36:24
+Source directory: docs/clients
+
+================================================================================
+
+
+# Client libraries
+
+The **Clients** section highlights tools and libraries that enable integration of applications with the Chromia
+blockchain.
+
+## Available Postchain clients
+
+| Postchain clients                                                                        | Description                                                                                                                                                                                                                                                                                                                                                          |
+|------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [JavaScript(JS)/TypeScript(TS)](/clients/postchain-clients/javascript-typescript-client) | The JavaScript/TypeScript client library provides functionality for interacting with a blockchain using JavaScript or TypeScript. It allows you to send transactions and retrieve information from a blockchain node running Rell.                                                                                                                                   |
+| [Kotlin](/clients/postchain-clients/kotlin-client)                                       | The Kotlin client provides the capability to interact with a blockchain from a client app written in Kotlin or Java. With this library, you can easily send transactions and retrieve queries from a Rell blockchain node.                                                                                                                                           |
+| [C#](/clients/postchain-clients/c-sharp-client)                                          | The C# client provides functionality for interacting with a blockchain using C#. It allows you to send transactions and retrieve information from a blockchain node running Rell. It can be integrated into your C# projects through the [NuGet](https://www.nuget.org/packages/PostchainClient) package or directly referencing the DLL files.                      |
+| [Rust](/clients/postchain-clients/rust-client)                                           | The [Rust client](https://crates.io/crates/postchain-client/0.0.1) is used for interacting with the Chromia blockchain deployed to a Postchain single node (manual mode) or multi-nodes managed by Directory Chain (managed mode). This library provides functionality for executing queries, creating and signing transactions, and managing blockchain operations. |
+| [Python](/clients/postchain-clients/python-client)                                       | A Python client library for interacting with Postchain nodes on Chromia blockchain networks. This library provides an interface for creating, signing, and sending transactions, as well as querying the blockchain, with full async support.                                                                                                                        |
+| [Go](/clients/postchain-clients/go-client)                                               | The Go client offers a range of built-in functions and utilities designed to simplify interaction with decentralized applications (dApps) created using the Postchain blockchain framework, commonly referred to as Chromia.                                                                                                                                         |
+
+## Other tools
+
+| Tool                                                      | Description                                                                                                                                                                                                                                                                                                                                |
+|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [Chromia React Kit](./react-kit)                          | The **Chromia React Kit** is a library tailored for React developers, simplifying the connection of frontend applications with the Chromia blockchain. It offers hooks to simplify session management, blockchain queries, operations and interactions with the Postchain client, FT4 library, FileHub, Directory Chain and Economy Chain. |
+| [Bridge client](/bridge/bridge-client/client)             | The [Chromia bridge client](https://www.npmjs.com/package/@chromia/bridge-client) is a TypeScript library with utilities for interacting with the Chromia token bridge.                                                                                                                                                                    |
+| [FT4 client](/ft4/intro)                                  | The [FT4 client](https://www.npmjs.com/package/@chromia/ft4) is written in TypeScript. It is made for easier access to the backend operations and queries are ready for use on the frontend (or a JS backend).                                                                                                                             |
+| [Filehub client](/filehub/configure-filehub/filehub-work) | The [Filehub client](https://www.npmjs.com/package/filehub) is written in TypeScript for persisting and reading files on the Chromia blockchain.                                                                                                                                                                                           |                                                                                                                                                                                                                                                                                                                                |
+
+
+## Work in progress
+
+We are actively working to expand the capabilities of Chromia clients by developing additional libraries, tools, and
+documentation. Upcoming updates aim to:
+
+- Introduce support for more frameworks and frontend tools.
+- Streamline user onboarding with enhanced developer resources.
+- Expand tutorials and examples to help you get started quickly.
+
+## Explore more
+
+If you're starting, dive into the [Chromia React Kit documentation](./react-kit) for detailed guides and examples. Keep
+an eye on this section as we continue to expand and improve our tools for developers.
+
+## Additional resources
+
+- [FT4 documentation](../ft4/intro)
+- [Chromia developer portal](https://chromia.com/developers)
+
+
+--------------------------------------------------------------------------------
+
+
+# Chromia bridge client
+
+The [Chromia bridge client](https://www.npmjs.com/package/@chromia/bridge-client) is a TypeScript library with utilities
+for interacting with the Chromia token bridge.
+
+For information about the client, see [bridge client documentation](/bridge/bridge-client/client).
+
+
+--------------------------------------------------------------------------------
+
+
+# Chromia Filehub client
+
+The [Filehub client](https://www.npmjs.com/package/filehub) is written in TypeScript for persisting and reading files on
+the Chromia blockchain.
+
+Filehub utilises [@chromia/ft4](https://www.npmjs.com/package/@chromia/ft4) and
+[postchain-client](https://www.npmjs.com/package/postchain-client) as peer dependency.
+
+For information about the client, see [Filehub documentation](/filehub/configure-filehub/filehub-work).
+
+
+--------------------------------------------------------------------------------
+
+
+# Chromia FT4 client
+
+The [FT4 client](https://www.npmjs.com/package/@chromia/ft4) is written in TypeScript. It is made for easier access to
+the backend operations and queries and ready to be used on the frontend (or a js backend).
+
+For information about the client, see [FT4 documentation](/ft4/intro).
+
+
+--------------------------------------------------------------------------------
+
+
+# Chromia React Kit
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version.
+
+:::
+
+Welcome to the Chromia React Kit documentation!
+
+The Chromia React Kit streamlines the integration of React-based front-end applications with the Chromia blockchain. It
+offers a suite of tools and react custom hooks that enable developers to build decentralized applications effortlessly
+(dapps), simplifying and managing blockchain interactions.
+
+## Why use the Chromia React Kit?
+
+- Easily connect your React app to the Chromia blockchain.
+- A comprehensive reusable custom React Hooks for interacting with Chromia blockchain assets via FT4 libraries and
+  Filehub.
+- Custom, reusable SWR hook for effortlessly constructing queries and operations to interact with the Dappmetadata
+  Provider, Postchain Client, Directory Chain and Economy Chain.
+- Fully TypeScript-ready.
+- Leverage SWR features such as caching and revalidation. Learn more at [SWR](https://swr.vercel.app/)
+
+## Getting started
+
+### Install dependencies
+
+Begin by installing the Chromia React library:
+
+```bash
+npm install @chromia/react
+```
+
+## Core features
+
+### FT4 provider
+
+The `FT4 provider` manages the FT4-related state for your application. Wrap your application in this provider to ensure
+that FT4-related queries and operations function correctly. We will use the provider in conjunction with `Wagmi` for the
+example code below:
+
+```tsx
+import { FtProvider } from "@chromia/react";
+import { useAccount, useConnectors } from "wagmi";
+import type { createWeb3ProviderEvmKeyStore } from "@chromia/ft4";
+
+const useEthereumProvider = () => {
+  const { connector } = useAccount();
+  const allConnectors = useConnectors();
+
+  const matchingConnector = allConnectors.find((c) => c.id === connector?.id);
+  return matchingConnector?.getProvider();
+};
+
+function App() {
+  const ethProvider = useEthereumProvider();
+  return (
+    <FtProvider
+      useEthereumProvider={getEthereumProvider as () => Promise<Parameters<typeof createWeb3ProviderEvmKeyStore>[0]>}
+      useAccount={useAccount}
+      defaultClientConfig={config}
+    >
+      <Component />
+    </FtProvider>
+  );
+}
+```
+
+### Custom hooks
+
+The React Kit offers custom hooks to streamline interactions with the Chromia blockchain. For example:
+
+#### `createChromiaHooks`
+
+Simplify interactions with the Postchain client. The `createChromiaHooks` function returns reusable SWR async functions
+`useChromiaQuery`, `useChromiaImmutableQuery` and `useChromiaInfiniteQuery`, enabling you to perform various queries and
+operations tailored to your specific scenarios. The example below demonstrates how to use the `createChromiaHooks`:
+
+```tsx
+import { createChromiaHooks } from "@chromia/react";
+import type { ClientConfig } from "@chromia/react";
+import { FailoverStrategy } from "postchain-client";
+
+type QueryOrOperationType = {
+  [QUERY_OR_OPERATION_NAME]: {
+    params: [QUERY_OR_OPERATION_PARAM_TYPE];
+    return: [QUERY_OR_OPERATION_RESPONSE_TYPE];
+  };
+};
+
+const clientConfig: ClientConfig = {
+  directoryNodeUrlPool: [BLOCKCHAIN_URL],
+  failOverConfig: {
+    strategy: FailoverStrategy.AbortOnError,
+  },
+};
+
+export const { useChromiaInfiniteQuery, useChromiaImmutableQuery, useChromiaQuery } =
+  createChromiaHooks<QueryOrOperationType>({
+    clientConfig,
+  });
+```
+
+#### `useFtQuery`
+
+The `useFtQuery` hooks return reusable SWR async functions `useSWR`, enabling you to perform various queries and
+operations to interact with the ft4 library. The example below demonstrates how to set the `useFtQuery` hook in action:
+
+```tsx
+import { useFtQuery } from "@chromia/react";
+
+const { data, isLoading, error } = useFtQuery({
+  clientConfig: [CLIENT_CONFIG],
+  queryName: [QUERY_NAME],
+  queryParams: [QUERY_PARAM],
+  accountId: [ACCOUNT_ID],
+  options: [SWR_CONFIGURATION],
+});
+```
+
+#### `useFileHubImage`
+
+The useFileHubImage hook simplifies interaction with Filehub, returning image data directly from it:
+
+```tsx
+import { useFileHubImage } from "@chromia/react";
+
+const image = useFileHubImage([FILEHUB_IMAGE_URL]);
+```
+
+## Additional resources
+
+- [FT4 documentation](../ft4/intro)
+- [Learn how to create a simple app using Rell and React](https://learn.chromia.com/courses/my-news-feed/introduction)
+
+
+--------------------------------------------------------------------------------
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# Chromia Postchain clients
+
+Postchain clients offer libraries for interacting with a blockchain using JavaScript/TypeScript, Kotlin, C#, Rust, or
+Python. These libraries enable easy transaction sending and data retrieval from Rell blockchain nodes, simplifying the
+development of decentralized applications.
+
+Additionally, Chromia exposes REST endpoints directly in the browser, enabling developers to test functionality, query
+the blockchain, and submit transactions.
+
+<SectionCards>
+  <SectionCardItem header="JavaScript (JS)/TypeScript(TS)" href="javascript-typescript-client">
+    <p>
+     The JavaScript/TypeScript client provides functionality for interacting with a blockchain using JavaScript or TypeScript. It allows you to send transactions and retrieve information from a blockchain node running Rell.
+    </p>
+  </SectionCardItem>
+
+{" "}
+
+<SectionCardItem header="REST tool" href="rest-tool">
+  <p>
+    The REST web tool allows users to send HTTP requests to interact with the blockchain, enabling retrieval of
+    essential data such as transaction details, block information, overall blockchain state, blockchain configuration
+    parameters, and more.
+  </p>
+</SectionCardItem>
+
+{" "}
+
+<SectionCardItem header="Kotlin" href="kotlin-client">
+  <p>
+    The Kotlin client provides capability for interacting with a blockchain from a client app written in Kotlin or Java.
+    With this library, you can easily send transactions and retrieve queries from a Rell blockchain node.
+  </p>
+</SectionCardItem>
+
+{" "}
+
+<SectionCardItem header="C#" href="c-sharp-client">
+  <p>
+    The C# client provides functionality for interacting with a blockchain using C#. It allows you to send transactions
+    and retrieve information from a blockchain node running Rell.
+  </p>
+</SectionCardItem>
+
+{" "}
+
+<SectionCardItem header="Rust" href="rust-client">
+  <p>
+    The Rust client provides tools for interacting with the Chromia blockchain using Rust. It enables developers to
+    execute queries, send transactions, and manage blockchain operations in both single-node and multi-node
+    environments.
+  </p>
+</SectionCardItem>
+
+{" "}
+
+<SectionCardItem header="Python" href="python-client">
+  <p>
+    The Python client provides a user-friendly interface for interacting with a blockchain using Python. It simplifies
+    sending transactions, querying data, and building decentralized applications on the Chromia blockchain.
+  </p>
+</SectionCardItem>
+
+    <SectionCardItem header="Go" href="go-client">
+    <p>
+      The Go client offers a range of built-in functions and utilities designed to simplify interaction with decentralized
+      applications (dApps) created using the Postchain blockchain framework.
+    </p>
+
+  </SectionCardItem>
+
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+# C# client
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version.
+
+:::
+
+The C# client provides functionality for interacting with a blockchain using C#. It allows you to send transactions and
+retrieve information from a blockchain node running Rell. It can be integrated into your C# projects through the
+[NuGet](https://www.nuget.org/packages/PostchainClient) package or directly referencing the DLL files. Additionally,
+specific instructions apply if you're working with Unity or Unity WebGL.
+
+You can access the project repository [here](https://github.com/chainofalliance/postchain-client-csharp#readme)
+
+## Usage
+
+### Native
+
+The Postchain client can be installed from [nuget](https://www.nuget.org/packages/PostchainClient) or referenced through
+DLLs from the [releases](https://github.com/chainofalliance/postchain-client-csharp/releases).
+
+### Unity
+
+The NET Standard 2.1 DLL is compatible and can be imported into Unity. Unpack the contents from the
+[releases](https://github.com/chainofalliance/postchain-client-csharp/releases) section and add them to the Unity
+project.
+
+### Unity WebGL
+
+WebGL is not compatible with `System.Net` used in the DefaultTransport. You may need to implement your Transport or use
+`Unity/UnityTransport.cs`. The following code must be executed to inject it into the client code before a
+`ChromiaClient` is created.
+
+```
+ChromiaClient.SetTransport(new UnityTransport());
+```
+
+## Initializing the client
+
+It can be initialized from RID or IID (chain ID). It also accepts a collection of node urls, where requests are evenly
+distributed. Should a request to one node fail, the other nodes will be tried to access.
+
+```
+var blockchainRID = Buffer.From("7d565d92fd15bd1cdac2dc276cbcbc5581349d05a9e94ba919e1155ef4daf8f9");
+
+var client1 = await ChromiaClient.Create("http://localhost:7740", blockchainRID);
+var client2 = await ChromiaClient.Create("http://localhost:7740", 0);
+var client3 = await ChromiaClient.Create(new() {"http://localhost:7740", "http://localhost:7741"}, 0);
+```
+
+Connecting to a network is achieved through the Directory System Chain. `CreateFromDirectory` accepts an array of URLs
+to system nodes running the Directory Chain. This Directory Chain is automatically queried to determine the URLs of the
+nodes in the network running the target dapp.
+
+```
+var blockchainRID = Buffer.From("7d565d92fd15bd1cdac2dc276cbcbc5581349d05a9e94ba919e1155ef4daf8f9");
+
+var client1 = await ChromiaClient.CreateFromDirectory("http://localhost:7750", blockchainRID);
+var client2 = await ChromiaClient.CreateFromDirectory("http://localhost:7750", 42);
+var client3 = await ChromiaClient.Create(new() {"http://localhost:7750", "http://localhost:7751"}, 0);
+```
+
+## Queries
+
+Queries return dapp data from the blockchain. They are invoked with typed parameters or an object implementing
+`IGtvSerializable`. Properties in the query object can be mapped to Rell query parameters through the `JsonProperty`
+attribute. It automatically parses the data to the given type.
+
+```
+struct QueryParams : IGtvSerializable
+{
+    [JsonProperty("zip")]
+    public int Zip;
+}
+
+var response = client.Query<string>("get_city", ("zip", 22222));
+response = client.Query<string>("get_city", new QueryParams(){ Zip = 22222 });
+```
+
+## Transactions
+
+To send transactions, begin by creating a simple signature provider. The signature provider is used to sign
+transactions.
+
+```
+var signer1 = SignatureProvider.Create(); // creates a new random keypair
+var signer2 = SignatureProvider.Create(Buffer.Repeat('a', 32)); // from private key
+```
+
+Transactions send operations to the node that executes Rell code. Operations can be created dynamically or through the
+constructor. The parameters can also be passed as an `IGtvSerializable` object. The order of the parameter list has to
+match the operation in the Rell code. This also applies to the order of the properties in the `IGtvSerializable` object.
+
+```
+struct OperationParams : IGtvSerializable
+{
+    public string City;
+    public int Zip;
+}
+
+var op1 = new Operation("insert_city", "hamburg", 22222);
+var op2 = new Operation("insert_city")
+    .AddParameter("hamburg")
+    .AddParameter(22222);
+var op3 = new Operation("insert_city", new OperationParams(){
+    City = "hamburg",
+    Zip = 22222
+});
+```
+
+Transactions can be created dynamically per static method or through the client. The `Sign` method signs the transaction
+by all added signature providers. A transaction can also be sent unsigned. If at least one signature provider is added
+to the transactions, `SendTransaction` signs the transaction before sending it.
+
+```
+var op = new Operation("insert_city", "hamburg", 22222);
+var tx1 = Transaction.Build()
+    .AddOperation(op)
+    .AddSignatureProvider(signer1);
+client.SendTransaction(tx1);
+
+var tx2 = client.TransactionBuilder()
+    .AddOperation(op)
+    .AddSignatureProvider(signer1);
+
+var signedTx = tx2.Sign();
+client.SendTransaction(signedTx);
+```
+
+Some transactions may need to be signed by multiple signers at different locations. The following transaction needs to
+be signed by two signers. One signer can create a `Signature` and share it with the other signer. They can import and
+add the signature to the `Sign` method as a pre-signed signature.
+
+```
+var tx = Transaction.Build()
+    .AddOperation(new Operation("insert_city", "hamburg", 22222))
+    .AddSigner(signer1.PubKey)
+    .AddSigner(signer2.PubKey);
+
+var signature = tx.Sign(signer1);
+
+// signer1 sends the signature.Hash and their pubkey to signer2
+
+var signature = new Signature(signer1.PubKey, Buffer.From("<hash>"))
+tx.AddSignatureProvider(signer2);
+var signedTx = tx.Sign(signature);
+client.SendTransaction(signedTx);
+```
+
+To create transactions with the same operations but different transaction RID, a "no-operation" (nop) operation can be
+added. Alternatively, the transaction can be sent as a unique transaction, which automatically adds a nop.
+
+```
+var tx = Transaction.Build()
+    .AddOperation(new Operation("insert_city", "hamburg", 22222))
+    .AddNop()
+    .AddSignatureProvider(signer1.PubKey);
+
+client.SendUniqueTransaction(tx);
+```
+
+## Error handling
+
+In general, the client throws exceptions when it runs into error. The code is documented to show all possible exceptions
+thrown by each method. Logic errors by the client throw `ChromiaException` or its subclass `TransportException`. The
+`TransportException` contains information about which part of the Transport failed and contains HTTP status codes (if
+applicable).
+
+
+--------------------------------------------------------------------------------
+
+
+# Go client
+
+The Go client offers a range of built-in functions and utilities designed to simplify interaction with decentralized
+applications (dApps) created using the Postchain blockchain framework, commonly referred to as Chromia.
+
+The Go client library provides tools for interacting with the Chromia blockchain platform. It includes functionality
+for: - Serializing and deserializing data using the GTV (Generic Transfer Value) format. - Creating, signing, and
+submitting transactions using the GTX (Generic Transaction) format. - Computing Merkle tree hashes for data
+verification. - Communicating with Postchain nodes via REST API.
+
+## Installation
+
+To install the Go client, run the following command in the terminal:
+
+```bash
+go get gitlab.com/chromaway/ft4-go-client
+```
+
+## Generic Transfer Value (GTV)
+
+GTV is a flexible data serialization format used by Chromia. It uses ASN.1 DER encoding rules for data representation
+and supports these types:
+
+| GTV Type   | Go Type                                      |
+| ---------- | -------------------------------------------- |
+| Null       | `gtv.NullValue{}`                            |
+| ByteArray  | `gtv.ByteArrayValue{Value: []byte}`          |
+| String     | `gtv.StringValue{Value: string}`             |
+| Integer    | `gtv.IntegerValue{Value: int64}`             |
+| Dict       | `gtv.DictValue{Value: map[string]gtv.Value}` |
+| Array      | `gtv.ArrayValue{Value: []gtv.Value}`         |
+| BigInteger | `gtv.BigIntegerValue{Value: *big.Int}`       |
+
+### Working with GTV Values
+
+Below you can find code examples that highlight how you can use the Go library to: - Create GTV values, arrays, and
+dictionaries. - Serialize to binary. - Deserialize from binary.
+
+```Go
+// Create GTV values
+nullValue := gtv.NullValue{}
+stringValue := gtv.StringValue{Value: "Hello, Chromia!"}
+intValue := gtv.IntegerValue{Value: 42}
+
+// Create a GTV array
+arrayValue := gtv.ArrayValue{
+    Value: []gtv.Value{
+        stringValue,
+        intValue,
+    },
+}
+
+// Create a GTV dictionary
+dictValue := gtv.DictValue{
+    Value: map[string]gtv.Value{
+        "name": gtv.StringValue{Value: "Chromia"},
+        "count": gtv.IntegerValue{Value: 123},
+    },
+}
+
+// Serialize to binary
+data, err := dictValue.MarshalBinary()
+if err != nil {
+    // Handle error
+}
+
+// Deserialize from binary
+value, err := gtv.UnmarshalBinary(data)
+if err != nil {
+    // Handle error
+}
+```
+
+## Markle
+
+The Merkle package implements a Merkle tree-based hashing system for GTV data structures. This is used for transaction
+verification and to compute transaction RIDs.
+
+The library supports two hash versions:
+
+- Version 1: The original algorithm (contains a bug causing hash collisions).
+- Version 2: The current version, without the bug.
+
+### Computing a Merkle Hash
+
+The example below shows how to create and compute the Merkle hash:
+
+```Go
+// Create a GTV value
+value := gtv.DictValue{
+    Value: map[string]gtv.Value{
+        "key": gtv.StringValue{Value: "value"},
+    },
+}
+
+// Compute the Merkle hash using version 2
+hash := merkle.Hash(value, merkle.HashVersion2)
+```
+
+## Generic Transaction (GTX)
+
+GTX (Generic Transaction) is a format used to encode signed transactions in GTV. The structure is as follows:
+
+```Go
+[
+    [
+        blockchainRID,
+        [
+            [ "operation1", [arg1, arg2, arg3, ...] ],
+            [ "operation2", [arg1, arg2, arg3, ...] ],
+            ...
+        ],
+        [ signerPubKey1, signerPubKey2, ... ]
+    ],
+    [ signature1, signature2, .. ]
+]
+```
+
+The blockchain RID, signer public keys, and signatures are encoded as `byteArray`. The signatures are generated using
+ECDSA with the secp256k1 curve.
+
+### Creating and Signing a Transaction
+
+The example below highlights the process of creating and signing a transaction:
+
+```Go
+// Create a blockchain RID
+blockchainRID, err := gtx.NewRIDFromHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+if err != nil {
+    // Handle error
+}
+
+// Create operations
+operations := []gtx.Operation{
+    gtx.NewOperation("transfer", []gtv.Value{
+        gtv.StringValue{Value: "recipient_account"},
+        gtv.IntegerValue{Value: 100},
+    }),
+}
+
+// Create signers (public keys)
+signers := [][]byte{
+    // Your public key here
+}
+
+// Create a new transaction
+tx := gtx.NewTransaction(blockchainRID, operations, signers, 2) // Using Merkle hash version 2
+
+// Sign the transaction
+err = tx.Sign(publicKey, privateKey)
+if err != nil {
+    // Handle error
+}
+
+// Check if fully signed
+if tx.IsFullySigned() {
+    // Transaction is ready to be submitted
+}
+```
+
+## Postchain Client
+
+The Postchain client provides functionality for interacting with Postchain blockchain nodes via the
+[REST API](rest-tool.mdx). It allows you to: - Get blockchain information - Query the blockchain - Submit transactions -
+Check transaction status
+
+## Examples
+
+### Connecting to blockchain
+
+```Go
+// Parse node URL
+nodeURL, err := url.Parse("https://node1.example.com")
+if err != nil {
+    // Handle error
+}
+
+// Create a client
+client := postchain.NewClient([]*url.URL{nodeURL})
+
+// Get blockchain RID from IID (instance ID)
+blockchainRID, err := client.GetBlockchainRID(123)
+if err != nil {
+    // Handle error
+}
+
+// Get blockchain features
+features, err := client.GetFeatures(blockchainRID)
+if err != nil {
+    // Handle error
+}
+
+// Get Merkle hash version used by the blockchain
+merkleHashVersion, err := client.DetectMerkleHashVersion(blockchainRID)
+if err != nil {
+    // Handle error
+}
+```
+
+### Creating and Sending Transactions
+
+```Go
+// Create a transaction
+tx := gtx.NewTransaction(blockchainRID, operations, signers, merkleHashVersion)
+
+// Sign the transaction
+err = tx.Sign(publicKey, privateKey)
+if err != nil {
+    // Handle error
+}
+
+// Get the transaction RID
+txRID := tx.TxRID()
+
+// Submit the transaction
+err = client.PostTransaction(blockchainRID, tx)
+if err != nil {
+    // Handle error
+}
+
+// Wait for confirmation
+status := client.AwaitConfirmation(blockchainRID, txRID, 20, 500*time.Millisecond)
+if status.Status == postchain.Confirmed {
+    // Transaction confirmed
+} else if status.Status == postchain.Rejected {
+    // Transaction rejected
+    fmt.Println("Rejection reason:", status.RejectReason)
+}
+```
+
+### Querying the Blockchain
+
+```Go
+// Query without parameters
+result, err := client.Query(blockchainRID, "get_account_balance", gtv.DictValue{Value: map[string]gtv.Value{}})
+if err != nil {
+    // Handle error
+}
+
+// Query with parameters
+params := gtv.DictValue{
+    Value: map[string]gtv.Value{
+        "account_id": gtv.StringValue{Value: "user123"},
+    },
+}
+result, err = client.Query(blockchainRID, "get_account_balance", params)
+if err != nil {
+    // Handle error
+}
+
+// Process the result
+if balance, ok := result.(gtv.IntegerValue); ok {
+    fmt.Println("Balance:", balance.Value)
+}
+```
+
+### Retrieving Transactions and Blocks
+
+```Go
+// Get a transaction by its RID
+tx, err := client.GetTransaction(blockchainRID, txRID)
+if err != nil {
+    // Handle error
+}
+fmt.Println("Transaction operations:", len(tx.Operations))
+
+// Get detailed information about a transaction
+txInfo, err := client.GetTransactionInfo(blockchainRID, txRID)
+if err != nil {
+    // Handle error
+}
+fmt.Println("Transaction in block:", txInfo.BlockHeight)
+fmt.Println("Transaction timestamp:", txInfo.Timestamp)
+
+// Get confirmation proof for a transaction
+proof, err := client.GetConfirmationProof(blockchainRID, txRID)
+if err != nil {
+    // Handle error
+}
+fmt.Println("Confirmation proof size:", len(proof))
+
+// Get a block by height
+block, err := client.BlockAtHeight(blockchainRID, 42)
+if err != nil {
+    // Handle error
+}
+if block != nil {
+    fmt.Println("Block height:", block.Height)
+    fmt.Println("Number of transactions:", len(block.Transactions))
+    fmt.Println("Block timestamp:", block.Timestamp)
+}
+
+// Get a block by RID
+blockRID, _ := gtx.NewRIDFromHex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+block, err = client.BlockByRID(blockchainRID, blockRID)
+if err != nil {
+    // Handle error
+}
+if block != nil {
+    fmt.Println("Block RID:", block.RID.ToHex())
+    fmt.Println("Previous block RID:", block.PrevBlockRID.ToHex())
+}
+```
+
+### Working with GTV Data
+
+```Go
+// Create a complex GTV structure
+userData := gtv.DictValue{
+    Value: map[string]gtv.Value{
+        "name": gtv.StringValue{Value: "Alice"},
+        "age": gtv.IntegerValue{Value: 30},
+        "is_active": gtv.ByteArrayValue{Value: []byte{1}}, // Boolean true
+        "scores": gtv.ArrayValue{
+            Value: []gtv.Value{
+                gtv.IntegerValue{Value: 95},
+                gtv.IntegerValue{Value: 87},
+                gtv.IntegerValue{Value: 92},
+            },
+        },
+    },
+}
+
+// Serialize to binary
+data, err := userData.MarshalBinary()
+if err != nil {
+    // Handle error
+}
+
+// Deserialize from binary
+value, err := gtv.UnmarshalBinary(data)
+if err != nil {
+    // Handle error
+}
+
+// Access values
+if dict, ok := value.(gtv.DictValue); ok {
+    if name, ok := dict.Value["name"].(gtv.StringValue); ok {
+        fmt.Println("Name:", name.Value)
+    }
+
+    if scores, ok := dict.Value["scores"].(gtv.ArrayValue); ok {
+        fmt.Println("Number of scores:", len(scores.Value))
+    }
+}
+```
+
+## API Reference
+
+### GTV Package
+
+| Data type             | Description                             |
+| --------------------- | --------------------------------------- |
+| gtv.Value             | Interface for all GTV values            |
+| gtv.NullValue         | Represents a null value                 |
+| gtv.ByteArrayValue    | Represents a byte array                 |
+| gtv.StringValue       | Represents a string                     |
+| gtv.IntegerValue      | Represents a 64-bit integer             |
+| gtv.DictValue         | Represents a dictionary (map)           |
+| gtv.ArrayValue        | Represents an array                     |
+| gtv.BigIntegerValue   | Represents a big integer                |
+| gtv.MarshalBinary()   | Serializes a GTV value to binary        |
+| gtv.UnmarshalBinary() | Deserializes binary data to a GTV value |
+
+### Merkle Package
+
+| Function            | Description                           |
+| ------------------- | ------------------------------------- |
+| merkle.HashVersion1 | Original hash version (with bug)      |
+| merkle.HashVersion2 | Current hash version                  |
+| merkle.Hash()       | Computes a Merkle hash of a GTV value |
+
+### GTX Package
+
+| Function                        | Description                                      |
+| ------------------------------- | ------------------------------------------------ |
+| gtx.RID                         | Represents a reference identifier (32-byte hash) |
+| gtx.NewRIDFromHex()             | Creates a RID from a hex string                  |
+| gtx.Operation                   | Represents a blockchain operation                |
+| gtx.NewOperation()              | Creates a new operation                          |
+| gtx.Transaction                 | Represents a blockchain transaction              |
+| gtx.NewTransaction()            | Creates a new transaction                        |
+| gtx.Transaction.Sign()          | Signs a transaction                              |
+| gtx.Transaction.IsFullySigned() | Checks if a transaction is fully signed          |
+| gtx.Transaction.TxRID()         | Gets the transaction RID                         |
+
+### Postchain Package
+
+| Function                                   | Description                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| postchain.NewClient()                      | Creates a new Postchain client                                      |
+| postchain.Client.GetBlockchainRID()        | Gets a blockchain RID from an IID                                   |
+| postchain.Client.GetFeatures()             | Gets blockchain features                                            |
+| postchain.Client.DetectMerkleHashVersion() | Detects the Merkle hash version                                     |
+| postchain.Client.Query()                   | Executes a query                                                    |
+| postchain.Client.PostTransaction()         | Submits a transaction                                               |
+| postchain.Client.CheckTxStatus()           | Checks transaction status                                           |
+| postchain.Client.AwaitConfirmation()       | Waits for transaction confirmation                                  |
+| postchain.Client.GetTransaction()          | Retrieves a transaction from the blockchain                         |
+| postchain.Client.GetTransactionInfo()      | Retrieves detailed information about a transaction                  |
+| postchain.Client.GetConfirmationProof()    | Retrieves confirmation proof for a transaction                      |
+| postchain.Client.BlockAtHeight()           | Retrieves a block from the blockchain by height                     |
+| postchain.Client.BlockByRID()              | Retrieves a block from the blockchain by RID                        |
+| postchain.TransactionStatus                | Represents transaction status                                       |
+| postchain.TransactionStatusValue           | Enum for transaction status (Confirmed, Waiting, Rejected, Unknown) |
+| postchain.TransactionInfo                  | Contains detailed information about a transaction                   |
+| postchain.TxDetail                         | Represents transaction details                                      |
+| postchain.BlockDetail                      | Represents block details                                            |
+
+
+--------------------------------------------------------------------------------
+
+
+# JavaScript/TypeScript client
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version.
+
+:::
+
+JavaScript/TypeScript client contains a set of predefined functions and utilities offering a convenient and simplified
+interface for interacting with a decentralized application (dapp) built using the Postchain blockchain framework, also
+known as Chromia.
+
+:::tip
+
+You can find detailed examples of the JavaScript client in the
+[React/Rell course](https://learn.chromia.com/courses/my-news-feed/module-two/connecting-the-client).
+
+:::
+
+## Installation
+
+The Postchain client is compatible with both JavaScript and TypeScript. The library is distributed on npm (Node Package
+Manager) and can be easily installed in your project. You have two options to install it:
+
+1. Visit the npm package page for postchain-client and follow the installation instructions provided there, see
+   [npm-postchain-client](https://www.npmjs.com/package/postchain-client).
+
+2. In your project's terminal or command prompt, execute the following command: `npm install postchain-client`. This
+   command will download and install the library in your project.
+
+## Initializing the client
+
+Firstly, import the required libraries.
+
+```ts
+import crypto from "crypto-browserify";
+import secp256k1 from "secp256k1";
+import { encryption, createClient, newSignatureProvider } from "postchain-client";
+```
+
+Then, create some dummy keys.
+
+```ts
+const signerPrivKeyA = Buffer.alloc(32, "a");
+const signerPubKeyA = secp256k1.publicKeyCreate(signerPrivKeyA);
+const signerPrivKeyB = Buffer.alloc(32, "b");
+const signerPubKeyB = secp256k1.publicKeyCreate(signerPrivKeyB);
+```
+
+Each blockchain has a Blockchain RID (`blockchainRID`) that identifies the specific blockchain we wish to interact with.
+This blockchainRID should match the Blockchain RID encoded into the first block of the blockchain. How the blockchainRID
+is structured depending on the creator of the blockchain. In this example, we use the Linux command: echo
+`"A blockchain example"| sha256sum`.
+
+`const blockchainRid = "7d565d92fd15bd1cdac2dc276cbcbc5581349d05a9e94ba919e1155ef4daf8f9";`
+
+Create a Chromia client instance and configure it according to your needs.
+
+### Parameters
+
+- `settings` (Object): A set of network settings to customize the behaviour of the Chromia client.
+  - `nodeUrlPool` (Optional): An array of URLs representing the nodes the client will send requests to. Use this if you
+    know the specific nodes handling the client requests. These nodes can be local or belong to the same cluster as the
+    targeted blockchain.
+  - `directoryNodeUrlPool` (Optional): An array of URLs representing nodes in the system cluster, where the directory
+    chain is located. The client will automatically discover every node running the targeted application by querying the
+    Directory Chain. This can be useful when the client needs to automatically adapt to updates to the nodes within the
+    cluster where the blockchain is located."
+  - `blockchainRid` (Optional): Resource Identifier (Rid) of the targeted blockchain. This is a unique identifier for
+    the specific blockchain.
+  - `blockchainIid` (Optional): Instance Identifier (Iid) of the targeted blockchain. The Directory Chain always has
+    Iid 0.
+  - `statusPollInterval` (Optional): Interval (in milliseconds) at which the client will poll the status after posting a
+    transaction.
+  - `statusPollCount` (Optional): Number of consecutive successful status polls before it should stop asking for the
+    status. Defaults to 1.
+  - `failOverConfig` (Optional): Configuration for failover behaviour in case of node failures.
+    - `strategy` (Optional): Failover strategy to use. Defaults to a strategy called Abort On Error.
+    - `attemptsPerEndpoint` (Optional): Number of consecutive failed attempts allowed for each endpoint before
+      considering it unreachable. Defaults to 3.
+    - `attemptInterval` (Optional): Interval (in milliseconds) between consecutive retry attempts during failover.
+      Defaults to 5000 ms.
+    - `unreachableDuration` (Optional): Duration (in milliseconds) that an endpoint should remain unreachable before
+      reattempting. Defaults to 30000 ms.
+  - `useStickyNode`(Optional): A boolean that will ensure that on succefull requests to a node, the client will continue
+    using this node unless it starts failing.
+
+### Returns
+
+A promise that resolves to the configured Chromia client instance.
+
+Example:
+
+1. Client configured with a known node URL:
+
+```ts
+const chromiaClient = await createClient({
+  nodeUrlPool: "http://localhost:7740",
+  blockchainRid,
+});
+```
+
+2. The client is configured for node discovery with an array of URLs representing nodes in the system cluster.
+
+```ts
+const chromiaClient = await createClient({
+  directoryNodeUrlPool: ["url1", "url2", "url3", "etc."],
+  blockchainRid,
+});
+```
+
+### Use sticky node
+
+**What is a "sticky node"?**
+
+A sticky node is a node that will continue to be used for requests as long as the requests to it are successful, this
+means that if the client is requesting to get the block height of a dapp, and it is successful, then following requests
+to get other data e.g.: dapp transactions will be using the same node, meaning that is "sticks" with the user once
+selected.
+
+**How does it work?**
+
+The client will need to be initialized with a `directoryNodeUrlPool` and have the property `useStickyNode` set to `true`
+in the `settings` parameter for it to be enabled. Example:
+
+```ts
+const client = createClient({
+  useStickyNode: true,
+  directoryNodeUrlPool: ["http://localhost:7740"],
+  ...restSettings,
+});
+```
+
+This will then create internally create a nodeManager that handles and keeps track of which nodes are available and
+which one is currently set to be the "sticky node".
+
+As a user, when you first request with this feature enabled, you will not have any "sticky node" set. Instead, whenever
+you request, the client will choose a random node out of the ones available. Should the request to the node be
+successful, then that node will be set as the "sticky node". This will happen regardless of what failoverStrategy has
+been set.
+
+Any subsequent requests after the first successful one will continue to use the "sticky node" if it continues to give
+successful requests. Should the node fail, however, then it will be set at unavailable for the duration configured in
+the client settings (or the default time of 30000ms), and following requests will once again try to use a random
+available node and, if successfully set that one as the new "sticky node".
+
+**Setting how long a node should be unavailable**
+
+The duration that a node is configured as unavailable can be se in the failoverConfig of the client settings:
+
+```ts
+const client = createClient({
+useStickyNode: true,
+directoryNodeUrlPool: ["http://localhost:7740"],
+failOverConfig: {
+startegy: "abortOnErrror",
+attemptsPerEndpoint: 4,
+attemptInterval: 3000,
+unreachableDuration: 50000,
+}
+...restSettings
+})
+```
+
+### Failover strategies
+
+When initializing a client, you can configure the failover strategy for the client. Additionally, you can modify
+specific parameters within the failover configuration, such as the number of attempts per endpoint and the interval
+between attempts.
+
+The Postchain client offers three failover strategies:
+
+**Abort on error**
+
+The request strategy will abort on client error and retry on server error. The request strategy will not retry the query
+if a client error occurs, such as an invalid query parameter. However, the request strategy will retry the query on
+another node if a server error occurs, such as a timeout or internal server error.
+
+**Try next on error**
+
+The Try Next On Error request strategy is similar to Abort On Error but will also retry on client error. This means that
+if a client error occurs, the request strategy will retry the query on another node, as well as retry on the server
+error.
+
+**Single endpoint**
+
+The single endpoint request strategy will not retry on another node.
+
+**Query majority**
+
+The query majority request strategy will query all nodes in parallel and wait until an EBFT majority of the nodes return
+the same response. This can ensure the system's integrity by requiring a consensus among nodes before accepting a
+result.
+
+## Queries
+
+### Query option 1
+
+Use the query function to send a query to a dapp written in Rell. The function takes the query's name and an object of
+query arguments.
+
+```ts
+chromiaClient.query("get_foobar", {
+  foo: 1,
+  bar: 2,
+});
+```
+
+### Query option 2
+
+Alternatively, the query function can take an object with a `name` property and an `args` property.
+
+```ts
+chromiaClient.query({
+  name: "get_foobar",
+  args: {
+    foo: 1,
+    bar: 2,
+  },
+});
+```
+
+### Typed query 1
+
+You can specify argument and return types for a given query in TypeScript.
+
+```ts
+type ArgumentsType = {
+  foo: number;
+  bar: number;
+};
+
+type ReturnType = {
+  foobar: string;
+};
+
+const result = await chromiaClient.query<ReturnType, ArgumentsType>("get_foobar", {
+  foo: 1,
+  bar: 2,
+});
+```
+
+### Typed query 2
+
+Alternatively, you can specify the types in a `QueryObject` to achieve type safety
+
+```ts
+type ReturnType = {
+  foobar: string;
+};
+
+const myQuery: QueryObject<ReturnType> = {
+  name: "get_fobar",
+  args: { foo: "bar" },
+};
+const result = await chromiaClient.query(myQuery); // result has type ReturnType
+```
+
+## Transactions
+
+To send transactions, begin by creating a simple signature provider. The signature provider is used to sign
+transactions. More details on usage are provided further below.
+
+```ts
+const signatureProviderA = newSignatureProvider({ privKey: signerPrivKeyA });
+```
+
+### Simple transaction
+
+The `signAndSendUniqueTransaction` function streamlines the transaction-sending process in three steps. It adds a "nop"
+(no operation) with a random number that ensures the transaction is unique, signs it with a signature provider or
+private key, and sends it. The function generates a receipt with a status code, status, and tansactionRid. The status
+code indicates whether the server successfully processed the transaction. The status represents the current stage of the
+transaction on the blockchain, which can be one of the following: `Waiting`, `Rejected`, `Confirmed`, or `Unknown`.
+
+```ts
+const { status, statusCode, transactionRid } = await chromiaClient.signAndSendUniqueTransaction(
+  {
+    operations: [
+      {
+        name: "my_operation",
+        args: ["arg1", "arg2"],
+      },
+    ],
+    signers: [signatureProviderA.pubKey],
+  },
+  signatureProviderA
+);
+```
+
+It is also possible to pass a single operation.
+
+```ts
+const { status, statusCode, transactionRID } = await chromiaClient.signAndSendUniqueTransaction(
+  {
+    name: "my_operation",
+    args: ["arg1", "arg2"],
+  },
+  signatureProviderA
+);
+```
+
+### Signing a transaction
+
+Signs a transaction using the provided signing method. This can be a SignatureProvider or a key pair. A signature
+provider must contain a public key and a `sign` function that returns the signature of a digest transaction.
+
+```ts
+const signedTx = await chromiaClient.signTransaction(
+  {
+    operations: [
+      {
+        name: "my_operation",
+        args: ["arg1"],
+      },
+    ],
+    signers: [signatureProviderA.pubKey],
+  },
+  signatureProviderA
+);
+```
+
+### Sending an unsigned transaction
+
+```ts
+const receipt = await chromiaClient.sendTransaction({
+  name: "my_operation",
+  args: ["arg1", "arg2"],
+});
+```
+
+### Sending a signed transaction
+
+```ts
+chromiaClient.sendTransaction(signedTx);
+```
+
+### Sending a signed transaction (with status polling enabled)
+
+```ts
+chromiaClient.sendTransaction(signedTx, true);
+```
+
+### Advanced transaction
+
+Create a transaction object.
+
+```ts
+const tx = {
+  operations: [
+    {
+      name: "my_operation_1",
+      args: ["arg1", "arg2"],
+    },
+    {
+      name: "my_operation_2",
+      args: ["arg1", "arg2"],
+    },
+  ],
+  signers: ["signer1", "signer2"],
+};
+```
+
+You can modify the object to add operations or signers.
+
+```ts
+tx.operations.push({
+  name: "my_operation_3",
+  args: ["arg1", "arg2"],
+});
+
+tx.signers.push("signer3");
+```
+
+A nop can be added to make the transaction unique. It can be added manually to the transaction object or by using the
+`addNop` function.
+
+`const uniqueTx = chromiaClient.addNop(tx);`
+
+Sign and send the transaction.
+
+```ts
+const signedTx = await chromiaClient.signTransaction(uniqueTx, signatureProviderA);
+
+const receipt = await chromiaClient.sendTransaction(signedTx);
+```
+
+## PromiEvent
+
+When using functions that involve sending a transaction, you can either wait for a promise or act on an event. The
+return value, in this case, is a "PromiEvent," which combines the functionalities of both a "Promise" and an "Event."
+This combination allows you to handle asynchronous operations. You can treat it as a Promise by utilizing the .then()
+and .catch() methods to handle the result of any potential errors. Moreover, it emits an event when a transaction is
+sent, allowing you to listen to the event and execute custom logic based on your specific needs.
+
+```ts
+chromiaClient
+  .sendTransaction({
+    name: "my_operation",
+    args: ["arg1", "arg2"],
+  })
+  .on("sent", (receipt: TransactionReceipt) => {
+    console.log("The transaction is sent");
+  });
+```
+
+## External signing example
+
+This example demonstrates that you can use external signing mechanisms. It could involve a complex function requiring
+you to sign from your phone, another device, or a different method
+
+```ts
+function askUserBToSign(rawGtxBody) {
+  const digest = getDigestToSignFromRawGtxBody(rawGtxBody);
+  return Buffer.from(secp256k1.ecdsaSign(digest, signerPrivKeyB).signature);
+}
+```
+
+This complex signature process can be implemented in a SignatureProvider. Once you have a callback like the one above,
+creating a signature provider is straightforward:
+
+```ts
+const signatureProviderB = {
+  pubKey: signerPubKeyB,
+  sign: askUserBToSign,
+};
+```
+
+## ICCF
+
+Creates a proof transaction for [ICCF](/use-cases/cross-chain/iccf) (Inter-Chain Communication Framework). This function
+generates a proof that a specific transaction has occurred on the source blockchain. The function returns a transaction
+object with an operation called `iccf_proof`, and the operation that the proof should accompany should be added to this
+transaction object. The transaction can then be signed and posted to the target blockchain.
+
+```ts
+const managementBlockchainRid = "7d565d92fd15bd1cdac2dc276cbcbc5581349d05a9e94ba919e1155ef4daf8f9";
+
+const chromiaClient = await createClient({
+  nodeUrlPool: "<url-node-running-managementchain>",
+  managementBlockchainRid,
+});
+
+const txToProveRid: Buffer = <txRid>;
+const txToProveHash: Buffer = <txHash>;
+const txToProveSigners: Pubkey[] = [<signer1>, <signer2>];
+const sourceBlockchainRid: string = "<sourceBlockchainRid>";
+const targetBlockchainRid: string = "<targetBlockchainRid>";
+
+const { iccfTx, verifiedTx } = createIccfProofTx(chromiaClient, txToProveRID,txToProveHash,txToProveSigners, sourceBlockchainRid, targetBlockchainRid);
+```
+
+`iccfTx` is a transaction object with an operation called `iccf_proof` and an argument containing the composed proof. To
+this transaction object, you can now add the operation needing proof. Finally, the transaction object is ready to be
+signed and sent.
+
+If necessary, it is possible to solely verify whether a specific transaction has been included in the anchoring
+blockchain:
+
+```ts
+isBlockAnchored(sourceClient, anchoringClient, txRid);
+```
+
+To create an anchoring client there is an utility function:
+
+```ts
+const anchoringClient = getAnchoringClient();
+```
+
+## Architecture
+
+In the Postchain client, Generic Transactions (GTX) simplify Postchain user implementations. Users do not need to invent
+a binary format for their transactions. The client will serialize the function calls, sign them, and send them to
+Postchain. Read GTX in the [docs](/intro/about/protocols/).
+
+```
+User
+ |
+ | chromiaClient.sendTransaction()
+ |
+ v
+ |
+ | <Buffer with serialized message>
+ |
+ v
+ |
+ | POST http://localhost:7741/tx {tx: 'hex-encoded message'}
+ |
+ v
+RestApi
+ |
+ | <Buffer with serialized message>
+ |
+ v
+Postchain
+ |
+ | backend.fun1(conn, tx_iid, 0, [pubKeyA], 'arg1', 'arg2');
+ | backend.fun2(conn, tx_iid, 1, [pubKeyA], 'arg1');
+ |
+ v
+Backend
+```
+
+## Contributing to the project
+
+### Run tests
+
+Unit tests:
+
+`npm run test:unit`
+
+Integration tests:
+
+1. Make sure a Postgres database is running. Read more here.
+
+2. Start blockchain
+
+   `cd resources/testDapp`
+
+   `chr node start --wipe`
+
+3. Run tests
+
+   `npm run test:integration`
+
+
+--------------------------------------------------------------------------------
+
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# Kotlin client
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version.
+
+:::
+
+The Kotlin client library, postchain-client, provides the capability for interacting with a blockchain from a client app
+written in Kotlin or Java. With this library, you can easily send transactions and retrieve queries from a Rell
+blockchain node.
+
+You can access the project repository [here](https://gitlab.com/chromaway/core/postchain-client/).
+
+## Postchain-client
+
+Postchain-client is a Kotlin client that makes queries and transactions from an application.
+
+### Setup
+
+You must add these package registries to use the library since they're unavailable on Maven Central. The specific The
+steps for adding the URL may differ depending on your chosen build tool.
+
+For Maven, add this to your `pom.xml`:
+
+```xml
+<project>
+    <dependencies>
+        <dependency>
+            <groupId>net.postchain.client</groupId>
+            <artifactId>postchain-client</artifactId>
+        </dependency>
+    </dependencies>
+
+    <repositories>
+        <repository>
+            <id>chromia-parent</id>
+            <name>Chromia parent GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/50818999/packages/maven</url>
+        </repository>
+        <repository>
+            <id>postchain</id>
+            <name>Postchain GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/32294340/packages/maven</url>
+        </repository>
+        <repository>
+            <id>postchain-client</id>
+            <name>Postchain Client GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/46288950/packages/maven</url>
+        </repository>
+    </repositories>
+</project>
+```
+
+For Gradle, add this to your `build.gradle.kts`:
+
+```
+repositories {
+    maven("https://gitlab.com/api/v4/projects/50818999/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/32294340/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/46288950/packages/maven")
+}
+
+dependencies {
+    implementation("net.postchain.client:postchain-client")
+}
+```
+
+### Usage
+
+**Initializing the client**
+
+```kotlin
+import net.postchain.client.config.PostchainClientConfig
+import net.postchain.crypto.Secp256K1CryptoSystem
+import net.postchain.client.core.PostchainClient
+import net.postchain.client.impl.PostchainClientProviderImpl
+import net.postchain.client.request.EndpointPool
+import net.postchain.common.BlockchainRid
+import net.postchain.common.hexStringToByteArray
+import net.postchain.common.tx.TransactionStatus
+import net.postchain.crypto.KeyPair
+
+fun main() {
+    val cryptoSystem = Secp256K1CryptoSystem()
+    val bcRid: BlockchainRid = BlockchainRid.buildFromHex("...") // The blockchain RID of the chain (can be found in the logs when P.C. server starts)
+    val pubKey0 = "...".hexStringToByteArray() // This must be a real public key
+    val privKey0 = "...".hexStringToByteArray() // This must be a real private key
+    val keyPair0 = KeyPair(pubKey0, privKey0)
+    val sigMaker0 = cryptoSystem.buildSigMaker(keyPair0)
+    val endpointPool = EndpointPool.singleUrl("http://127.0.0.1:7740") // Running P.C. server on localhost
+    val psClient: PostchainClient = PostchainClientProviderImpl().createClient(
+            PostchainClientConfig(bcRid, endpointPool, listOf(keyPair0))
+    )
+}
+```
+
+**Queries**
+
+`psClient.query("hello_world", GtvFactory.gtv(mapOf()))`
+
+**Transactions**
+
+Create a basic transaction, sign it, and send it.
+
+```kotlin
+val txBuilder = psClient.transactionBuilder()
+txBuilder.addOperation("nop") // Operation "nop" without arguments
+txBuilder.sign(sigMaker0) // Sign it
+
+val result = txBuilder.post()
+when (result.status) {
+    TransactionStatus.WAITING -> println("TX has been put into the TX queue of the Postchain server")
+    TransactionStatus.REJECTED -> println("TX most likely wrong number of args")
+    TransactionStatus.CONFIRMED -> println("TX has been included in a block")
+    TransactionStatus.UNKNOWN -> println("Investigate")
+}
+```
+
+Build a transaction containing an operation with arguments, sign it, and send it.
+
+```kotlin
+val txBuilder = psClient.transactionBuilder()
+txBuilder.addOperation("set_name", GtvFactory.gtv(name))
+//addNop makes tx unique, so one can send the same operation more than one time
+txBuilder.addNop()
+txBuilder.sign(sigMaker0) // Sign it
+val result = txBuilder.post()
+```
+
+## Chromia client
+
+The Chromia client is an alternative to the Postchain client and can communicate more easily with Chromia networks. When
+initialized, it will look and connect to the system nodes of the network.
+
+### Setup
+
+For Maven, add this to your `pom.xml`:
+
+```xml
+<project>
+    <dependencies>
+        <dependency>
+            <groupId>net.postchain.client</groupId>
+            <artifactId>chromia-client</artifactId>
+        </dependency>
+    </dependencies>
+
+    <repositories>
+        <repository>
+            <id>chromia-parent</id>
+            <name>Chromia parent GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/50818999/packages/maven</url>
+        </repository>
+        <repository>
+            <id>postchain</id>
+            <name>Postchain GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/32294340/packages/maven</url>
+        </repository>
+        <repository>
+            <id>postchain-client</id>
+            <name>Postchain Client GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/46288950/packages/maven</url>
+        </repository>
+    </repositories>
+</project>
+```
+
+For Gradle, add this to your `build.gradle.kts`:
+
+```kotlin
+repositories {
+    maven("https://gitlab.com/api/v4/projects/50818999/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/32294340/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/46288950/packages/maven")
+}
+
+dependencies {
+    implementation("net.postchain.client:postchain-client")
+}
+```
+
+### Example usage
+
+To create a client and wait for a transaction to be anchored:
+
+```kotlin
+val chromiaClient = StandardChromiaClient("http://127.0.0.1:7740")
+chromiaClient.awaitAnchoredTx(
+        BlockchainRid.buildFromHex("335C75E08AFAC7D6678263F1A13D5AFED9CD009344B6349107D7CEEA3A40EA08"),
+        TxRid("3DE7FC7BCF6DAF2FFD8564D46D73F42C069818DDC249835535AD50D8D9270FF3"))
+```
+
+## FT4 Client
+
+The FT4 client enables interaction with dapps via the FT4 library, focusing on authentication, accounts, and asset
+management.
+
+### Setup
+
+For Maven add this to your `pom.xml`:
+
+```xml
+<project>
+    <dependencies>
+        <dependency>
+            <groupId>net.postchain.client</groupId>
+            <artifactId>ft4-client</artifactId>
+        </dependency>
+    </dependencies>
+
+    <repositories>
+        <repository>
+            <id>chromia-parent</id>
+            <name>Chromia parent GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/50818999/packages/maven</url>
+        </repository>
+        <repository>
+            <id>postchain</id>
+            <name>Postchain GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/32294340/packages/maven</url>
+        </repository>
+        <repository>
+            <id>postchain-client</id>
+            <name>Postchain Client GitLab Registry</name>
+            <url>https://gitlab.com/api/v4/projects/46288950/packages/maven</url>
+        </repository>
+    </repositories>
+</project>
+```
+
+For Gradle, add this to your `build.gradle.kts`:
+
+```kotlin
+repositories {
+    maven("https://gitlab.com/api/v4/projects/50818999/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/32294340/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/46288950/packages/maven")
+}
+
+dependencies {
+    implementation("net.postchain.client:ft4-client")
+}
+```
+
+### Features
+
+### Authentication
+
+The FT4 client supports both Chromia and Ethereum-style authentication for operations:
+
+### Chromia Authentication
+
+```kotlin
+// Assuming you have initialized a PostchainClient and TransactionBuilder
+val operationName = "your_operation_name"
+
+val cryptoSystem = Secp256K1CryptoSystem()
+val bcRid: BlockchainRid = BlockchainRid.buildFromHex("33398FDBB5BB91A2ECD7FC95D95948267D4CC7E277D3A18A46745C6E03583F3F") // The blockchain RID of the chain (can be found in the logs when P.C. server starts)
+val pubKey0 = "020CA58A45A1F97C8EE7A95B49738517FD11A072F1F9AC2450E13875EBD817BA2E".hexStringToByteArray() // This must be a real public key
+val privKey0 = "4CB84F555AD0F93C938EB8EF0E10F1CE129D143D74A6516F7D8E89ED21954593".hexStringToByteArray() // This must be a real private key
+val keyPair0 = KeyPair(pubKey0, privKey0)
+val sigMaker0 = cryptoSystem.buildSigMaker(keyPair0)
+val endpointPool = EndpointPool.singleUrl("http://127.0.0.1:7740") // Running P.C. server on localhost
+val psClient: PostchainClient = PostchainClientProviderImpl().createClient(PostchainClientConfig(bcRid, endpointPool, listOf(keyPair0)))
+val txBuilder = psClient.transactionBuilder()
+
+val accountId: ByteArray = "8ECB5E014C0FED6FCC50765802D0D15E210C64079D88A416D7852CC75F9407B4".hexStringToByteArray() // The FT4 account ID
+
+// Add an authentication operation to the transaction
+addFtAuthenticationOp(
+    psClient,
+    txBuilder,
+    operationName,
+    pubKey0,
+    accountId
+)
+
+// Add the operation that requires authentication
+txBuilder.addOperation(operationName, gtv("arg1"))
+
+// Sign and post the transaction
+txBuilder.sign(sigMaker)
+val result = txBuilder.post()
+```
+
+### Ethereum Authentication
+
+```kotlin
+// Implement the EvmSigner interface
+val evmSigner = object : EvmSigner {
+    override fun sign(address: ByteArray, message: String): Signature {
+        // Implement EVM signing logic here
+        return Signature(byteArrayOf(), byteArrayOf(), 0)
+    }
+}
+
+// Assuming you have initialized a PostchainClient and TransactionBuilder
+val evmAddress: ByteArray = byteArrayOf() // The Ethereum address
+val accountId: ByteArray = byteArrayOf() // The FT4 account ID
+val operationName = "your_operation_name"
+val operationArgs: List<Gtv> = listOf(gtv("arg1")) // Arguments for the operation
+
+// Add the authentication operation to the transaction
+addEvmAuthenticationOp(
+    psClient,
+    txBuilder,
+    operationName,
+    operationArgs,
+    evmAddress,
+    accountId,
+    null, // Optional auth descriptor ID
+    evmSigner
+)
+
+// Add the operation that requires authentication
+txBuilder.addOperation(operationName, gtv("arg1"))
+
+// Post the transaction
+val result = txBuilder.post()
+```
+
+For operations where an EVM signer is not yet part of an account auth descriptor, use `addEvmSignaturesOp` instead:
+
+```kotlin
+// Add the signatures operation to the transaction
+addEvmSignaturesOp(
+    psClient,
+    txBuilder,
+    operationName,
+    operationArgs,
+    evmAddress,
+    accountId,
+    null, // Optional auth descriptor ID
+    evmSigner
+)
+```
+
+### Authentication Descriptors
+
+The FT4 client provides helper functions for working with authentication descriptors:
+
+```kotlin
+// Assuming you have initialized a PostchainClient
+val accountId: ByteArray = byteArrayOf() // The account ID
+val signer: ByteArray = byteArrayOf() // The signer's public key or address
+
+// Get auth descriptors for the account and signer
+val authDescriptors = psClient.getAccountAuthDescriptorsBySigner(accountId, signer)
+
+// Work with the auth descriptors
+for (descriptor in authDescriptors) {
+    // Get the flags for the auth descriptor
+    val flags = descriptor.flags()
+
+    // Get the number of signers
+    val signerCount = descriptor.numberOfSigners()
+
+    // For single-signer auth descriptors
+    if (descriptor.authType == AuthType.S) {
+        val signerPublicKey = descriptor.getSingleSigner()
+        // Process the signer public key
+    }
+
+    // For multi-signer auth descriptors
+    if (descriptor.authType == AuthType.M) {
+        val signerPublicKeys = descriptor.getMultiSigners()
+        // Process the list of signer public keys
+    }
+}
+```
+
+### Asset Management
+
+```kotlin
+// Assuming you have initialized a PostchainClient
+val accountId: ByteArray = "8ECB5E014C0FED6FCC50765802D0D15E210C64079D88A416D7852CC75F9407B4".hexStringToByteArray() // The FT4 account ID
+val assetId: ByteArray = "718B90D1E7C7B77D5329EDA83B31B43424BC8B2A155B05DBF8FDB985098DC447".hexStringToByteArray() // The asset for which the balance is requested
+val balance: BigInteger = getAssetBalance(psClient, accountId, assetId)
+```
+
+
+--------------------------------------------------------------------------------
+
+
+# Python client
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version. For the most up-to-date information, refer to the
+[postchain-client-py repository](https://bitbucket.org/chromawallet/postchain-client-py/src/main/).
+
+:::
+
+A Python client library for interacting with Postchain nodes on Chromia blockchain networks. This library provides an
+interface for creating, signing, and sending transactions, as well as querying the blockchain, with full async support.
+
+## Features
+
+- Full asynchronous API support using `aiohttp`.
+- Secure transaction creation and signing.
+- Comprehensive blockchain querying capabilities.
+
+## Prerequisites
+
+- Python 3.7 or higher.
+- A running Postchain node (for actual usage).
+
+## Installation
+
+1. **Clone the repository**:
+
+   ```bash
+   git clone git@bitbucket.org:chromawallet/postchain-client-py.git
+   cd postchain-client-py
+   ```
+
+2. **Install the package and its dependencies**:
+
+   ```bash
+   pip install -e .
+   ```
+
+3. **For development (includes testing tools)**:
+
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+## Configuration
+
+To use the library, you’ll need to set up a `.env` file in your project root with the following variables:
+
+```plaintext
+POSTCHAIN_TEST_NODE=http://localhost:7740
+BLOCKCHAIN_TEST_RID=your_blockchain_rid
+PRIV_KEY=your_private_key
+```
+
+- `POSTCHAIN_TEST_NODE`: The URL of the Postchain node you want to interact with.
+- `BLOCKCHAIN_TEST_RID`: The unique identifier (RID) of the blockchain you’re connecting to.
+- `PRIV_KEY`: Your private key in hexadecimal format, used for signing transactions.
+
+### Generating a Private Key
+
+If you don’t have a private key, you can generate one using the following Python code:
+
+```python
+from coincurve import PrivateKey
+
+private_key = PrivateKey()
+print(private_key.to_hex())  # Use this value for PRIV_KEY in your .env file
+```
+
+## Quick Start
+
+Here’s a simple example to get started:
+
+```python
+import asyncio
+from postchain_client_py import BlockchainClient
+from postchain_client_py.blockchain_client.types import NetworkSettings
+
+async def main():
+    # Initialize network settings
+    settings = NetworkSettings(
+        node_url_pool=["http://localhost:7740"],
+        blockchain_rid="YOUR_BLOCKCHAIN_RID",
+    )
+
+    # Create client and execute query
+    client = await BlockchainClient.create(settings)
+    result = await client.query("get_collections")
+    print(f"Collections: {result}")
+
+    # Clean up
+    await client.rest_client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Querying the Blockchain
+
+Here’s an example of querying the blockchain:
+
+```python
+async def query_example(client: BlockchainClient):
+    # Simple query without arguments
+    books = await client.query("get_all_books")
+    print(f"Books: {books}")
+
+    # Query with arguments
+    reviews = await client.query(
+        "get_all_reviews_for_book",
+        {"isbn": "ISBN123"}
+    )
+    print(f"Reviews: {reviews}")
+```
+
+## Creating and Sending Transactions
+
+Here’s an example of creating and sending a transaction:
+
+```python
+import os
+import asyncio
+from coincurve import PrivateKey
+from postchain_client_py import BlockchainClient
+from postchain_client_py.blockchain_client.types import Operation, Transaction
+
+async def transaction_example(client: BlockchainClient):
+    # Load private key from environment variable
+    private_bytes = bytes.fromhex(os.getenv("PRIV_KEY"))
+    private_key = PrivateKey(private_bytes, raw=True)
+    public_key = private_key.pubkey.serialize()
+
+    # Create operation
+    operation = Operation(
+        op_name="create_book",
+        args=["ISBN123", "Python Mastery", "Jane Doe"]
+    )
+
+    # Build transaction
+    transaction = Transaction(
+        operations=[operation],
+        signers=[public_key],
+        signatures=None,
+        blockchain_rid=client.config.blockchain_rid
+    )
+
+    # Sign and send
+    signed_tx = await client.sign_transaction(transaction, private_bytes)
+    receipt = await client.send_transaction(signed_tx, do_status_polling=True)
+
+    if receipt.status == "CONFIRMED":
+        print("Transaction confirmed!")
+```
+
+## Development
+
+### Running Tests
+
+1. Install development dependencies:
+
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+2. Run tests:
+
+   ```bash
+   pytest tests/
+   ```
+
+
+--------------------------------------------------------------------------------
+
+
+# REST tools
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version.
+
+:::
+
+Using the [REST web tools](pathname:///pages/postchain-restapi.html), users can perform HTTP-based interactions with the
+blockchain to access vital information. This includes querying transaction records, inspecting block data, reviewing the
+blockchain’s current state, fetching configuration settings, and other related details.
+
+## Postchain API usage
+
+The [Postchain REST tool](pathname:///pages/postchain-restapi.html) doesn't require installation, as it can be used
+directly in a web browser to send requests and receive responses.
+
+The REST tool offers the following groups of APIs, each containing a set of underlying methods available for use:
+
+| Block                                                                                                                    | Blockchain                                                                                                                       | Configuration                                                                                                                      | Error                                                                                           | Experimental                                                                                                                 | Node                                                                                                                                          | Query                                                                                                             | Transaction                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| [Fetch blocks info](pathname:///pages/postchain-restapi.html#get-/blocks/-blockchainRid-)                                | [Fetch height of next block to be built/synced](pathname:///pages/postchain-restapi.html#get-/blockchain/-blockchainRid-/height) | [Fetch blockchain configuration](pathname:///pages/postchain-restapi.html#get-/config/-blockchainRid-)                             | [Fetch blockchain errors](pathname:///pages/postchain-restapi.html#get-/errors/-blockchainRid-) | [Fetch current state of blockchain node](pathname:///pages/postchain-restapi.html#get-/blockchain/-blockchainRid-/nodestate) | [Query node EBFT status](pathname:///pages/postchain-restapi.html#get-/node/-blockchainRid-/my_status)                                        | [Make query](pathname:///pages/postchain-restapi.html#get-/query/-blockchainRid-)                                 | [Submit transaction](pathname:///pages/postchain-restapi.html#post-/tx/-blockchainRid-)                                            |
+| [Fetch block info by block RID](pathname:///pages/postchain-restapi.html#get-/blocks/-blockchainRid-/-blockRid-)         | [Get API version for the subnode](pathname:///pages/postchain-restapi.html#get-/version/-blockchainRid-)                         | [Validate blockchain configuration](pathname:///pages/postchain-restapi.html#post-/config/-blockchainRid-)                         |                                                                                                 |                                                                                                                              | [Query all nodes EBFT statuses](pathname:///pages/postchain-restapi.html#get-/node/-blockchainRid-/statuses)                                  | [Make web query](pathname:///pages/postchain-restapi.html#get-/web_query/-blockchainRid-/-type-)                  | [Fetch list of waiting transaction RIDs](pathname:///pages/postchain-restapi.html#get-/tx/-blockchainRid-/waiting)                 |
+| [Fetch block info by block height](pathname:///pages/postchain-restapi.html#get-/blocks/-blockchainRid-/height/-height-) |                                                                                                                                  | [Fetch the next blockchain configuration height](pathname:///pages/postchain-restapi.html#get-/config/-blockchainRid-/next_height) |                                                                                                 |                                                                                                                              | [Get blockchain RID](pathname:///pages/postchain-restapi.html#get-/brid/iid_-chainIid-)                                                       | [Make a query with GTV encoded response](pathname:///pages/postchain-restapi.html#get-/query_gtv/-blockchainRid-) | [Fetch waiting transaction](pathname:///pages/postchain-restapi.html#get-/tx/-blockchainRid-/waiting/-txRid-)                      |
+| [Confirm block by block RID](pathname:///pages/postchain-restapi.html#get-/blocks/-blockchainRid-/confirm/-blockRid-)    |                                                                                                                                  | [Fetch the blockchain configuration features](pathname:///pages/postchain-restapi.html#get-/config/-blockchainRid-/features)       |                                                                                                 |                                                                                                                              | [Get API version](pathname:///pages/postchain-restapi.html#get-/version)                                                                      | [Make a GTV encoded query](pathname:///pages/postchain-restapi.html#post-/query_gtv/-blockchainRid-)              | [Fetch list of rejected transactions](pathname:///pages/postchain-restapi.html#get-/tx/-blockchainRid-/rejected)                   |
+|                                                                                                                          |                                                                                                                                  |                                                                                                                                    |                                                                                                 |                                                                                                                              | [Get infrastructure version](pathname:///pages/postchain-restapi.html#get-/infrastructure_version)                                            |                                                                                                                   | [Fetch transaction](pathname:///pages/postchain-restapi.html#get-/tx/-blockchainRid-/-txRid-)                                      |
+|                                                                                                                          |                                                                                                                                  |                                                                                                                                    |                                                                                                 |                                                                                                                              | [Get infrastructure version for the subnode](pathname:///pages/postchain-restapi.html#get-/infrastructure_version/-blockchainRid-)            |                                                                                                                   | [Fetch transaction info](pathname:///pages/postchain-restapi.html#get-/transactions/-blockchainRid-/-txRid-)                       |
+|                                                                                                                          |                                                                                                                                  |                                                                                                                                    |                                                                                                 |                                                                                                                              | [Check anchoring status for a blockchain](pathname:///pages/postchain-restapi.html#get-/highest_block_height_anchoring_check/-blockchainRid-) |                                                                                                                   | [Fetch transactions info](pathname:///pages/postchain-restapi.html#get-/transactions/-blockchainRid-)                              |
+|                                                                                                                          |                                                                                                                                  |                                                                                                                                    |                                                                                                 |                                                                                                                              |                                                                                                                                               |                                                                                                                   | [Fetch number of successful transactions](pathname:///pages/postchain-restapi.html#get-/transactions/-blockchainRid-/count)        |
+|                                                                                                                          |                                                                                                                                  |                                                                                                                                    |                                                                                                 |                                                                                                                              |                                                                                                                                               |                                                                                                                   | [Fetch transaction confirmation proof](pathname:///pages/postchain-restapi.html#get-/tx/-blockchainRid-/-txRid-/confirmationProof) |
+|                                                                                                                          |                                                                                                                                  |                                                                                                                                    |                                                                                                 |                                                                                                                              |                                                                                                                                               |                                                                                                                   | [Fetch transaction status](pathname:///pages/postchain-restapi.html#get-/tx/-blockchainRid-/-txRid-/status)                        |
+
+
+--------------------------------------------------------------------------------
+
+
+# Rust client
+
+:::note
+
+We are currently updating this documentation. While it offers a general overview, some details may be outdated. Please
+check back soon for the latest version.
+
+:::
+
+The [Rust client](https://crates.io/crates/postchain-client) is used for interacting with the Chromia blockchain
+deployed to a Postchain single node (manual mode) or multi-nodes managed by the Directory Chain (managed mode).
+
+This library provides functionality for executing queries, creating and signing transactions, and managing blockchain
+operations.
+
+## Installation
+
+Add this to your `Cargo.toml`:
+
+#### This is for using only the `postchain_client::utils::operation::Params` enum to construct data for queries and transactions.
+
+```toml
+[dependencies]
+postchain-client = "0.0.3"
+tokio = { version = "1.42.0", features = ["rt"] }
+```
+
+#### For both, use the `postchain_client::utils::operation::Params` enum and the Rust's struct to serialize and deserialize with `serde`:
+
+```toml
+[dependencies]
+postchain-client = "0.0.3"
+tokio = { version = "1.42.0", features = ["rt"] }
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+```
+
+## 1. Setting up the client
+
+```rust
+use postchain_client::transport::client::RestClient;
+
+let client = RestClient {
+    node_url: vec!["http://localhost:7740", "http://localhost:7741"],
+    request_time_out: 30,
+    poll_attemps: 5,
+    poll_attemp_interval_time: 5
+};
+```
+
+## 2. Executing queries
+
+Queries allow us to fetch data from the blockchain:
+
+```rust
+use postchain_client::utils::operation::Params;
+
+async fn execute_query_with_params(client: &RestClient<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    let query_type = "<query_name>";
+    let mut query_arguments = vec![
+        ("arg1", Params::Text("value1".to_string())),
+        ("arg2", Params::Text("value2".to_string())),
+    ];
+
+    let result = client.query(
+        "<BLOCKCHAIN_RID>",
+        None,
+        query_type,
+        None,
+        Some(&mut query_arguments)
+    ).await?;
+
+    Ok(())
+}
+
+async fn execute_query_with_struct(client: &RestClient<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    let query_type = "<query_name>";
+
+    #[derive(Debug, Default, serde::Serialize)]
+    struct QueryArguments {
+        arg1: String,
+        arg2: String
+    }
+
+    let query_arguments = Params::from_struct_to_vec(&QueryArguments {
+        arg1: "value1".to_string(), arg2: "value2".to_string()
+    });
+
+    let result = client.query(
+        "<BLOCKCHAIN_RID>",
+        None,
+        query_type,
+        None,
+        Some(&mut query_arguments_ref)
+    ).await?;
+
+    if let RestResponse::Bytes(val1) = result {
+        println!("{:?}", gtv::decode(&val1));
+    }
+
+    Ok(())
+}
+```
+
+## 3. Creating and sending transactions
+
+### 3.1 Creating operations
+
+```rust
+use postchain_client::utils::operation::{Operation, Params};
+
+// Create operation with named parameters (dictionary)
+let operation = Operation::from_dict(
+    "operation_name",
+    vec![
+        ("param1", Params::Text("value1".to_string())),
+        ("param2", Params::Integer(42)),
+    ]
+);
+
+// Or create an operation with unnamed parameters (list)
+let operation = Operation::from_list(
+    "operation_name",
+    vec![
+        Params::Text("value1".to_string()),
+        Params::Integer(42),
+    ]
+);
+```
+
+### 3.2 Creating and signing transactions
+
+```rust
+use postchain_client::utils::transaction::Transaction;
+
+// Create a new transaction
+let mut tx = Transaction::new(
+    brid_hex_decoded.to_vec(),    // blockchain RID in hex decode to vec
+    Some(vec![operation]),      // operations
+    None,                       // signers (optional)
+    None                        // signatures (optional)
+);
+
+// Sign the transaction
+let private_key1 = "C70D5A77CC10552019179B7390545C46647C9FCA1B6485850F2B913F87270300";  // Replace with actual private key
+tx.sign(&hex::decode(private_key1).unwrap().try_into().expect("Invalid private key 1")).expect("Failed to sign transaction");
+
+// Multi sign the transaction
+let private_key2 = "17106092B72489B785615BD2ACB2DDE8D0EA05A2029DCA4054987494781F988C";  // Replace with actual private key
+tx.sign(&[
+    &hex::decode(private_key1).unwrap().try_into().expect("Invalid private key 1"),
+    &hex::decode(private_key2).unwrap().try_into().expect("Invalid private key 2")
+    ]).expect("Failed to multi sign transaction");
+
+// Sign the transaction from raw private key
+tx.sign_from_raw_priv_key(private_key1);
+
+// Multi sign the transaction from raw private keys
+tx.multi_sign_from_raw_priv_keys(&[private_key1, private_key2]);
+```
+
+### 3.3 Sending transactions
+
+```rust
+async fn send_transaction(client: &RestClient<'_>, tx: &Transaction<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    // Send transaction
+    let response = client.send_transaction(tx).await?;
+
+    // Get transaction RID (for status checking)
+    let tx_rid = tx.tx_rid_hex();
+
+    // Check transaction status
+    let status = client.get_transaction_status("<blockchain RID>", &tx_rid).await?;
+
+    Ok(())
+}
+```
+
+## 4. Error and response handling
+
+The response from `client.query` and `client.send_transaction` is a `postchain_client::transport::client::RestResponse`
+enum if success or a `postchain_client::transport::client::RestError` enum if failed.
+
+We can handle it as follows:
+
+```rust
+let result = client.query(/* ... */).await;
+
+match result {
+    Ok(resp: RestResponse) => {
+        if let RestResponse::Bytes(val1) = resp {
+            let params = gtv::decode(&val1);
+            /// Do whatever we want with the decoded params
+        }
+    },
+    Error(error: RestError) => {
+        /// Do whatever we want with the error
+    }
+}
+```
+
+```rust
+let result = client.send_transaction(&tx).await;
+
+match result {
+    Ok(resp: RestResponse) => {
+        println!("Transaction sent successfully: {:?}", resp);
+    },
+    Err(error: ) => {
+        eprintln!("Error sending transaction: {:?}", err);
+    }
+}
+```
+
+The response from `client.get_transaction_status` is a `postchain_client::utils::transaction::TransactionStatus` enum if
+success or a `postchain_client::transport::client::RestError` enum if failed.
+
+We can handle it as follows:
+
+```rust
+let result = client.get_transaction_status("<blockchain RID>", &tx_rid).await;
+
+match result {
+    Ok(resp: TransactionStatus) => {
+        /// Do anything else here
+    },
+    Err(error: RestError) => {
+        /// Do whatever we want with the error
+    }
+}
+```
+
+## 5. Use `serde` for `serialize` or `deserialize` a struct to `Params::Dict` or vice versa
+
+Please look at all tests in the `operation.rs` source here:
+https://github.com/cuonglb/postchain-client-rust/blob/dev/src/utils/operation.rs
+
+## 6. Logging
+
+The `postchain-client` uses `tracing` crate for logging. You can use `tracing-subscriber` crate to enable all logs.
+
+```rust
+use tracing_subscriber;
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+    ...
+}
+```
+
+## 7. Parameter types
+
+The library supports various parameter types through the `Params` enum and Rust struct :
+
+| GTV(\*)    | Rust types            | Params enums                             | Note     |
+| ---------- | --------------------- | ---------------------------------------- | -------- |
+| null       | `Option<T> = None`    | Params::Null                             |          |
+| integer    | bool                  | Params::Boolean(bool)                    |          |
+| integer    | i64                   | Params::Integer(i64)                     |          |
+| bigInteger | num_bigint::BigInt    | Params::BigInteger(num_bigint::BigInt)   | (\*\*)   |
+| decimal    | bigdecimal::BigDecima | Params::Decimal(bigdecimal::BigDecimal)  | (\*\*\*) |
+| string     | String                | Params::Text(String)                     |          |
+| array      | `Vec<T>`              | Params::Array(`Vec<Params>`)             |          |
+| dict       | `BTreeMap<K, V>`      | Params::Dict(`BTreeMap<String, Params>`) |          |
+| byteArray  | `Vec<u8>`             | Params:: ByteArray(`Vec<u8>`)            |          |
+
+(\*) GTV gets converted to ASN.1 DER when it's sent. See more : /intro/about/protocols/gtv
+
+(\*) GTV gets converted to ASN.1 DER when it's sent. See more : /intro/about/protocols/gtv
+
+(\*\*) We can use serde custom derive macros in some of cases to:
+
+Handle arbitrary-precision integers:
+
+operation::deserialize_bigint for deserialization. operation::serialize_bigint for serialization.
+
+```rust
+    use postchain_client::utils::{operation::{deserialize_bigint, serialize_bigint}};
+    ...
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct TestStructBigInt {
+        #[serde(serialize_with = "serialize_bigint", deserialize_with = "deserialize_bigint")]
+        bigint: num_bigint::BigInt
+    }
+    ...
+```
+
+Handle arbitrary-precision decimal:
+
+operation::deserialize_bigint for deserialization. operation::serialize_bigint for serialization.
+
+```rust
+    use postchain_client::utils::{operation::{serialize_bigdecimal, deserialize_bigdecimal}};
+    ...
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct TestStructDecimal {
+        #[serde(serialize_with = "serialize_bigdecimal", deserialize_with = "deserialize_bigdecimal")]
+        bigdecimal: bigdecimal::BigDecimal
+    }
+    ...
+```
+
+## Examples
+
+### Book review application example
+
+Here's a real-world example from a book review application that demonstrates querying, creating transactions, and
+handling structured data: https://github.com/cuonglb/postchain-client-rust/tree/dev/examples/book-review
+
+This example demonstrates:
+
+- Defining and using structured data with Serde
+- Querying the blockchain and handling responses
+- Creating and sending transactions
+- Signing transactions with a private key
+- Transaction error handling and status checking
+
+### How to run
+
+Install Rust (https://www.rust-lang.org/tools/install) and Docker with compose.
+
+Start a Postchain single node with the `book-review` Rell dapp:
+
+```shell
+$ cd examples/book-review/rell-dapp/
+$ sudo docker compose up -d
+```
+
+Start a simple Rust application to interact with the book-review blockchain:
+
+```shell
+$ cd examples/book-review/client
+$ cargo run
+```
+
+
+--------------------------------------------------------------------------------
+

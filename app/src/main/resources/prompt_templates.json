@@ -1,0 +1,326 @@
+{
+    "blockchain": [
+        {
+            "title": "Get Blockchain Details",
+            "description": "Retrieves detailed information about a specific blockchain",
+            "tool": "mcp_chromia-mcp_get_blockchain_details",
+            "prompt": "Show me details for blockchain {rid}",
+            "parameters": {
+                "rid": "{rid}"
+            }
+        },
+        {
+            "title": "Get Network Stats",
+            "description": "Get comprehensive network statistics and metrics",
+            "tool": "mcp_chromia-mcp_get_network_stats",
+            "prompt": "Show me an overview of the {network} network",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
+        {
+            "title": "Get Blockchain Analytics",
+            "description": "Get detailed analytics for a blockchain including transactions and active accounts",
+            "tool": "mcp_chromia-mcp_get_blockchain_analytics",
+            "prompt": "Show me analytics for blockchain {brid} from {fromTimestamp}",
+            "parameters": {
+                "brid": "{brid}",
+                "fromTimestamp": "{fromTimestamp}"
+            }
+        },
+        {
+            "title": "Get Monthly Active Users",
+            "description": "Get monthly active accounts for a specific blockchain",
+            "tool": "mcp_chromia-mcp_get_monthly_active_accounts_per_chain",
+            "prompt": "How many monthly active users does blockchain {brid} have?",
+            "parameters": {
+                "brid": "{brid}"
+            }
+        },
+        {
+            "title": "Find DApp BRID",
+            "description": "Find the blockchain RID (BRID) for a specific dApp by name",
+            "tool": "mcp_chromia-mcp_get_blockchains_transactions",
+            "prompt": "What is the BRID of {dappName} on {network}?",
+            "parameters": {
+                "network": "{network}"
+            }
+        }
+    ],
+    "transactions": [
+        {
+            "title": "List Recent Transactions",
+            "description": "Gets recent transactions with optional filtering",
+            "tool": "mcp_chromia-mcp_get_all_transactions",
+            "prompt": "Show me recent transactions on {network}",
+            "parameters": {
+                "network": "{network}",
+                "limit": 10
+            }
+        },
+        {
+            "title": "Filter Transactions By Time",
+            "description": "Get transactions within a specific time range",
+            "tool": "mcp_chromia-mcp_get_all_transactions",
+            "prompt": "Show me transactions from {network} between {startTime} and {endTime}",
+            "parameters": {
+                "network": "{network}",
+                "timestampFrom": "{startTime}",
+                "timestampTo": "{endTime}",
+                "limit": 50
+            }
+        },
+        {
+            "title": "Get Account Transactions",
+            "description": "Get transactions involving a specific account",
+            "tool": "mcp_chromia-mcp_get_all_transactions",
+            "prompt": "Show me transactions for account {accountId} on {network}",
+            "parameters": {
+                "network": "{network}",
+                "accounts": [
+                    "{accountId}"
+                ],
+                "limit": 50
+            }
+        }
+    ],
+    "assets": [
+        {
+            "title": "Asset Distribution",
+            "description": "Shows distribution information for a specific asset",
+            "tool": "mcp_chromia-mcp_get_asset_distribution",
+            "prompt": "Show me the distribution of asset {assetId}",
+            "parameters": {
+                "assetId": "{assetId}"
+            }
+        },
+        {
+            "title": "Search Assets",
+            "description": "Search for assets by name or symbol",
+            "tool": "mcp_chromia-mcp_filter_assets",
+            "prompt": "Find assets matching '{searchQuery}' on {network}",
+            "parameters": {
+                "network": "{network}",
+                "searchQuery": "{searchQuery}",
+                "limit": 10
+            }
+        },
+        {
+            "title": "Asset Top Holders",
+            "description": "Get the top holders of a specific asset",
+            "tool": "mcp_chromia-mcp_get_asset_top_holders",
+            "prompt": "Who are the top holders of asset {assetId}?",
+            "parameters": {
+                "assetId": "{assetId}",
+                "limit": 10
+            }
+        },
+        {
+            "title": "Asset Blockchain Distribution",
+            "description": "See which blockchains contain a specific asset",
+            "tool": "mcp_chromia-mcp_get_asset_blockchains",
+            "prompt": "Which blockchains contain asset {assetId} on {network}?",
+            "parameters": {
+                "network": "{network}",
+                "assetId": "{assetId}"
+            }
+        },
+        {
+            "title": "Find Top CHR Holders",
+            "description": "Find who holds the most CHR tokens",
+            "tool": "mcp_chromia-mcp_get_asset_top_holders",
+            "prompt": "Who holds the most CHR tokens on {network}?",
+            "parameters": {
+                "assetId": "5F16D1545A0881F971B164F1601CBBF51C29EFD0633B2730DA18C403C3B428B5",
+                "limit": 10
+            }
+        },
+        {
+            "title": "Find Top Token Holders",
+            "description": "Find who holds the most of a specific token",
+            "tool": "mcp_chromia-mcp_get_asset_top_holders",
+            "prompt": "Who holds the most of token {assetId} on {network}?",
+            "parameters": {
+                "assetId": "{assetId}",
+                "limit": 10
+            }
+        }
+    ],
+    "analytics": [
+        {
+            "title": "Network Overview",
+            "description": "Get comprehensive network statistics and metrics",
+            "tool": "mcp_chromia-mcp_get_dashboard_data",
+            "prompt": "Show me an overview of the {network} network",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
+        {
+            "title": "Account Statistics",
+            "description": "Get account-related statistics for a network",
+            "tool": "mcp_chromia-mcp_get_network_account_count",
+            "prompt": "How many accounts are there on {network}?",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
+        {
+            "title": "Transfer Statistics",
+            "description": "Get transfer-related statistics for a network",
+            "tool": "mcp_chromia-mcp_get_network_transfer_count",
+            "prompt": "How many transfers have occurred on {network}?",
+            "parameters": {
+                "network": "{network}"
+            }
+        }
+    ],
+    "monitoring": [
+        {
+            "title": "Node Availability",
+            "description": "Check node downtime periods",
+            "tool": "mcp_chromia-mcp_get_node_unavailability",
+            "prompt": "Show me downtime periods for node {pubkey} on {network} since {startTime}",
+            "parameters": {
+                "network": "{network}",
+                "pubkey": "{pubkey}",
+                "startTimestamp": "{startTime}"
+            }
+        }
+    ],
+    "accounts": [
+        {
+            "title": "Account Activity",
+            "description": "Get information about account activity across blockchains",
+            "tool": "mcp_chromia-mcp_get_account_blockchains",
+            "prompt": "Show me which blockchains account {accountId} has been active on in {network}",
+            "parameters": {
+                "network": "{network}",
+                "accountId": "{accountId}"
+            }
+        },
+        {
+            "title": "Signer Activity",
+            "description": "Get information about signer activity across blockchains",
+            "tool": "mcp_chromia-mcp_get_signer_blockchains",
+            "prompt": "Show me which blockchains signer {signer} has been active on in {network}",
+            "parameters": {
+                "network": "{network}",
+                "signer": "{signer}"
+            }
+        }
+    ],
+    "chr": [
+        {
+            "title": "CHR Token Flow",
+            "description": "Get CHR token deposit and withdrawal information",
+            "tool": "mcp_chromia-mcp_get_chr_aggregates",
+            "prompt": "Show me CHR token flow statistics for {network}",
+            "parameters": {
+                "network": "{network}",
+                "includeTotals": true,
+                "includeGroupedDeposits": true,
+                "includeGroupedWithdrawals": true
+            }
+        },
+        {
+            "title": "Total Rewards",
+            "description": "Get total rewards paid on the network",
+            "tool": "mcp_chromia-mcp_get_total_rewards_paid",
+            "prompt": "How much has been paid in rewards on {network}?",
+            "parameters": {
+                "network": "{network}"
+            }
+        }
+    ],
+    "dapp_analytics": [
+        {
+            "title": "DApp Active Users",
+            "description": "Get the number of monthly active users for a specific dApp",
+            "tool": "mcp_chromia-mcp_get_monthly_active_accounts_per_chain",
+            "prompt": "How many active users does {dappName} have on {network}?",
+            "parameters": {
+                "brid": "{brid}"
+            }
+        },
+        {
+            "title": "DApp Transaction Volume",
+            "description": "Get transaction volume for a specific dApp",
+            "tool": "mcp_chromia-mcp_get_blockchain_analytics",
+            "prompt": "What is the transaction volume for {dappName} on {network}?",
+            "parameters": {
+                "brid": "{brid}"
+            }
+        },
+        {
+            "title": "DApp User Growth",
+            "description": "Track user growth over time for a specific dApp",
+            "tool": "mcp_chromia-mcp_get_blockchain_analytics",
+            "prompt": "Show me user growth for {dappName} on {network} since {fromTimestamp}",
+            "parameters": {
+                "brid": "{brid}",
+                "fromTimestamp": "{fromTimestamp}"
+            }
+        }
+    ],
+    "discovery": [
+        {
+            "title": "Find DApp by Name",
+            "description": "Search for a dApp by its name and get its details",
+            "tool": "mcp_chromia-mcp_get_blockchains_transactions",
+            "prompt": "Find me details about the dApp called {dappName} on {network}",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
+        {
+            "title": "Top Active DApps",
+            "description": "Get a list of most active dApps by transaction volume",
+            "tool": "mcp_chromia-mcp_get_network_stats",
+            "prompt": "What are the most active dApps on {network}?",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
+        {
+            "title": "DApp Asset Usage",
+            "description": "Find which assets are most used in a specific dApp",
+            "tool": "mcp_chromia-mcp_get_blockchain_analytics",
+            "prompt": "Which assets are most used in {dappName} on {network}?",
+            "parameters": {
+                "brid": "{brid}"
+            }
+        }
+    ],
+    "operations": [
+        {
+            "title": "List Operations",
+            "description": "Get a list of all available operations across blockchains",
+            "tool": "mcp_chromia-mcp_get_all_operations",
+            "prompt": "What operations are available on {network}?",
+            "parameters": {
+                "network": "{network}"
+            }
+        }
+    ],
+    "documentation": [
+        {
+            "title": "List Documentation",
+            "description": "Get a list of all available documentation files and directories",
+            "tool": "mcp_chromia-mcp_list_documentation",
+            "prompt": "Show me available documentation in {path}",
+            "parameters": {
+                "path": "{path}"
+            }
+        },
+        {
+            "title": "Read Documentation",
+            "description": "Read the content of a specific documentation file",
+            "tool": "mcp_chromia-mcp_read_documentation",
+            "prompt": "Show me the content of documentation file {path}",
+            "parameters": {
+                "path": "{path}"
+            }
+        }
+    ]
+}

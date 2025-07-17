@@ -1,0 +1,1001 @@
+# CHROMIA COOKBOOK DOCUMENTATION
+Generated on: 2025-07-24 18:36:24
+Source directory: docs/cookbook
+
+================================================================================
+
+# Welcome to the Chromia Cookbook
+
+This Cookbook provides concise, real-world examples and step-by-step recipes for common tasks, from managing accounts
+and tokens to deploying dapps and querying data. Whether you're just starting or need quick reference code, you'll find
+useful snippets and patterns here. Each section focuses on a specific problem and gives you the recipe to solve it. No
+theory, just hands-on examples.
+
+
+--------------------------------------------------------------------------------
+
+---
+title: CLI
+sidebar_position: 2
+---
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# CLI
+
+This section contains practical, hands-on recipes for common Chromia CLI development workflows. Each topic provides
+step-by-step guidance, automation scripts, and real-world examples to help you build and deploy dapps efficiently.
+
+<SectionCards>
+  <SectionCardItem header="How to create a new Rell dapp" href="create-rell-dapp">
+    <p>Bootstrap a new project, start the node, and test your first Hello World dapp.</p>
+  </SectionCardItem>
+  <SectionCardItem header="How to run queries" href="run-queries">
+    <p>Test data retrieval with practical parameter patterns and automation scripts.</p>
+  </SectionCardItem>
+  <SectionCardItem header="How to run operations" href="run-operations">
+    <p>Execute transactions that modify blockchain state with proper signing and parameter handling.</p>
+  </SectionCardItem>
+  <SectionCardItem header="How to run tests" href="run-tests">
+    <p>Create effective tests, organize test suites, and automate testing workflows.</p>
+  </SectionCardItem>
+</SectionCards>{" "}
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to create a new Rell dapp
+description: Bootstrap a new project with chr create-rell-dapp
+sidebar_position: 1
+---
+
+# How to create a new Rell dapp
+
+Creating a new Rell dapp is the first step in your Chromia development journey. This guide shows you how to bootstrap a
+project, understand the generated structure, and customize it for your needs.
+
+## Prerequisites
+
+- [Chromia CLI installed](/intro/getting-started/installation/cli-installation)
+- PostgreSQL database installed and configured
+- Basic understanding of command line operations
+
+**Alternative**: You can also create projects using
+[VS Code with the Chromia extension](/intro/getting-started/create-dapp/run-dapp-cli), which provides a graphical
+interface for project creation.
+
+## Basic project creation
+
+### Step 1: Create your dapp
+
+```bash
+chr create-rell-dapp
+```
+
+This creates a new project called `my-rell-dapp` with the necessary files:
+
+```
+my-rell-dapp
+   |--chromia.yml
+   |--src
+      |--main.rell
+      |--test
+         |--arithmetic_test.rell
+         |--data_test.rell
+```
+
+### Step 2: Explore the project structure
+
+```bash
+cd my-rell-dapp
+ls -la
+```
+
+You'll see this structure:
+
+```
+my-rell-dapp/
+├── chromia.yml          # Project configuration
+├── src/
+│   ├── main.rell        # Main Rell source code
+│   └── test/            # Test directory
+│       ├── arithmetic_test.rell
+│       └── data_test.rell
+```
+
+## Running your dapp
+
+### Step 1: Start the node
+
+Navigate to your project directory and start a local node:
+
+```bash
+cd my-rell-dapp
+chr node start
+```
+
+This starts a node with your application running on it. All blockchains listed in the `blockchains` key in `chromia.yml`
+get started.
+
+### Step 2: Get the Blockchain RID
+
+Locate the **Blockchain RID** in the terminal output. You need it to interact with your dapp. The Blockchain RID is the
+hex value following the "Blockchain RID:" tag in the node output.
+
+### Step 3: Test your dapp
+
+You can query your dapp in two ways:
+
+**Option 1: Using CURL**
+
+```bash
+curl -X GET 'localhost:7740/query/<BlockchainRID>?type=hello_world'
+```
+
+**Option 2: Using Chromia CLI**
+
+```bash
+chr query --blockchain-rid <BlockchainRID> hello_world
+```
+
+Both commands should return:
+
+```
+"Hello World!"
+```
+
+**Note**: Replace `<BlockchainRID>` with your actual Blockchain RID from the node output.
+
+**Tip**: For local development, you can use the simpler `--local` flag instead of specifying the blockchain RID:
+
+```bash
+chr query --local hello_world
+```
+
+## Project customization patterns
+
+### Advanced project creation
+
+The `chr create-rell-dapp` command creates a default project named `my-rell-dapp`. For custom project names or setups:
+
+```bash
+# Create default project (named my-rell-dapp)
+chr create-rell-dapp
+
+# For custom names, rename after creation
+chr create-rell-dapp
+mv my-rell-dapp my-custom-dapp
+
+# Or create in a custom directory structure
+mkdir my-custom-project
+cd my-custom-project
+chr create-rell-dapp
+# This creates my-rell-dapp inside my-custom-project/
+```
+
+### Directory structure customization
+
+Organize your project for larger applications by extending the generated structure:
+
+```
+my-rell-dapp/
+├── chromia.yml
+├── src/
+│   ├── main.rell           # Main entry point (generated)
+│   ├── entities/           # Data models (custom)
+│   │   ├── user.rell
+│   │   └── message.rell
+│   ├── operations/         # Business logic (custom)
+│   │   ├── user_ops.rell
+│   │   └── message_ops.rell
+│   ├── queries/           # Data queries (custom)
+│   │   ├── user_queries.rell
+│   │   └── message_queries.rell
+│   └── test/              # Test directory (generated)
+│       ├── arithmetic_test.rell  # Generated test
+│       ├── data_test.rell        # Generated test
+│       ├── user_test.rell        # Custom test
+│       └── message_test.rell     # Custom test
+```
+
+### Configuration customization
+
+Customize your `chromia.yml` for development:
+
+```yaml
+blockchains:
+  hello:
+    module: main
+
+# Development settings (optional)
+database:
+  schema_version: 1
+
+# Test configuration (optional)
+test:
+  timeout: 30000
+  parallel: true
+
+# Build settings (optional)
+build:
+  output_dir: build
+  optimize: true
+```
+
+## Next steps
+
+After creating your dapp:
+
+1. **Test your Hello World dapp** - Follow the "Running your dapp" section above
+2. **[Run queries](/cookbook/cli/run-queries)** - Advanced query patterns and testing
+3. **[Run operations](/cookbook/cli/run-operations)** - Test state modifications with chr tx
+4. **[Run tests](/cookbook/cli/run-tests)** - Set up comprehensive testing workflows
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to run operations
+description: Execute transactions with chr tx commands
+sidebar_position: 3
+---
+
+# How to run operations
+
+Operations are transactions that modify blockchain state by creating, updating, or deleting data. This guide shows you
+how to use operations during development and testing.
+
+## Prerequisites
+
+- [Chromia CLI installed](/intro/getting-started/installation/cli-installation)
+- [Rell dapp project created](/cookbook/cli/create-rell-dapp) with local node running OR access to a deployed dapp
+- [Key pair generated](/cli/commands/keygen) for signing transactions
+
+## Basic operation workflow
+
+### Step 1: Verify your node is running
+
+```bash
+# Check if local node is responding
+curl http://localhost:7740
+```
+
+### Step 2: Generate a key pair (if you haven't already)
+
+```bash
+# Generate a new key pair
+chr keygen
+
+# This creates .chromia/chromia_key and .chromia/chromia_key.pubkey
+# The default key ID is 'chromia_key'
+```
+
+### Step 3: Run a simple operation
+
+```bash
+# Test a basic operation (--local is the default)
+chr tx --secret .chromia/chromia_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+```
+
+Expected output:
+
+```
+Transaction submitted successfully
+Transaction hash: 0x1234567890abcdef...
+```
+
+**Note**: You can also use the Blockchain RID explicitly:
+
+```bash
+chr tx --blockchain-rid <BlockchainRID> --secret .chromia/chromia_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+```
+
+Replace `<BlockchainRID>` with the actual Blockchain RID from your node output. You can find this in the node startup
+output as: `Blockchain RID: FC17B67D66F6F35A5D8B75ED3F83AE222FB8C8FCA241624F06285150F10C6BAC`
+
+## Operation methods overview
+
+### Local operations (development)
+
+```bash
+# Default local operation
+chr tx --secret .chromia/chromia_key create_house "123 Main St" 4 200
+
+# Explicit blockchain RID (equivalent to --local for development)
+chr tx --blockchain-rid <BlockchainRID> --secret .chromia/chromia_key create_house "123 Main St" 4 200
+
+# Wait for transaction confirmation
+chr tx --secret .chromia/chromia_key --await create_house "123 Main St" 4 200
+```
+
+### Remote operations (deployed dapps)
+
+```bash
+# Operation on deployed dapp using network and blockchain name
+chr tx --network testnet --blockchain my_rell_dapp --secret .chromia/chromia_key create_company "TechCorp" "456 Business Ave"
+```
+
+## Operation parameters
+
+When you create operations that accept parameters, use this syntax based on the
+[official CLI documentation](https://docs.chromia.com/cli/commands/tx):
+
+### Basic parameter types
+
+```bash
+# String parameters (quoting optional for simple strings)
+chr tx --secret .chromia/chromia_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+
+# Strings with spaces (require quotes)
+chr tx --secret .chromia/chromia_key create_company "TechCorp Inc"
+
+# Integer parameters
+chr tx --secret .chromia/chromia_key create_house "123 Main St" 4 200
+
+# Multiple parameters example
+chr tx --secret .chromia/chromia_key create_library "Central Library" "Downtown" 1000
+```
+
+### Advanced parameter types
+
+```bash
+# Byte array parameters (public keys, hashes, etc.)
+chr tx --secret .chromia/chromia_key transfer_tokens 'x"0373599a61cc6b3bc02a78c34313e1737ae9cfd56b9bb24360b437d469efdf3b15"' 'x"0373599a61cc6b3bc02a78c34313e1737ae9cfd56b9bb24360b437d469efdf3b15"' 100
+
+# Dictionary/map parameters
+chr tx --secret .chromia/chromia_key update_user_metadata '["key1": "value1", "key2": "value2"]'
+
+# Array parameters
+chr tx --secret .chromia/chromia_key batch_create_users '["Alice", "Bob", "Charlie"]'
+```
+
+## Transaction options
+
+### Awaiting confirmation
+
+```bash
+# Wait for transaction to be confirmed (recommended for important operations)
+chr tx --secret .chromia/chromia_key --await create_book "ISBN001" "Chromia 101" "Alice Johnson"
+```
+
+### Making transactions unique
+
+```bash
+# Add a NOP to make transaction hash unique (useful for repeated operations)
+chr tx --secret .chromia/chromia_key --nop create_book "ISBN001" "Chromia 101" "Alice Johnson"
+```
+
+### Using different key files
+
+```bash
+# Use a specific key file
+chr tx --secret /path/to/my_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+
+# Use key by ID (if configured in .chromia/config)
+chr tx --secret my_custom_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+```
+
+## Testing against deployed dapps
+
+### Testnet operations
+
+```bash
+# Basic operation on deployed dapp
+chr tx --network testnet --blockchain my_rell_dapp --secret .chromia/chromia_key create_company "TechCorp" "456 Business Ave"
+
+# Operation with parameters on deployed dapp
+chr tx --network testnet --blockchain my_rell_dapp --secret .chromia/chromia_key create_house "123 Main St" 4 200
+```
+
+## Common operation patterns
+
+### Book management
+
+```bash
+# Create a new book
+chr tx --secret .chromia/chromia_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+
+# Update book information
+chr tx --secret .chromia/chromia_key update_book "ISBN001" "Chromia 101: Updated Edition"
+
+# Delete book record
+chr tx --secret .chromia/chromia_key delete_book "ISBN001"
+```
+
+### House management
+
+```bash
+# Create a new house
+chr tx --secret .chromia/chromia_key create_house "123 Main St" 4 200
+
+# Update house details
+chr tx --secret .chromia/chromia_key update_house "123 Main St" 5
+
+# Register house ownership
+chr tx --secret .chromia/chromia_key register_house_owner "123 Main St" "Bob Smith"
+```
+
+### Company management
+
+```bash
+# Create a new company
+chr tx --secret .chromia/chromia_key create_company "TechCorp" "456 Business Ave"
+
+# Update company information
+chr tx --secret .chromia/chromia_key update_company "TechCorp" "789 Innovation Blvd"
+
+# Add employee to company
+chr tx --secret .chromia/chromia_key add_employee "TechCorp" "Carol Davis"
+```
+
+### Library management
+
+```bash
+# Create a new library
+chr tx --secret .chromia/chromia_key create_library "Central Library" "Downtown"
+
+# Add book to library
+chr tx --secret .chromia/chromia_key add_book_to_library "Central Library" "ISBN001" 3
+
+# Check out book
+chr tx --secret .chromia/chromia_key checkout_book "ISBN001" "David Wilson"
+```
+
+## Error handling
+
+### Common error scenarios
+
+```bash
+# Operation fails due to insufficient permissions
+chr tx --secret .chromia/chromia_key admin_only_operation
+# Error: Operation requires admin privileges
+
+# Operation fails due to invalid parameters
+chr tx --secret .chromia/chromia_key create_book "" "Chromia 101" "Alice Johnson"
+# Error: ISBN cannot be empty
+
+# Operation fails due to duplicate key
+chr tx --secret .chromia/chromia_key create_book "ISBN001" "Chromia 101" "Alice Johnson"
+chr tx --secret .chromia/chromia_key create_book "ISBN001" "Another Book" "Bob Smith"
+# Error: Book with ISBN 'ISBN001' already exists
+```
+
+### Debugging operations
+
+```bash
+# Use --await to see detailed error messages
+chr tx --secret .chromia/chromia_key --await problematic_operation
+
+# Check transaction status
+chr query get_transaction_status "string:tx_hash->0x1234567890abcdef..."
+```
+
+## Next steps
+
+After mastering operations:
+
+1. [Run queries](/cookbook/cli/run-queries) to verify your operations worked correctly
+2. [Run tests](/cookbook/cli/run-tests) to automate operation testing
+3. [Deploy your dapp](/cli/commands/deployment) to make operations available publicly
+4. [Use multi-signature transactions](/cli/commands/multi-signature) for advanced security requirements
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to run queries
+description: Test your dapp with chr query commands
+sidebar_position: 2
+---
+
+# How to run queries
+
+Queries are read-only operations that retrieve data from your blockchain without modifying state. This guide shows you
+how to use queries during development and testing.
+
+## Prerequisites
+
+- [Chromia CLI installed](/intro/getting-started/installation/cli-installation)
+- [Rell dapp project created](/cookbook/cli/create-rell-dapp) with local node running OR access to a deployed dapp
+
+## Basic query workflow
+
+### Step 1: Verify your node is running
+
+```bash
+# Check if local node is responding
+curl http://localhost:7740
+```
+
+### Step 2: Run a simple query
+
+```bash
+# Test the default hello_world query (--local is the default)
+chr query hello_world
+```
+
+Expected output:
+
+```
+"Hello World!"
+```
+
+**Note**: You can also use the Blockchain RID explicitly:
+
+```bash
+chr query --blockchain-rid <BlockchainRID> hello_world
+```
+
+Replace `<BlockchainRID>` with the actual Blockchain RID from your node output. You can find this in the node startup
+output as: `Blockchain RID: FC17B67D66F6F35A5D8B75ED3F83AE222FB8C8FCA241624F06285150F10C6BAC`
+
+## Query methods overview
+
+### Local queries (development)
+
+```bash
+# Default local query
+chr query hello_world
+
+# Explicit blockchain RID (equivalent to --local for development)
+chr query --blockchain-rid <BlockchainRID> hello_world
+```
+
+### Remote queries (deployed dapps)
+
+```bash
+# Query deployed dapp using network and blockchain name
+chr query --network testnet --blockchain my_rell_dapp hello_world
+```
+
+## Query parameters
+
+When you create queries that accept parameters, use this syntax based on the
+[official CLI documentation](https://docs.chromia.com/cli/commands/query):
+
+### Basic parameter types
+
+```bash
+# String parameters (quoting optional for simple strings)
+chr query my_query arg1=Alice arg2=hello
+
+# Strings with spaces (require quotes)
+chr query my_query 'arg1="My Neighbor"' arg2=hello
+
+# Integer parameters
+chr query my_query arg1=123 arg2=456
+
+# Multiple parameters example from official docs
+chr query hello_world foo=17 bar=hello 'baz="hello world"'
+```
+
+### Advanced parameter types
+
+```bash
+# Byte array parameters
+chr query my_query 'arg=x"AB12"'
+
+# Using -- to avoid additional quotes
+chr query my_query -- arg1=foo arg2=x"AB12"
+
+# Dictionary/map parameters
+chr query my_query 'arg=["key": 12]'
+
+# Array parameters
+chr query my_query 'arg=[foo, 123]'
+```
+
+## Testing against deployed dapps
+
+### Testnet queries
+
+```bash
+# Basic query on deployed dapp
+chr query --network testnet --blockchain my_rell_dapp hello_world
+
+# Query with parameters on deployed dapp
+chr query --network testnet --blockchain my_rell_dapp my_query foo=17 bar=hello
+```
+
+## Next steps
+
+After mastering queries:
+
+1. [Run operations](/cookbook/cli/run-operations) to modify blockchain state
+2. [Run tests](/cookbook/cli/run-tests) to verify your queries work correctly
+3. [Deploy your dapp](/cli/commands/deployment) to make queries available publicly
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to run tests
+description: Execute project tests with chr test
+sidebar_position: 3
+---
+
+# How to run tests
+
+Testing is crucial for ensuring your Rell dapp works correctly before deployment. This guide shows you how to write and
+run tests using the official Rell testing framework.
+
+## Prerequisites
+
+- [Chromia CLI installed](/intro/getting-started/installation/cli-installation)
+- [Rell dapp project created](/cookbook/cli/create-rell-dapp)
+
+## Basic testing workflow
+
+### Step 1: Verify your test files exist
+
+Test files are automatically discovered in the `src/test/` directory. Any `.rell` file in this directory will be treated
+as a test module:
+
+```bash
+# Check test directory structure
+ls -la src/test/
+
+# Should show:
+# arithmetic_test.rell
+# data_test.rell
+```
+
+The test runner automatically discovers and executes all `.rell` files in the `src/test/` directory. Functions starting
+with `test_` within these files are treated as test cases.
+
+### Step 2: Run all tests
+
+```bash
+chr test
+```
+
+Expected output:
+
+```
+TEST RESULTS:
+
+arithmetic_test:test_addition OK (0.002s)
+arithmetic_test:test_subtraction OK (0.001s)
+data_test:test_hello_world OK (0.003s)
+
+SUMMARY: 0 FAILED / 3 PASSED / 3 TOTAL (0.006s)
+```
+
+## Understanding Rell tests
+
+### Test module basics
+
+Tests use the `@test` annotation to define a test module:
+
+```rell
+@test module;
+
+function test_hello_world() {
+    val result = hello_world();
+    assert_equals(result, "Hello World!");
+}
+```
+
+Functions starting with `test_` are automatically executed as tests.
+
+## Assertion functions
+
+Use the official assertion functions provided by Rell:
+
+```rell
+@test module;
+
+function test_basic_assertions() {
+    // Test equality
+    assert_equals(2 + 2, 4);
+
+    // Test boolean conditions
+    assert_true(5 > 3);
+    assert_false(2 > 5);
+
+    // Test comparisons
+    assert_lt(3, 5);  // 3 less than 5
+    assert_gt(5, 3);  // 5 greater than 3
+
+    // Test that a function fails as expected
+    assert_fails(some_failing_function);
+}
+```
+
+## Running specific tests
+
+```bash
+# Run tests from specific module
+chr test --modules arithmetic_test
+
+# Run tests from multiple modules
+chr test --modules arithmetic_test data_test
+
+# See detailed test output
+chr test --verbose
+```
+
+## SQL logging for debugging
+
+Enable SQL query logging to understand how your Rell code translates to database operations:
+
+```bash
+# Log all SQL queries (both user and system)
+chr test --sql-log
+
+# Log only user queries (your dapp's queries)
+chr test --sql-log=user
+
+# Log only system queries (internal Chromia queries)
+chr test --sql-log=system
+
+# Combine with other options
+chr test --sql-log --modules arithmetic_test --verbose
+```
+
+For more information on analyzing SQL statements, see [Rell dapp code optimization](/rell/analyze-rell-dapp-code).
+
+## Generating test data with seeder
+
+The seeder command helps you generate mock data for a local database. This is an early-stage feature and may be subject
+to change.
+
+### Initialize seeder configuration
+
+```bash
+# Generate default seeder configuration for all blockchains
+chr seeder init
+
+# Generate configuration for specific blockchain
+chr seeder init --blockchain my_blockchain
+```
+
+This creates a `.chromia/seeder` directory with YAML configuration files for each entity in your dapp.
+
+### Generate the seeder module
+
+```bash
+# Generate seeder modules for all blockchains
+chr seeder generate
+
+# Generate for specific blockchain
+chr seeder generate --blockchain my_blockchain
+```
+
+This creates `src/seeder/seed_[blockchain-name].rell` files containing the data generation logic.
+
+For detailed information on using the seeder, see [Seeder command documentation](/cli/commands/seeder) and
+[Using the seeder](/cli/Seeder/seeder-example).
+
+## Test file organization
+
+Default test structure:
+
+```
+src/
+├── main.rell
+└── test/
+    ├── arithmetic_test.rell    # Mathematical operation tests
+    └── data_test.rell         # Data structure tests
+```
+
+The test runner automatically discovers and executes all `.rell` files in the `src/test/` directory. Functions starting
+with `test_` within these files are treated as test cases.
+
+## Debugging test failures
+
+### Reading test output
+
+When tests fail, the output shows details:
+
+```
+TEST RESULTS:
+
+my_test_module:test_foo OK (0.005s)
+my_test_module:test_bar FAILED (0.001s)
+
+SUMMARY: 1 FAILED / 1 PASSED / 2 TOTAL (0.007s)
+
+***** FAILED *****
+```
+
+### Adding debug output
+
+```rell
+@test module;
+
+function test_with_debug() {
+    print("Debug: Starting test");
+
+    val result = my_function();
+    print("Debug: Result is " + result);
+
+    assert_equals(result, expected_value);
+}
+```
+
+## Next steps
+
+After mastering basic testing:
+
+1. [Deploy your tested dapp](/cli/commands/deployment) with confidence
+2. Learn more about advanced testing patterns in the [Rell testing documentation](https://docs.chromia.com/rell/tests/)
+3. Explore the [Chromia learning platform](https://learn.chromia.com/courses/rell-integration-test/introduction) for
+   integration testing
+4. [Run operations](/cookbook/cli/run-operations) to test state modifications
+5. [Run queries](/cookbook/cli/run-queries) to verify your test data and operations
+
+
+--------------------------------------------------------------------------------
+
+---
+title: FT4
+sidebar_position: 2
+---
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# FT4
+
+This section contains practical, hands-on recipes for common Chromia CLI development workflows. Each topic provides
+step-by-step guidance, automation scripts, and real-world examples to help you build and deploy dapps efficiently.
+
+<SectionCards>
+  <SectionCardItem header="How to create account with open strategy" href="open-strategy">
+    <p>Create an account with an open strategy.</p>
+  </SectionCardItem>
+  <SectionCardItem header="How to create account with transfer fee strategy" href="transfer-fee-strategy">
+    <p>
+      Create an account with a transfer fee strategy where part of the transferred amount goes to the chain as a fee.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="How to create account with transfer open strategy" href="transfer-open-strategy">
+    <p>Create an account with a transfer open strategy where users can claim the full deposit amount.</p>
+  </SectionCardItem>
+  <SectionCardItem
+    header="How to create account with transfer subscription strategy"
+    href="transfer-subscription-strategy"
+  >
+    <p>Create an account with a transfer subscription strategy that requires periodic subscription renewals.</p>
+  </SectionCardItem>
+</SectionCards>{" "}
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to create account with open strategy
+sidebar_position: 2
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# How to create account with open strategy
+
+The **open strategy** allows developers to create a registration process that does not require users to pay any fees. In
+this method, users must transfer a specific amount of tokens to a non-existent account, which they must then claim to
+activate it using the `register_account()` operation.
+
+:::warning
+
+Please note that it is advisable to use the open strategy only during the development phase. Using it outside of this
+phase may result in users registering accounts without paying any fees, potentially causing network spam.
+
+:::
+
+## Rell side
+
+**[Rell open strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/open/rell/)**
+
+## Client side
+
+**[JavaScript open strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/open/js_client/)**
+
+## To learn more:
+
+- [FT4 registration strategies](https://docs.chromia.com/ft4/backend/accounts/overview#registration-strategies)
+- [FT4 account management](https://docs.chromia.com/ft4/account-management/overview)
+- [Client account registration](https://docs.chromia.com/ft4/client/client-account-registration)
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to create account with transfer fee strategy
+sidebar_position: 3
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# How to create account with transfer fee strategy
+
+The **transfer fee strategy** allows users to create an account by transferring assets to a non-existent account. Part
+of the transferred assets is collected as a fee to the chain's fee account, and the user can only claim the remaining
+assets to their account.
+
+## Rell side
+
+**[Rell transfer fee strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_fee/rell/)**
+
+## Client side
+
+**[JavaScript transfer fee strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_fee/js_client/)**
+
+## To learn more:
+
+- [FT4 registration strategies](https://docs.chromia.com/ft4/backend/accounts/overview#registration-strategies)
+- [FT4 account management](https://docs.chromia.com/ft4/account-management/overview)
+- [FT4 fixed fee strategy](https://docs.chromia.com/ft4/backend/accounts/fixed)
+- [Client account registration](https://docs.chromia.com/ft4/client/client-account-registration)
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to create account with transfer open strategy
+sidebar_position: 4
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# How to create account with transfer open strategy
+
+The **transfer open strategy** allows users to create an account by transferring assets to a non-existent account. The
+user can claim the entire deposit to their newly created account without any fees deducted.
+
+## Rell side
+
+**[Rell transfer open strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_open/rell/)**
+
+## Client side
+
+**[JavaScript transfer open strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_open/js_client/)**
+
+## To learn more:
+
+- [FT4 registration strategies](https://docs.chromia.com/ft4/backend/accounts/overview#registration-strategies)
+- [FT4 account management](https://docs.chromia.com/ft4/account-management/overview)
+- [FT4 open fee strategy](https://docs.chromia.com/ft4/backend/accounts/open)
+- [Client account registration](https://docs.chromia.com/ft4/client/client-account-registration)
+
+
+--------------------------------------------------------------------------------
+
+---
+title: How to create account with transfer subscription strategy
+sidebar_position: 5
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# How to create account with transfer subscription strategy
+
+The **transfer subscription strategy** allows users to create an account by transferring assets to a non-existent
+account. Similar to the fee strategy, part of the transferred assets is collected as a fee, but the user needs to
+periodically renew their subscription by paying the subscription fee to keep using their account.
+
+## Rell side
+
+**[Rell transfer subscription strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_subscription/rell/)**
+
+## Client side
+
+**[JavaScript transfer subscription strategy demo](https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_subscription/js_client/)**
+
+## To learn more:
+
+- [FT4 registration strategies](https://docs.chromia.com/ft4/backend/accounts/overview#registration-strategies)
+- [FT4 account management](https://docs.chromia.com/ft4/account-management/overview)
+- [FT4 subscription fee strategy](https://docs.chromia.com/ft4/backend/accounts/subscription)
+- [Client account registration](https://docs.chromia.com/ft4/client/client-account-registration)
+
+
+--------------------------------------------------------------------------------
+

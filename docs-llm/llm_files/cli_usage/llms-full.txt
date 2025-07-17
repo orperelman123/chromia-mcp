@@ -1,0 +1,1491 @@
+# CHROMIA CLI USAGE DOCUMENTATION
+Generated on: 2025-07-24 18:36:24
+Source directory: generated
+
+================================================================================
+
+```text
+Usage: chr deployment proposal revoke [<options>]
+
+  Revoke/remove a proposal submitted by you
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --id=<int>  Id of the proposal
+  -h, --help  Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment inspect [<options>]
+
+  Inspect the API of a deployed blockchain
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Node:
+
+  Target a test node
+
+  -brid, --blockchain-rid=<text>  Target Blockchain RID
+  --cid=<int>                     Target Blockchain IID
+  --api-url=<text>                Target api url
+
+Deployment:
+
+  Use a configured deployment
+
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain in deployment configuration
+
+Options:
+  -f, --output-format=(table|JSON)
+                           Output format
+  -m, --modules=<modules>  Explicitly state which module to inspect (comma
+                           separated)
+  -l, --list-modules       List all module names
+  --module-args            Show module_args
+  --definitions=(queries|operations|entities|objects)
+                           List definitions of this kind (comma separated),
+                           default: all
+  --signature=<value>      Show the signature of the specified definition and
+                           exit
+  -h, --help               Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr tools [OPTIONS] COMMAND [ARGS]...
+
+  Miscellaneous tools
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  gtv              Decode and convert GTV data                               │
+│  validate-config  Validate a chromia config file                            │
+│  lib-model        Generate a library model                                  │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment voterset info [<options>]
+
+  Show information of voter set
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Options:
+  -n, --name=<value>       Name of voter set
+  -c, --container=<value>  Name of the container that is governed by the
+                           voterset
+  -f, --output-format=(table|JSON)
+                           Output format
+  -h, --help               Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr seeder generate [<options>]
+
+  Generate Rell blockchain seeder module
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  --alternative-config-folder=<path>
+              Alternative path to the root seeder configuration folder
+  -bc, --blockchain=<blockchain>
+              Blockchains to generate seeders for (defaults to all)
+  -h, --help  Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment pause [<options>]
+
+  Pauses a blockchain in a container
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --description=<text>      Description on why the blockchain is being acted on
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain to deploy
+  -h, --help                Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr [OPTIONS] COMMAND [ARGS]...
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  --generate-completion=(bash|zsh|fish)                                      │
+│  --version                              Show the version and exit           │
+│  -h, --help                             Show this message and exit          │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  build             Build an application and create a blockchain             │
+│                    configuration                                            │
+│  create-rell-dapp  Generates a template project                             │
+│  deployment        Create and maintain deployments                          │
+│  eif               Ethereum Integration Framework commands                  │
+│  generate          Generate client stubs and documentation for a rell       │
+│                    project                                                  │
+│  install           Install library dependencies, if no library specified all│
+│                    will be installed                                        │
+│  keygen            Generates public/private key pair                        │
+│  node              Interact with a test node                                │
+│  query             Make a query towards a running node                      │
+│  repl              REPL is used to create a language shell for Rell that    │
+│                    takes single user inputs, executes them, and returns the │
+│                    result.                                                  │
+│  test              Run tests in working directory                           │
+│  tx                Make a transaction towards a node.                       │
+│  code              Code quality management (formatting, linting)            │
+│  multi-signature   Handle transactions with need of multiple signers        │
+│  tools             Miscellaneous tools                                      │
+│  seeder            ALPHA FEATURE: Generate fake data for a local database   │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment voterset [OPTIONS] COMMAND [ARGS]...
+
+  Interact with votersets
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  info               Show information of voter set                           │
+│  update             Propose an update of a voter set's members list         │
+│  list               List all voter sets                                     │
+│  add-dapp-provider  Add a dapp provider to container                        │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr multi-signature send [<options>]
+
+  Send a fully signed transaction
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Node:
+
+  Target a test node
+
+  -brid, --blockchain-rid=<text>  Target Blockchain RID
+  --cid=<int>                     Target Blockchain IID
+  --api-url=<text>                Target api url
+
+Deployment:
+
+  Use a configured deployment
+
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain in deployment configuration
+
+Options:
+  -a, --await / --no-await  Wait for transaction to be included in a block
+  -f, --file=<path>         Path to file of transaction
+  -h, --help                Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr code lint [<options>] [<files>]...
+
+  Analyze Rell code to find potential issue and coding style violations.
+  Configurable using .rell_lint file
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  --source-dir=<path>           source directory
+  -fo, --formatter-options=<path>
+                                Formatter options file (default '.rell_format')
+  -lo, --linter-options=<path>  Linter options file (default '.rell_lint')
+  --fix                         Fix all auto-fixable issues
+  -h, --help                    Show this message and exit
+
+Arguments:
+  <files>  Files or dirs to show/fix linter issues from. (*.rell: All files
+           ending with rell extension) (main/*: Matches all files in main
+           directory on explicit path) (**/main/*: Matches all files in main
+           directory independent on parent paths)
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment voterset update [<options>]
+
+  Propose an update of a voter set's members list
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  -vs, --voter-set=<text>  Name of existing voter set to update
+  -t, --threshold=<int>    0: supermajority of voters, specifically n - (n - 1)
+                           / 3 (which is usually around 67%) -1: simple
+                           majority positive number: that many voters
+  --add-member=<value>     Provider pubkey(s) to add to voter set. Separate
+                           keys with ','
+  --remove-member=<value>  Provider pubkey(s) to remove from voter set.
+                           Separate keys with ','
+  --description=<text>     Proposal description
+  -h, --help               Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr build [<options>]
+
+  Build an application and create a blockchain configuration
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -bc, --blockchain=<blockchain>
+                          Explicitly specify which blockchain(s) to compile
+  -f, --format=(GTV|XML)  Blockchain configuration format
+  --hide-lib-warnings     Hide library warnings in build output
+  -h, --help              Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr node update [<options>]
+
+  Updates a running test node
+
+  Will add a configuration to a block height 2 higher than current height for
+  the running blockchain. Make sure this command is executed with exactly the
+  same chromia.yml and arguments as was used when starting the node using chr
+  node start to make sure configurations are added to the correct chain ids.
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -bc, --blockchain-config=<path>
+                                 Manually specify which blockchain-configs to
+                                 run
+  --name=<name>                  Only start specified blockchains (multiple)
+  -p=<key=value>                 Override any property value (usage: -p
+                                 key=value)
+  -np, --node-properties=<path>  Full path to override node properties file
+  --directory-chain-mock         Adds a blockchain on ID 0 that responds to the
+                                 cluster management api and anchoring api. Used
+                                 together with integration tests involving
+                                 frontend clients. Can be used with node
+                                 discovery features, ICCF and cross-chain
+                                 transfers using the FT-protocol
+  -n, --preemption=<int>         Update the configuration at a height this many
+                                 blocks into the future
+  -h, --help                     Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr generate [OPTIONS] COMMAND [ARGS]...
+
+  Generate client stubs and documentation for a rell project
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  client-stubs  Generates client code for a rell dapp                        │
+│  graph         Generates entity relation graphs in mermaid format           │
+│  docs-site     Generate a documentation site for a dapp ontology            │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment remove [<options>]
+
+  Removes a blockchain in a container (This action is permanent)
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --description=<text>      Description on why the blockchain is being acted on
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain to deploy
+  -h, --help                Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr tools gtv [<options>]
+
+  Decode and convert GTV data
+
+  Use --hex option or pipe binary GTV data to the command.
+
+  Examples:
+  ╭──────────────────────────────────────────────────────────────────────╮
+  │chr gtv --hex A41A3018300A0C0161A2050C03464F4F300A0C0162A2050C03424152│
+  │chr gtv --output-format yaml < data.gtv                               │
+  ╰──────────────────────────────────────────────────────────────────────╯
+
+Options:
+  --hex=<hex>       Hex encoded GTV data
+  -f, --output-format=(pretty|raw|JSON|XML|YAML)
+                    Output format
+  --hash=<version>  Calculate Merkle hash of the GTV data
+  -h, --help        Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment resume-container [<options>]
+
+  Resume a paused container
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --description=<text>  Description on why the container is being acted on
+  -d, --network=<text>  Specify which deployment target to use
+  -h, --help            Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr install [<options>]
+
+  Install library dependencies, if no library specified all will be installed
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -lib, --library=<library>  Name of library
+  -h, --help                 Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr multi-signature view [<options>]
+
+  View a existing transaction
+
+Options:
+  -f, --file=<path>  Path to file of transaction
+  -h, --help         Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr tools validate-config [<options>]
+
+  Validate a chromia config file
+
+Options:
+  -f, --file=<path>
+  -h, --help         Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr seeder [OPTIONS] COMMAND [ARGS]...
+
+  ALPHA FEATURE: Generate fake data for a local database
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  init      Create initial seeder configuration for blockchains              │
+│  generate  Generate Rell blockchain seeder module                           │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment proposal [OPTIONS] COMMAND [ARGS]...
+
+  Act on proposals
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  vote    Vote on proposals linked to your public key                        │
+│  list    List all proposals that you can vote on                            │
+│  info    Get information of a given proposal                                │
+│  revoke  Revoke/remove a proposal submitted by you                          │
+│  rename  Create a proposal to rename a deployed blockchain                  │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr code [OPTIONS] COMMAND [ARGS]...
+
+  Code quality management (formatting, linting)
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  lint    Analyze Rell code to find potential issue and coding style         │
+│          violations. Configurable using .rell_lint file                     │
+│  format  Automatically format Rell code. Configurable using .rell_format    │
+│          file                                                               │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr eif [OPTIONS] COMMAND [ARGS]...
+
+  Ethereum Integration Framework commands
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  generate-events-config  Generate solidity events that EIF will listen to   │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment voterset list [<options>]
+
+  List all voter sets
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Options:
+  -f, --output-format=(table|JSON)
+                          Output format
+  -c, --container=<text>  Specify the container to receive the voterset for, If
+                          not set it will default to all votersets.
+  -h, --help              Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr generate docs-site [<options>]
+
+  Generate a documentation site for a dapp ontology
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -d, --target=<path>   Directory to generate code in
+  -i, --include=<text>  Libs to actively include in the navigation of the
+                        generated docs site, by default all are excluded. To
+                        include a library, the full identifier must be
+                        specified as an example for the library foo, the
+                        inclusion of it would be lib.foo
+  --hide-lib-warnings   Hide library warnings in build output
+  -h, --help            Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment resume [<options>]
+
+  Starts a paused blockchain in a container
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --description=<text>      Description on why the blockchain is being acted on
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain to deploy
+  -h, --help                Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr create-rell-dapp [<options>] [<name>]
+
+  Generates a template project
+
+  Template projects:
+  Minimal - Minimal working example including sample queries/operations and
+  tests.
+  Plain - A plain skeleton with empty main and test files.
+  Plain-Multi - A plain skeleton with empty main and test files using multiple
+  modules.
+  Asset Management - A template focused on asset management on the Chromia
+  blockchain. It includes components for blockchain operations and a frontend
+  for user interaction
+
+Options:
+  -d, --base-dir=<path>  Directory to generate template project in
+  --template=(plain|plain-multi|minimal|plain-library|asset-management)
+                         Project template
+  --devcontainer         Setup devcontainer for project
+  -h, --help             Show this message and exit
+
+Arguments:
+  <name>  Dapp name
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment proposal vote [<options>]
+
+  Vote on proposals linked to your public key
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --id=<int>          Id of the proposal
+  --accept, --reject  Vote action to cast
+  -h, --help          Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment create [<options>]
+
+  Deploy blockchain into container
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Options:
+  -bc, --blockchain=<text>  Name of blockchain to deploy
+  --no-compression          If compression on rell sources should not be done
+  --hide-lib-warnings       Hide library warnings in build output
+  -y                        Confirm that this will create a new deployment
+  -h, --help                Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr node start [<options>]
+
+  Starts a test node
+
+  If a blockchain has already been started on the configured database schema,
+  the configuration will be added to the next height such that the node will be
+  started with the new config. Use --wipe to wipe the database schema upon
+  startup and thus enforce starting the chain from height=0.
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -bc, --blockchain-config=<path>
+                                 Manually specify which blockchain-configs to
+                                 run
+  --name=<name>                  Only start specified blockchains (multiple)
+  -p=<key=value>                 Override any property value (usage: -p
+                                 key=value)
+  -np, --node-properties=<path>  Full path to override node properties file
+  --directory-chain-mock         Adds a blockchain on ID 0 that responds to the
+                                 cluster management api and anchoring api. Used
+                                 together with integration tests involving
+                                 frontend clients. Can be used with node
+                                 discovery features, ICCF and cross-chain
+                                 transfers using the FT-protocol
+  --sql-log                      Log sql expressions
+  --wipe / --no-wipe             If a database should be wiped before startup
+  -h, --help                     Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr tools lib-model [<options>]
+
+  Generate a library model
+
+Options:
+  --name=<text>                Name of the library
+  -s, --library-source=<path>
+  --registry=<text>            Git reference
+  --tag-or-branch=<text>       Tag or branch the library is published on
+  --insecure=true|false        Allow insecure connections
+  -h, --help                   Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment [OPTIONS] COMMAND [ARGS]...
+
+  Create and maintain deployments
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  create            Deploy blockchain into container                         │
+│  info              Information about a deployed blockchain                  │
+│  inspect           Inspect the API of a deployed blockchain                 │
+│  update            Update configuration of a deployed blockchain            │
+│  resume            Starts a paused blockchain in a container                │
+│  pause             Pauses a blockchain in a container                       │
+│  remove            Removes a blockchain in a container (This action is      │
+│                    permanent)                                               │
+│  proposal          Act on proposals                                         │
+│  voterset          Interact with votersets                                  │
+│  pause-container   Pause a container                                        │
+│  resume-container  Resume a paused container                                │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr generate graph [<options>]
+
+  Generates entity relation graphs in mermaid format
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -m, --module=<text>  Explicitly set which modules to generate code for.
+                       Separate modules with ','
+  -d, --target=<path>  Directory to generate code in
+  --hide-lib-warnings  Hide library warnings in build output
+  --mdx                Surround with mdx tags
+  --entity-relation / --class-diagram
+                       Presented as entity relation diagram or class diagram
+  -h, --help           Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment proposal info [<options>]
+
+  Get information of a given proposal
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Options:
+  --id=<int>                        Id of the proposal
+  -f, --output-format=(table|JSON)  Output format
+  -h, --help                        Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr multi-signature sign [<options>]
+
+  Sign a existing transaction with your key
+
+Configuration Properties:
+  -cfg, --config=<config>  Alternate path for client configuration file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  -f, --file=<path>   Path to file of transaction
+  --target=<path>     Path where file should be saved
+  --file-name=<text>  Override default name of output file
+  -h, --help          Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr query [<options>] <queryname> [<args>]...
+
+  Make a query towards a running node
+
+  Examples:
+  ╭─────────────────────────────────────────────────────────────────────╮
+  │# query primitive_args(arg1: integer, arg2: name, arg3: text, arg4:  │
+  │byte_array, arg5: my_enum)                                           │
+  │chr query primitive_args 'arg1=123' 'arg2=Alice' 'arg3="My Neighbor"'│
+  │'arg4=x"AB12"' 'arg5=0'                                              │
+  │# query dict_arg(arg: map<text, integer>)                            │
+  │chr query dict_arg 'arg=["key": 12]'                                 │
+  │# query map_arg(arg: map<my_enum, text>)                             │
+  │chr query map_arg 'arg=[[0, "first"],[1, "second"]]'                 │
+  │# query struct_arg(arg: my_struct)                                   │
+  │chr query struct_arg 'arg=[12, "structs are arrays", x"AB"]'         │
+  │                                                                     │
+  │# Use -- do avoid additional quotes                                  │
+  │chr query my_query -- arg1=foo arg2=x"AB12"                          │
+  ╰─────────────────────────────────────────────────────────────────────╯
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Node:
+
+  Target a test node
+
+  -brid, --blockchain-rid=<text>  Target Blockchain RID
+  --cid=<int>                     Target Blockchain IID
+  --api-url=<text>                Target api url
+
+Deployment:
+
+  Use a configured deployment
+
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain in deployment configuration
+
+Options:
+  -f, --output-format=(pretty|raw|JSON|XML|YAML)  Output format
+  -h, --help                                      Show this message and exit
+
+Arguments:
+  <queryname>  name of the query to make.
+  <args>       arguments to pass to the query, passed either as key=value pairs
+               or as a single dict. (integer: 123) (big_integer: 1234L)
+               (string: foo, "bar") (bytearray: will be encoded using the rell
+               notation x"<myByteArray>" and will initially be interpreted as a
+               hex-string.) (array: [foo,123]) (dict:
+               ["key1":value1,"key2":value2])
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr tx [<options>] <opname> [<args>]...
+
+  Make a transaction towards a node.
+
+  Supports both specifying the target node using url and brid/id or from a
+  deployment which is specified in the chromia.yml This will post the
+  transaction asynchronously unless --await is specified, in which it will wait
+  until transaction has been included in a block.
+
+  FT4 compatibility: To make a transaction towards a dapp that uses
+  ft-authentication, use the --ft-auth flag. This only works if the signer
+  keypair is connected to a ft-account with the correct authentication rules.
+  Use --ft-account-id to explicitly state which account to use if keypair is
+  connected to more than one account. Node: This does not work with
+  evm-authentication
+
+  ICCF: To verify a transaction using ICCF, specify the tx-rid to verify using
+  --iccf-tx and which chain id the transaction was processed. The command will
+  both construct and insert a iccf_proof operation prior to the user operation
+  but will also add the the transaction as a gtx_transaction as first argument
+  to the user operation.
+
+  Examples:
+  ╭───────────────────────────────────────────────────────────────────────╮
+  │# operation primitive_args(arg1: integer, arg2: name, arg3: text, arg4:│
+  │byte_array, arg5: my_enum)                                             │
+  │chr tx primitive_args 123 Alice "My Neighbor" 'x"AB12"' 0              │
+  │# operation dict_arg(arg: map<text, integer>)                          │
+  │chr tx dict_arg '["key": 12]'                                          │
+  │# operation map_arg(arg: map<my_enum, text>)                           │
+  │chr tx map_arg '[[0, "first"],[1, "second"]]'                          │
+  │# operation struct_arg(arg: my_struct)                                 │
+  │chr tx struct_arg '[12, "structs are arrays", x"AB"]'                  │
+  ╰───────────────────────────────────────────────────────────────────────╯
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Node:
+
+  Target a test node
+
+  -brid, --blockchain-rid=<text>  Target Blockchain RID
+  --cid=<int>                     Target Blockchain IID
+  --api-url=<text>                Target api url
+
+Deployment:
+
+  Use a configured deployment
+
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain in deployment configuration
+
+FT compatible dapps options:
+  --ft-auth               Adds ft4.ft_auth operation for FT-compatible dapps
+  --ft-account-id=<text>  Explicitly specify which account to use
+  --evm-auth=<address>    Adds ft4.evm_auth operation for FT-compatible dapps
+  --ft-register-account   Adds ft4.register_account operation. To be used in
+                          combination with an account creation strategy.
+
+ICCF options:
+  --iccf-tx=<text>            Constructs a ICCF-proof for this tx-rid and
+                              inserts iccf_proof operation to the transaction.
+                              This will also add the tx as a gtx_transaction as
+                              first argument to the operation
+  --iccf-source=<value>       Blockchain RID for the chain which the tx to be
+                              confirmed has taken place
+  --source-api-url=<text>     Source api url (default target api url)
+  --iccf-force-intra-network  Force usage of intra-network ICCF proof
+
+Options:
+  -a, --await / --no-await  Wait for transaction to be included in a block
+  -nop                      Adds a nop to the transaction
+  -h, --help                Show this message and exit
+
+Arguments:
+  <opname>  Name of the operation to execute.
+  <args>    Types and their format as arguments to pass to the operation.
+            (integer: 123) (big_integer: 1234L) (decimal: "1.2") (text: foo,
+            "bar") (byte_array: 'x"<myByteArray>"') (list: '["foo",123]')
+            (map<text, ...>: '["text_key":value1,"text_key2":value2]')
+            (map<non_text_key_type, ...>: '[[non_text_key, value1],
+            [non_text_key, value2]]') (struct: '["foo"]')
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr repl [<options>] [<script>] [<args>]...
+
+  REPL is used to create a language shell for Rell that takes single user
+  inputs, executes them, and returns the result. Inside the repl you can create
+  local variables and execute Rell commands, it can be attached to a Rell
+  module to be able to inspect a dapp state and execute dapp functionalities.
+
+  Run query commands: To be able to run queries in the shell, a user must have
+  a module defined from the start of the repl command in which the query is
+  defined. Queries that do not depend on entities can be executed without a
+  database connection, and queries that depend on an entity must then have a
+  database connection defined.
+
+  Run Operations commands: When a operation is executed from the repl shell,
+  the database connection and a module needs to be defined from the start of
+  the repl command, to be able to execute an operation it needs added to a
+  transaction. This can be done by wrapping it with a test transaction like
+  this: rell.test.tx(<your operation>..).run()
+
+  Rell scripts: You can specify a file with Rell statements which will be read
+  and executed (specifying - will read from standard input). Command line
+  arguments can be specified and will be available as args: list<text>. This
+  can not be combined with the -c option. Support for Rell scripts is
+  experimental and may be changed or removed at any time.
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -m, --module=<module>    Name of module
+  --sql-log                Log sql expressions
+  --history-file=<path>    Save command history to this file
+  --use-db                 If a session towards the configured database should
+                           be established
+  -c, --command=<command>  Execute a single command
+  -r, --raw-output         Will print large object line by line and strings
+                           without quotes (deprecated)
+  -f, --output-format=(pretty|raw|JSON|XML|YAML)
+                           Output format
+  -d, --duration           Print duration of the execution
+  -h, --help               Show this message and exit
+
+Arguments:
+  <script>  Script file
+  <args>    Arguments to script
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment proposal rename [<options>]
+
+  Create a proposal to rename a deployed blockchain
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --description=<text>            Proposal description
+  -n, --new-name, --name=<text>   New name of the blockchain
+  -brid, --blockchain-rid=<text>  Brid for blockchain to rename
+  -h, --help                      Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr eif generate-events-config [<options>]
+
+  Generate solidity events that EIF will listen to
+
+Options:
+  --abi=<path>         Path to a JSON ABI file or a directory of JSON ABI files
+  --events=<text>      Names of the relevant events (Comma separated)
+  --target=<path>      Target file to generate events in (defaults to
+                       "build/eif-events.yaml")
+  --format=(XML|YAML)  Output file format
+  -h, --help           Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment pause-container [<options>]
+
+  Pause a container
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --description=<text>  Description on why the container is being acted on
+  -d, --network=<text>  Specify which deployment target to use
+  -h, --help            Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr keygen [<options>]
+
+  Generates public/private key pair
+
+File format:
+  -f, --file=<path>        Set file to save keypair to explicitly
+  --get-pubkey[=<key-id>]  Print the active public key. If no key-id is
+                           specified, the key is determined from your
+                           configuration; otherwise, retrieves the public key
+                           for the given key-id.
+  --dry                    Perform dry run, prints keys in terminal and does
+                           not save keys to disk
+  --key-id=<value>         Name the generated key with an id
+
+Options:
+  -m, --mnemonic=<text>  Mnemonic word list, words separated by space, e.g:
+                         "lift employ roast rotate liar holiday sun fever
+                         output magnet...""
+  -h, --help             Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr multi-signature [OPTIONS] COMMAND [ARGS]...
+
+  Handle transactions with need of multiple signers
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  create  Creates a new transaction for multi signature and signs it with    │
+│          your key                                                           │
+│  sign    Sign a existing transaction with your key                          │
+│  send    Send a fully signed transaction                                    │
+│  view    View a existing transaction                                        │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment info [<options>]
+
+  Information about a deployed blockchain
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Node:
+
+  Target a test node
+
+  -brid, --blockchain-rid=<text>  Target Blockchain RID
+  --cid=<int>                     Target Blockchain IID
+  --api-url=<text>                Target api url
+
+Deployment:
+
+  Use a configured deployment
+
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain in deployment configuration
+
+Options:
+  --verbose                         Show verbose information about nodes
+  -f, --output-format=(table|JSON)  Output format
+  -h, --help                        Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment proposal list [<options>]
+
+  List all proposals that you can vote on
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Options:
+  --from=<value>  List proposals from date (YYYY-MM-DD)
+  --to=<value>    List proposals to date (YYYY-MM-DD)
+  --all           Include all proposals, including ones you can not vote on
+  --pending       Only include proposals that are still pending
+  -f, --output-format=(table|JSON)
+                  Output format
+  -h, --help      Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr multi-signature create [<options>] <opname> [<args>]...
+
+  Creates a new transaction for multi signature and signs it with your key
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Node:
+
+  Target a test node
+
+  -brid, --blockchain-rid=<text>  Target Blockchain RID
+  --cid=<int>                     Target Blockchain IID
+  --api-url=<text>                Target api url
+
+Deployment:
+
+  Use a configured deployment
+
+  -d, --network=<text>      Specify which deployment target to use
+  -bc, --blockchain=<text>  Name of blockchain in deployment configuration
+
+FT compatible dapps options:
+  --ft-auth               Adds ft4.ft_auth operation for FT-compatible dapps
+  --ft-account-id=<text>  Explicitly specify which account to use
+  -id, --auth-descriptor-id=<text>
+                          Explicitly specify which auth descriptor id to use
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  --signers-file=<path>  Path to file containing public keys of signers
+                         (pubkey1=x,pubkey2=y,...)
+  --target=<path>        Path where file should be saved
+  -h, --help             Show this message and exit
+
+Arguments:
+  <opname>  name of the operation to execute.
+  <args>    arguments to pass to the operation. (integer: 123) (big_integer:
+            1234L) (string: foo, "bar") (bytearray: will be encoded using the
+            rell notation x"<myByteArray>" and will initially be interpreted as
+            a hex-string.) (array: [foo,123]) (dict:
+            ["key1":value1,"key2":value2])
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment voterset add-dapp-provider [<options>]
+
+  Add a dapp provider to container
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Options:
+  -a, --await / --no-await     Wait for transaction to be included in a block
+  -pk, --pubkey=<text>         The public key of the dApp provider to be added
+  -cid, --container-id=<text>  Container Identifier to add dapp provider too
+  --evm-auth=<address>         Adds ft4.evm_auth operation for FT-compatible
+                               dapps
+  -h, --help                   Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr generate client-stubs [<options>]
+
+  Generates client code for a rell dapp
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+kotlin:
+  --package=<text>  Name of package
+
+Options:
+  -m, --module=<text>  Explicitly set which modules to generate code for.
+                       Separate modules with ','
+  -d, --target=<path>  Directory to generate code in
+  --hide-lib-warnings  Hide library warnings in build output
+  --kotlin, --typescript, --javascript
+                       Language to generate client for
+  -h, --help           Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr code format [<options>] [<files>]...
+
+  Automatically format Rell code. Configurable using .rell_format file
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  --source-dir=<path>  source directory
+  --file=<path>        single Rell file
+  -fo, --formatter-options=<path>
+                       Formatter options file (default '.rell_format')
+  -h, --help           Show this message and exit
+
+Arguments:
+  <files>  Files or dirs to format (*.rell: All files ending with rell
+           extension) (main/*: Matches all files in main directory on explicit
+           path) (**/main/*: Matches all files in main directory independent on
+           parent paths)
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr deployment update [<options>]
+
+  Update configuration of a deployed blockchain
+
+Configuration Properties:
+  -cfg, --config=<config>    Alternate path for client configuration file
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Key pair source:
+  --secret=<path>    Path to secret file (pubkey/privkey)
+  --key-id=<key_id>  Key ID of the keypair to use
+
+Deployment:
+
+  Use a configured deployment network
+
+  -d, --network=<text>  Specify which deployment target to use
+
+Options:
+  -bc, --blockchain=<text>  Name of blockchain to deploy
+  --no-compression          If compression on rell sources should not be done
+  --hide-lib-warnings       Hide library warnings in build output
+  --height=<int>            Deploy configuration at a specific height
+  --verify-only             Verifies blockchain config without sending update
+                            transaction
+  --skip-verification       Skip verification of blockchain config before
+                            sending update transaction
+  -h, --help                Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr seeder init [<options>]
+
+  Create initial seeder configuration for blockchains
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -bc, --blockchain=<blockchain>
+              Blockchains to generate configuration for (defaults to all).
+  -h, --help  Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr node [OPTIONS] COMMAND [ARGS]...
+
+  Interact with a test node
+
+╭─ Options ───────────────────────────────────────────────────────────────────╮
+│  -h, --help  Show this message and exit                                     │
+╰─────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────╮
+│  start   Starts a test node                                                 │
+│  update  Updates a running test node                                        │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+
+--------------------------------------------------------------------------------
+
+```text
+Usage: chr test [<options>]
+
+  Run tests in working directory
+
+Configuration Properties:
+  -s, --settings=<settings>  Alternate path for project settings file
+
+Options:
+  -bc, --blockchain=<blockchain>
+                                Run tests for specified blockchain(s). Can only
+                                be a single chain if used together with -m
+  -m, --modules=<modules>       Run tests in this module(s) only. Must be the
+                                part of the specified modules or its
+                                submodules. Comma delimited, will default to
+                                all modules either under each selected
+                                blockchain or test
+  --sql-log[=(user|system)]     Enable SQL query logging. Optional value:
+                                'user' (only user queries) or 'system' (only
+                                system queries). Without value, logs both
+                                types.
+  --tests=<>                    test method pattern
+  --use-db / --no-db            If a session towards the configured database
+                                should be established
+  --test-report                 Generate JUnit XML test reports
+  --test-report-dir=<path>      JUnit XML test reports directory (defaults to
+                                "build/reports")
+  --fail-on-error[=true|false]  Sets test execution to stop on error and
+                                override any "failOnError" settings for tests
+                                that are in the scope being executed
+  -ts, --timestamp              Timestamp on logs
+  --hide-lib-warnings           Hide library warnings in build output
+  -h, --help                    Show this message and exit
+```
+
+
+--------------------------------------------------------------------------------
+

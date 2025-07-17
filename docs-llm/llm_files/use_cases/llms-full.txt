@@ -1,0 +1,2004 @@
+# CHROMIA USE-CASES DOCUMENTATION
+Generated on: 2025-07-24 18:36:24
+Source directory: docs/use-cases
+
+================================================================================
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# Chromia use cases
+
+Welcome to the Chromia Use cases section. This section covers practical applications and implementations you can build
+on the Chromia platform.
+
+<SectionCards>
+  <SectionCardItem header="Connect with exchanges and platforms" href="integrations">
+    <p>
+      Comprehensive guides for integrating with exchanges and implementing advanced transaction features. Learn how to
+      handle deposits, withdrawals, memo functionality, and build seamless connections with external systems.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="AI on chain" href="ai-on-chain">
+    <p>
+      Explore AI inference and vector database extensions for building intelligent decentralized applications. Learn how
+      Chromia's architecture enables sophisticated AI operations on-chain, opening new possibilities for decentralized
+      artificial intelligence.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="Real-time data integration" href="real-time-data">
+    <p>
+      Discover how to integrate real-time data streams like price feeds using the Stork oracle extension. Build
+      responsive, data-driven dapps with sub-millisecond latency tailored for DeFi, gaming, and AI applications.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="Connect chains and transfer assets" href="cross-chain">
+    <p>
+      Learn how to implement efficient and secure communication between dapp and system chains across the Chromia
+      network using ICMF (Inter-Chain Messaging Facility) and ICCF (Inter-Chain Confirmation Facility).
+    </p>
+  </SectionCardItem>
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# AI on chain
+
+Chromia's unique architecture makes it possible to run sophisticated AI operations on-chain, opening up new
+possibilities for decentralized artificial intelligence applications. This section covers the available AI extensions
+and how to implement them in your dapps.
+
+<SectionCards>
+  <SectionCardItem header="Vector database for AI applications" href="vector-db">
+    <p>
+      Unlock lightning-fast searches, seamless scalability, and intelligent similarity matching with vector db—powering
+      the future of AI-driven applications!
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="AI inference on chain" href="ai_inference">
+    <p>
+      Unlock the power of decentralized AI inference with on-chain execution on the Chromia blockchain. Enhance your
+      dapps for smarter decision-making, faster automation, and a new wave of innovation.
+    </p>
+  </SectionCardItem>
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+import testnetNodeUrls from "@site/network_config/testnet_node_urls.json";
+import testnetBrids from "@site/network_config/testnet_brids.json";
+import CodeBlock from "@theme/CodeBlock";
+
+# AI inference on chain
+
+Chromia empowers developers by integrating AI inference capabilities directly into decentralized applications (dapps).
+This integration enables intelligent, real-time decision-making within the on-chain environment. By leveraging
+externally trained models for optimized inference, developers can seamlessly embed AI-driven logic into their dapps
+while upholding the core principles of blockchain: trustlessness and transparency. This fusion of blockchain security
+with artificial intelligence unlocks a new era of responsive and adaptive applications.
+
+:::tip Learn by building
+
+**[Create your chat agent with Chromia](https://learn.chromia.com/courses/chat-agent-course/introduction)** - Learn to
+build and experiment with a chat agent on Chromia, focusing on AI and blockchain integration. Perfect for understanding
+how AI inference works on-chain. (Advanced)
+
+::::
+
+## Configuring the blockchain in the dapp
+
+To utilize this extension, configure your blockchain operations and queries. Here's a sample configuration:
+
+```yaml title="chromia.yml"
+blockchains:
+  ai_inference_dapp: # Ensure this name is unique. Rename it if you encounter duplicate issues during deployment.
+    module: main
+    config:
+      sync_ext:
+        - "net.postchain.hybridcompute.HybridComputeSynchronizationInfrastructureExtension"
+      gtx:
+        modules:
+          - "net.postchain.hybridcompute.HybridComputeGTXModule"
+      hybridcompute:
+        engine: "net.postchain.gtx.extensions.ai_inference.AiInferenceComputeEngine"
+        load_timeout_seconds: 600 # Timeout in seconds for initial model loading
+        compute_timeout_seconds: 600 # Timeout in seconds for each inference
+      ai_inference:
+        model_url: "https://djl-misc.s3.amazonaws.com/test/models/gpt2/gpt2_pt.zip" # Specify model URL here
+        tokenizer_name: gpt2 # Specify tokenizer name here
+        max_sequence_length: 60 # Max sequence length, see https://javadoc.io/static/ai.djl/api/0.32.0/ai/djl/modality/nlp/generate/SearchConfig.html#setMaxSeqLength(int)
+        max_length: 512 # Length to truncate and/or pad sequences to, see https://javadoc.io/static/ai.djl.huggingface/tokenizers/0.32.0/ai/djl/huggingface/tokenizers/HuggingFaceTokenizer.Builder.html#optMaxLength(int)
+```
+
+## Integrating with Rell
+
+Incorporate the AI Inference extension library into your configuration as follows:
+
+```yaml title="chromia.yml"
+libs:
+  hybridcompute:
+    registry: https://gitlab.com/chromaway/postchain-chromia
+    path: chromia-infrastructure/rell/src/lib/hybridcompute
+    tagOrBranch: 3.27.6
+    rid: x"DF9EF3C9333D497F501B2D230CA0B9FD12F5288FA4E1D9F5DDBE916506543887"
+    insecure: false
+  ai_inference:
+    registry: https://gitlab.com/chromaway/core/ai-inference-extension
+    path: rell/src/lib/ai_inference
+    tagOrBranch: 0.1.10
+    rid: x"0B9D2011C51E750CC9639B3EA285EC6F92BF947B4445BDA54397A362627CEE2E"
+    insecure: false
+compile:
+  rellVersion: 0.14.9
+```
+
+Next, run `chr install`.
+
+## Minimal implementation example
+
+Here's a minimal implementation example in Rell:
+
+```rell title="main.rell"
+module;
+
+import ai: lib.ai_inference;
+
+operation submit_inference_request(id: text, prompt: text) {
+    ai.submit_inference_request(id, prompt);
+}
+
+query fetch_inference_result(id: text): ai.inference_result? = ai.fetch_inference_result(id);
+
+@extend(ai.on_inference_result)
+function (id: text, result: ai.inference_result) {
+    if (result.result != null) {
+        log("Inference with id %s finished successfully.".format(id));
+    } else {
+        log("Inference with id %s failed: %s.".format(id, result.error));
+    }
+}
+```
+
+## Deployment to Testnet
+
+### Leasing a container
+
+If you are unfamiliar with leasing a container, follow these [steps](/intro/deployment/testnet/get-container).
+
+:::info
+
+Ensure you select the `AI Inference extension` when leasing the container.
+
+:::
+
+### Deployment
+
+Follow the [deployment steps](/intro/deployment/testnet/deploy-dapp).
+
+You can find the BRID for the Testnet Directory Chain in the
+[explorer](https://explorer.chromia.com/testnet/cluster/system).
+
+The deployment section in your `chromia.yml` will look like this:
+
+{/* prettier-ignore */}
+<CodeBlock language="yaml">
+{`deployments:
+  testnet: # Deployment Target name
+    brid: x"${ testnetBrids.DIRECTORY_CHAIN_TESTNET_BRID }" # Blockchain RID for Testnet Directory Chain
+    url: ${ testnetNodeUrls.NODE0_TESTNET_CHROMIA_COM_NODE_URL } # Target URL for one of the nodes in Testnet
+    container: 4d7890243fe710...08c724700cbd385ecd17d6f # Replace with your container ID (Example: container: 15ddfcb25dcb43577ab311fe78aedab14fda25757c72a787420454728fb80304)
+    chains:
+      ai_inference_dapp: x"9716FBFF3...663FEC673710" # Replace with the actual BRID after the dapp gets deployed. You can find it in the terminal during deployment.`}
+</CodeBlock>
+
+## Simple test
+
+In the examples provided, `ai_inference_dapp` and `testnet` refer to the
+[deployment parameters](#deployment-to-testnet).
+
+To send a request, use:
+
+```bash
+chr tx -bc ai_inference_dapp -d testnet submit_inference_request 'a1' 'Ai inference started?'
+```
+
+To get a response, execute:
+
+```bash
+chr query -bc ai_inference_dapp -d testnet fetch_inference_result id=a1
+```
+
+Output:
+
+```bash
+[
+  "error": null,
+  "result": "Ai inference started?\n\nThe answer is yes.\n\nThe first step is to find the source of the inference.\n\n
+]
+```
+
+Explore the example [source code](https://gitlab.com/chromaway/exam).
+
+You can access the source code and additional information about the AI Inference extension in the
+[official repository](https://gitlab.com/chromaway/core/ai-inference-extension).
+
+
+--------------------------------------------------------------------------------
+
+
+import testnetNodeUrls from "@site/network_config/testnet_node_urls.json";
+import testnetBrids from "@site/network_config/testnet_brids.json";
+import CodeBlock from "@theme/CodeBlock";
+
+# Vector database for AI applications
+
+Chromia's Vector DB extension allows for the efficient storage and querying of complex multi-dimensional data in a
+decentralized approach. It integrates relational database principles to support high-performance indexing and similarity
+searches, making it ideal for AI-driven applications such as recommendation systems, natural language processing, and
+image recognition.
+
+You can easily use Chromia's Rell language and the Chromia CLI to define vector-based schemas, execute operations and
+queries, and perform similarity searches. The integration with Chromia's decentralized network ensures high
+availability, scalability, and tamper-proof data management. This combination of blockchain technology, relational
+indexing, and vector search opens up new possibilities for decentralized AI, gaming, and large-scale data analytics.
+
+:::tip Learn by building
+
+**[Semantic search with Vector DB on Chromia](https://learn.chromia.com/courses/vector-db-movie-demo/introduction)** -
+Build a complete semantic movie search engine using sentence embeddings with the Vector Database Extension. This
+hands-on course demonstrates real-world implementation of vector databases for AI applications. (Advanced)
+
+::::
+
+## Leasing a container
+
+If you are unfamiliar with the process of leasing a container, follow these
+[steps](/intro/deployment/testnet/get-container).
+
+:::info
+
+Ensure that the `Vector DB extension` is selected when leasing the container.
+
+:::
+
+## Configuring blockchain in the dapp
+
+When leasing your container, ensure that you select the **Vector DB extension**. Configure your blockchain to use
+operations and queries to start utilizing this extension. Below is a sample configuration:
+
+```yaml title="chromia.yml"
+blockchains:
+  my_chain:
+    module: my_chain_module
+    config:
+      gtx:
+        modules:
+          - "net.postchain.gtx.extensions.vectordb.VectorDbGTXModule"
+      vector_db_extension:
+        dimensions: 768 # Required - set number of dimensions to use
+        max_vectors: 10 # Optional — max results returned per query (default: 10)
+        store_batch_size: 300 # Optional — number of vectors stored per internal batch
+```
+
+:::info
+
+`dimensions` must match the length of the vectors you store — for example, 384, 768, or 1024 when using text embeddings.
+
+:::
+
+## Integrating with Rell
+
+Integrating the Vector DB Extension library into your Rell project is optional but recommended. To do this, add it to
+your configuration as follows:
+
+```yaml title="chromia.yml"
+libs:
+  vector_db:
+    registry: https://gitlab.com/chromaway/core/vector-db-extension.git
+    path: rell/src/lib/
+    tagOrBranch: 0.5.1
+    rid: x"1BC324D42A9622146FBCFECFBF16F1857144BA3266040BB9611634837003C484" # Update to match version
+    insecure: false
+```
+
+`tagOrBranch` can be found [here](https://gitlab.com/chromaway/core/vector-db-extension/-/tags).  
+Once installed, `chr` will print the correct `rid` to use in your config.
+
+Run:
+
+```bash
+chr install
+```
+
+## Minimal implementation example
+
+Here is a simple dapp to store and remove vectors:
+
+```rell
+import lib.vector_db.*;
+
+operation add_vector(context: integer, vector: text, id: integer) {
+    store_vector(context, vector, id);
+}
+
+operation delete_vector(context: integer, id: integer) {
+    delete_vector(context, id);
+}
+```
+
+## Deployment to Testnet
+
+[Deployment steps.](/intro/deployment/testnet/deploy-dapp) BRID for Testnet Directory Chain can be found in the
+[explorer](https://explorer.chromia.com/testnet/cluster/system).
+
+Expected output on successful deployment:
+
+```yaml
+Deployment of blockchain vector_example was successful
+Add the following to your project settings file:
+deployments:
+  testnet:
+    chains:
+      my_chain: x"CEC6A318C873...0A32C85429706" # you will get your own BRID
+```
+
+Add the deployed chain into `chromia.yml`:
+
+{/* prettier-ignore */}
+<CodeBlock language="yaml">
+{`deployments:
+  testnet: # Deployment Target name
+    brid: x"${ testnetBrids.DIRECTORY_CHAIN_TESTNET_BRID }" # Blockchain RID for Testnet Directory Chain
+    url: ${ testnetNodeUrls.NODE0_TESTNET_CHROMIA_COM_NODE_URL } # Target URL for one of the nodes in Testnet
+    container: 4d7890243fe710...08c724700cbd385ecd17d6f # Replace with your container ID (Example - container: 15ddfcb25dcb43577ab311fe78aedab14fda25757c72a787420454728fb80304)
+    chains:
+      my_chain: x"CEC6A318C873...0A32C85429706" # Replace with the actual BRID after the dapp gets deployed. It can be found in the terminal during deployment.`}
+</CodeBlock>
+
+Save the `BRID` from deployment into environment variables.
+
+```bash
+vector_brid=CEC6A318C873B3013DB9476C084BEDE0EA3D03D5C686A2FACD50A32C85429706
+```
+
+Save the `URL` of the test node into environment variables.
+
+{/* prettier-ignore */}
+<CodeBlock language="bash">
+{`url=${ testnetNodeUrls.NODE0_TESTNET_CHROMIA_COM_NODE_URL }`}
+</CodeBlock>
+
+## Operation examples:
+
+```bash
+chr tx -brid $vector_brid --api-url $url add_message hej "[1.0, 2.0, 3.0]"
+chr tx -brid $vector_brid --api-url $url add_message hello "[1.0, 2.5, 3.0]"
+chr tx -brid $vector_brid --api-url $url add_message hei "[1.0, 2.0, 3.1]"
+chr tx -brid $vector_brid --api-url $url add_message "guten tag" "[1.0, 1.5, 3.5]"
+```
+
+## Querying vectors
+
+The extension introduces a query function named `query_closest_objects`, which allows you to search for vectors. It
+returns the closest vectors based on cosine similarity:
+
+| Name             | Type         | Required | Default | Description                                                                     |
+| ---------------- | ------------ | -------- | ------- | ------------------------------------------------------------------------------- |
+| `context`        | `integer`    | true     |         | Context used by the dapp. Use different contexts to separate unrelated vectors. |
+| `q_vector`       | text         | true     |         | The query vector as a string (e.g. `"[1.0, 2.0, 3.0]"`)                         |
+| `max_distance`   | decimal      | true     |         | Maximum allowed cosine distance between the query and stored vectors            |
+| `max_vectors`    | integer      | false    | 10      | Maximum number of results to return                                             |
+| `query_template` | text or dict | false    | –       | Apply a Rell query to enrich/filter/transform the results (see examples below)  |
+
+:::tip
+
+Use different `context` values to keep vector sets isolated — for example, one for product descriptions, and one for
+support tickets. This allows you to run similarity searches independently across each domain.
+
+:::
+
+## Query examples
+
+### Plain query with no `query_template`
+
+```bash
+chr query -brid $vector_brid --api-url $url query_closest_objects context=0 q_vector="[1.0, 2.0, 3.0]" max_distance=1.0 max_vectors=2
+
+[
+  {
+    "distance": "0",
+    "id": 1
+  },
+  {
+    "distance": "0.0001212999220387978",
+    "id": 3
+  }
+]
+```
+
+### Using a `query_template` to return the text messages
+
+```bash
+chr query -brid $vector_brid --api-url $url query_closest_objects context=0 q_vector="[1.0, 2.5, 3.0]" max_distance=1.0 max_vectors=2 'query_template=["type":"get_messages"]'
+
+[
+  "hello",
+  "hej"
+]
+```
+
+### Using a `query_template` to return distance and text
+
+```bash
+chr query -brid $vector_brid --api-url $url query_closest_objects context=0 q_vector="[1.0, 2.5, 3.0]" max_distance=1.0 max_vectors=2 'query_template=["type":"get_messages_with_distance"]'
+
+[
+  {
+    "distance": "0",
+    "text": "hello"
+  },
+  {
+    "distance": "0.005509683802306209",
+    "text": "hej"
+  }
+]
+```
+
+### Passing arguments to filter results
+
+```bash
+chr query -brid $vector_brid --api-url $url query_closest_objects context=0 q_vector="[1.0, 2.5, 3.0]" max_distance=1.0 max_vectors=2 'query_template=["type":"get_messages_with_filter", "args":["text_filter": "j"]]'
+
+[
+  "hej"
+]
+```
+
+---
+
+You can find the source code and additional details about the Vector DB extension in the  
+👉 [official repository](https://gitlab.com/chromaway/core/vector-db-extension)
+
+
+--------------------------------------------------------------------------------
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# Connect chains and transfer assets
+
+This section contains information about efficient and secure communication between dapp and system chains across the
+Chromia network.
+
+<SectionCards>
+
+<SectionCardItem header="Verify transactions across chains" href="iccf">
+  <p>
+    ICCF enables secure cross-chain communication by submitting transactions and proof for verification between
+    blockchains. To integrate, add the ICCF GTX module and install the ICCF library.
+  </p>
+</SectionCardItem>
+
+   <SectionCardItem header="Send messages between chains" href="icmf">
+      <p>ICMF supports event-based messaging. Integrate it by adding the ICMF Sender and Receiver GTX modules and using Rell's `__icmf_message` operation. Configure topics with an `L_` prefix for local messages.</p>
+   </SectionCardItem>
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+import ZoomableImage from "@site/src/components/ZoomableImage";
+
+# Verify transactions across chains
+
+The Inter-Chain Communication Facility (ICCF) is a client application that facilitates communication between
+blockchains. In this context, the ICCF client acts as an intermediary between two blockchains: it submits a transaction
+on the `source_chain` and provides proof of the validated transaction to the `target_chain`. Upon verifying the proof's
+authenticity and ensuring that the transaction was indeed validated on the `source_chain`, the `target_chain` submits a
+new transaction, validates it, and updates the account balance.
+
+In essence, the ICCF simplifies the process of generating proof that a transaction occurred on one chain and verifying
+this proof on another. It can be integrated into your client application, providing the necessary functionality for end
+users to move assets freely between different dapps and blockchains.
+
+The sequence for confirming an event (transaction) is as follows:
+
+<ZoomableImage
+  lightSrc="/img/ICCF-light.svg"
+  darkSrc="/img/ICCF-dark.svg"
+  alt="anchoring hierarchy"
+  width="auto"
+  height="auto"
+/>
+
+1. The user initiates a transaction on the source chain.
+2. The source chain confirms the transaction and includes it in a block.
+3. The block reaches the Cluster Anchoring Chain as a transaction.
+4. The Cluster Anchoring Chain verifies the transaction and includes it in a block.
+5. The system chain reads the data from the Cluster Anchoring Chain and validates the corresponding block.
+6. The user constructs proof by obtaining confirmation of the transaction.
+7. The user presents the proof to the target chain as a new transaction.
+8. The target chain validates the proof by checking its anchoring in the Cluster Anchoring Chain.
+9. The target chain completes verification by including the proof in a block.
+
+In this flow, the user drives the operation and constructs the proof. This process is entirely asynchronous and can
+occur anytime after block confirmation. This method is ideal for applications where proving an event has taken place is
+more critical than transferring real-time data. If the main objective is to send messages without needing to verify
+their arrival time, utilizing the messaging facility (ICMF) may be more suitable.
+
+:::tip Learn by building
+
+**[Confirm events across blockchains](https://learn.chromia.com/courses/iccf-course/introduction)** - Use cross-chain
+events for secure user access control and learn ICCF implementation. This course provides practical examples of
+transaction verification across chains. (Intermediate)
+
+::::
+
+## Set up ICCF in your blockchain
+
+To integrate ICCF into your blockchain, follow these steps:
+
+1. **Add the ICCF GTX Module:** Include the ICCF GTX module in your blockchain configuration. In your configuration
+   file, add the following lines:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      gtx:
+        modules:
+          - "net.postchain.d1.iccf.IccfGTXModule"
+```
+
+2. **Install the ICCF Library:** Install the ICCF library by adding the following to your project configuration file:
+
+```yaml
+libs:
+  iccf:
+    registry: https://gitlab.com/chromaway/core/directory-chain
+    path: src/lib/iccf
+    tagOrBranch: 1.87.0
+    rid: x"9C359787B75927733034EA1CEE74EEC8829D2907E4FC94790B5E9ABE4396575D"
+```
+
+## Create proof with the client
+
+ICCF support is available in the [Kotlin client](/intro/getting-started/installation/postchain-clients#kotlin) and
+[Javascript/Typescript client](/intro/getting-started/installation/postchain-clients#javascript-jstypescriptts). Refer
+to the client's documentation for more details.
+
+To explore the complete set of APIs available for ICCF, refer to the auto-generated
+[API documentation](https://chromaway.gitlab.io/core/directory-chain/-directory%20chain/lib.iccf/index.html).
+
+:::tip
+
+For practical usage examples, check out the
+[Confirm events across blockchains course](https://learn.chromia.com/courses/iccf-course/introduction).
+
+:::
+
+
+--------------------------------------------------------------------------------
+
+
+import ZoomableImage from "@site/src/components/ZoomableImage";
+
+# Send messages between chains
+
+This documentation is for dapp developers looking to integrate the Interchain Messaging Facility (ICMF) into their
+decentralized applications. ICMF facilitates cross-chain communication. This guide will walk you through sending and
+receiving ICMF messages in your dapps.
+
+ICMF operates as an event-based service. When `blockchain_#1` emits events through transactions that contain event data
+written to block headers, `blockchain_#2` subscribes to specific topics to read this data. Other blockchains
+(`blockchain_n`) can also subscribe to events from `blockchain_#1`. As soon as `blockchain_#2` reads an event, it
+triggers the corresponding function. This enables multiple communication channels between blockchains.
+
+From a development standpoint, ICMF supports both omnidirectional and multidirectional communication. In omnidirectional
+scenarios, `blockchain_#1` emits events that `blockchain_#2` and `blockchain_#n` can read. In multidirectional channels,
+all blockchains subscribe to topics and listen to each other, emitting events that trigger function calls.
+
+:::tip Learn by building
+
+**[Build an event-driven multi-blockchain dapp](https://learn.chromia.com/courses/icmf-course/introduction)** - Create a
+multi-blockchain dapp with event-driven communication using ICMF. This comprehensive course demonstrates real-world
+cross-chain messaging implementation. (Advanced)
+
+:::
+
+## Implementation
+
+For simplification purposes, we will refer to the blockchain that sends event messages as `sender_chain`, while the
+blockchain that reads those events will be referred to as `receiver_chain`. In this context, dapps are responsible for
+processing the business logic that either sends a transaction with the event data or handles the received data. The dapp
+that sends the message is termed `sender_dapp`, and the dapp that handles the message is called `receiver_dapp`.
+
+Refer to the infographics below to see how ICMF operates:
+
+<ZoomableImage
+  lightSrc="/img/ICMF-light.svg"
+  darkSrc="/img/ICMF-dark.svg"
+  alt="cross chain transfer structure"
+  width="auto"
+  height="auto"
+/>
+
+1. The `sender_dapp` submits a transaction with the event data by calling the `send_message` function from the ICMF Rell
+   library.
+2. The network validates the transaction on the `sender_chain`, and the message gets written to the block header.
+3. The `receiver_chain` checks for messages on subscribed topics in the block headers of the `sender_chain`.
+4. When the system detects a message, the dapp automatically invokes the `__icmf_message` operation. This function
+   includes the necessary logic to handle the message.
+5. The [ICMF Rell library](https://gitlab.com/chromaway/core/directory-chain) calls the function `handle_icmf_message`,
+   executing any logic defined by the dapp.
+
+## Send messages
+
+### Integration steps
+
+To enable your blockchain to send ICMF messages, you need to add the ICMF Sender GTX module to your blockchain
+configuration.
+
+1. Open your blockchain's configuration file.
+
+2. Under the `config` section, insert the `gtx` module:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      gtx:
+        modules:
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+```
+
+3. If your chain sends large messages, adjust the message query limit to avoid an overload of large queries:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      icmf:
+        sender:
+          message_query_limit: 100 # Default is 100, adjust to manage processing of large message queries
+```
+
+4. Save and apply the configuration changes.
+
+### Send ICMF messages
+
+After you integrate the ICMF Sender GTX module, you can use the ICMF module to send messages. Use the function
+`send_message(topic: text, body: gtv)` for this purpose. The `topic` parameter represents the message topic, while the
+`body` parameter contains the content of the message. To install the ICMF rell code library, see the instructions
+[here](https://gitlab.com/chromaway/core/directory-chain).
+
+Remember that the `body` parameter is of type `gtv`, which allows you to send messages with various data structures.
+Ensure that the receivers can parse the data you send. If you want to learn more about how to serialize and deserialize
+data when sending and receiving messages, refer to the [GTV protocol](/intro/about/protocols/gtv) description.
+
+## Receive messages
+
+### Integration steps
+
+To enable your blockchain to receive ICMF messages, follow these steps to add the ICMF Receiver GTX module and the ICMF
+Receiver Synchronization Infrastructure Extension to your blockchain configuration.
+
+1. Open your blockchain's configuration file.
+
+2. Make sure the following entries are included in the `config` section of your blockchain definition:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      gtx:
+        modules:
+          - "net.postchain.d1.icmf.IcmfReceiverGTXModule"
+      sync_ext:
+        - "net.postchain.d1.icmf.IcmfReceiverSynchronizationInfrastructureExtension"
+```
+
+3. Save and apply the configuration changes.
+
+### Implement message reception
+
+To process the received ICMF messages, you need to implement the message receive operation in Rell. Here's an example
+implementation:
+
+```rell
+operation __icmf_message(sender: byte_array, topic: text, body: gtv) {
+ // Parse and handle the message here
+}
+```
+
+| Argument | Description                                        |
+| -------- | -------------------------------------------------- |
+| `sender` | Represents the blockchain-rid of the sender chain. |
+| `topic`  | Specifies the message topic.                       |
+| `body`   | This argument carries the message content.         |
+
+If you want to utilize the [ICMF Rell library](https://gitlab.com/chromaway/core/directory-chain) for receiving
+messages, extend the function like this:
+
+```rell
+@extend(receive_icmf_message) function handle_icmf_message(sender: byte_array, topic: text, body: gtv) {
+}
+```
+
+### Configure topics and sender chains
+
+ICMF messages organize around topics that serve as communication channels, directing messages to their intended
+recipients. When you work with ICMF topics, follow these guidelines:
+
+- Prefix all ICMF topics with `L_`. This prefix indicates that the message is sent within your local blockchain network.
+- Only system chains can send messages on a global level. The prefix for the topics is `G_`.
+
+To specify which topics and sender chains your blockchain listens to, configure the ICMF receiver settings in your
+blockchain's configuration file:
+
+Example for the local topics.
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      icmf:
+        receiver:
+          local:
+            - bc-rid: x"0000000000000000000000000000000000000000000000000000000000000001"
+              topic: "L_topic1"
+            - bc-rid: x"0000000000000000000000000000000000000000000000000000000000000002"
+              topic: "L_topic2"
+              skip-to-height: 10 # Skip messages from this topic until block height 10
+ - etc.
+```
+
+Example of system chains send messages on global topics but all chains can listen to them:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      icmf:
+        receiver:
+          global:
+            topics: # List your topics here
+              - "G_topic1"
+              - "G_topic2"
+              - etc.
+```
+
+Example for the global topics to only listen to specific sender chains:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      icmf:
+        receiver:
+          global:
+            blockchains: # List your chains topics here
+              - bc-rid: x"0000000000000000000000000000000000000000000000000000000000000001"
+                topic: "G_topic1"
+              - bc-rid: x"0000000000000000000000000000000000000000000000000000000000000002"
+                topic: "G_topic2"
+                skip-to-height: 10 # Skip any messages sent by chain on this topic until this height
+              - etc.
+```
+
+In the `icmf` section, under `receiver`, list the chains and topics your blockchain should monitor. The `bc-rid`
+parameter refers to the blockchain-rid of the sender chain, and the `topic` parameter specifies the topic of interest.
+
+The `skip-to-height` parameter ensures that messages on the specified topic will be skipped until the mentioned block
+height.
+
+### Combining ICMF with other extensions
+
+ICMF usually tries to accommodate as many messages as possible into a block. However, when used alongside other
+extensions, you might need to adjust the space ICMF allocates for them. Use the following configuration to ensure better
+coordination with other extensions:
+
+```yaml
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      icmf:
+        receiver:
+          special-tx-margin-bytes: 102400 # Default is 100 KiB; adjust if other extensions require more space
+```
+
+This configuration allows for improved coordination with other extensions by ensuring that ICMF does not consume
+excessive space in the block.
+
+### Staking updates
+
+The ICMF allows your blockchain to configure the global staking topic `G_staking_state_update` which will allow any
+chain to listen to the staking messages. The messages include the following information:
+
+- The unique account identifier.
+- Total staked amount including any active withdrawals.
+- A list of active withdrawal requests.
+
+Each message will provide an update for a specific account. Any changes related to staking, such as new staking or
+withdrawals, will trigger the publication of a new message on the relevant topic for that account. This message will
+include the most current value of the amount staked.
+
+For demonstration purposes, refer to the code example below which highlights the configuration of the staking topic:
+
+```rell
+module;
+
+import lib.icmf.constants.*;
+
+/** Topic for staking state updates related to account balance and withdrawals */
+val economy_chain_staking_state_update = ICMF_TOPIC_GLOBAL_PREFIX + "staking_state_update";
+
+struct economy_chain_staking_state_withdrawal {
+    /** Requested amount to withdraw in minor units */
+    amount: integer;
+
+    /** Approximate time when this withdraw is scheduled */
+    finish_at: integer;
+}
+
+/**
+ * Keeps the staking balance and active withdrawals for a specific FT4 account id.
+ */
+struct economy_chain_staking_state_update_message {
+
+    /** Staking FT4 account id */
+    staking_account_id: pubkey;
+
+    /** Total staked amount in minor units including any active withdrawal */
+    balance: integer;
+
+    /** List of active withdrawal requests */
+    withdrawals: list<economy_chain_staking_state_withdrawal>;
+}
+```
+
+:::tip
+
+For an in-depth course on using ICMF in a real dapp, visit the
+[Build an event-driven multi-blockchain dapp course](https://learn.chromia.com/courses/icmf-course/introduction).
+
+:::
+
+
+--------------------------------------------------------------------------------
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# Connect with exchanges and platforms
+
+Connect Chromia with external platforms and unlock advanced transaction capabilities. From cryptocurrency exchanges to
+specialized transaction features, these practical guides provide step-by-step instructions for building robust
+integrations that bridge Chromia with the broader blockchain ecosystem.
+
+<SectionCards>
+  <SectionCardItem header="Require memos for incoming transfers" href="memo-guide">
+    <p>
+      Learn how to implement memo functionality for FT4 transfers. This feature ensures certain accounts require memos
+      for incoming transfers, making it essential for exchange integrations and shared account management.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="List Chromia on your exchange" href="exchange-guide">
+    <p>
+      Step-by-step guide for exchanges to integrate with Chromia. Learn how to manage accounts, handle deposits and
+      withdrawals, implement monitoring, and set up private replica nodes for enhanced control.
+    </p>
+  </SectionCardItem>
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+import useBaseUrl from "@docusaurus/useBaseUrl";
+import ZoomableImage from "@site/src/components/ZoomableImage";
+
+# Require memos for incoming transfers
+
+The memo feature adds an optional memo requirement for FT4 transfers, ensuring that certain accounts mandate memos for
+all incoming transfers. This feature is useful for attaching textual annotations to blockchain transactions, making it
+especially beneficial for exchange integrations or wallets that manage shared accounts and require transaction context
+for identification.
+
+:::tip Learn by building
+
+**[Build a decentralized marketplace using FT4](https://learn.chromia.com/courses/marketplace-course/introduction)** -
+Create a marketplace dapp with NFT and token transfers. This course demonstrates practical implementation of memo
+functionality and other advanced transaction features for real-world applications. (Advanced)
+
+::::
+
+## Key components
+
+### Operations
+
+1. **Enable memo requirement**
+   - Operation: `enable_transfer_memo()`
+   - Description: Activates memo enforcement for an FT4 account, requiring that all incoming transfers include a memo.
+2. **Disable memo requirement**
+   - Operation: `disable_transfer_memo()`
+   - Description: Deactivates memo enforcement, allowing incoming transfers without a memo.
+3. **Add a memo**
+   - Operation: `memo(text)`
+   - Description: Attaches a textual memo to a transfer.
+   - Constraints:
+     - The memo text must be between 1 and 50 characters.
+     - This operation is only valid when paired with an `ft4.transfer` operation targeting accounts that require memos.
+
+### **Queries**
+
+Check memo requirement
+
+- Query: `does_account_require_memo(account_id: byte_array): boolean`
+- Description: Checks if an FT4 account enforces memo requirements for incoming transfers.
+
+:::tip
+
+For the full implementation of the memo feature, refer to the source code
+[here](https://gitlab.com/chromaway/core/directory-chain/-/blob/1.73.8/src/economy_chain/economy_chain_transfer.rell).
+
+:::
+
+## Example workflows
+
+### FT4 client-side integration
+
+**Receiver** account should allow to add `memo` to transactions:
+
+```js
+//... code for initialization
+await session.call(op("enable_transfer_memo"));
+```
+
+**Sender** account of transfer transactions can add `memo` if it was enabled by receiver:
+
+```js
+// Initialization code
+const tb = session.transactionBuilder();
+    tb.add({name: "memo", args: [memo]}, { authenticator: noopAuthenticator })
+      .add(transfer(<ACCOUNT_ID>, <assetId>, <amount>))
+      .buildAndSend();
+```
+
+Find complete instructions for FT4 client-side initialization and asset transfers [here](/ft4/client/client-setup).
+
+### Rell test scripts
+
+#### Enable memo requirement
+
+```rell
+rell.test.tx()
+    .op(enable_transfer_memo())
+    .op(test.ft_auth_operation_for(alice.keypair.pub))
+    .sign(alice.keypair)
+    .run();
+```
+
+#### Transfer with memo
+
+```rell
+rell.test.tx()
+    .op(memo("For invoice #1234"))
+    .op(test.ft_auth_operation_for(alice.keypair.pub))
+    .op(assets.external.transfer(bob.account_id, asset.id, 100))
+    .sign(alice.keypair)
+    .run();
+```
+
+#### Query memo requirement
+
+```rell
+val requires_memo = does_account_require_memo(bob.account_id);
+print("Bob's account requires memo: %s".format(requires_memo));
+```
+
+#### Invalid transfer (no memo)
+
+```rell
+rell.test.tx()
+    .op(test.ft_auth_operation_for(alice.keypair.pub))
+    .op(assets.external.transfer(bob.account_id, asset.id, 100))
+    .sign(alice.keypair)
+    .run_must_fail("Transfers to account ... require a memo");
+```
+
+:::tip
+
+For the complete set of Rell test examples, check
+[here](https://gitlab.com/chromaway/core/directory-chain/-/blob/1.73.8/src/economy_chain/test/economy_chain_transfer_test.rell).
+
+:::
+
+
+--------------------------------------------------------------------------------
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# List Chromia on your exchange
+
+This guide is designed for technical teams at exchanges that have decided to list Chromia and are focused on completing
+the integration efficiently. The guide provides a step-by-step process to assist exchanges in integrating with Chromia.
+
+## Guide highlights
+
+- Clear instructions for securely managing accounts and transactions.
+- Support for advanced features like memos and multisig operations.
+- Guidance on monitoring transaction status and ensuring finality.
+- Setup for hosting a private replica node for direct blockchain access.
+- Links to essential tools, documentation, and resources to streamline the integration process.
+
+:::tip Learn by building
+
+**[FT4 asset management](https://learn.chromia.com/courses/ft4-asset/introduction)** - Learn to mint, burn, transfer,
+and lock FT4 assets using a shared asset pool. Essential for understanding the token operations that exchanges need to
+implement. (Advanced)
+
+::::
+
+<SectionCards>
+  <SectionCardItem header="Chromia overview" href="overview">
+    <p>
+      This section provides a high-level introduction to Chromia, its architecture, and key features to help exchanges
+      understand the platform before starting integration.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="Step 1: Account creation" href="step-1-account">
+    <p>Learn how to create and manage Chromia accounts.</p>
+  </SectionCardItem>
+  <SectionCardItem header="Step 2: Access Chromia's Economy Chain" href="step-2-access">
+    <p>
+      Instructions on connecting to Chromia's Economy Chain using public system nodes or by setting up a private replica
+      node for enhanced control.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="Step 3: Deposits, withdrawals, and monitoring" href="step-3-transaction">
+    <p>Detailed guidance on handling deposits, withdrawals, and monitoring transactions using Chromia's FT4 library.</p>
+  </SectionCardItem>
+  <SectionCardItem header="Step 4: Sending assets to non-existent accounts" href="step-4-non-existent-accounts">
+    <p>
+      Explore how to send assets to accounts that have not yet been activated and ensure users can access their funds
+      securely.
+    </p>
+  </SectionCardItem>
+  <SectionCardItem header="Additional resources" href="additional-resources">
+    <p>
+      Access extra tools, documentation, and links for testing, development, and troubleshooting to streamline
+      integration.
+    </p>
+  </SectionCardItem>
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+# Core concepts of Chromia
+
+Chromia is a Layer-1 blockchain platform designed to deliver high performance and scalability for decentralized
+applications. Its multi-chain architecture ensures that each dapp operates independently, avoiding network congestion
+and maintaining optimal performance even during peak usage.
+
+## Key features of Chromia
+
+1. **Gas-Free Transactions:** Users can interact with dapps without paying transaction fees, removing cost barriers and
+   simplifying adoption.
+2. **On-Chain Data Storage:** Chromia allows large-scale data to be stored directly on the blockchain, enabling advanced
+   applications such as gaming, digital asset management, and enterprise solutions.
+3. **Relational Data Model:** By integrating PostgreSQL, Chromia supports complex queries and data manipulation directly
+   on-chain, optimizing data accessibility and interaction.
+4. **Scalability:** Each dapp operates on its dedicated chain, and the network scales horizontally by adding more nodes
+   and clusters as demand grows.
+
+## Key components
+
+- **Economy Chain:** The backbone for Chromia's token ecosystem and the primary chain for integration.
+  [Learn more here.](/intro/about/architecture/)
+- **Postchain:** The core component of Chromia combines blockchain functionality with relational databases. It processes
+  transactions, ensures consensus using the eBFT (Enhanced Byzantine Fault Tolerance) algorithm, and executes dapp code
+  written in the Rell programming language. [Learn more here.](/intro/about/architecture/node#overview-of-postchain)
+- **FT4 protocol:** A token standard for managing assets, including account creation, transfers, and more.
+  [Learn more here.](/intro/about/protocols/ft4)
+- **Chromia Vault:** A wallet for managing accounts and tokens, enabling bridging and staking.
+- **Dapp clusters:** Each dapp is hosted in a dedicated cluster with its blockchain. Clusters interact through an
+  anchoring system that ensures consistency and security across the network.
+
+
+--------------------------------------------------------------------------------
+
+
+# Additional resources
+
+- [Official website](https://chromia.com)
+- [Learn Chromia platform](https://learn.chromia.com)
+- [Chromia Explorer](https://explorer.chromia.com)
+- [Chromia Vault](https://vault.chromia.com)
+- [Staking](https://staking.chromia.com/)
+- [Testnet Explorer](https://explorer.chromia.com/testnet): Use the Testnet Explorer to monitor transactions and chain
+  activity.
+- [Testnet staking](https://staking.testnet.chromia.com/): Test the staking functionality using a dedicated interface.
+- [Testnet Vault](https://vault.testnet.chromia.com/en/dapps/): Use Chromia Vault to test wallet features and bridging.
+- [Testnet faucet](http://faucet.testnet.chromia.com/): Use the tCHR Faucet to obtain test tokens.
+
+
+--------------------------------------------------------------------------------
+
+
+# Step 1: Account creation
+
+Creating an account on Chromia's Economy Chain is a crucial first step for integrating with the network. An account acts
+as a unique identifier that enables interaction with decentralized applications on the Chromia blockchain. It is
+required for executing transactions, holding and managing CHR tokens, and participating in staking and other ecosystem
+functionalities. For exchange integration, you must create a dedicated account on the Economy Chain. This account will
+serve as the foundation for all exchange-related operations.
+
+To help you get started, let's explore three different ways to create an account on the Chromia Economy Chain.
+
+## Bridging CHR from an EVM-compatible blockchain
+
+1. Ensure you have at least 10 CHR in your EVM wallet (e.g., MetaMask).
+2. Visit the [Vault](https://vault.chromia.com/en/).
+3. Connect your wallet.
+4. Follow the steps to bridge 10 CHR from an EVM-compatible chain to the Chromia economy chain.
+5. Once the bridging process is complete, your Chromia account will be created and activated.
+
+## Staking CHR
+
+1. Go to the [Staking page](https://staking.chromia.com/).
+2. Connect your wallet.
+3. Stake minimum of 10 CHR.
+4. Follow the prompts to complete the staking process.
+5. After staking, your Chromia account will be created and ready to use.
+
+## Paying a fee via internal transfer
+
+1. Navigate to the [Vault](https://vault.chromia.com/en/).
+2. Connect your wallet and retrieve your account address on the Chromia economy chain.
+3. Use an existing activated account to send at least 10 CHR to this new account address.
+4. The 10 CHR will be used as a one-time account creation fee, activating the account.
+
+If you do not have access to an existing activated account or require assistance with the account creation process,
+please contact our technical support team. To ensure a smooth setup, kindly include your public key in the request — it
+will be used to generate your Chromia account address.
+
+
+--------------------------------------------------------------------------------
+
+
+import mainnetNodeUrls from "@site/network_config/mainnet_node_urls.json";
+import mainnetBrids from "@site/network_config/mainnet_brids.json";
+import CodeBlock from "@theme/CodeBlock";
+
+# Step 2: Access Chromia's Economy Chain
+
+To access Chromia's Economy Chain, you have two primary options:
+
+- **Public access**: Use publicly available system nodes for a quick and simple connection without hosting your own
+  infrastructure.
+- **Private node**: Set up and run your own replica node for greater control, security, and reliability.
+
+These options cater to different levels of control, reliability, and infrastructure needs, allowing you to choose the
+best fit for your integration goals.
+
+## Use public system nodes
+
+For a quick and easy connection, you can use any of the publicly available system nodes. These nodes provide reliable
+access to the Economy Chain without the need to host your own infrastructure. To connect, you can find the Economy Chain
+BRID and a list of public nodes on the [Chromia explorer](https://explorer.chromia.com/mainnet/cluster/system).
+
+If you choose this option, you can skip the remaining steps in this section and proceed directly to Step 3.
+
+## Set up your own replica node
+
+For greater control and security, setting up a private replica node is the recommended approach. Hosting your own node
+provides better reliability and flexibility, with a detailed guide available to help you through hardware requirements,
+configuration steps, and troubleshooting tips.
+
+1. **Add provider:**
+
+To register a node in the network, you must possess an identity of any tier and provide your public key to your
+Chromaway contact. Please reach out to us so we can manually add you as a verified provider and link your node to the
+system.
+
+```bash
+pmc keygen --save=".provider_keypair"
+```
+
+2. **Download genesis config:**
+
+Create a directory called `system_chains` in your working directory:
+
+```bash
+mkdir system_chains
+```
+
+Download the genesis configuration file for the management chain.
+
+{/* prettier-ignore */}
+<CodeBlock language="bash">
+{`curl -s ${ mainnetNodeUrls.SYSTEM_CHROMAWAY_COM_NODE_URL }/config/${ mainnetBrids.DIRECTORY_CHAIN_BRID }?height=0 > system_chains/dc.xml`}
+</CodeBlock>
+
+3. **Start PostgreSQL:**
+
+Visit this [page](/intro/getting-started/installation/database-setup) to set up a PostgreSQL database.
+
+4. **Configure the node:**
+
+Create two folders in your working directory: `logs` and `node_config`.
+
+```bash
+mkdir logs && mkdir node_config
+```
+
+These folders will be mounted to the node. Inside the `node_config` folder, add a `node.properties` file with the
+following structure.
+
+```bash
+touch node_config/node.properties
+```
+
+Generate **messaging.privkey** and **messaging.pubkey** using the command.
+
+```bash
+pmc keygen -n -s node_identity
+```
+
+Fill out the `node.properties` file with the following fields:
+
+- messaging.privkey
+- messaging.pubkey
+- database.password
+
+Also, add `forwarding_replica` with the value `true` to the file.
+
+A detailed description of all available node properties can be found on this [page](/providers/nodes/node-config) or on
+[gitlab](https://gitlab.com/chromaway/postchain-chromia/-/blob/main/chromaway/src/main/java/net/postchain/chromaway/config/NodeConfig.java).
+
+```properties
+# Postchain configuration
+messaging.privkey= <node privkey -- different from the provider privkey from step 1>
+messaging.pubkey= <node pubkey -- different from the provider pubkey from step 1>
+messaging.port=9870
+
+genesis.pubkey=037434C8D4F2B7B7DE44E80486A814676DC3D898FD4488E10E1940B1C4C5837200
+genesis.host=system.chromaway.com
+genesis.port=9870
+
+api.port=7740
+api.enable_tls=false
+
+database.driverclass=org.postgresql.Driver
+database.username=postchain
+database.password=<password from step 3>
+database.url=jdbc:postgresql://172.17.0.1:5432/postchain
+database.schema=postchain0
+database.blockBuilderWriteConcurrency=100
+database.readConcurrency=100
+
+infrastructure=net.postchain.d1.D1InfrastructureFactory
+
+metrics.prometheus.port=9190
+
+configuration.provider.node=managed
+
+container.postgres_max_locks_per_transaction=1024
+
+forwarding_replica=true
+```
+
+5. **Start the node:**
+
+Use Docker to start the node.
+
+```bash
+docker run --name postchain \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
+    --mount type=bind,source="$(pwd)/node_config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/logs",target=/opt/chromaway/postchain/logs \
+    -e POSTCHAIN_DEBUG=true \
+    -p 9874:9870/tcp \
+    -p 9884:9881/tcp \
+    -p 7744:7740/tcp \
+    -p 7754:7750/tcp \
+    -p 50055:50051/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.28.2 \
+    run-server --node-config /config/node.properties
+```
+
+You can find the latest version of `chromia-server`
+[here](https://gitlab.com/chromaway/postchain-chromia/container_registry/3630587).
+
+6. **Register node:**
+
+Register your node as a replica.
+
+```bash
+pmc node register-replica --pubkey <value of messaging.pubkey in the properties file>
+```
+
+Make sure that your `.chromia/config` includes the following line:
+
+`api.url = https://system.chromaway.com:7740`
+
+- Windows: `C:\Users\<YourUsername>\.chromia\config`
+- macOS and Linux: `/Users/<YourUsername>/.chromia/config` or `/home/<YourUsername>/.chromia/config`
+
+7. **Start the management chain:**
+
+Start the management chain to sync with the target network.
+
+```bash
+docker run --rm \
+    --mount type=bind,source="$(pwd)"/system_chains/,target=/opt/chromaway/postchain/system_chains,readonly \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.28.2 \
+    admin blockchain initialize -t 172.17.0.1:50055 -cid 0 -bc ./system_chains/dc.xml
+```
+
+8. **Add replication of other chains:**
+
+Adding replication for additional chains is a critical step, but it can only be performed after your node has fully
+synchronized with the system chains in the previous step. This ensures the node is correctly integrated with the
+network.
+
+To confirm synchronization, compare the block heights of the following chains using a block explorer or a local curl
+command:
+
+- **Management chain:** 15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA
+- **System Anchoring Chain:** B497391373BB74944193205EB37C84B0520D474F491E2EF4743F16F670DB289B
+
+```bash
+curl http://localhost:7754/_debug
+```
+
+To replicate a specific chain, use the following command:
+
+```bash
+pmc blockchain replica add -brid <Target chain brid> --pubkey <value of messaging.pubkey in the properties file>
+```
+
+To find the BRID of the required chain, visit the
+[Chromia explorer](https://explorer.chromia.com/mainnet/cluster/system).
+
+To stop or start the node gracefully:
+
+```bash
+docker run --rm \
+registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.25.4 \
+admin blockchain start -t 172.17.0.1:50055 -cid 0
+```
+
+
+--------------------------------------------------------------------------------
+
+
+# Step 3: Deposits, withdrawals, and transaction monitoring
+
+Handling deposits, withdrawals, and monitoring transactions are essential components of integrating with Chromia's
+Economy Chain. These operations are streamlined using the FT4 library, which provides a comprehensive toolkit for
+interacting with the Chromia ecosystem.
+
+The FT4 library is designed to help developers build real-world applications within Chromia by offering out-of-the-box
+functionality for:
+
+- **Account creation and access management**: Simplifies user account setup and integrates with familiar external
+  signature solutions.
+- **Asset management**: Enables issuance, allocation, transfers, and tracing of asset activities, both within a single
+  chain and across chains in the Chromia ecosystem.
+
+Using the FT4 library, you can efficiently manage deposits and withdrawals while monitoring transaction activities
+within the blockchain network.
+
+## Additional resources
+
+- **How to set up the FT4 library**: [Client setup guide](/ft4/client/client-setup)
+- **How to set up the Postchain JS/TS client**:
+  [Postchain JS/TS client](/clients/postchain-clients/javascript-typescript-client)
+- **Detailed documentation**: [FT4 library overview](https://docs.chromia.com/pages/ft4-ts-client/client/index.html)
+- **Repository**: [FT4 library GitLab](https://gitlab.com/chromaway/ft4-lib)
+- **Require memos for incoming transfers**: [Require memos for incoming transfers](/use-cases/integrations/memo-guide)
+
+## Required Dependencies
+
+Install the following packages using npm:
+
+```bash
+npm install @chromia/ft4@1.1.1 postchain-client@1.22.0
+```
+
+:::note
+
+Make sure you have Node.js version 16 or higher installed on your system.
+
+:::
+
+## Using the FT4 library example
+
+### Setting up the client
+
+Start by configuring the client to interact with the Chromia blockchain. Use the `postchain-client` library to create a
+generic client and the `@chromia/ft4` library to establish FT4 connections.
+
+```typescript
+import { createClient } from "postchain-client";
+import { createConnection } from "@chromia/ft4";
+
+// All IDs are supposed to be 32bytes, or 64-character hex strings - account ID, blockchain RID, asset ID, etc.
+
+// Blockchain connection details
+const NODE_URL_POOL = [
+  "https://system.chromaway.com:7740",
+  "https://chromia.validatrium.club",
+  "https://chromia-mainnet-systemnode-1.stakin-nodes.com:7740",
+  "https://chroma.node.monster:7741",
+  "https://chromia.mainnet-system.nodeops.ninja:7740",
+];
+const BLOCKCHAIN_RID = "15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA"; // Mainnet Economy chain BRID
+
+// Create a generic client for calling queries and operations
+const client = await createClient({
+  directoryNodeUrlPool: NODE_URL_POOL,
+  blockchainRid: BLOCKCHAIN_RID,
+});
+
+// Advanced client for FT4 interaction
+const connection = createConnection(client);
+```
+
+### Accessing an account
+
+Retrieve an account using its ID to access account-related data. This account remains read-only and can only fetch
+information, not perform operations like transferring funds.
+
+```typescript
+import { Account } from "@chromia/ft4";
+
+// Access an account by its ID:
+const accountId = "2aafb9bc1b75a0cb12850959ca148175491aee03aff5a53a11af595c579ddec1";
+
+const myAccount: Account | null = await connection.getAccountById(accountId);
+
+if (myAccount == null) throw "Account not found";
+```
+
+:::tip
+
+The `getAccountById` function helps you verify whether an account exists before you initiate a transfer. By performing
+this check, you identify if the recipient account already exists or if you need to send a minimum of 10 CHR to create
+the account.
+
+:::
+
+### Retrieving transaction history
+
+Fetch transaction history in batches to handle large datasets efficiently. Use pagination to retrieve a specified number
+of entries for better control over the data.
+
+```typescript
+import { TransferHistoryType } from "@chromia/ft4";
+
+// Retrieve the latest 200 transactions in which the account participated:
+const { data: first200Entries, nextCursor } = await myAccount.getTransferHistory(
+  200, // Maximum number of entries to fetch (default and cap: 200).
+  { transferHistoryType: TransferHistoryType.Received } // Filter for received transactions.
+);
+
+// Retrieve 50 more transactions starting from the last fetched entry:
+const { data: other50Entries, nextCursor: nextNextCursor } = await myAccount.getTransferHistory(
+  50, // Number of entries to fetch.
+  { transferHistoryType: TransferHistoryType.Received }, // Filter for received transactions.
+  nextCursor // Cursor to start from the last position in the previous query.
+);
+
+// Fetch 200 additional transactions:
+const { data: other200Entries, nextCursor: thirdCursor } = await myAccount.getTransferHistory(
+  200,
+  { transferHistoryType: TransferHistoryType.Received },
+  nextNextCursor // Start from the 250th entry.
+);
+```
+
+### Retrieving transfer details
+
+Access detailed information about a specific transfer, transaction, and block.
+
+```typescript
+const aTransfer = first200Entries[0];
+
+// Retrieve details about a specific transfer:
+const info = await connection.getTransferDetails(aTransfer.transactionId, aTransfer.opIndex);
+
+// Retrieve transaction details:
+const transactionInfo = await client.getTransactionInfo(aTransfer.transactionId);
+
+// Retrieve transaction status:
+const transactionStatus = await client.getTransactionStatus(aTransfer.transactionId);
+
+// Retrieve block details:
+const blockInfo = await client.getBlockInfo(transactionInfo.blockRid.toString("hex"));
+```
+
+### Retrieving account balances
+
+Check the balance of an account for all assets or focus on a specific asset to obtain precise information.
+
+```typescript
+// Retrieve account balances (supports pagination):
+await myAccount.getBalances();
+
+// Retrieve the balance of a specific token:
+await myAccount.getBalanceByAssetId("asset-id-as-hex-string"); // Returns null if balance is zero.
+```
+
+### Setting up a key store and transferring funds
+
+Create a key store to handle transaction signing and transfer funds using a read-write account. Utilize utility
+functions to manage token amounts effectively.
+
+```typescript
+import {
+  createInMemoryFtKeyStore,
+  createInMemoryEvmKeyStore,
+  createKeyStoreInteractor,
+  createAmount,
+  createAmountFromBalance,
+  Session,
+} from "@chromia/ft4";
+
+// Set up a key store for signing transactions:
+const keystore = createInMemoryFtKeyStore({
+  privKey: Buffer.from("my-privkey-as-hex-string", "hex"),
+  pubKey: Buffer.from("my-pubkey-as-hex-string", "hex"),
+});
+
+// Set up a EVM key store for signing transactions:
+const keystoreEVM = createInMemoryEvmKeyStore({
+  privKey: Buffer.from("my-privkey-as-hex-string", "hex"),
+  pubKey: Buffer.from("my-pubkey-as-hex-string", "hex"),
+});
+
+// Retrieve accounts accessible by this key pair:
+const { getAccounts, getSession } = createKeyStoreInteractor(client, keystore);
+const accounts = await getAccounts();
+
+// If you only have one account linked to the keypair, you can access it as:
+const readonlyAccount = accounts[0]; // This account is still read-only.
+
+// Access a read-write account:
+const session: Session = await getSession("my-account-id-as-hex-string");
+const account = session.account;
+
+// Transfer funds to another account:
+account.transfer(
+  "receiver-id-as-hex-string", // Recipient account ID.
+  "asset-id-as-hex-string", // Asset being transferred.
+  createAmount(5, 6) // Amount: 5 units with 6 decimals (5000000n).
+);
+
+// Use `createAmountFromBalance` if the amount is already a bigint:
+createAmountFromBalance(5000000n, 6);
+```
+
+### Offline transactions
+
+Prepare a transaction without sending it immediately. This approach is not suitable when the environment lacks
+blockchain access. It could be useful, however, whenever there should be a delay between the transaction being built and
+the actual sending. For a completely offline transaction process (except for the sending step), refer to section 8.
+
+```typescript
+import { transactionBuilder } from "@chromia/ft4";
+
+// Build a transaction without sending it:
+await transactionBuilder(account.authenticator, client)
+  .add({
+    name: "ft4.transfer",
+    args: [
+      Buffer.from("receiver-id-as-hex-string", "hex"),
+      Buffer.from("asset-id-as-hex-string"),
+      createAmount(5, 6).value, // or 5000000n
+    ],
+  })
+  .build();
+```
+
+:::tip
+
+You can find detailed information about operation names and arguments at:
+[FT4 Rell Documentation](https://docs.chromia.com/pages/ft4-rell/index.html)
+
+:::
+
+### Sending offline transactions
+
+Send a pre-built transaction by specifying transaction details and using a signer for authorization.
+
+```typescript
+import { Transaction } from "postchain-client";
+
+// The following information is required:
+// - Blockchain RID
+// - Account ID
+// - Authentication descriptor ID
+
+const blockchainRid = Buffer.from("id-as-hex", "hex");
+const accountId = Buffer.from("id-as-hex", "hex");
+const authDescriptorId = Buffer.from("id-as-hex", "hex");
+
+const transaction: Transaction = {
+  operations: [
+    { name: "ft4.ft_auth", args: [accountId, authDescriptorId] },
+    {
+      name: "ft4.transfer",
+      args: [
+        /* Values for recipient, asset and amount as above. Buffer, Buffer, bigint. */
+      ],
+    },
+  ],
+  signers: [
+    Buffer.from("pubkey-as-hex", "hex"), // The signer for the auth descriptor defined above.
+  ],
+};
+
+// To send the transaction on a connected machine:
+client.signAndSendUniqueTransaction(transaction, signatureProvider);
+```
+
+### Offline transaction creation and signing
+
+For more complex scenarios where you need full control over transaction creation and signing, you can use the following
+approach. This example demonstrates how to create a transaction with multiple operations, including memo, authentication
+and transfer.
+
+```typescript
+import { gtx, gtv, newSignatureProvider, createClient } from "postchain-client";
+import { createAmount, deriveAuthDescriptorId, createSingleSigAuthDescriptorRegistration } from "@chromia/ft4";
+
+// Define your keypair
+const privateKey = "my-privkey-as-hex-string";
+const publicKey = "my-pubkey-as-hex-string";
+
+const keypair = {
+  privKey: Buffer.from(privateKey, "hex"),
+  pubKey: Buffer.from(publicKey, "hex"),
+};
+
+// Initialize the client
+const chromiaClient = await createClient({
+  nodeUrlPool: "https://system.chromaway.com:7740",
+  blockchainRid: "15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA",
+});
+
+// Define transaction parameters
+const assetId = Buffer.from("asset-id-as-hex-string", "hex");
+const toAddress = Buffer.from("receiver-id-as-hex-string", "hex");
+const brid = Buffer.from("blockchain-rid-as-hex-string", "hex");
+
+// Create signature provider
+const sigProv = newSignatureProvider(keypair);
+
+// Create authentication descriptor and derive IDs
+const authDescriptor = createSingleSigAuthDescriptorRegistration(["A", "T"], keypair.pubKey, null);
+const accountId = gtv.gtvHash(authDescriptor.args.signer);
+const authDescriptorId = deriveAuthDescriptorId(authDescriptor);
+
+// Create and build the transaction
+let tx = gtx.emptyGtx(brid);
+
+// Add memo operation
+tx = gtx.addTransactionToGtx("memo", ["100346"], tx);
+
+// Add authentication operation
+tx = gtx.addTransactionToGtx("ft4.ft_auth", [accountId, authDescriptorId], tx);
+
+// Add transfer operation
+tx = gtx.addTransactionToGtx("ft4.transfer", [toAddress, assetId, createAmount(1000, 2).value], tx);
+
+// Add NOP operation
+tx = gtx.addTransactionToGtx(
+  "nop",
+  [7], //random number
+  tx
+);
+
+// Add signer and sign the transaction
+gtx.addSignerToGtx(keypair.pubKey, tx);
+tx = await gtx.sign(tx, sigProv);
+
+// Serialize and send the transaction
+const encodedSignedTx = gtx.serialize(tx);
+const signedTx = await chromiaClient.sendTransaction(encodedSignedTx);
+```
+
+:::tip
+
+When creating offline transactions, make sure to:
+
+1. Keep your private keys secure
+2. Verify all transaction parameters before signing
+3. Double-check the blockchain RID and node URLs
+4. Test the transaction on a Testnet before using it on Mainnet
+
+:::
+
+### Offline account registration
+
+You can also register a new account offline using the following approach.
+
+```typescript
+import { gtx, newSignatureProvider } from "postchain-client";
+import { createSingleSigAuthDescriptorRegistration, gtv as gtvft4 } from "@chromia/ft4";
+
+// Define your keypair
+const privkey = "my-privkey-as-hex-string";
+const pubkey = "my-pubkey-as-hex-string";
+
+const keypair = {
+  privKey: Buffer.from(privkey, "hex"),
+  pubKey: Buffer.from(pubkey, "hex"),
+};
+
+// Initialize the client
+const chromiaClient = await createClient({
+  nodeUrlPool: "https://system.chromaway.com:7740",
+  blockchainRid: "15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA",
+});
+
+// Define transaction parameters
+const assetId = Buffer.from("asset-id-as-hex-string", "hex");
+const brid = Buffer.from("blockchain-rid-as-hex-string", "hex");
+
+// Create signature provider
+const sigProv = newSignatureProvider(keypair);
+
+// Create authentication descriptor
+const authDescriptor = createSingleSigAuthDescriptorRegistration(["A", "T"], keypair.pubKey, null);
+const ras_params = gtvft4.authDescriptorRegistrationToGtv(authDescriptor);
+
+// Create and build the transaction
+let tx = gtx.emptyGtx(brid);
+
+// Add transfer fee operation
+tx = gtx.addTransactionToGtx("ft4.ras_transfer_fee", [assetId, ras_params, null], tx);
+
+// Add account registration operation
+tx = gtx.addTransactionToGtx("ft4.register_account", [], tx);
+
+// Add NOP operation
+tx = gtx.addTransactionToGtx("nop", [Buffer.from([0])], tx);
+
+// Add signer and sign the transaction
+gtx.addSignerToGtx(keypair.pubKey, tx);
+tx = await gtx.sign(tx, sigProv);
+
+// Serialize and send the transaction
+const encodedSignedTx = gtx.serialize(tx);
+const signedTx = await chromiaClient.sendTransaction(encodedSignedTx);
+```
+
+
+--------------------------------------------------------------------------------
+
+
+# Step 4: Sending assets to non-existent accounts
+
+Exchanges can send assets to users who do not yet have a Chromia account by transferring funds to an unregistered
+account. This process allows users to activate their accounts through the Chromia Vault. The exchange should first
+verify if the user has an existing Chromia account:
+
+- **If the account exists:** You can send any amount of CHR.
+- **If the account does not exist:** Notify the user that they need to send at least 10 CHR, as this is the required fee
+  for account creation.
+
+Once the transfer is complete, users can visit the [Chromia Vault](https://vault.chromia.com) to activate their
+accounts. Below is the implementation example:
+
+```typescript
+// Create a single-signature account descriptor for the new account
+const authDescriptor = createSingleSigAuthDescriptorRegistration(
+  ["A", "T"], // Fixed value for the Economy Chain
+  Buffer.from("pubkey or EVM address, without 0x", "hex"), // Public key or EVM-compatible address of the recipient
+  null // No additional rules; this is standard for all account registrations
+);
+
+// Retrieve the account ID for the single-signature account
+const signer = authDescriptor.args.signer;
+const singleSigAccId = gtv.gtvHash(signer);
+
+// Transfer assets to the unregistered account
+// Ensure the amount is at least 10 CHR to cover the account creation fee
+myAccount.transfer(
+  singleSigAccId,
+  "CHR asset id as hex", // The unique identifier for the CHR asset
+  createAmount(19, 6) // Amount: 19 CHR (9 will be available; 10 will be used as the account creation fee)
+);
+
+// The user needs to visit the Chromia Vault to activate their account
+// Inform the user to go to https://vault.chromia.com for account activation
+
+// Creating the account yourself
+// Set up an in-memory key store with the private key for signing
+const ks = createInMemoryFtKeyStore(encryption.makeKeyPair("privkey"));
+
+// Register the account using the provided registration strategy
+const { session } = await registerAccount(client, ks, registrationStrategy.transferFee(CHRAsset, authDescriptor, null));
+// After registration, the session can be used for further operations. The account is now created and can be retrieved as described in the previous steps.
+```
+
+
+--------------------------------------------------------------------------------
+
+
+import SectionCardItem from "@site/src/components/SectionCardItem";
+import SectionCards from "@site/src/components/SectionCards";
+
+# Real-time data integration
+
+Leverage real-time data streams to power intelligent, responsive dapps. Chromia's extension ecosystem enables seamless
+integration of external data sources like price feeds into your application logic.
+
+<SectionCards>
+  <SectionCardItem header="Real-time price feeds with Stork Oracle" href="stork">
+    <p>
+      Discover how the Stork Oracle extension provides real-time price feeds with sub-millisecond latency tailored for
+      DeFi, gaming, and AI-driven dapps.
+    </p>
+  </SectionCardItem>
+</SectionCards>
+
+
+--------------------------------------------------------------------------------
+
+
+# Real-time price feeds with Stork Oracle
+
+The Stork Oracle Chromia extension provides developers with real-time access to up-to-date asset prices, achieving
+sub-millisecond latency. With its advanced aggregation algorithms, Stork delivers highly accurate price feeds, making it
+essential for DeFi applications like perpetual DEXes, prediction markets, and financial protocols. Its geographically
+distributed network of data providers guarantees data stability and availability, even during high demand, which makes
+Stork perfect for real-world asset management, gaming platforms, and AI-driven dapps. By integrating with Chromia's
+relational blockchain architecture, Stork enables seamless data processing and opens up new opportunities for building
+decentralized applications that prioritize precision and performance.
+
+:::tip Learn by building
+
+**[Big data](https://learn.chromia.com/courses/big-data/introduction)** - Unlock the power of big data with Chromia
+blockchain and PySpark! Learn to build innovative, blockchain-powered big data solutions that integrate with real-time
+data streams like price feeds. (Intermediate)
+
+::::
+
+## Blockchain configuration
+
+When you lease your container, ensure you select the **Stork Oracle Chromia extension**. To start using the extension,
+configure your blockchain to listen for asset updates and include the necessary Stork extensions. Below is a sample
+configuration:
+
+```yaml title="chromia.yml"
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      gtx:
+        modules:
+          - "net.postchain.stork.StorkOracleGTXModule"
+      sync_ext:
+        - "net.postchain.stork.StorkOracleSynchronizationInfrastructureExtension"
+      stork:
+        assets:
+          - "BTCUSD"
+          - "ETHUSD"
+          - "..."
+```
+
+`Assets`: Specify the list of assets (e.g., BTCUSD, ETHUSD) that you want the extension to monitor for updates. You can
+find the complete list of assets at [this link](https://docs.stork.network/resources/asset-id-registry).
+
+If necessary, override the Stork public key and publisher public keys as follows:
+
+```yaml title="chromia.yml"
+blockchains:
+  <my_blockchain_name>:
+    module: <module_name>
+    config:
+      stork:
+        stork_pubkey: x"0a803F9b1CCe32e2773e0d2e98b37E0775cA5d44"
+        publisher_pubkeys: # List ALL publisher keys here if you want to override
+          - x"5c946686b0302be54d85394015a9f9fa0952984e"
+          - "..."
+```
+
+## Rell Integration
+
+Integrate the Stork Oracle Extension library into your Rell project by adding it to your configuration:
+
+```yaml title="chromia.yml"
+libs:
+  stork:
+    registry: https://gitlab.com/chromaway/core/stork-oracle-chromia-extension
+    path: rell/src/stork
+    tagOrBranch: 1.0.1
+    rid: x"EBB409F91EBC5EB3816570C9FDB5A170180249CF7F74EEDFC09C428E288F4114"
+    insecure: false
+```
+
+To process price updates in your application, extend the `on_stork_oracle_prices_update` hook:
+
+```rell
+@extend(on_stork_oracle_prices_update) function handle_price_update(stork_oracle_prices) {
+    // Add your custom logic here
+}
+```
+
+The `stork_oracle_prices` struct provides detailed information about price updates:
+
+```rell
+struct stork_oracle_prices {
+    asset: text;
+    stork_price;
+    publisher_prices: list<publisher_price>;
+}
+
+struct stork_price {
+    price: big_integer;
+    signature;
+    timestamp_nanos: integer;
+    merkle_root: byte_array;
+    type: text;
+    version: text;
+    checksum: byte_array;
+}
+
+struct publisher_price {
+    price: big_integer;
+    signature;
+    timestamp_seconds: integer;
+}
+
+struct signature {
+    signer: byte_array;
+    r: byte_array;
+    s: byte_array;
+    v: byte_array;
+}
+```
+
+The extension automatically verifies the signatures, so you don't need to include that logic in your Rell code.
+
+Prices are represented as `big_integer` with 18 decimal places. Use the following utility function to convert prices to
+decimal format:
+
+```rell
+function convert_price_to_decimal(price: big_integer): decimal
+```
+
+You can find the source code and further details about the Stork Oracle Chromia extension in the
+[official repository](https://gitlab.com/chromaway/core/stork-oracle-chromia-extension).
+
+
+--------------------------------------------------------------------------------
+

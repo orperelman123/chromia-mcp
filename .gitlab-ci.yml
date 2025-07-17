@@ -1,0 +1,72 @@
+image: gradle:8.7-jdk21-alpine
+
+include:
+  - project: chromaway/core-infra/gitlab-automation
+    ref: 1.1.9
+    file:
+      - templates/release.yml
+
+.setup:
+  before_script:
+    - GRADLE_USER_HOME="$(pwd)/.gradle"
+    - export GRADLE_USER_HOME
+
+stages:
+  - build-and-test
+  - publish
+  - release
+
+build-and-test:
+  stage: build-and-test
+  interruptible: true
+  extends:
+    - .setup
+  script: 
+    - cd app && ./gradlew check --info
+  artifacts:
+    reports:
+      codequality: ["build/reports/detekt/code-climate.json"]
+  cache:
+    key: "$CI_COMMIT_REF_NAME"
+    policy: pull-push
+    paths:
+      - "**/build"
+      - .gradle
+
+# FIXME
+#build-jdeploy:
+#  stage: build-and-test
+#  image: node:18-alpine
+#  before_script:
+#    - apk add --no-cache openjdk21
+#  script:
+#    - cd app && ./gradlew shadowJar createJDeployBundle
+#    - npm install -g jdeploy
+#    - npm run jdeploy
+#  artifacts:
+#    paths:
+#      - "jdeploy-bundle/"
+#      - "package.json"
+#    expire_in: 1 week
+#  only:
+#    - tags
+#    - main
+#
+#publish-npm:
+#  stage: publish
+#  image: node:18-alpine
+#  before_script:
+#    - apk add --no-cache openjdk21
+#    - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
+#    - npm install -g jdeploy
+#  script:
+#    - cd app && ./gradlew shadowJar createJDeployBundle
+#    - npm run jdeploy
+#    - npm publish
+#  rules:
+#    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+#  dependencies:
+#    - build-jdeploy
+#
+#variables:
+#  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
