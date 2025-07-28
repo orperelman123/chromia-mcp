@@ -70,7 +70,9 @@ class App(
             McpTools.getSignerBlockchainsTool(),
             McpTools.getAccountBlockchainsTool(),
             McpTools.getNodeUnavailabilityTool(),
-            McpTools.getNetworkStats()
+            McpTools.getNetworkStats(),
+            McpTools.listDocSourcesTool(),
+            McpTools.fetchDocsTool()
         )
 
         val registeredTools = tools.map { tool ->

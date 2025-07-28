@@ -1,0 +1,34 @@
+{
+  "bin": {
+    "chromia-mcp-server": "jdeploy-bundle/jdeploy.js"
+  },
+  "author": "Chromia",
+  "description": " Model Context Protocol server that provides integration with the Chromia blockchain ecosystem and documentation",
+  "main": "index.js",
+  "preferGlobal": "true",
+  "repository": "https://gitlab.com/chromaway/core-tools/chromia_mcp",
+  "version": "0.0.1",
+  "jdeploy": {
+    "jdk": "true",
+    "javaVersion": "21",
+    "jar": "app/build/libs/chromia-mcp-server.jar",
+    "javafx": "false",
+    "title": "Chromia Mcp Server"
+  },
+  "dependencies": {
+    "command-exists-promise": "^2.0.2",
+    "node-fetch": "2.6.7",
+    "shelljs": "^0.8.4",
+    "tar": "^4.4.8",
+    "yauzl": "^2.10.0"
+  },
+  "license": "ISC",
+  "name": "chromia-mcp-server",
+  "files": [
+    "jdeploy-bundle"
+  ],
+  "scripts": {
+    "clean": "rm -rf jdeploy-bundle && rm -rf node_modules && ./gradlew clean",
+    "build": "./gradlew :app:shadowJar && npm install && jdeploy install"
+  }
+}

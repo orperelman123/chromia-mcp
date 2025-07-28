@@ -13,28 +13,36 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - Account activity and analytics
 - Node performance monitoring
 - dApp deployment information
+- **Documentation retrieval and search**
+
+## Documentation Tools
+
+The server includes built-in documentation tools that provide access to comprehensive Chromia documentation:
+
+- **Chromia CLI Documentation** - Complete guide to using the Chromia command-line interface
+- **Chromia CLI Usage Examples** - Practical examples and usage patterns for Chromia CLI
+- **Rell Programming Language** - Complete documentation for the Rell programming language
+- **FT4 Library Documentation** - Documentation for FT4 account management and authentication
+- **Code Samples and Courses** - Code examples, tutorials, and learning resources
+- **Network Configuration** - Platform network configuration and deployment guides
+
+These tools allow AI assistants to access up-to-date Chromia documentation
 
 ## Installation
 
 ### Prerequisites
 
-- Java 21
+- Node.js v18 or higher
 
-> TODO: publish chromia-mcp-server on brew and scoop for Windows and MacOS
+Install the chromia-mcp-server globally using npm:
+
+```bash
+# npm install @chromia/chromia-mcp-server  -g
+```
 
 ### Quick Start
 
-The MCP server runs automatically when configured in your AI assistant. No manual installation is required as `brew` will handle package management.
-
-### Enhancing AI agents for Documentation
-
-For enhanced documentation and context support, install uvx: https://docs.astral.sh/uv/getting-started/installation/
-
-**mcpdoc** provides additional documentation context and helps with:
-- Enhanced code documentation for Chromia-related tools and infrastructure
-- Context-aware suggestions
-
-After installation, mcpdoc will automatically enhance Cursor/Windsurf context to be aware of Chromia documentation
+The MCP server runs automatically when configured in your AI assistant.
 
 ### Cursor/Windsurf IDEs
 
@@ -50,32 +58,7 @@ After installation, mcpdoc will automatically enhance Cursor/Windsurf context to
 {
    "mcpServers": {
       "chromia-mcp": {
-         "command": "java",
-         "args": [
-            "-jar",
-            "/Users/bart/Documents/Projects/Work/mcp/chromia-mcp/app/build/libs/app-all.jar"
-         ],
-         "env": {
-            "CHROMIA_MCP_LOG_LEVEL": "INFO"
-         }
-      },
-      "chromia-docs-mcp": {
-         "command": "uvx",
-         "args": [
-            "--from",
-            "mcpdoc",
-            "mcpdoc",
-            "--urls",
-            "ChromiaCli(chr):https://gitlab.com/chromaway/core-tools/chromia_mcp/-/raw/main/docs-llm/llm_files/cli/llms-full.txt",
-            "ChromiaCliUsage:https://gitlab.com/chromaway/core-tools/chromia_mcp/-/raw/main/docs-llm/llm_files/cli_usage/llms-full.txt",
-            "ChromiaCodeSamplesAndCourses:https://gitlab.com/chromaway/core-tools/chromia_mcp/-/raw/main/docs-llm/llm_files/code_samples/llms-full.txt",
-            "Rell:https://gitlab.com/chromaway/core-tools/chromia_mcp/-/raw/main/docs-llm/llm_files/rell/llms-full.txt",
-            "FT4Library:https://gitlab.com/chromaway/core-tools/chromia_mcp/-/raw/main/docs-llm/llm_files/ft4/llms-full.txt",
-            "ChromiaPlatformNetworkConfig:https://gitlab.com/chromaway/core-tools/chromia_mcp/-/raw/main/docs-llm/llm_files/network_config/llms-full.txt",
-            "--transport",
-            "stdio"
-         ],
-         "autoApprove": ["list_doc_sources", "fetch_docs"]
+         "command": "chromia-mcp-server"
       }
    }
 }
@@ -90,7 +73,7 @@ After installation, mcpdoc will automatically enhance Cursor/Windsurf context to
 ### Basic Network Statistics
 
 ```
-Get network statistics for Mainnet
+Get network statistics and analytics for the Chromia Mainnet environment
 ```
 
 ```     
@@ -98,15 +81,7 @@ What is the brid of my neighbor alice, and in which cluster and container it is 
 ```
 
 ```
-Find all assets containing "CHR" on Mainnet
-```
-
-```
 Get the latest 10 transactions on Mainnet with operation type "transfer"
-```
-
-```
-Get analytics for blockchain RID: ABC123...
 ```
 
 ```
@@ -130,12 +105,21 @@ what is the difference between query and operation in Rell
 ```
 
 ```
-Could you create a Rell application for managing books that includes FT4 account registration functionality?
+Could you create a Rell application for managing books that includes FT4 account registration functionality
 ```
 
 ```
 how to use Chromia CLI to deploy my newly created dapp on testnet
 ```
+
+```
+What are the steps to deploy a dApp on Chromia testnet using CLI?
+```
+
+```
+How do I configure network settings for a Chromia blockchain?
+```
+
 ## Networks
 
 The server supports multiple Chromia networks:
@@ -146,5 +130,5 @@ Specify the network parameter in your queries to target the appropriate environm
 
 # TODO:
 - [ ] Use Jdeploy to publish this application on NPM
-- [ ] Remove mcpdoc and add tooling to the main app instead
+- [x] Remove mcpdoc and add tooling to the main app instead
 - [ ] Implement server-sent events (SSE) transport for the MCP server"

@@ -1,72 +1,52 @@
-image: gradle:8.7-jdk21-alpine
-
-include:
-  - project: chromaway/core-infra/gitlab-automation
-    ref: 1.1.9
-    file:
-      - templates/release.yml
-
-.setup:
-  before_script:
-    - GRADLE_USER_HOME="$(pwd)/.gradle"
-    - export GRADLE_USER_HOME
+image: node:18-alpine
 
 stages:
-  - build-and-test
-  - publish
-  - release
+  - build
+  - deploy
 
-build-and-test:
-  stage: build-and-test
-  interruptible: true
-  extends:
-    - .setup
-  script: 
-    - cd app && ./gradlew check --info
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+build:
+  stage: build
+  before_script:
+    - apk add --no-cache openjdk21
+    - export GRADLE_USER_HOME
+  script:
+    - ./gradlew check --info
+    - ./gradlew :app:shadowJar
+    - npm install -g jdeploy
+    - npm run build
+    - jdeploy install
   artifacts:
-    reports:
-      codequality: ["build/reports/detekt/code-climate.json"]
+    paths:
+      - "jdeploy-bundle/"
+      - "app/build/libs/"
+    expire_in: 1 week
   cache:
     key: "$CI_COMMIT_REF_NAME"
     policy: pull-push
     paths:
       - "**/build"
-      - .gradle
+      - ".gradle"
 
-# FIXME
-#build-jdeploy:
-#  stage: build-and-test
-#  image: node:18-alpine
-#  before_script:
-#    - apk add --no-cache openjdk21
-#  script:
-#    - cd app && ./gradlew shadowJar createJDeployBundle
-#    - npm install -g jdeploy
-#    - npm run jdeploy
-#  artifacts:
-#    paths:
-#      - "jdeploy-bundle/"
-#      - "package.json"
-#    expire_in: 1 week
-#  only:
-#    - tags
-#    - main
-#
-#publish-npm:
-#  stage: publish
-#  image: node:18-alpine
-#  before_script:
-#    - apk add --no-cache openjdk21
-#    - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
-#    - npm install -g jdeploy
-#  script:
-#    - cd app && ./gradlew shadowJar createJDeployBundle
-#    - npm run jdeploy
-#    - npm publish
-#  rules:
-#    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
-#  dependencies:
-#    - build-jdeploy
-#
-#variables:
-#  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+deploy-npm:
+  stage: deploy
+  before_script:
+    - apk add --no-cache openjdk21
+    - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
+    - npm install -g jdeploy
+    - export GRADLE_USER_HOME
+  script:
+    - npm run build
+    - npm run jdeploy
+    - npm publish
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  dependencies:
+    - build

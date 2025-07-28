@@ -3,6 +3,7 @@ package org.chromia.tools
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.TextContent
+import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.json.*
 import org.chromia.domain.ChromiaRepository
 import org.chromia.domain.NetworkResult
@@ -37,7 +38,9 @@ class ToolExecutor(
         "get_signer_blockchains" to SignerBlockchainsStrategy(),
         "get_account_blockchains" to AccountBlockchainsStrategy(),
         "get_node_unavailability" to NodeUnavailabilityStrategy(),
-        "get_network_stats" to NetworkStatsStrategy()
+        "get_network_stats" to NetworkStatsStrategy(),
+        "list_doc_sources" to ListDocSourcesStrategy(),
+        "fetch_docs" to FetchDocsStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest) = runCatching {
@@ -453,4 +456,147 @@ class NetworkStatsStrategy : BaseToolStrategy() {
         val result = repository.getNetworkStats(network)
         return handleResult(result, "Failed to get network stats")
     }
-} 
+}
+
+class ListDocSourcesStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val docSources = listOf(
+            mapOf(
+                "name" to "Chromia Bridge Documentation",
+                "description" to "Documentation for Chromia Bridge functionality and cross-chain operations",
+                "url" to "classpath:docs-llm/bridge/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia CLI Documentation",
+                "description" to "Complete guide to using the Chromia command-line interface",
+                "url" to "classpath:docs-llm/cli/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia CLI Usage Examples",
+                "description" to "Practical examples and usage patterns for Chromia CLI",
+                "url" to "classpath:docs-llm/cli_usage/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Client Libraries",
+                "description" to "Documentation for various client libraries and SDKs for Chromia development",
+                "url" to "classpath:docs-llm/clients/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Code Samples and Courses",
+                "description" to "Code examples, tutorials, and learning resources for Chromia development",
+                "url" to "classpath:docs-llm/code_samples/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Cookbook",
+                "description" to "Recipe-style guides and best practices for common Chromia development tasks",
+                "url" to "classpath:docs-llm/cookbook/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia FileHub",
+                "description" to "Documentation for Chromia FileHub decentralized file storage system",
+                "url" to "classpath:docs-llm/filehub/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "FT4 Library Documentation",
+                "description" to "Documentation for FT4 account management and authentication library",
+                "url" to "classpath:docs-llm/ft4/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Governance",
+                "description" to "Documentation for Chromia governance mechanisms and protocols",
+                "url" to "classpath:docs-llm/governance/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Introduction",
+                "description" to "Introduction and overview of the Chromia platform and its capabilities",
+                "url" to "classpath:docs-llm/intro/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Network Configuration",
+                "description" to "Platform network configuration for core blockchains on Chromia",
+                "url" to "classpath:docs-llm/network_config/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia PMC (Postchain Management Console)",
+                "description" to "Documentation for the Postchain Management Console and node administration",
+                "url" to "classpath:docs-llm/pmc/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain REST API",
+                "description" to "REST API documentation for Postchain blockchain operations",
+                "url" to "classpath:docs-llm/postchain_rest_api/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Providers",
+                "description" to "Documentation for Chromia hosting providers and infrastructure services",
+                "url" to "classpath:docs-llm/providers/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Quick Introduction",
+                "description" to "Quick start guide and essential concepts for getting started with Chromia",
+                "url" to "classpath:docs-llm/quick_intro/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Rell Programming Language",
+                "description" to "Complete documentation for the Rell programming language used in Chromia",
+                "url" to "classpath:docs-llm/rell/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Chromia Use Cases",
+                "description" to "Documentation covering various use cases and applications built on Chromia",
+                "url" to "classpath:docs-llm/use_cases/llms-full.txt"
+            )
+        )
+
+        val content = StringBuilder()
+        content.appendLine("Available Chromia Documentation Sources:")
+        content.appendLine()
+        
+        docSources.forEachIndexed { index, source ->
+            content.appendLine("${index + 1}. ${source["name"]}")
+            content.appendLine("   Description: ${source["description"]}")
+            content.appendLine("   URL: ${source["url"]}")
+            content.appendLine()
+        }
+        
+        content.appendLine("Usage Instructions:")
+        content.appendLine("1. Use the fetch_docs tool with any of the above URLs to get the documentation content")
+        content.appendLine("2. The URLs above point to llms.txt files that contain indexes of documentation pages")
+        content.appendLine(
+            "3. After fetching an llms.txt file, you can then fetch specific documentation pages mentioned in that file"
+        )
+
+        return CallToolResult(
+            content = listOf(TextContent(content.toString()))
+        )
+    }
+}
+
+// TODO: Would be good to be able to crawl and fetch all mdx files from 'docs.chromia.org' directly
+//  instead of embedding llm.txt files inside the application itself
+//  the downside is that fetching / parsing files and transforming them into llm.txt takes a quite time
+class FetchDocsStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val url = requireParameter(args, "url")
+        
+        return runCatching {
+            val resourcePath = url.removePrefix("classpath:")
+            val content = fetchClasspathResource(resourcePath)
+            CallToolResult(
+                content = listOf(TextContent(content))
+            )
+        }.getOrElse { e ->
+            CallToolResult(
+                content = listOf(TextContent("Error fetching documentation from classpath: ${e.message}"))
+            )
+        }
+    }
+    
+    private fun fetchClasspathResource(resourcePath: String): String {
+        val inputStream = this::class.java.classLoader.getResourceAsStream(resourcePath)
+            ?: throw FileNotFoundException("Resource not found: $resourcePath")
+        
+        return inputStream.use { it.bufferedReader().readText() }
+    }
+}

@@ -54,6 +54,7 @@ compileKotlin.compilerOptions {
 }
 
 tasks.shadowJar {
+    archiveBaseName.set("chromia-mcp-server")
     archiveClassifier.set("")
     manifest {
         attributes["Main-Class"] = "org.chromia.AppKt"

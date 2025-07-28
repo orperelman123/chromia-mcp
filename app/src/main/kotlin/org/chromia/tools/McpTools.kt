@@ -1097,4 +1097,66 @@ object McpTools {
             required = listOf()
         )
     )
+
+    fun listDocSourcesTool() = Tool(
+        name = "list_doc_sources",
+        description = """
+            - List all available documentation sources for Chromia ecosystem
+            - This is the first tool you should call in the documentation workflow
+            - Returns comprehensive information about available documentation including:
+                - Chromia CLI documentation and usage guides
+                - Rell programming language documentation
+                - FT4 library documentation for account management
+                - Code samples and tutorials
+                - Network configuration guides
+                - Platform integration guides
+            - This tool is useful for:
+                - Discovering available Chromia documentation sources
+                - Understanding what documentation is available before fetching specific content
+                - Getting URLs to llms.txt files that contain documentation links
+                - Planning documentation queries and research
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(mapOf()),
+            required = listOf()
+        )
+    )
+
+    fun fetchDocsTool() = Tool(
+        name = "fetch_docs",
+        description = """
+            - Fetch and parse documentation content from Chromia documentation sources
+            - Use this tool after list_doc_sources to get specific documentation content
+            - Returns documentation content converted to markdown format
+            - Supports fetching from:
+                - Direct URLs to documentation pages
+                - llms.txt files that contain documentation indexes
+                - Specific documentation sections and guides
+            - Usage workflow:
+                1. First call list_doc_sources to see available documentation sources
+                2. Analyze the URLs listed in the response
+                3. Use this tool to fetch specific documentation pages relevant to your question
+                4. If the fetched content contains URLs to additional relevant documentation, 
+                   you can use this tool again to fetch that content
+            - This tool is essential for:
+                - Getting detailed Chromia development documentation
+                - Accessing Rell programming guides and examples
+                - Retrieving FT4 account management documentation
+                - Fetching CLI usage instructions and commands
+                - Getting network configuration and deployment guides
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "url" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The URL to fetch documentation from. Should be from the Chromia documentation domains or one of the URLs returned by list_doc_sources.")
+                        )
+                    )
+                )
+            ),
+            required = listOf("url")
+        )
+    )
 }
