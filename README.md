@@ -32,15 +32,26 @@ These tools allow AI assistants to access up-to-date Chromia documentation
 
 ### Prerequisites
 
-- Node.js v18 or higher
+- Node.js v18 or higher, *or*
+- Java Development Kit v21 or higher
+
+### With Node.js
 
 Install the chromia-mcp-server globally using npm:
 
 ```bash
-# npm install @chromia/chromia-mcp-server  -g
+npm install @chromia/chromia-mcp-server -g
 ```
 
-### Quick Start
+### With JDK
+
+Build it with Gradle:
+
+```bash
+./gradlew :app:shadowJar
+```
+
+## Setup
 
 The MCP server runs automatically when configured in your AI assistant.
 
@@ -54,6 +65,15 @@ The MCP server runs automatically when configured in your AI assistant.
    - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
    - **Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
 
+### Jetbrains AI Assistant
+
+1. Go to Settings → Tools → AI Assistant → MCP.
+2. Click on `+` to open to add dialog.
+3. In the dropdown switch from "Command" to "As JSON" and paste the JSON below.
+4. A working directory, put the directory where this project is cloned.
+
+#### With Node.js
+
 ```json
 {
    "mcpServers": {
@@ -61,6 +81,22 @@ The MCP server runs automatically when configured in your AI assistant.
          "command": "chromia-mcp-server"
       }
    }
+}
+```
+
+#### With JDK
+
+```json
+{
+  "mcpServers": {
+    "chromia": {
+      "command": "java",
+      "args": [
+        "-jar",
+        "app/build/libs/chromia-mcp-server.jar"
+      ]
+    }
+  }
 }
 ```
 
