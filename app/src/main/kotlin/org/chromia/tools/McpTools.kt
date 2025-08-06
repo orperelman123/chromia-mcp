@@ -5,26 +5,6 @@ import kotlinx.serialization.json.*
 
 object McpTools {
 
-//    fun queryDataTool() = Tool(
-//        name = "query_data",
-//        description = "Execute a query against the blockchain",
-//        inputSchema = Tool.Input(
-//            properties = JsonObject(
-//                mapOf(
-//                    "blockchainRid" to JsonObject(mapOf(
-//                        "type" to JsonPrimitive("string"),
-//                        "description" to JsonPrimitive("The blockchain RID")
-//                    )),
-//                    "type" to JsonObject(mapOf(
-//                        "type" to JsonPrimitive("string"),
-//                        "description" to JsonPrimitive("Query name (type)")
-//                    ))
-//                )
-//            ),
-//            required = listOf("blockchainRid", "type")
-//        )
-//    )
-
     fun getBlockchainsTransactionsTool() = Tool(
         name = "get_blockchains_transactions",
         description = """
@@ -42,7 +22,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -60,7 +40,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -78,7 +58,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -96,7 +76,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -116,7 +96,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -134,7 +114,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -152,7 +132,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -170,7 +150,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -415,24 +395,34 @@ object McpTools {
         )
     )
 
-    // NOTE: --> doesn't work, returns an empty array
-    fun getAllBlockchainsTool() = Tool(
-        name = "get_all_blockchains",
+    fun filterBlockchains() = Tool(
+        name = "filter_blockchains",
         description = """
-            - Get a comprehensive list of all blockchains in the system
+            - Get a comprehensive list of all blockchains with advanced filtering capabilities
+            - **Primary use case: Finding blockchains by name** - this is the main tool for blockchain name lookups
             - Returns detailed information about each blockchain including:
                 - Unique RID (Resource Identifier) for each blockchain
                 - Names/aliases associated with each blockchain
                 - The cluster each blockchain belongs to
                 - Container information for each blockchain
-                - Current operational state of each blockchain
+                - Current operational state of each blockchain (RUNNING, REMOVED, PAUSED)
                 - Whether each blockchain is a system chain or user application
-            - This tool is useful for:
+            - Supports comprehensive filtering options:
+                - **Filter by name**: Find blockchains by exact or partial name match (main feature)
+                - Filter by RID: Find specific blockchain by Resource Identifier
+                - Filter by cluster: Find blockchains in specific clusters (e.g., 'pink', 'system')
+                - Filter by container: Find blockchains in specific containers
+                - Filter by state: Find blockchains by operational state (RUNNING, REMOVED, PAUSED)
+                - Filter by system status: Find system chains vs user applications
+                - Pagination support: limit and offset for large result sets
+                - Sorting options: sortBy and sortDirection for ordered results
+            - This tool is essential for:
+                - **Finding blockchains by name** (primary use case)
                 - Getting an overview of all blockchains in the system
                 - Comparing deployment environments across blockchains
                 - Identifying system chains vs user applications
-                - Checking the operational status of all blockchains
-                - Finding blockchains by name or other attributes
+                - Checking the operational status of blockchains
+                - Discovering blockchains in specific clusters or containers
         """.trimIndent(),
         inputSchema = Tool.Input(
             properties = JsonObject(
@@ -440,7 +430,67 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+                    "name" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional blockchain name to filter by (primary use case - e.g., 'auro', 'MarbleRumble')")
+                        )
+                    ),
+                    "rid" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional blockchain RID to filter by specific blockchain")
+                        )
+                    ),
+                    "cluster" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional cluster name to filter by (e.g., 'pink', 'system')")
+                        )
+                    ),
+                    "container" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional container ID to filter by")
+                        )
+                    ),
+                    "state" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED')")
+                        )
+                    ),
+                    "system" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive("Optional filter for system chains (true) vs user applications (false)")
+                        )
+                    ),
+                    "limit" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive("Optional limit for number of blockchains to return (default: 10)")
+                        )
+                    ),
+                    "offset" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive("Optional offset for pagination (default: 0)")
+                        )
+                    ),
+                    "sortBy" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional field to sort by (e.g., 'name', 'cluster', 'state')")
+                        )
+                    ),
+                    "sortDirection" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional sort direction ('ASC' or 'DESC')")
                         )
                     )
                 )
@@ -485,7 +535,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "rid" to JsonObject(
@@ -662,7 +712,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     )
                 )
@@ -670,50 +720,6 @@ object McpTools {
             required = listOf("network")
         )
     )
-
-//    fun getSearchTool() = Tool(
-//        name = "search",
-//        description = """
-//            - Search for blockchain entities using a query string
-//            - Returns search results with detailed information including:
-//                - Type of the found entity (e.g., 'transaction', 'block', 'account', 'blockchain')
-//                - Blockchain RID (Resource Identifier) where the entity exists
-//                - Name or identifier of the found entity
-//            - Supports searching for various types of blockchain entities:
-//                - Transaction RIDs (Resource Identifiers)
-//                - Block hashes or IDs
-//                - Account addresses or IDs
-//                - Blockchain names or RIDs
-//                - Asset identifiers
-//                - Operation names
-//            - This tool is useful for:
-//                - Finding specific transactions, blocks, or accounts by their identifiers
-//                - Discovering which blockchain contains a particular entity
-//                - Verifying the existence of blockchain entities
-//                - Getting quick information about unknown identifiers
-//                - Cross-referencing entities across different blockchains
-//                - Debugging and troubleshooting blockchain queries
-//        """.trimIndent(),
-//        inputSchema = Tool.Input(
-//            properties = JsonObject(
-//                mapOf(
-//                    "network" to JsonObject(
-//                        mapOf(
-//                            "type" to JsonPrimitive("string"),
-//                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
-//                        )
-//                    ),
-//                    "query" to JsonObject(
-//                        mapOf(
-//                            "type" to JsonPrimitive("string"),
-//                            "description" to JsonPrimitive("The search query string (e.g., transaction RID, block hash, account ID)")
-//                        )
-//                    )
-//                )
-//            ),
-//            required = listOf("network", "query")
-//        )
-//    )
 
     fun getFilterAssetsTool() = Tool(
         name = "filter_assets",
@@ -749,7 +755,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "brid" to JsonObject(
@@ -827,7 +833,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "includeTotals" to JsonObject(
@@ -878,7 +884,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "assetId" to JsonObject(
@@ -916,7 +922,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "signer" to JsonObject(
@@ -956,7 +962,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "accountId" to JsonObject(
@@ -994,7 +1000,7 @@ object McpTools {
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                         )
                     ),
                     "pubkey" to JsonObject(
@@ -1044,7 +1050,7 @@ object McpTools {
                 mapOf(
                     "network" to JsonObject(mapOf(
                         "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("The network name (e.g. 'Mainnet', 'Testnet')")
+                        "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
                     ))
                 )
             ),
@@ -1101,6 +1107,7 @@ object McpTools {
     fun listDocSourcesTool() = Tool(
         name = "list_doc_sources",
         description = """
+            - **IMPORTANT: QUERY THIS TOOL FIRST IF THE PROMPT IS ASKING ABOUT CLI, CHR COMMAND, FT4, OR ANY CHROMIA-RELATED TOPICS**
             - List all available documentation sources for Chromia ecosystem
             - This is the first tool you should call in the documentation workflow
             - Returns comprehensive information about available documentation including:

@@ -58,6 +58,8 @@ interface ChromiaRepository {
         includeGroupedDeposits: Boolean = true,
         includeGroupedWithdrawals: Boolean = true
     ): JsonResult
+
+    suspend fun filterBlockchains(network: String?, filters: BlockchainFilters = BlockchainFilters()): JsonResult
 }
 
 data class AssetFilters(
@@ -101,4 +103,15 @@ data class PaginationParams(
 data class SortingParams(
     val sortBy: String? = null,
     val sortDirection: String? = null
+)
+
+data class BlockchainFilters(
+    val rid: String? = null,
+    val name: String? = null,
+    val cluster: String? = null,
+    val container: String? = null,
+    val state: String? = null,
+    val system: Boolean? = null,
+    val pagination: PaginationParams = PaginationParams(),
+    val sorting: SortingParams = SortingParams()
 ) 

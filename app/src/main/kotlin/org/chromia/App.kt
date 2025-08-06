@@ -60,6 +60,7 @@ class App(
             McpTools.getAssetTopHoldersTool(),
             McpTools.getAssetDistributionTool(),
             McpTools.getBlockchainAnalyticsTool(),
+            McpTools.filterBlockchains(),
             McpTools.getBlockchainDetailsTool(),
             McpTools.getMonthlyActiveAccountsPerChainTool(),
             McpTools.getAllTransactionsTool(),
