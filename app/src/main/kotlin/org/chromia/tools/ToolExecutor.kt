@@ -5,8 +5,11 @@ import io.modelcontextprotocol.kotlin.sdk.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.json.*
+import org.chromia.domain.BlockchainFilters
 import org.chromia.domain.ChromiaRepository
 import org.chromia.domain.NetworkResult
+import org.chromia.domain.PaginationParams
+import org.chromia.domain.SortingParams
 
 interface ToolStrategy {
     suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult
@@ -32,6 +35,7 @@ class ToolExecutor(
         "get_monthly_active_accounts_per_chain" to MonthlyActiveAccountsPerChainStrategy(),
         "get_all_transactions" to AllTransactionsStrategy(),
         "get_all_operations" to AllOperationsStrategy(),
+        "filter_blockchains" to FilterBlockchainsStrategy(),
         "filter_assets" to FilterAssetsStrategy(),
         "get_chr_aggregates" to ChrAggregatesStrategy(),
         "get_asset_blockchains" to AssetBlockchainsStrategy(),
@@ -345,11 +349,11 @@ class AllTransactionsStrategy : BaseToolStrategy() {
             accounts = extractStringList(args, "accounts"),
             excludedAccounts = extractStringList(args, "excludedAccounts"),
             assets = extractStringList(args, "assets"),
-            pagination = org.chromia.domain.PaginationParams(
+            pagination = PaginationParams(
                 limit = extractInt(args, "limit"),
                 offset = extractInt(args, "offset")
             ),
-            sorting = org.chromia.domain.SortingParams(
+            sorting = SortingParams(
                 sortBy = extractString(args, "sortBy"),
                 sortDirection = extractString(args, "sortDirection")
             )
@@ -379,7 +383,7 @@ class FilterAssetsStrategy : BaseToolStrategy() {
             brid = extractString(args, "brid"),
             searchQuery = extractString(args, "searchQuery"),
             type = extractString(args, "type"),
-            pagination = org.chromia.domain.PaginationParams(
+            pagination = PaginationParams(
                 limit = extractInt(args, "limit"),
                 offset = extractInt(args, "offset")
             )
@@ -455,6 +459,33 @@ class NetworkStatsStrategy : BaseToolStrategy() {
         
         val result = repository.getNetworkStats(network)
         return handleResult(result, "Failed to get network stats")
+    }
+}
+
+class FilterBlockchainsStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val network = extractString(args, "network")
+        
+        val filters = BlockchainFilters(
+                rid = extractString(args, "rid"),
+                name = extractString(args, "name"),
+                cluster = extractString(args, "cluster"),
+                container = extractString(args, "container"),
+                state = extractString(args, "state"),
+                system = extractBoolean(args, "system"),
+                pagination = PaginationParams(
+                        limit = extractInt(args, "limit"),
+                        offset = extractInt(args, "offset")
+                ),
+                sorting = SortingParams(
+                        sortBy = extractString(args, "sortBy"),
+                        sortDirection = extractString(args, "sortDirection")
+                )
+        )
+        
+        val result = repository.filterBlockchains(network, filters)
+        return handleResult(result, "Failed to get all blockchains")
     }
 }
 
