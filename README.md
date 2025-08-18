@@ -156,6 +156,37 @@ What are the steps to deploy a dApp on Chromia testnet using CLI?
 How do I configure network settings for a Chromia blockchain?
 ```
 
+### Advanced Blockchain Querying
+
+You can query specific dApps deployed on Chromia networks and execute their custom queries:
+
+```
+Can you run get_all_libraries query on library chain dApp on testnet?
+```
+
+**Expected workflow:**
+1. The AI will search for blockchains with "library chain" on testnet
+2. Retrieves the blockchain RID
+3. Fetches the dApp structure to discover available queries and operations using `Postchain Client`
+4. Executes the `get_all_libraries` query inside Cursor/Junie...
+5. Returns the results from the library dApp
+
+**Other examples of blockchain-specific queries:**
+```
+Get the deployed dApp structure for My Neighbor Alice on mainnet
+```
+
+```
+Run the get_user_balance query on MNA blockchain for account ABC123
+```
+
+```
+Execute the add_amount operation on my_dapp blockchain deployed on testnet using keys from /path/to/secret/keys
+```
+
+```
+Can you list all the queries available for My Neighbor Alice on mainnet ?
+```
 ## Networks
 
 The server supports multiple Chromia networks:
@@ -168,3 +199,5 @@ Specify the network parameter in your queries to target the appropriate environm
 - [ ] Use Jdeploy to publish this application on NPM
 - [x] Remove mcpdoc and add tooling to the main app instead
 - [ ] Implement server-sent events (SSE) transport for the MCP server"
+- [x] Add support for executing queries 
+- [ ] Add support for executing transactions 

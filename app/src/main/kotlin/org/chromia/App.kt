@@ -26,7 +26,6 @@ class App(
     }
 
     private fun createMcpServer(): Server {
-
         return Server(
             serverInfo = Implementation(
                 name = SERVER_NAME,
@@ -73,7 +72,8 @@ class App(
             McpTools.getNodeUnavailabilityTool(),
             McpTools.getNetworkStats(),
             McpTools.listDocSourcesTool(),
-            McpTools.fetchDocsTool()
+            McpTools.fetchDocsTool(),
+            McpTools.runDappQueriesTool()
         )
 
         val registeredTools = tools.map { tool ->
@@ -102,15 +102,17 @@ class App(
 
     private suspend fun awaitTermination(server: Server) {
         val terminationJob = CompletableDeferred<Unit>()
-        
+
         server.onClose {
             terminationJob.complete(Unit)
         }
-        
-        Runtime.getRuntime().addShutdownHook(Thread {
-            terminationJob.complete(Unit)
-        })
-        
+
+        Runtime.getRuntime().addShutdownHook(
+            Thread {
+                terminationJob.complete(Unit)
+            }
+        )
+
         terminationJob.await()
     }
 }

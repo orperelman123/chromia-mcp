@@ -5,6 +5,82 @@ import kotlinx.serialization.json.*
 
 object McpTools {
 
+    fun runDappQueriesTool() = Tool(
+        name = "chromia_dapp_query",
+        description = """
+            **WORKFLOW FOR AI AGENTS:**
+            1. First, obtain the blockchain RID using filter_blockchains
+            2. Use this tool again to execute custom queries on dApps directly without using CLI
+            3. Use TODO to track the progress of verifying if query exists and executing it
+            4. Always cache the result of the previous query in case follow-up questions are asked  
+            
+            **DIRECT QUERY EXECUTION:**
+            - This tool directly executes queries on the blockchain using the Postchain client
+            - Pass the query name and arguments directly as input properties
+            - Arguments will be automatically converted to GTV format for blockchain execution
+            - Default query is "rell.get_app_structure" which returns dApp structure information
+            - Query execution logic:
+                - If no query is provided: Falls back to default query "rell.get_app_structure" to get dApp structure
+                - If a specific query is requested: First check if it exists using this tool with query 'rell.get_app_structure'
+                    - Then validate the query name and parameters from the 'rell.get_app_structure' result
+                - When executing a follow-up query from the structure result:
+                    - Use mount name + '.' + the query name to execute the follow-up query. e.g. "module1.query_name"
+                    - Fill in the required arguments first based on the parameter definitions from the structure result
+                     
+            **SECURITY RULES:**
+            - NEVER read the contents of secret files, private keys, or generated keypairs
+            - NEVER expose or display private keys or sensitive cryptographic data
+            
+            **RETURNS:**
+            - Query results from the specified dApp in JSON format
+            - For default query: Complete dApp structure with all available queries/operations entities... with their parameter names and types
+            - For custom queries: Results based on the specific query executed
+            
+            **USE CASES:**
+            - Discover available queries/operations by using default rell.get_app_structure query
+            - Execute custom dApp queries with specific parameters
+            - Analyze dApp architecture and data models
+            - Get real-time data from blockchain applications
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+                    "blockchainRid" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The Blockchain RID of the dApp")
+                        )
+                    ),
+                    "query" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "The query name to execute (default: 'rell.get_app_structure')"
+                            )
+                        )
+                    ),
+                    "arguments" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive(
+                                "Optional arguments for the query as a map/dictionary that will be converted to GTV format"
+                            ),
+                            "properties" to JsonObject(emptyMap()),
+                            "additionalProperties" to JsonPrimitive(true)
+                        )
+                    )
+                ),
+            ),
+            required = listOf("blockchainRid")
+        )
+    )
+
     fun getBlockchainsTransactionsTool() = Tool(
         name = "get_blockchains_transactions",
         description = """
@@ -366,9 +442,9 @@ object McpTools {
     fun getBlockchainDetailsTool() = Tool(
         name = "get_blockchain_details",
         description = """
-            - Get detailed information about a specific blockchain by its RID (Resource Identifier)
+            - Get detailed information about a specific blockchain by its RID 
             - Returns comprehensive metadata about the blockchain including:
-                - The blockchain's unique RID (Resource Identifier)
+                - The blockchain's unique RID
                 - All names/aliases associated with the blockchain
                 - Whether it's a system blockchain or a user application
                 - The container information where the blockchain is deployed
@@ -386,7 +462,7 @@ object McpTools {
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The blockchain Resource Identifier (RID)")
+                            "description" to JsonPrimitive("The blockchain's RID")
                         )
                     )
                 )
@@ -401,7 +477,7 @@ object McpTools {
             - Get a comprehensive list of all blockchains with advanced filtering capabilities
             - **Primary use case: Finding blockchains by name** - this is the main tool for blockchain name lookups
             - Returns detailed information about each blockchain including:
-                - Unique RID (Resource Identifier) for each blockchain
+                - Unique RID for each blockchain
                 - Names/aliases associated with each blockchain
                 - The cluster each blockchain belongs to
                 - Container information for each blockchain
@@ -409,7 +485,7 @@ object McpTools {
                 - Whether each blockchain is a system chain or user application
             - Supports comprehensive filtering options:
                 - **Filter by name**: Find blockchains by exact or partial name match (main feature)
-                - Filter by RID: Find specific blockchain by Resource Identifier
+                - Filter by RID: Find specific blockchain by its RID
                 - Filter by cluster: Find blockchains in specific clusters (e.g., 'pink', 'system')
                 - Filter by container: Find blockchains in specific containers
                 - Filter by state: Find blockchains by operational state (RUNNING, REMOVED, PAUSED)
@@ -504,7 +580,7 @@ object McpTools {
         description = """
             - Get a comprehensive list of transactions with advanced filtering capabilities
             - Returns detailed transaction information including:
-                - Transaction RID (Resource Identifier)
+                - Transaction RID
                 - Block information (height)
                 - Blockchain information (name and RID)
                 - Transaction timestamp
@@ -697,7 +773,7 @@ object McpTools {
             - Get a comprehensive list of all operations available across blockchains
             - Returns detailed information about each operation including:
                 - Operation name/type
-                - Blockchain RID (Resource Identifier) where the operation is available
+                - Blockchain RID where the operation is available
             - This tool is useful for:
                 - Discovering what operations are available on different blockchains
                 - Understanding the functionality provided by each blockchain
@@ -865,7 +941,7 @@ object McpTools {
         description = """
             - Get detailed information about which blockchains contain a specific asset
             - Returns comprehensive asset blockchain distribution including:
-                - Blockchain RID (Resource Identifier) where the asset exists
+                - Blockchain RID where the asset exists
                 - Number of transfers involving the asset on each blockchain
                 - Whether the blockchain is the source/origin of the asset
                 - Blockchain name for easy identification
@@ -904,7 +980,7 @@ object McpTools {
         description = """
             - Get detailed information about which blockchains a specific signer has been active on
             - Returns comprehensive signer activity information including:
-                - Blockchain RID (Resource Identifier) where the signer has been active
+                - Blockchain RID where the signer has been active
                 - Blockchain name for easy identification
                 - Number of transactions the signer has participated in on each blockchain
             - This tool is useful for:
@@ -942,7 +1018,7 @@ object McpTools {
         description = """
             - Get detailed information about which blockchains a specific account has been active on
             - Returns comprehensive account activity information including:
-                - Blockchain RID (Resource Identifier) where the account has been active
+                - Blockchain RID where the account has been active
                 - Blockchain name for easy identification
                 - Number of transactions the account has participated in on each blockchain
                 - Number of transfers the account has made on each blockchain
@@ -1021,7 +1097,7 @@ object McpTools {
         )
     )
 
-     fun getNetworkStats() = Tool(
+    fun getNetworkStats() = Tool(
         name = "get_network_stats",
         description = """
             - Get comprehensive data with key network metrics and statistics
@@ -1048,10 +1124,12 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(mapOf(
-                        "type" to JsonPrimitive("string"),
-                        "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                    ))
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    )
                 )
             ),
             required = listOf("network")

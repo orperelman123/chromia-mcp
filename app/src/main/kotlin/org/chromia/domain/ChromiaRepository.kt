@@ -1,7 +1,15 @@
 package org.chromia.domain
 
+import net.postchain.common.BlockchainRid
+
 interface ChromiaRepository {
-    
+
+    suspend fun executeCustomQuery(
+        network: String?,
+        blockchainRid: BlockchainRid,
+        queryName: String?,
+        arguments: Map<String, Any> = emptyMap()
+    ): JsonResult
     suspend fun getBlockchainsTransactions(network: String?): JsonResult
     suspend fun getNetworkAccountCount(network: String?): JsonResult
     suspend fun getNetworkTransferCount(network: String?): JsonResult
@@ -10,48 +18,48 @@ interface ChromiaRepository {
     suspend fun getAllAssets(network: String?): JsonResult
     suspend fun getTotalRewardsPaid(network: String?): JsonResult
     suspend fun getNetworkStats(network: String?): JsonResult
-    
+
     suspend fun getAssetDistribution(
         assetId: String,
         network: String?,
         filters: AssetFilters = AssetFilters()
     ): JsonResult
-    
+
     suspend fun getAssetTopHolders(
         assetId: String,
         network: String?,
         limit: Int? = null,
         filters: AssetFilters = AssetFilters()
     ): JsonResult
-    
+
     suspend fun getAssetBlockchains(network: String?, assetId: String): JsonResult
     suspend fun filterAssets(network: String?, filters: AssetSearchFilters): JsonResult
-    
+
     suspend fun getBlockchainAnalytics(
         brid: String,
         network: String?,
         fromTimestamp: String? = null
     ): JsonResult
-    
+
     suspend fun getBlockchainDetails(rid: String, network: String?): JsonResult
     suspend fun getMonthlyActiveAccountsPerChain(
         brid: String,
         network: String?,
         untilTimestamp: String? = null
     ): JsonResult
-    
+
     suspend fun getAllTransactions(network: String?, filters: TransactionFilters): JsonResult
     suspend fun getAllOperations(network: String?): JsonResult
-    
+
     suspend fun getSignerBlockchains(network: String?, signer: String): JsonResult
     suspend fun getAccountBlockchains(accountId: String, network: String?): JsonResult
-    
+
     suspend fun getNodeUnavailability(
         pubkey: String,
         startTimestamp: String,
         network: String?
     ): JsonResult
-    
+
     suspend fun getChrAggregates(
         network: String?,
         includeTotals: Boolean = true,
@@ -114,4 +122,4 @@ data class BlockchainFilters(
     val system: Boolean? = null,
     val pagination: PaginationParams = PaginationParams(),
     val sorting: SortingParams = SortingParams()
-) 
+)
