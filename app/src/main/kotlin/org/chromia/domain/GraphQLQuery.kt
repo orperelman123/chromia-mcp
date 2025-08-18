@@ -17,7 +17,7 @@ data class GraphQLQuery(
                         is String -> put(key, value)
                         is Int -> put(key, value)
                         is Boolean -> put(key, value)
-                        is List<*> -> put(key, value.toString()) // Simplified for now
+                        is List<*> -> put(key, value.toString())
                         else -> put(key, value.toString())
                     }
                 }

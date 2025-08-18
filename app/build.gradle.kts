@@ -2,6 +2,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 val mcpVersion = "0.4.0"
 val ktorVersion = "3.1.1"
+val postchainClientVersion = "3.36.0"
 
 plugins {
     kotlin("plugin.serialization") version "2.1.0"
@@ -12,6 +13,9 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven("https://gitlab.com/api/v4/projects/50818999/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/32294340/packages/maven")
+    maven("https://gitlab.com/api/v4/projects/46288950/packages/maven")
 }
 
 dependencies {
@@ -31,6 +35,9 @@ dependencies {
     testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
     testImplementation("io.mockk:mockk:1.13.8")
+    implementation("net.postchain.client:postchain-client:$postchainClientVersion")
+    implementation("net.postchain.client:chromia-client:${postchainClientVersion}")
+    implementation("com.google.code.gson:gson:latest")
     implementation(libs.guava)
 }
 

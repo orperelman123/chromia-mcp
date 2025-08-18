@@ -5,6 +5,7 @@ import io.modelcontextprotocol.kotlin.sdk.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.json.*
+import net.postchain.common.BlockchainRid
 import org.chromia.domain.BlockchainFilters
 import org.chromia.domain.ChromiaRepository
 import org.chromia.domain.NetworkResult
@@ -44,7 +45,8 @@ class ToolExecutor(
         "get_node_unavailability" to NodeUnavailabilityStrategy(),
         "get_network_stats" to NetworkStatsStrategy(),
         "list_doc_sources" to ListDocSourcesStrategy(),
-        "fetch_docs" to FetchDocsStrategy()
+        "fetch_docs" to FetchDocsStrategy(),
+        "chromia_dapp_query" to DappInteractionStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest) = runCatching {
@@ -155,7 +157,9 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
             prompts?.filter { prompt ->
                 if (tool != null) {
                     promptManager.getToolForPrompt(prompt) == tool
-                } else true
+                } else {
+                    true
+                }
             }
         }
 
@@ -165,19 +169,24 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
                     val promptText = prompt["prompt"]?.jsonPrimitive?.content ?: ""
                     val description = prompt["description"]?.jsonPrimitive?.content ?: ""
                     promptText.contains(search, ignoreCase = true) ||
-                            description.contains(search, ignoreCase = true)
+                        description.contains(search, ignoreCase = true)
                 }
             }
-        } else filteredPrompts
+        } else {
+            filteredPrompts
+        }
 
         val result = buildJsonObject {
-            put("prompts", buildJsonObject {
-                searchedPrompts.filter { (_, prompts) ->
-                    prompts?.isNotEmpty() == true
-                }.forEach { (category, prompts) ->
-                    put(category, JsonArray(prompts!!.map { JsonObject(it.toMap()) }))
+            put(
+                "prompts",
+                buildJsonObject {
+                    searchedPrompts.filter { (_, prompts) ->
+                        prompts?.isNotEmpty() == true
+                    }.forEach { (category, prompts) ->
+                        put(category, JsonArray(prompts!!.map { JsonObject(it.toMap()) }))
+                    }
                 }
-            })
+            )
         }
 
         return CallToolResult(
@@ -190,7 +199,7 @@ class BlockchainsTransactionsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getBlockchainsTransactions(network)
         return handleResult(result, "Failed to get blockchains transactions")
     }
@@ -200,7 +209,7 @@ class NetworkAccountCountStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getNetworkAccountCount(network)
         return handleResult(result, "Failed to get network account count")
     }
@@ -210,7 +219,7 @@ class NetworkTransferCountStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getNetworkTransferCount(network)
         return handleResult(result, "Failed to get network transfer count")
     }
@@ -220,7 +229,7 @@ class MonthlyActiveAccountsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getMonthlyActiveAccounts(network)
         return handleResult(result, "Failed to get monthly active accounts")
     }
@@ -230,7 +239,7 @@ class TransactionsByClusterStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getTransactionsByCluster(network)
         return handleResult(result, "Failed to get transactions by cluster")
     }
@@ -240,7 +249,7 @@ class AllAssetsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getAllAssets(network)
         return handleResult(result, "Failed to get all assets")
     }
@@ -250,7 +259,7 @@ class TotalRewardsPaidStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getTotalRewardsPaid(network)
         return handleResult(result, "Failed to get total rewards paid")
     }
@@ -261,7 +270,7 @@ class AssetDistributionStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
-        
+
         val filters = org.chromia.domain.AssetFilters(
             brids = extractStringList(args, "brids"),
             accountTypes = extractStringList(args, "accountTypes"),
@@ -269,7 +278,7 @@ class AssetDistributionStrategy : BaseToolStrategy() {
             excludeBrids = extractStringList(args, "excludeBrids"),
             excludeAccountTypes = extractStringList(args, "excludeAccountTypes")
         )
-        
+
         val result = repository.getAssetDistribution(assetId, network, filters)
         return handleResult(result, "Failed to get asset distribution")
     }
@@ -281,7 +290,7 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
         val limit = extractInt(args, "limit")
-        
+
         val filters = org.chromia.domain.AssetFilters(
             brids = extractStringList(args, "brids"),
             accountTypes = extractStringList(args, "accountTypes"),
@@ -289,7 +298,7 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
             excludeBrids = extractStringList(args, "excludeBrids"),
             excludeAccountTypes = extractStringList(args, "excludeAccountTypes")
         )
-        
+
         val result = repository.getAssetTopHolders(assetId, network, limit, filters)
         return handleResult(result, "Failed to get asset top holders")
     }
@@ -301,7 +310,7 @@ class BlockchainAnalyticsStrategy : BaseToolStrategy() {
         val brid = requireParameter(args, "brid")
         val network = extractString(args, "network")
         val fromTimestamp = extractString(args, "fromTimestamp")
-        
+
         val result = repository.getBlockchainAnalytics(brid, network, fromTimestamp)
         return handleResult(result, "Failed to get blockchain analytics")
     }
@@ -312,7 +321,7 @@ class BlockchainDetailsStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val rid = requireParameter(args, "rid")
         val network = extractString(args, "network")
-        
+
         val result = repository.getBlockchainDetails(rid, network)
         return handleResult(result, "Failed to get blockchain details")
     }
@@ -324,7 +333,7 @@ class MonthlyActiveAccountsPerChainStrategy : BaseToolStrategy() {
         val brid = requireParameter(args, "brid")
         val network = extractString(args, "network")
         val untilTimestamp = extractString(args, "untilTimestamp")
-        
+
         val result = repository.getMonthlyActiveAccountsPerChain(brid, network, untilTimestamp)
         return handleResult(result, "Failed to get monthly active accounts per chain")
     }
@@ -334,7 +343,7 @@ class AllTransactionsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val filters = org.chromia.domain.TransactionFilters(
             rid = extractString(args, "rid"),
             blockId = extractString(args, "blockId"),
@@ -358,7 +367,7 @@ class AllTransactionsStrategy : BaseToolStrategy() {
                 sortDirection = extractString(args, "sortDirection")
             )
         )
-        
+
         val result = repository.getAllTransactions(network, filters)
         return handleResult(result, "Failed to get all transactions")
     }
@@ -368,7 +377,7 @@ class AllOperationsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getAllOperations(network)
         return handleResult(result, "Failed to get all operations")
     }
@@ -378,7 +387,7 @@ class FilterAssetsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val filters = org.chromia.domain.AssetSearchFilters(
             brid = extractString(args, "brid"),
             searchQuery = extractString(args, "searchQuery"),
@@ -388,7 +397,7 @@ class FilterAssetsStrategy : BaseToolStrategy() {
                 offset = extractInt(args, "offset")
             )
         )
-        
+
         val result = repository.filterAssets(network, filters)
         return handleResult(result, "Failed to filter assets")
     }
@@ -401,8 +410,13 @@ class ChrAggregatesStrategy : BaseToolStrategy() {
         val includeTotals = extractBoolean(args, "includeTotals") ?: true
         val includeGroupedDeposits = extractBoolean(args, "includeGroupedDeposits") ?: true
         val includeGroupedWithdrawals = extractBoolean(args, "includeGroupedWithdrawals") ?: true
-        
-        val result = repository.getChrAggregates(network, includeTotals, includeGroupedDeposits, includeGroupedWithdrawals)
+
+        val result = repository.getChrAggregates(
+            network,
+            includeTotals,
+            includeGroupedDeposits,
+            includeGroupedWithdrawals
+        )
         return handleResult(result, "Failed to get CHR aggregates")
     }
 }
@@ -412,7 +426,7 @@ class AssetBlockchainsStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
-        
+
         val result = repository.getAssetBlockchains(network, assetId)
         return handleResult(result, "Failed to get asset blockchains")
     }
@@ -423,7 +437,7 @@ class SignerBlockchainsStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val signer = requireParameter(args, "signer")
         val network = extractString(args, "network")
-        
+
         val result = repository.getSignerBlockchains(network, signer)
         return handleResult(result, "Failed to get signer blockchains")
     }
@@ -434,7 +448,7 @@ class AccountBlockchainsStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val accountId = requireParameter(args, "accountId")
         val network = extractString(args, "network")
-        
+
         val result = repository.getAccountBlockchains(accountId, network)
         return handleResult(result, "Failed to get account blockchains")
     }
@@ -446,7 +460,7 @@ class NodeUnavailabilityStrategy : BaseToolStrategy() {
         val pubkey = requireParameter(args, "pubkey")
         val startTimestamp = requireParameter(args, "startTimestamp")
         val network = extractString(args, "network")
-        
+
         val result = repository.getNodeUnavailability(pubkey, startTimestamp, network)
         return handleResult(result, "Failed to get node unavailability")
     }
@@ -456,7 +470,7 @@ class NetworkStatsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val result = repository.getNetworkStats(network)
         return handleResult(result, "Failed to get network stats")
     }
@@ -466,24 +480,24 @@ class FilterBlockchainsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        
+
         val filters = BlockchainFilters(
-                rid = extractString(args, "rid"),
-                name = extractString(args, "name"),
-                cluster = extractString(args, "cluster"),
-                container = extractString(args, "container"),
-                state = extractString(args, "state"),
-                system = extractBoolean(args, "system"),
-                pagination = PaginationParams(
-                        limit = extractInt(args, "limit"),
-                        offset = extractInt(args, "offset")
-                ),
-                sorting = SortingParams(
-                        sortBy = extractString(args, "sortBy"),
-                        sortDirection = extractString(args, "sortDirection")
-                )
+            rid = extractString(args, "rid"),
+            name = extractString(args, "name"),
+            cluster = extractString(args, "cluster"),
+            container = extractString(args, "container"),
+            state = extractString(args, "state"),
+            system = extractBoolean(args, "system"),
+            pagination = PaginationParams(
+                limit = extractInt(args, "limit"),
+                offset = extractInt(args, "offset")
+            ),
+            sorting = SortingParams(
+                sortBy = extractString(args, "sortBy"),
+                sortDirection = extractString(args, "sortDirection")
+            )
         )
-        
+
         val result = repository.filterBlockchains(network, filters)
         return handleResult(result, "Failed to get all blockchains")
     }
@@ -582,14 +596,14 @@ class ListDocSourcesStrategy : BaseToolStrategy() {
         val content = StringBuilder()
         content.appendLine("Available Chromia Documentation Sources:")
         content.appendLine()
-        
+
         docSources.forEachIndexed { index, source ->
             content.appendLine("${index + 1}. ${source["name"]}")
             content.appendLine("   Description: ${source["description"]}")
             content.appendLine("   URL: ${source["url"]}")
             content.appendLine()
         }
-        
+
         content.appendLine("Usage Instructions:")
         content.appendLine("1. Use the fetch_docs tool with any of the above URLs to get the documentation content")
         content.appendLine("2. The URLs above point to llms.txt files that contain indexes of documentation pages")
@@ -603,6 +617,66 @@ class ListDocSourcesStrategy : BaseToolStrategy() {
     }
 }
 
+class DappInteractionStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val network = extractString(args, "network")
+        val blockchainRid = requireParameter(args, "blockchainRid")
+        val queryName = extractString(args, "query")
+        val arguments = extractArgumentsMap(args, "arguments")
+        
+        val result = repository.executeCustomQuery(
+            network,
+            BlockchainRid.buildFromHex(blockchainRid),
+            queryName,
+            arguments
+        )
+
+        return handleResult(result, "Failed to execute dapp query $queryName --> $arguments")
+    }
+
+    private fun extractArgumentsMap(arguments: Map<String, Any>, key: String): Map<String, Any> {
+        return arguments[key]?.let { value ->
+            when (value) {
+                is Map<*, *> -> {
+                    val stringMap = mutableMapOf<String, Any>()
+                    value.forEach { (k, v) ->
+                        if (k != null && v != null) {
+                            stringMap[k.toString()] = extractPrimitiveValue(v)
+                        }
+                    }
+                    stringMap
+                }
+                else -> emptyMap()
+            }
+        } ?: emptyMap()
+    }
+
+    private fun extractPrimitiveValue(value: Any): Any {
+        return when (value) {
+            is JsonPrimitive -> {
+                when {
+                    value.isString -> value.content
+                    value.booleanOrNull != null -> value.boolean
+                    value.intOrNull != null -> value.int
+                    value.longOrNull != null -> value.long
+                    value.doubleOrNull != null -> value.double
+                    else -> value.content
+                }
+            }
+            is JsonArray -> value.map { extractPrimitiveValue(it) }
+            is JsonObject -> {
+                val map = mutableMapOf<String, Any>()
+                value.forEach { (k, v) ->
+                    map[k] = extractPrimitiveValue(v)
+                }
+                map
+            }
+            else -> value
+        }
+    }
+}
+
 // TODO: Would be good to be able to crawl and fetch all mdx files from 'docs.chromia.org' directly
 //  instead of embedding llm.txt files inside the application itself
 //  the downside is that fetching / parsing files and transforming them into llm.txt takes a quite time
@@ -610,7 +684,7 @@ class FetchDocsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val url = requireParameter(args, "url")
-        
+
         return runCatching {
             val resourcePath = url.removePrefix("classpath:")
             val content = fetchClasspathResource(resourcePath)
@@ -623,11 +697,11 @@ class FetchDocsStrategy : BaseToolStrategy() {
             )
         }
     }
-    
+
     private fun fetchClasspathResource(resourcePath: String): String {
         val inputStream = this::class.java.classLoader.getResourceAsStream(resourcePath)
             ?: throw FileNotFoundException("Resource not found: $resourcePath")
-        
+
         return inputStream.use { it.bufferedReader().readText() }
     }
 }
