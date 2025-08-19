@@ -161,7 +161,7 @@ How do I configure network settings for a Chromia blockchain?
 You can query specific dApps deployed on Chromia networks and execute their custom queries:
 
 ```
-Can you run get_all_libraries query on library chain dApp on testnet?
+Can you query all the libraries on library chain dApp on testnet?
 ```
 
 **Expected workflow:**
@@ -181,12 +181,116 @@ Run the get_user_balance query on MNA blockchain for account ABC123
 ```
 
 ```
-Execute the add_amount operation on my_dapp blockchain deployed on testnet using keys from /path/to/secret/keys
-```
-
-```
 Can you list all the queries available for My Neighbor Alice on mainnet ?
 ```
+
+### Rell Query Translation to SQL and vice versa
+
+- Simple SELECT translation:
+```
+"Can you translate this SQL query to Rell?
+SELECT name, genre FROM plays WHERE duration_minutes > 120;"
+```
+
+- JOIN queries:
+```
+How would I write this SQL join in Rell?
+SELECT p.name, t.name, b.timestamp 
+FROM bookings b 
+JOIN performances p ON b.performance_id = p.id 
+JOIN theater_halls t ON p.theater_id = t.id 
+WHERE b.status = 'CONFIRMED';"
+```
+
+- Aggregation queries:
+```
+Convert this SQL aggregation to Rell syntax:
+SELECT play_name, COUNT(*) as total_bookings, SUM(price) as revenue 
+FROM bookings b 
+JOIN performances p ON b.performance_id = p.id 
+GROUP BY play_name 
+HAVING COUNT(*) > 5;"
+```
+
+- Subqueries:
+```
+How do I write this SQL subquery in Rell?
+SELECT name FROM plays 
+WHERE id IN (
+    SELECT play_id FROM performances 
+    WHERE timestamp > NOW()
+);"
+```
+
+- Complex conditions:
+```
+Translate this SQL query with multiple conditions to Rell:
+SELECT DISTINCT p.name, t.name 
+FROM plays p 
+JOIN performances pf ON p.id = pf.play_id 
+JOIN theater_halls t ON pf.theater_id = t.id 
+WHERE p.genre = 'DRAMA' 
+AND pf.timestamp BETWEEN ? AND ? 
+AND EXISTS (
+    SELECT 1 FROM bookings b 
+    WHERE b.performance_id = pf.id
+);"
+```
+
+- From Rell to SQL
+```
+Can you translate this Rell query to SQL?
+(b: bookings, p: performances) @* {
+    b.performance_id == p.id
+} (
+    @group play_name = p.play_name,
+    total_bookings = @sum 1,
+    revenue = @sum b.price
+) @* {
+    .total_bookings > 5
+}
+```
+
+When asking it's helpful to:
+
+1. Provide the complete SQL/Rell query with proper formatting
+2. Specify any relevant entity structures when working with an external project
+3. Mention any special requirements (e.g., sorting, limiting, null handling)
+4. Include context about the data model if it's not obvious
+
+Example complete prompt:
+```
+I have these entities in my Rell code:
+
+entity play {
+    name: text;
+    genre: text;
+    duration: integer;
+}
+
+entity performance {
+    play: play;
+    date: timestamp;
+    status: text;
+}
+
+Can you help me translate this SQL query to Rell?
+
+SELECT p.name, COUNT(pf.id) as performance_count
+FROM plays p
+LEFT JOIN performances pf ON p.id = pf.play_id
+WHERE p.genre = 'DRAMA'
+GROUP BY p.name
+HAVING COUNT(pf.id) > 5
+ORDER BY performance_count DESC;"
+```
+
+This format provides all the necessary context for accurate translation. The AI can understand:
+1. The exact data structure
+2. The relationships between entities
+3. The desired query logic
+4. Any special requirements for the output
+
 ## Networks
 
 The server supports multiple Chromia networks:
