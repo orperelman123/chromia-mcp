@@ -517,8 +517,8 @@ class ListDocSourcesStrategy : BaseToolStrategy() {
                 "url" to "classpath:docs-llm/cli/llms-full.txt"
             ),
             mapOf(
-                "name" to "Chromia CLI Usage Examples",
-                "description" to "Practical examples and usage patterns for Chromia CLI",
+                "name" to "Chromia CLI (chr) Usage Examples",
+                "description" to "Practical examples and usage patterns for Chromia CLI (chr)",
                 "url" to "classpath:docs-llm/cli_usage/llms-full.txt"
             ),
             mapOf(
@@ -590,6 +590,11 @@ class ListDocSourcesStrategy : BaseToolStrategy() {
                 "name" to "Chromia Use Cases",
                 "description" to "Documentation covering various use cases and applications built on Chromia",
                 "url" to "classpath:docs-llm/use_cases/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "SQL to Rell",
+                "description" to "Documentation for converting SQL queries to Rell queries and vice versa",
+                "url" to "classpath:docs-llm/sql_to_rell/llms-full.txt"
             )
         )
 
