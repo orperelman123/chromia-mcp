@@ -8,7 +8,6 @@ plugins {
     kotlin("plugin.serialization") version "2.1.0"
     id("com.github.johnrengelman.shadow") version "8.1.1"
     alias(libs.plugins.kotlin.jvm)
-    application
 }
 
 repositories {
@@ -24,9 +23,8 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
-    implementation("io.ktor:ktor-client-logging:$ktorVersion")
     implementation("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-netty:$ktorVersion")
+    implementation("io.ktor:ktor-server-cio:$ktorVersion")
     implementation("io.ktor:ktor-server-sse:$ktorVersion")
     implementation("io.ktor:ktor-server-cors:$ktorVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
@@ -39,16 +37,14 @@ dependencies {
     implementation("net.postchain.client:chromia-client:${postchainClientVersion}")
     implementation("com.google.code.gson:gson:latest")
     implementation(libs.guava)
+    implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
+    implementation("org.apache.logging.log4j:log4j-core:2.25.1")
 }
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
-}
-
-application {
-    mainClass = "org.chromia.AppKt"
 }
 
 tasks.named<Test>("test") {
@@ -66,4 +62,9 @@ tasks.shadowJar {
     manifest {
         attributes["Main-Class"] = "org.chromia.AppKt"
     }
+    mergeServiceFiles()
+}
+
+tasks.named("jar") {
+    enabled = false
 }
