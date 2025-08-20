@@ -7,10 +7,6 @@ stages:
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
 
-workflow:
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-
 build:
   stage: build
   before_script:
@@ -18,7 +14,6 @@ build:
     - export GRADLE_USER_HOME
   script:
     - ./gradlew check --info
-    - ./gradlew :app:shadowJar
     - npm install -g jdeploy
     - npm run build
     - jdeploy install
