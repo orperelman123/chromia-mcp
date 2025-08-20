@@ -8,6 +8,7 @@ plugins {
     kotlin("plugin.serialization") version "2.1.0"
     id("com.github.johnrengelman.shadow") version "8.1.1"
     alias(libs.plugins.kotlin.jvm)
+    id("com.google.cloud.tools.jib") version "3.4.5"
 }
 
 repositories {
@@ -67,4 +68,33 @@ tasks.shadowJar {
 
 tasks.named("jar") {
     enabled = false
+}
+
+jib {
+    from {
+        image = "registry.gitlab.com/chromaway/core-tools/chromia-images/java21:1.0.8@sha256:82d2e91e86908fb1095ff4bf5b42c2412f280a91362d2d216f89bd51fa48c80c"
+        if (System.getenv("CI_REGISTRY_IMAGE") != null) {
+            platforms {
+                platform {
+                    architecture = "amd64"
+                    os = "linux"
+                }
+                platform {
+                    architecture = "arm64"
+                    os = "linux"
+                }
+            }
+        }
+    }
+    to {
+        if (System.getenv("CI_REGISTRY_IMAGE") == null) {
+            image = "chromia-mcp"
+        } else {
+            image = "${System.getenv("CI_REGISTRY_IMAGE")}/chromia-mcp"
+            auth {
+                username = System.getenv("CI_REGISTRY_USER")
+                password = System.getenv("CI_REGISTRY_PASSWORD")
+            }
+        }
+    }
 }
