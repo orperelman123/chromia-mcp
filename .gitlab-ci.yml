@@ -1,4 +1,4 @@
-image: node:18-alpine
+image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0.0@sha256:aa1ae82142ad06190f9c2b3373887dfdecb929a005a7f7bf939f1667d85b7ff3
 
 stages:
   - build
