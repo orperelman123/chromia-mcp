@@ -629,7 +629,7 @@ class DappInteractionStrategy : BaseToolStrategy() {
         val blockchainRid = requireParameter(args, "blockchainRid")
         val queryName = extractString(args, "query")
         val arguments = extractArgumentsMap(args, "arguments")
-        
+
         val result = repository.executeCustomQuery(
             network,
             BlockchainRid.buildFromHex(blockchainRid),

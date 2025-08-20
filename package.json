@@ -9,7 +9,7 @@
   "repository": "https://gitlab.com/chromaway/core-tools/chromia_mcp",
   "version": "0.0.1",
   "jdeploy": {
-    "jdk": "false",
+    "jdk": "true",
     "javaVersion": "21",
     "jar": "app/build/libs/chromia-mcp-server.jar",
     "javafx": "false",

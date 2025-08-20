@@ -4,26 +4,26 @@ import kotlinx.serialization.json.*
 
 class PromptManager {
     private val json = Json { ignoreUnknownKeys = true }
-    
-    private val templates: JsonObject? by lazy { 
+
+    private val templates: JsonObject? by lazy {
         loadTemplatesInternal()
     }
 
     private fun loadTemplatesInternal(): JsonObject? {
-            val resourceName = "prompt_templates.json"
+        val resourceName = "prompt_templates.json"
 
-            val inputStream = javaClass.classLoader.getResourceAsStream(resourceName)
-                ?: return null
+        val inputStream = javaClass.classLoader.getResourceAsStream(resourceName)
+            ?: return null
 
-            return inputStream.use { stream ->
-                stream.bufferedReader()
-                    .use {
-                        it.readText()
-                    }.takeIf { it.isNotBlank() }
-                    ?.let {
-                        json.decodeFromString<JsonObject>(it)
-                    }
-            }
+        return inputStream.use { stream ->
+            stream.bufferedReader()
+                .use {
+                    it.readText()
+                }.takeIf { it.isNotBlank() }
+                ?.let {
+                    json.decodeFromString<JsonObject>(it)
+                }
+        }
     }
 
     fun getCategories(): List<String> = templates?.keys?.toList() ?: emptyList()
@@ -35,7 +35,7 @@ class PromptManager {
 
     fun getPrompt(category: String, title: String): JsonObject? {
         val prompts = getPromptsForCategory(category) ?: return null
-        
+
         return prompts.find { prompt ->
             prompt["title"]?.jsonPrimitive?.content == title
         }
@@ -47,7 +47,7 @@ class PromptManager {
 
     fun searchPrompts(query: String): Map<String, List<JsonObject>> {
         if (query.isBlank()) return emptyMap()
-        
+
         return getCategories().associateWith { category ->
             getPromptsForCategory(category)?.filter { prompt ->
                 searchInPrompt(prompt, query)
@@ -57,7 +57,7 @@ class PromptManager {
 
     private fun searchInPrompt(prompt: JsonObject, query: String): Boolean {
         val searchFields = listOf("title", "description", "prompt", "tool")
-        
+
         return searchFields.any { field ->
             prompt[field]?.jsonPrimitive?.content?.contains(query, ignoreCase = true) == true
         }
@@ -76,13 +76,13 @@ class PromptManager {
         val totalPrompts = categories.sumOf { category ->
             getPromptsForCategory(category)?.size ?: 0
         }
-        
+
         val toolsUsed = categories.flatMap { category ->
             getPromptsForCategory(category)?.mapNotNull { prompt ->
                 getToolForPrompt(prompt)
             } ?: emptyList()
         }.distinct()
-        
+
         return PromptStatistics(
             totalCategories = categories.size,
             totalPrompts = totalPrompts,
