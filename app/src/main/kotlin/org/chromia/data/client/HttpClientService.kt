@@ -5,7 +5,6 @@ import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.plugins.logging.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -28,10 +27,6 @@ class HttpClientService(private val config: ChromiaConfig) {
                     isLenient = true
                 }
             )
-        }
-        install(Logging) {
-            level = LogLevel.INFO
-            sanitizeHeader { header -> header == HttpHeaders.Authorization }
         }
         install(HttpTimeout) {
             requestTimeoutMillis = config.httpTimeouts.requestTimeout.inWholeMilliseconds

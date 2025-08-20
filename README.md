@@ -103,6 +103,22 @@ The MCP server runs automatically when configured in your AI assistant.
 1. Restart AI agent
 2. The MCP server will be available in the MCP panel
 
+### SSE Configuration
+
+The MCP server supports Server-Sent Events (SSE) transport. 
+To use SSE mode, run the application with the `--sse` argument.
+Then add the following configuration to your AI assistant.
+#### SSE Configuration 
+
+```json
+{
+  "mcpServers": {
+    "chromia-mcp-local": {
+      "url": "http://localhost:3001/sse"
+    }
+  }
+}
+```
 
 ## Usage Examples
 
@@ -302,6 +318,6 @@ Specify the network parameter in your queries to target the appropriate environm
 # TODO:
 - [ ] Use Jdeploy to publish this application on NPM
 - [x] Remove mcpdoc and add tooling to the main app instead
-- [ ] Implement server-sent events (SSE) transport for the MCP server"
+- [x] Implement server-sent events (SSE) transport for the MCP server"
 - [x] Add support for executing queries 
 - [ ] Add support for executing transactions 

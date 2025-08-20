@@ -11,17 +11,20 @@ data class GraphQLQuery(
     fun toJsonObject(): JsonObject = buildJsonObject {
         put("query", query)
         if (variables.isNotEmpty()) {
-            put("variables", buildJsonObject {
-                variables.forEach { (key, value) ->
-                    when (value) {
-                        is String -> put(key, value)
-                        is Int -> put(key, value)
-                        is Boolean -> put(key, value)
-                        is List<*> -> put(key, value.toString())
-                        else -> put(key, value.toString())
+            put(
+                "variables",
+                buildJsonObject {
+                    variables.forEach { (key, value) ->
+                        when (value) {
+                            is String -> put(key, value)
+                            is Int -> put(key, value)
+                            is Boolean -> put(key, value)
+                            is List<*> -> put(key, value.toString())
+                            else -> put(key, value.toString())
+                        }
                     }
                 }
-            })
+            )
         }
     }
 
@@ -38,4 +41,4 @@ class GraphQLQueryBuilder {
 }
 
 fun graphqlQuery(block: GraphQLQueryBuilder.() -> Unit): GraphQLQuery =
-    GraphQLQueryBuilder().apply(block).build() 
+    GraphQLQueryBuilder().apply(block).build()

@@ -1,14 +1,17 @@
 package org.chromia
 
-import io.ktor.utils.io.streams.*
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.embeddedServer
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.RegisteredTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
+import io.modelcontextprotocol.kotlin.sdk.server.mcp
 import kotlinx.coroutines.*
 import kotlinx.io.asSink
+import kotlinx.io.asSource
 import kotlinx.io.buffered
 import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.tools.McpTools
@@ -22,7 +25,7 @@ class App(
 ) {
     companion object {
         private const val SERVER_NAME = "chromia-mcp-server"
-        private const val SERVER_VERSION = "1.0.0"
+        private const val SERVER_VERSION = "0.0.1"
     }
 
     private fun createMcpServer(): Server {
@@ -34,11 +37,13 @@ class App(
             options = ServerOptions(
                 capabilities = ServerCapabilities(
                     tools = ServerCapabilities.Tools(listChanged = true),
-                    resources = ServerCapabilities.Resources(
-                        subscribe = true,
-                        listChanged = true
-                    ),
-                    prompts = ServerCapabilities.Prompts(listChanged = true)
+                    // TODO: Add resources for other AI agents that supports them
+                    // NOTE: Is not supported by Cursor
+//                    resources = ServerCapabilities.Resources(
+//                        subscribe = true,
+//                        listChanged = true
+//                    ),
+//                    prompts = ServerCapabilities.Prompts(listChanged = true)
                 )
             )
         ).apply {
@@ -85,38 +90,36 @@ class App(
         addTools(registeredTools)
     }
 
-    suspend fun startServer() {
+    fun runStdioMcpServer() = runBlocking {
         val server = createMcpServer()
-        val transport = createStdioTransport()
-
-        server.connect(transport)
-        awaitTermination(server)
-    }
-
-    private fun createStdioTransport(): StdioServerTransport {
-        return StdioServerTransport(
-            System.`in`.asInput().buffered(),
-            System.out.asSink().buffered()
+        val transport = StdioServerTransport(
+            inputStream = System.`in`.asSource().buffered(),
+            outputStream = System.out.asSink().buffered()
         )
-    }
-
-    private suspend fun awaitTermination(server: Server) {
-        val terminationJob = CompletableDeferred<Unit>()
-
-        server.onClose {
-            terminationJob.complete(Unit)
+        runBlocking {
+            server.connect(transport)
+            val done = Job()
+            server.onClose { done.complete() }
+            done.join()
         }
+    }
 
-        Runtime.getRuntime().addShutdownHook(
-            Thread {
-                terminationJob.complete(Unit)
+    suspend fun runSseMcpServer(port: Int) {
+        embeddedServer(CIO, host = "0.0.0.0", port = port) {
+            mcp {
+                return@mcp createMcpServer()
             }
-        )
-
-        terminationJob.await()
+        }.startSuspend(wait = true)
     }
 }
 
-fun main(): Unit = runBlocking {
-    App().startServer()
+fun main(args: Array<String>): Unit = runBlocking {
+    val arg = args.firstOrNull() ?: "--stdio"
+    val port = args.getOrNull(1)?.toIntOrNull() ?: 3001
+    val app = App()
+    when (arg) {
+        "--sse" -> app.runSseMcpServer(port)
+        "--stdio" -> app.runStdioMcpServer()
+        else -> throw IllegalArgumentException("Unknown command argument: $arg")
+    }
 }
