@@ -10,6 +10,7 @@ image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0
 stages:
   - build
   - release
+  - deploy
 
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
@@ -37,7 +38,9 @@ build:
       - ".gradle"
 
 deploy-npm:
-  stage: release
+  stage: deploy
+  variables:
+    NPM_TOKEN: $NPM_TOKEN
   before_script:
     - apk add --no-cache openjdk21
     - npm config set //registry.npmjs.org/:_authToken $NPM_TOKEN
@@ -52,7 +55,7 @@ deploy-npm:
     - build
 
 deploy-image:
-  stage: release
+  stage: deploy
   before_script:
     - apk add --no-cache openjdk21
     - export GRADLE_USER_HOME
