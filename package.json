@@ -26,7 +26,7 @@
     "yauzl": "^2.10.0"
   },
   "license": "ISC",
-  "name": "chromia-mcp-server",
+  "name": "@chromia/chromia-mcp-server",
   "files": [
     "jdeploy-bundle"
   ],
