@@ -1,0 +1,38 @@
+apiVersion: jib/v1alpha1
+kind: BuildFile
+
+from:
+  image: "registry.gitlab.com/chromaway/core-tools/chromia-images/claude-code:0.1.0@sha256:8913a8c52b5cafaf48a273ed92c70d9b1f561ca3c2d29ab786b6193e0df535dd"
+  platforms:
+    - architecture: "amd64"
+      os: "linux"
+    - architecture: "arm64"
+      os: "linux"
+
+environment:
+  "PGDATA": "/pgdata"
+  "POSTGRES_INITDB_ARGS": "--lc-collate=C.UTF-8 --lc-ctype=C.UTF-8 --encoding=UTF-8"
+  "POSTGRES_DB": "postchain"
+  "POSTGRES_USER": "postchain"
+  "POSTGRES_PASSWORD": "postchain"
+
+entrypoint: [ "docker-entrypoint.sh" ]
+
+layers:
+  entries:
+    - name: "files"
+      files:
+        - src: "claude-code-chromia/src/main/jib/docker-entrypoint-initdb.d"
+          dest: "/docker-entrypoint-initdb.d"
+        - src: "claude-code-chromia/src/main/jib/usr/local/bin"
+          dest: "/usr/local/bin"
+          properties:
+            filePermissions: "755"
+        - src: "claude-code-chromia/build/chr/lib"
+          dest: "/opt/chromia/chr/lib"
+        - src: "claude-code-chromia/build/pmc/management-console/lib"
+          dest: "/opt/chromia/pmc/lib"
+    - name: "chromia-mcp"
+      files:
+        - src: "app/build/libs/chromia-mcp-server.jar"
+          dest: "/opt/chromia/chromia-mcp-server.jar"

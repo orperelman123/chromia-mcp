@@ -55,10 +55,15 @@ deploy-npm:
 deploy-image:
   stage: release
   before_script:
-    - apk add --no-cache openjdk21
+    - apk add --no-cache openjdk21 wget unzip
     - export GRADLE_USER_HOME
+    - wget -nv "https://github.com/GoogleContainerTools/jib/releases/download/v0.13.0-cli/jib-jre-0.13.0.zip"
+    - unzip jib-jre-0.13.0.zip
+    - rm jib-jre-0.13.0.zip
   script:
-    - ./gradlew jib
+    - ./gradlew jib shadowJar
+    - cd claude-code-chromia && ./fetch-deps.sh && cd ..
+    - jib-jre-0.13.0/bin/jib build --build-file claude-code-chromia/jib.yaml --target ${CI_REGISTRY_IMAGE}/claude-code-chromia --username ${CI_REGISTRY_USER} --password ${CI_REGISTRY_PASSWORD}
   rules:
     - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
 
