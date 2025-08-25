@@ -13,10 +13,12 @@ import kotlinx.coroutines.*
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
+import org.chromia.App.Companion.logger
 import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.tools.McpTools
 import org.chromia.tools.PromptManager
 import org.chromia.tools.ToolExecutor
+import org.slf4j.LoggerFactory
 
 class App(
     private val repository: ChromiaRepositoryImpl = ChromiaRepositoryImpl(),
@@ -26,6 +28,7 @@ class App(
     companion object {
         private const val SERVER_NAME = "chromia-mcp-server"
         private const val SERVER_VERSION = "0.0.1"
+        val logger = LoggerFactory.getLogger(App::class.java)
     }
 
     private fun createMcpServer(): Server {
@@ -96,18 +99,17 @@ class App(
             inputStream = System.`in`.asSource().buffered(),
             outputStream = System.out.asSink().buffered()
         )
-        runBlocking {
             server.connect(transport)
             val done = Job()
             server.onClose { done.complete() }
             done.join()
-        }
     }
 
-    suspend fun runSseMcpServer(port: Int) {
-        embeddedServer(CIO, host = "0.0.0.0", port = port) {
+    suspend fun runSseMcpServer(host: String, port: Int) {
+        logger.info("Starting SSE server on $host:$port")
+        embeddedServer(CIO, host = host, port = port) {
             mcp {
-                return@mcp createMcpServer()
+                createMcpServer()
             }
         }.startSuspend(wait = true)
     }
@@ -115,11 +117,24 @@ class App(
 
 fun main(args: Array<String>): Unit = runBlocking {
     val arg = args.firstOrNull() ?: "--stdio"
-    val port = args.getOrNull(1)?.toIntOrNull() ?: 3001
     val app = App()
     when (arg) {
-        "--sse" -> app.runSseMcpServer(port)
+        "--sse" -> {
+            try {
+                val options = parseSseArgs(args.drop(1))
+                app.runSseMcpServer(options.host, options.port)
+            } catch (e: IllegalArgumentException) {
+                logger.error("Failed to start SSE server --> ${e.message}")
+                logger.error(USAGE_HELP)
+            }
+        }
         "--stdio" -> app.runStdioMcpServer()
-        else -> throw IllegalArgumentException("Unknown command argument: $arg")
+        else -> {
+            logger.error("""
+                Unknown command argument: $arg
+                
+                $USAGE_HELP
+            """.trimMargin())
+        }
     }
 }
