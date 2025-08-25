@@ -96,5 +96,8 @@ jib {
                 password = System.getenv("CI_REGISTRY_PASSWORD")
             }
         }
+        if (System.getenv("CI_COMMIT_TAG") != null) {
+            tags = setOf(System.getenv("CI_COMMIT_TAG"))
+        }
     }
 }

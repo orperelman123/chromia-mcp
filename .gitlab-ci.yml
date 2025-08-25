@@ -63,7 +63,7 @@ deploy-image:
   script:
     - ./gradlew jib shadowJar
     - cd claude-code-chromia && ./fetch-deps.sh && cd ..
-    - jib-jre-0.13.0/bin/jib build --build-file claude-code-chromia/jib.yaml --target ${CI_REGISTRY_IMAGE}/claude-code-chromia --username ${CI_REGISTRY_USER} --password ${CI_REGISTRY_PASSWORD}
+    - ./jib-0.13.0/bin/jib build --build-file claude-code-chromia/jib.yaml --target ${CI_REGISTRY_IMAGE}/claude-code-chromia --additional-tags=$CI_COMMIT_TAG --username ${CI_REGISTRY_USER} --password ${CI_REGISTRY_PASSWORD}
   rules:
     - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
 
