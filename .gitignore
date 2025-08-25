@@ -1,15 +1,12 @@
 # Ignore Gradle project-specific cache directory
 .gradle
 
-# IntelliJ IDEA
-.idea/
-
 # Gradle
 build/
 
 # Compiled Java and Kotlin classes
 out/
-bin/
+/bin/
 
 # Eclipse project files
 .classpath
@@ -31,7 +28,6 @@ bin/
 *.suo
 *.user
 *.userosscache
-*.suo
 *.sln.docstates
 
 # Directories for Apple's metadata
@@ -42,9 +38,6 @@ bin/
 # Windows Thumbs.db files
 Thumbs.db
 ehthumbs.db
-
-# Folder configuration file on Mac OS X
-.DS_Store
 
 # Windows image file caches
 ehthumbs_vista.db
