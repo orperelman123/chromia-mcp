@@ -1185,7 +1185,7 @@ object McpTools {
     fun listDocSourcesTool() = Tool(
         name = "list_doc_sources",
         description = """
-            - **IMPORTANT: QUERY THIS TOOL FIRST IF THE PROMPT IS ASKING ABOUT CLI, CHR COMMAND, FT4, OR ANY CHROMIA-RELATED TOPICS**
+            - **IMPORTANT: QUERY THIS TOOL FIRST IF THE PROMPT IS ASKING ABOUT CLI, 'CHR' OR 'PMC' COMMAND, FT4, DIRECTORY_CHAIN, OR ANY CHROMIA-RELATED TOPICS**
             - List all available documentation sources for Chromia ecosystem
             - This is the first tool you should call in the documentation workflow
             - Returns comprehensive information about available documentation including:

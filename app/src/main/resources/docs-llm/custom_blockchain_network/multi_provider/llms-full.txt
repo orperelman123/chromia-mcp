@@ -1,0 +1,150 @@
+# Setting up and managing multiple providers
+
+In this example we will set up and use a few nodes and providers with different roles.
+
+The providers are called `alpha`, `beta`, `gamma` and `delta` and their configurations are found in the `provider` folder. 
+`alpha$` means the command is executed from `provider/alpha` folder.
+
+The goal is to illustrate the different roles a provider can have on the network.
+
+```
+alpha - system provider and owner of node 0
+beta  - system provider and owner of node 1
+gamma - node provider and owner of node 2
+delta - dapp provider/community node provider who does not own a node
+```
+
+## Initializing the network
+
+Start the genesis node and two other nodes (for instructions on how to run a node with master-sub infrastructure, please see [Master-sub infrastructure](master-sub.md))
+
+```shell
+$ docker run --name postchain0 \
+    --mount type=bind,source="$(pwd)/config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/directory-chain/build",target=/build,readonly \
+    -e POSTCHAIN_DEBUG=true \
+    -p 9870:9870/tcp \
+    -p 7740:7740/tcp \
+    -p 7750:7750/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.32.6 \
+    run-node --node-config /config/config.0.properties --chain-id 0 --blockchain-config /build/manager.xml
+```
+
+```shell
+$ docker run --name postchain1 \
+    --mount type=bind,source="$(pwd)/config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/directory-chain/build",target=/build,readonly \
+    -e POSTCHAIN_DEBUG=true \
+    -p 9871:9870/tcp \
+    -p 7741:7740/tcp \
+    -p 7751:7750/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.32.6 \
+    run-node --node-config /config/config.1.properties --chain-id 0 --blockchain-config /build/manager.xml
+```
+
+```shell
+$ docker run --name postchain2 \
+    --mount type=bind,source="$(pwd)/config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/directory-chain/build",target=/build,readonly \
+    -e POSTCHAIN_DEBUG=true \
+    -p 9872:9870/tcp \
+    -p 7742:7740/tcp \
+    -p 7752:7750/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.32.6 \
+    run-node --node-config /config/config.2.properties --chain-id 0 --blockchain-config /build/manager.xml
+```
+
+Alpha will then initialize the network on node 0
+```shell
+$ ./scripts/setup-pmc.sh
+alpha$ pmc network initialize --system-anchoring-config directory-chain/build/system_anchoring.xml --cluster-anchoring-config directory-chain/build/cluster_anchoring.xml
+```
+
+Verify that the network is initialized by noting non-zero values from
+```shell
+alpha$ pmc network summary
+```
+
+## Inviting providers
+
+Alpha then invites Beta and Gamma as node providers
+
+```shell
+alpha$ pmc provider register --enable --pubkey $(pmc config --get pubkey --file ../beta/.chromia/config) -sp
+alpha$ pmc provider register --disable --pubkey $(pmc config --get pubkey --file ../gamma/.chromia/config) -np
+```
+
+> **Note**: When adding a provider, it is only enabled if it fullfills certain conditions.
+> - SP enables NP and CNP
+> - NP enables CNP
+> - SP *proposes* SP
+> 
+> In this case, Alpha is the only SP which makes Beta enabled immediately. If a seconds SP is added, both Alpha and Beta must reach consensus in a voting.
+
+Verify the states of the providers
+
+```shell
+alpha$ pmc providers
+```
+
+## Adding a node to the system cluster
+
+As a newly joined system provider, Beta has the right (and should) to add a node to the system cluster. This is done by registering the node to the network.
+We use `--disable-access-checks` flag on the `pmc node add` command since we may not be able to reach the node port from host machine when we run a multi-node setup on a local machine
+(it is not recommended to skip this check in production).
+
+```shell
+beta$ pmc node add --pubkey 035676109c54b9a16d271abeb4954316a40a32bcce023ac14c8e26e958aa68fba9 --host $(find-ip) --port 9871 --api-url http://localhost:7741 --cluster system --territory SE --disable-access-checks
+```
+
+Verify that the node is indeed added to the cluster (may take more than 10 seconds since this has a delay of 5 blocks)
+
+```shell
+beta$ pmc cluster info --name system
+```
+
+## Promoting a System Provider through voting
+
+Now that we have two system providers, we are going to promote Gamma to also become a system provider through voting.
+
+### Making a proposal
+
+A system provider can do some operations directly on the network, such as creating a cluster, but some requires consensus. Promoting a NP to SP is one of them
+
+```shell
+beta$ pmc provider promote --pubkey $(pmc config --get pubkey --file ../gamma/.chromia/config) --system
+```
+
+Verify that gamma is still not a system provider
+
+```shell
+beta$ pmc provider info --pubkey $(pmc config --get pubkey --file ../gamma/.chromia/config)
+```
+
+### Voting
+
+Alpha must now vote on the proposal to accept it. Check which proposals are present and show more information about it
+
+```shell
+alpha$ pmc proposals
+alpha$ pmc proposal info # shows latest proposal, use --id to see info about a specific
+```
+
+Alpha can now vote on the proposal
+
+```shell
+alpha$ pmc proposal vote --id <id> --accept # or --reject
+```
+
+Verify that gamma has been promoted to system and let gamma add its node:
+
+```shell
+alpha$ pmc provider info --pubkey $(pmc config --get pubkey --file ../gamma/.chromia/config)
+gamma$ pmc node add --pubkey 03f811d3e806e6d093a4bcce49c145ba78f9a4b2fbd167753ecab2a13530b081f8 --host $(find-ip) --port 9872 --api-url http://localhost:7742 --cluster system --territory SE --disable-access-checks
+```
+
+All users should now see that the system cluster has three nodes and providers
+
+```shell
+gamma$ pmc cluster info --name system
+```
