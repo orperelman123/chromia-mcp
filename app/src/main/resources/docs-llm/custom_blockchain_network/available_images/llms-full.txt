@@ -1,0 +1,138 @@
+# Test images
+
+This document describes available test images. 
+
+## Managed single provider node
+
+This image will start Postgres, Postchain and set up the network with a management chain, anchoring chains and an empty container for dapps.
+
+### Quick start
+
+This will start a temporary node with no persistent storage.
+
+```bash
+docker run --rm -it -p 7740:7740/tcp registry.gitlab.com/chromaway/example-projects/directory1-example/managed-single:latest
+```
+
+A summary of the network is printed as follows:
+
+```
+...postchain logs...
+...setup logs...
+##########################################################################
+##########################################################################
+
+Node started successfully
+
+Provider and container owner:
+  pubkey: 03ECD350EEBC617CBBFBEF0A1B7AE553A748021FD65C7C50C5ABB4CA16D4EA5B05
+  privkey: BBBDFE956021912512E14BB081B27A35A0EABC4098CB687E973C434006BCE114
+
+Blockchains:
+  FCA6494A3FD2D409DFD870E3EA42519BFDEDCDA1BA7D0074FF52FE51B01B447D    directory_chain
+  A05E6F84070C1094355A3DEF2A3EEFEE41CC67CDEA9BC9BAD1FAC7BFF8D1BADB    system_anchoring
+  16A43702FC0B5354794624ABE5C50BA6C63C1D04412F07D9B0840BA99BC10D25    cluster_anchoring_system
+
+Containers:
+  dapp
+  system
+
+##########################################################################
+##########################################################################
+...postchain logs...
+```
+
+### Start with custom node configuration
+
+To use a custom node configuration file, mount it to override the default one:
+
+```bash
+docker run --rm -it -p 7740:7740/tcp --mount type=bind,source="/path/node-config.properties",target="/opt/chromaway/postchain/node-config.properties" registry.gitlab.com/chromaway/example-projects/directory1-example/managed-single:latest
+```
+
+### Start with persistent storage
+
+Add a volume to preserve the state across restarts.
+
+```bash
+# Create storage volume
+docker volume create managed-single
+
+# Start the node
+docker run --rm -it -p 7740:7740/tcp -v managed-single:/opt/chromaway/postchain/pgdata registry.gitlab.com/chromaway/example-projects/directory1-example/managed-single:latest
+
+# Remove storage volume
+docker volume rm managed-single
+```
+
+### Automatically deploy dapps
+
+Mount your dapp(s) config into `/custom/dapps/` to have them added on startup. The chain name is derived from the filename, e.g. `city.xml` will be named `city`.
+
+> Note: Existing dapps with the same name will not be overwritten.
+
+```bash
+# Argument to add to docker run for a specific dapp
+--mount type=bind,source=/dapp-path/city.xml,target=/custom/dapps/city.xml
+
+# Or multiple dapps in a directory
+--mount type=bind,source=/dapp-path/,target=/custom/dapps/
+```
+
+### Run script on startup
+
+Another way to extend the setup is to run your own scripts on startup.
+
+Scripts are executed in alphanumeric order (e.g., `001_init.sh` runs before `002_setup.sh`). These scripts are executed on every startup, and the `pmc` command-line tool is already configured and available for use.
+
+> Requirements:
+> - Scripts must be executable (`chmod +x`)
+> - Scripts should include appropriate shebang (e.g., `#!/bin/bash`)
+
+```bash
+# Argument to add to docker run for a specific script
+--mount type=bind,source=/scripts-path/prepare.sh,target=/custom/scripts/prepare.sh
+
+# Or multiple scripts in a directory
+--mount type=bind,source=/scripts-path/,target=/custom/scripts/
+```
+
+### Start with economy chain
+
+You can start the test container with economy chain by running the container with `--with-economy-chain` flag.
+
+```bash
+docker run --rm -it -p 7740:7740/tcp registry.gitlab.com/chromaway/example-projects/directory1-example/managed-single:latest --with-economy-chain
+```
+
+This setup will create a dapp cluster and lease a container in that cluster. If you have any dapps specified they will
+be deployed to that container. Lease owner is an FT4 account where the provider key is the only signer. 
+
+With this setup the container name will be a hash value so you need to check the exact name in the summary.
+
+**Note:** This setup takes significantly longer to complete.
+
+### Start with token chain
+
+You can start the test container with token chain by running the container with `--with-token-chain` flag.
+Make sure that you run with economy chain as well.
+
+```bash
+docker run --rm -it -p 7740:7740/tcp registry.gitlab.com/chromaway/example-projects/directory1-example/managed-single:latest --with-economy-chain --with-token-chain
+```
+
+An FT4 account where the provider key is the only signer is created for you on token chain so you can propose new tokens
+and bridges. You just need to use `chr tx` with `--ft-auth` flag and configure the provider key as signer.
+
+Token chain is governed by this keypair:
+
+```
+privkey=2222222222222222222222222222222222222222222222222222222222222222
+pubkey=02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27
+```
+
+So you need to approve any token/bridge proposals you create using that keypair.
+
+If you want to test with a real EVM integration it is currently limited to binance testnet.
+You might want to use another RPC node than what is configured by default as `bsc.urls`, see  
+[Start with custom node configuration](#start-with-custom-node-configuration) for instructions on how to do that.

@@ -35,15 +35,13 @@ These tools allow AI assistants to access up-to-date Chromia documentation
 - Node.js v18 or higher, *or*
 - Java Development Kit v21 or higher
 
-### With Node.js
-
 Install the chromia-mcp-server globally using npm:
 
 ```bash
 npm install @chromia/chromia-mcp-server -g
 ```
 
-### With JDK
+#### For local development With JDK
 
 Build it with Gradle:
 
@@ -55,36 +53,39 @@ Build it with Gradle:
 
 The MCP server runs automatically when configured in your AI assistant.
 
-### Cursor/Windsurf IDEs
+### All AI Assistants (Cursor, Claude Desktop, JetBrains AI Assistant)
 
-1. Create or edit `.<cursor|windsurf>/mcp.json` in your project root
-
-### Claude Desktop
-
-1. Edit your Claude Desktop configuration file:
-   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - **Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
-
-### Jetbrains AI Assistant
-
-1. Go to Settings → Tools → AI Assistant → MCP.
-2. Click on `+` to open to add dialog.
-3. In the dropdown switch from "Command" to "As JSON" and paste the JSON below.
-4. A working directory, put the directory where this project is cloned.
-
-#### With Node.js
+All AI assistants use the same MCP configuration format. Add the following JSON configuration:
 
 ```json
 {
-   "mcpServers": {
-      "chromia-mcp": {
-         "command": "chromia-mcp-server"
-      }
-   }
+  "mcpServers": {
+    "chromia-mcp": {
+      "command": "chromia-mcp-server"
+    }
+  }
 }
 ```
 
-#### With JDK
+#### Platform-specific setup locations:
+
+**Cursor/Windsurf IDEs:**
+1. Open Cursor settings and navigate to **MCP & Integration** → **MCP TOOLS**
+2. Add the JSON configuration above
+
+**Claude Desktop:**
+1. Edit your Claude Desktop configuration file:
+   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
+2. Add the JSON configuration above
+
+**JetBrains AI Assistant:**
+1. Go to Settings → Tools → AI Assistant → MCP
+2. Click on `+` to open the add dialog
+3. In the dropdown switch from "Command" to "As JSON" and paste the JSON configuration above
+4. Set the working directory to where this project is cloned
+
+#### Local Development (with JDK)
 
 ```json
 {
@@ -93,15 +94,14 @@ The MCP server runs automatically when configured in your AI assistant.
       "command": "java",
       "args": [
         "-jar",
-        "app/build/libs/chromia-mcp-server.jar"
+        "path/to/jar/chromia-mcp-server.jar"
       ]
     }
   }
 }
 ```
 
-1. Restart AI agent
-2. The MCP server will be available in the MCP panel
+> The MCP server will be available in the MCP panel
 
 ### SSE Configuration
 
@@ -123,6 +123,54 @@ Then add the following configuration to your AI assistant.
 ## Usage Examples
 
 ### Basic Network Statistics
+
+> **Example Query: What is the BRID of My Neighbor Alice, and in which cluster and container is it deployed?**
+> 
+> <details>
+> <summary>Click to expand answer</summary>
+> 
+> Based on the search results, here's the information about My Neighbor Alice blockchains on Chromia mainnet:
+> 
+> **My Neighbor Alice Blockchain Information**
+> 
+> I found **4 My Neighbor Alice blockchains** on mainnet:
+> 
+> **Active/Running Blockchains:**
+> 
+> 1. **Main My Neighbor Alice Blockchain**
+>    - **BRID (Blockchain RID)**: `F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2`
+>    - **Name**: `my_neighbor_alice`
+>    - **Cluster**: `pink`
+>    - **Container**: `611062cdf1047b265b652d229858e5a18dbf487afbb62f0f6d30ec4fd81366f9`
+>    - **State**: `RUNNING` ✅
+> 
+> 2. **My Neighbor Alice BS2**
+>    - **BRID**: `8BC5E4DAA94410BEC640DAEE87CE5C546465C2E7E8D654668BA6267200C97560`
+>    - **Name**: `my_neighbor_alice_bs2`
+>    - **Cluster**: `pink`
+>    - **Container**: `9f49e091ff1929bc6438a9ee9c5387ec7991eb5eda4154cd7509dd878aa9f70e`
+>    - **State**: `RUNNING` ✅
+> 
+> **Removed/Legacy Blockchains:**
+> 
+> 3. **Legacy Instance 1**
+>    - **BRID**: `9F0CCB09BBB441E840035086F5326294F51FFA92344D39FFF54B223C7547D81D`
+>    - **State**: `REMOVED`
+> 
+> 4. **Legacy Instance 2**
+>    - **BRID**: `AEBD8E8CD9FCC268D7B5AC3DAC8855F1F9A817B8DD1A98C0F13E60D01DECB90C`
+>    - **State**: `REMOVED`
+> 
+> **Summary**
+> 
+> The **currently active My Neighbor Alice** deployment is:
+> - **Primary BRID**: `F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2`
+> - **Deployed in**: `pink` cluster
+> - **Container ID**: `611062cdf1047b265b652d229858e5a18dbf487afbb62f0f6d30ec4fd81366f9`
+> 
+> Both active blockchains are running in the **pink cluster**, which suggests this is a multi-blockchain deployment for the My Neighbor Alice game ecosystem.
+> 
+> </details>
 
 ```
 Get network statistics and analytics for the Chromia Mainnet environment
@@ -316,7 +364,6 @@ The server supports multiple Chromia networks:
 Specify the network parameter in your queries to target the appropriate environment.
 
 # TODO:
-- [ ] Use Jdeploy to publish this application on NPM
 - [x] Remove mcpdoc and add tooling to the main app instead
 - [x] Implement server-sent events (SSE) transport for the MCP server"
 - [x] Add support for executing queries 

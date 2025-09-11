@@ -595,6 +595,226 @@ class ListDocSourcesStrategy : BaseToolStrategy() {
                 "name" to "SQL to Rell",
                 "description" to "Documentation for converting SQL queries to Rell queries and vice versa",
                 "url" to "classpath:docs-llm/sql_to_rell/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Blockchain Auth",
+                "description" to "Documentation for blockchain authentication in directory chain setup",
+                "url" to "classpath:docs-llm/directory_chain/blockchain_auth/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Compression",
+                "description" to "Documentation for compression features in directory chain",
+                "url" to "classpath:docs-llm/directory_chain/compression/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Configuration",
+                "description" to "Documentation for directory chain configuration and setup",
+                "url" to "classpath:docs-llm/directory_chain/directory_chain/directory_chain_configuration/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Mainnet Blockchain Configuration Limitations",
+                "description" to "Documentation for mainnet blockchain configuration limitations in directory chain",
+                "url" to "classpath:docs-llm/directory_chain/directory_chain/mainnet_blockchain_configuration_limitations/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Economy Chain",
+                "description" to "Documentation for economy chain setup and management in directory chain",
+                "url" to "classpath:docs-llm/directory_chain/economy_chain/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Economy Chain Container Management",
+                "description" to "Documentation for container management in economy chain",
+                "url" to "classpath:docs-llm/directory_chain/economy_chain/container_management/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Economy Chain Synchronization",
+                "description" to "Documentation for directory chain to economy chain synchronization",
+                "url" to "classpath:docs-llm/directory_chain/economy_chain/directory_chain_to_economy_chain_synchnozation/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Economy Chain Configuration Setup",
+                "description" to "Documentation for economy chain configuration and setup",
+                "url" to "classpath:docs-llm/directory_chain/economy_chain/economy_chain_configuration_setup/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Full Network Setup",
+                "description" to "Documentation for complete network setup in directory chain",
+                "url" to "classpath:docs-llm/directory_chain/full_network_setup/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Begin Block Library",
+                "description" to "Documentation for begin block library functionality",
+                "url" to "classpath:docs-llm/directory_chain/libraries/begin_block/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Transaction Prioritization Library",
+                "description" to "Documentation for transaction prioritization library",
+                "url" to "classpath:docs-llm/directory_chain/libraries/transaction_prioritization/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Price Oracle Setup",
+                "description" to "Documentation for setting up price oracle in directory chain",
+                "url" to "classpath:docs-llm/directory_chain/setup_price_oracle/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Token Chain",
+                "description" to "Documentation for token chain setup and management",
+                "url" to "classpath:docs-llm/directory_chain/token_chain/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Token Migration",
+                "description" to "Documentation for token migration processes",
+                "url" to "classpath:docs-llm/directory_chain/token_chain/migrate-token/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Token Chain Configuration Setup",
+                "description" to "Documentation for token chain configuration and setup",
+                "url" to "classpath:docs-llm/directory_chain/token_chain/token_chain_config_setup/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Token Chain Governance Guide",
+                "description" to "Documentation for token chain governance and management",
+                "url" to "classpath:docs-llm/directory_chain/token_chain/token_chain_governance_guide/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Directory Chain - Token Chain User Guide",
+                "description" to "User guide for token chain functionality and usage",
+                "url" to "classpath:docs-llm/directory_chain/token_chain/user_guide/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Overview",
+                "description" to "Comprehensive documentation for custom blockchain network infrastructure and setup",
+                "url" to "classpath:docs-llm/custom_blockchain_network/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Single Provider Setup",
+                "description" to "Guide for setting up and managing blockchain networks with a single provider",
+                "url" to "classpath:docs-llm/custom_blockchain_network/single_provider/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Multi Provider Setup",
+                "description" to "Documentation for managing networks with multiple providers and voting mechanisms",
+                "url" to "classpath:docs-llm/custom_blockchain_network/multi_provider/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Master-Sub Infrastructure",
+                "description" to "Technical guide for running nodes with master-sub infrastructure in production",
+                "url" to "classpath:docs-llm/custom_blockchain_network/master_sub_infrastructure/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Setting Up New Network",
+                "description" to "Step-by-step instructions for initializing production networks with economy chains",
+                "url" to "classpath:docs-llm/custom_blockchain_network/setting_up_new_network/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - PQC/Dilithium",
+                "description" to "Implementation guide for deploying networks with PQC/Dilithium support",
+                "url" to "classpath:docs-llm/custom_blockchain_network/pqc_dilithium/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Inter-Chain Messaging",
+                "description" to "ICMF demonstration and setup guide for cross-chain communication",
+                "url" to "classpath:docs-llm/custom_blockchain_network/inter_chain_messaging_facility_demo/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Custom Blockchain Network - Available Images",
+                "description" to "Documentation for test images, containers, and development environments",
+                "url" to "classpath:docs-llm/custom_blockchain_network/available_images/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Contract Deployment",
+                "description" to "Smart contract deployment documentation for Ethereum Integration Framework",
+                "url" to "classpath:docs-llm/postchain-eif/contract/deployment/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Contract Prerequisites",
+                "description" to "Prerequisites and requirements for EIF contract deployment",
+                "url" to "classpath:docs-llm/postchain-eif/contract/prerequisites/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Contract Owner Operations",
+                "description" to "Owner operations and management for EIF contracts",
+                "url" to "classpath:docs-llm/postchain-eif/contract/owner_operations/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Contract Scripts",
+                "description" to "Scripts and automation tools for EIF contract management",
+                "url" to "classpath:docs-llm/postchain-eif/contract/scripts/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Token Bridge Configuration",
+                "description" to "Configuration guide for token bridge setup and management",
+                "url" to "classpath:docs-llm/postchain-eif/token_bridge_configuration/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Token Bridge Chain Configuration",
+                "description" to "Chain-specific configuration for token bridge deployment",
+                "url" to "classpath:docs-llm/postchain-eif/token_bridge_chain_configuration/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Transaction Submitter Configuration",
+                "description" to "Setup and configuration for EIF transaction submitter",
+                "url" to "classpath:docs-llm/postchain-eif/transaction_submitter_configuration_setup/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Event Receiver Chain Configuration",
+                "description" to "Configuration for event receiver chains in EIF",
+                "url" to "classpath:docs-llm/postchain-eif/event-receiver-chain-configuration/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Access List Control",
+                "description" to "Access control and permissions management for EIF",
+                "url" to "classpath:docs-llm/postchain-eif/eif_access_list_control/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Bridge Admin Module",
+                "description" to "Administration module for EIF bridge management",
+                "url" to "classpath:docs-llm/postchain-eif/eif_bridge_admin_module/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Bridge Withdraw Request",
+                "description" to "Handling bridge withdrawal requests in EIF",
+                "url" to "classpath:docs-llm/postchain-eif/hbridge_withdraw_request/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Mass Exit Setup",
+                "description" to "Configuration and setup for mass exit functionality",
+                "url" to "classpath:docs-llm/postchain-eif/mass-exit-setup/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Security Model",
+                "description" to "Security model and best practices for EIF deployment",
+                "url" to "classpath:docs-llm/postchain-eif/security-model/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Upgradability",
+                "description" to "Upgrade procedures and versioning for EIF components",
+                "url" to "classpath:docs-llm/postchain-eif/upgradibility/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Troubleshooting Deposits",
+                "description" to "Troubleshooting guide for deposit issues in EIF",
+                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/deposit/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Troubleshooting Withdrawals",
+                "description" to "Troubleshooting guide for withdrawal issues in EIF",
+                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/withdrawal/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Troubleshooting Token Bridge",
+                "description" to "Troubleshooting guide for token bridge issues",
+                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/contract/token_bridge/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Troubleshooting Chromia Token Bridge",
+                "description" to "Troubleshooting guide for Chromia-specific token bridge issues",
+                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/contract/chromia_token_bridge/llms-full.txt"
+            ),
+            mapOf(
+                "name" to "Postchain EIF - Troubleshooting Token Bridge with Snapshots",
+                "description" to "Troubleshooting guide for token bridge with snapshot functionality",
+                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/contract/token_bridge_with_snapshots/llms-full.txt"
             )
         )
 

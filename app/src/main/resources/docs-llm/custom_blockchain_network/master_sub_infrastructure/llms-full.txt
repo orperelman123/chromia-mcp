@@ -1,0 +1,83 @@
+# Master-sub infrastructure
+
+## How to run a node
+
+You will need to do the following.
+
+Use appropriate config files prefixed with `config.master`.
+
+Mount the docker socket file into the container:
+```
+--volume /var/run/docker.sock:/var/run/docker.sock
+```
+
+Mount the container host directory:
+```
+--volume /var/lib/chromaway/postchain/subnode:/var/lib/chromaway/postchain/subnode
+```
+
+> **Note**: In order for this to work on mac, ensure that in docker settings `Resources -> File sharing`
+> both `/var/lib/chromaway/postchain/subnode` and `/private/var/lib/chromaway/postchain/subnode` are listed as possible bind mounts, restart docker after applying your changes.
+
+Add port mapping for master-sub message port:
+```
+-p 9880:9880/tcp
+```
+> **Note**: In production you should only expose this port locally
+
+Ensure you have the postchain subnode image pulled:
+```
+docker pull registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode:3.32.6
+```
+
+### Full example (3 nodes)
+
+```shell
+$ docker run --name postchain0 \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
+    --volume /var/lib/chromaway/postchain/subnode:/var/lib/chromaway/postchain/subnode \
+    --mount type=bind,source="$(pwd)/config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/directory-chain/build",target=/build,readonly \
+    -e POSTCHAIN_DEBUG=true \
+    -e POSTCHAIN_SUBNODE_USER="1:1" \
+    -p 9870:9870/tcp \
+    -p 7740:7740/tcp \
+    -p 7750:7750/tcp \
+    -p 9880:9880/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.32.6 \
+    run-node --node-config /config/config.master.0.properties --chain-id 0 --blockchain-config /build/manager.xml
+```
+
+```shell
+$ docker run --name postchain1 \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
+    --volume /var/lib/chromaway/postchain/subnode:/var/lib/chromaway/postchain/subnode \
+    --mount type=bind,source="$(pwd)/config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/directory-chain/build",target=/build,readonly \
+    -e POSTCHAIN_DEBUG=true \
+    -e POSTCHAIN_SUBNODE_USER="1:1" \
+    -p 9871:9870/tcp \
+    -p 7741:7740/tcp \
+    -p 7751:7750/tcp \
+    -p 9881:9881/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.32.6 \
+    run-node --node-config /config/config.master.1.properties --chain-id 0 --blockchain-config /build/manager.xml
+```
+
+```shell
+$ docker run --name postchain2 \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
+    --volume /var/lib/chromaway/postchain/subnode:/var/lib/chromaway/postchain/subnode \
+    --mount type=bind,source="$(pwd)/config",target=/config,readonly \
+    --mount type=bind,source="$(pwd)/directory-chain/build",target=/build,readonly \
+    -e POSTCHAIN_DEBUG=true \
+    -e POSTCHAIN_SUBNODE_USER="1:1" \
+    -p 9872:9870/tcp \
+    -p 7742:7740/tcp \
+    -p 7752:7750/tcp \
+    -p 9882:9882/tcp \
+    registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server:3.32.6 \
+    run-node --node-config /config/config.master.2.properties --chain-id 0 --blockchain-config /build/manager.xml
+```
+
+> **Note**: You should not set `POSTCHAIN_SUBNODE_USER` to `1:1` in production. Create a dedicated Postchain user instead.
