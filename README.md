@@ -120,6 +120,41 @@ Then add the following configuration to your AI assistant.
 }
 ```
 
+## Rell LSP Integration
+
+For enhanced Rell code understanding and analysis, you can also install the Chromia LSP MCP server alongside this blockchain MCP server. The LSP MCP server provides Claude with direct access to Rell language server capabilities for better code comprehension and analysis.
+
+### Installation
+
+```bash
+npm install @chromia/chromia-lsp-mcp -g
+```
+
+### Configuration
+
+Add the LSP MCP server to your MCP configuration alongside the blockchain MCP server:
+
+```json
+{
+  "mcpServers": {
+    "chromia-mcp": {
+      "command": "chromia-mcp-server"
+    },
+    "lsp-mcp": {
+      "command": "npx",
+      "args": [
+        "chromia-lsp-mcp",
+        "0.8.8"
+      ]
+    }
+  }
+}
+```
+
+> **Note**: The second argument `"0.8.8"` is optional and specifies the Rell LSP version to use. If omitted, the latest version will be used.
+
+This combination provides Claude with both blockchain data access and deep Rell code understanding capabilities.
+
 ## Usage Examples
 
 ### Basic Network Statistics
