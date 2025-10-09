@@ -2,7 +2,7 @@ apiVersion: jib/v1alpha1
 kind: BuildFile
 
 from:
-  image: "registry.gitlab.com/chromaway/core-tools/chromia-images/claude-code:0.1.0@sha256:8913a8c52b5cafaf48a273ed92c70d9b1f561ca3c2d29ab786b6193e0df535dd"
+  image: "registry.gitlab.com/chromaway/core-tools/chromia-images/claude-code:0.2.0@sha256:2383d22577e57bd2d0d612f1d160234c0df3f5578a957b8bb54b811c7798be91"
   platforms:
     - architecture: "amd64"
       os: "linux"
