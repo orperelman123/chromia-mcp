@@ -1,0 +1,44 @@
+{
+  "metadata": {
+    "last_updated": "2025-10-17T10:30:00Z",
+    "description": "Documentation repositories for Chromia"
+  },
+  "repositories": [
+    {
+      "name": "official-chromia-docs",
+      "url": "https://{{BITBUCKET_USERNAME}}:{{BITBUCKET_APP_PASSWORD}}@bitbucket.org/chromawallet/chromia-docs.git",
+      "branch": "master",
+      "subdirectories": ["docs", "generated"]
+    },
+    {
+      "name": "directory-chain",
+      "url": "https://gitlab.com/chromaway/core/directory-chain",
+      "branch": "dev",
+      "subdirectories": ["doc"]
+    },
+    {
+      "name": "directory1-examples",
+      "url": "https://gitlab.com/chromaway/example-projects/directory1-example.git",
+      "branch": "dev",
+      "subdirectories": ["docs"]
+    },
+    {
+      "name": "postchain-eif",
+      "url": "https://gitlab.com/chromaway/core/postchain-eif.git",
+      "branch": "dev",
+      "subdirectories": ["doc"]
+    },
+    {
+      "name": "chromia-cookbook",
+      "url": "https://{{BITBUCKET_USERNAME}}:{{BITBUCKET_APP_PASSWORD}}@bitbucket.org/chromawallet/chromia-cookbook.git",
+      "branch": "main",
+      "subdirectories": ["docs"]
+    }
+  ],
+  "settings": {
+    "concurrent_fetches": 3,
+    "temp_dir_prefix": "chromia_docs_repos",
+    "timeout_seconds": 300,
+    "cleanup_on_exit": true
+  }
+}
