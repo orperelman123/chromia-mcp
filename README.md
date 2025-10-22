@@ -17,16 +17,8 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 
 ## Documentation Tools
 
-The server includes built-in documentation tools that provide access to comprehensive Chromia documentation:
-
-- **Chromia CLI Documentation** - Complete guide to using the Chromia command-line interface
-- **Chromia CLI Usage Examples** - Practical examples and usage patterns for Chromia CLI
-- **Rell Programming Language** - Complete documentation for the Rell programming language
-- **FT4 Library Documentation** - Documentation for FT4 account management and authentication
-- **Code Samples and Courses** - Code examples, tutorials, and learning resources
-- **Network Configuration** - Platform network configuration and deployment guides
-
-These tools allow AI assistants to access up-to-date Chromia documentation
+The server includes **RAG-powered (Retrieval-Augmented Generation) semantic documentation search** that uses vector embeddings to find relevant documentation based on meaning, not just keywords.
+The AI assistant will automatically use semantic search to find and return the most relevant documentation sections.
 
 ## Installation
 
@@ -401,5 +393,7 @@ Specify the network parameter in your queries to target the appropriate environm
 # TODO:
 - [x] Remove mcpdoc and add tooling to the main app instead
 - [x] Implement server-sent events (SSE) transport for the MCP server"
-- [x] Add support for executing queries 
-- [ ] Add support for executing transactions 
+- [x] Add support for executing queries
+- [ ] Add support for executing transactions
+- [x] Docs can be removed safely now, and replaced with fetching mechanism from `Chromia-docs` repository to have up-to-date docs
+  - [x] Store `embeddings` in cloud storage (S3) instead of the local project directory

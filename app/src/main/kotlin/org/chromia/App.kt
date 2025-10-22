@@ -18,6 +18,7 @@ import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.tools.McpTools
 import org.chromia.tools.PromptManager
 import org.chromia.tools.ToolExecutor
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 class App(
@@ -28,7 +29,7 @@ class App(
     companion object {
         private const val SERVER_NAME = "chromia-mcp-server"
         private const val SERVER_VERSION = "0.0.1"
-        val logger = LoggerFactory.getLogger(App::class.java)
+        val logger: Logger = LoggerFactory.getLogger(App::class.java)
     }
 
     private fun createMcpServer(): Server {
@@ -79,7 +80,6 @@ class App(
             McpTools.getAccountBlockchainsTool(),
             McpTools.getNodeUnavailabilityTool(),
             McpTools.getNetworkStats(),
-            McpTools.listDocSourcesTool(),
             McpTools.fetchDocsTool(),
             McpTools.runDappQueriesTool()
         )
@@ -99,10 +99,10 @@ class App(
             inputStream = System.`in`.asSource().buffered(),
             outputStream = System.out.asSink().buffered()
         )
-            server.connect(transport)
-            val done = Job()
-            server.onClose { done.complete() }
-            done.join()
+        server.connect(transport)
+        val done = Job()
+        server.onClose { done.complete() }
+        done.join()
     }
 
     suspend fun runSseMcpServer(host: String, port: Int) {

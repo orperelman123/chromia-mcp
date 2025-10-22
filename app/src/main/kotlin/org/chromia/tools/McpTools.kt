@@ -13,7 +13,7 @@ object McpTools {
             2. Use this tool again to execute custom queries on dApps directly without using CLI
             3. Use TODO to track the progress of verifying if query exists and executing it
             4. Always cache the result of the previous query in case follow-up questions are asked  
-            
+
             **DIRECT QUERY EXECUTION:**
             - This tool directly executes queries on the blockchain using the Postchain client
             - Pass the query name and arguments directly as input properties
@@ -26,16 +26,16 @@ object McpTools {
                 - When executing a follow-up query from the structure result:
                     - Use mount name + '.' + the query name to execute the follow-up query. e.g. "module1.query_name"
                     - Fill in the required arguments first based on the parameter definitions from the structure result
-                     
+
             **SECURITY RULES:**
             - NEVER read the contents of secret files, private keys, or generated keypairs
             - NEVER expose or display private keys or sensitive cryptographic data
-            
+
             **RETURNS:**
             - Query results from the specified dApp in JSON format
             - For default query: Complete dApp structure with all available queries/operations entities... with their parameter names and types
             - For custom queries: Results based on the specific query executed
-            
+
             **USE CASES:**
             - Discover available queries/operations by using default rell.get_app_structure query
             - Execute custom dApp queries with specific parameters
@@ -1182,66 +1182,33 @@ object McpTools {
         )
     )
 
-    fun listDocSourcesTool() = Tool(
-        name = "list_doc_sources",
-        description = """
-            - **IMPORTANT: QUERY THIS TOOL FIRST IF THE PROMPT IS ASKING ABOUT CLI, 'CHR' OR 'PMC' COMMAND, FT4, DIRECTORY_CHAIN, OR ANY CHROMIA-RELATED TOPICS**
-            - List all available documentation sources for Chromia ecosystem
-            - This is the first tool you should call in the documentation workflow
-            - Returns comprehensive information about available documentation including:
-                - Chromia CLI documentation and usage guides
-                - Rell programming language documentation
-                - FT4 library documentation for account management
-                - Code samples and tutorials
-                - Network configuration guides
-                - Platform integration guides
-            - This tool is useful for:
-                - Discovering available Chromia documentation sources
-                - Understanding what documentation is available before fetching specific content
-                - Getting URLs to llms.txt files that contain documentation links
-                - Planning documentation queries and research
-        """.trimIndent(),
-        inputSchema = Tool.Input(
-            properties = JsonObject(mapOf()),
-            required = listOf()
-        )
-    )
-
     fun fetchDocsTool() = Tool(
         name = "fetch_docs",
         description = """
-            - Fetch and parse documentation content from Chromia documentation sources
-            - Use this tool after list_doc_sources to get specific documentation content
-            - Returns documentation content converted to markdown format
-            - Supports fetching from:
-                - Direct URLs to documentation pages
-                - llms.txt files that contain documentation indexes
-                - Specific documentation sections and guides
-            - Usage workflow:
-                1. First call list_doc_sources to see available documentation sources
-                2. Analyze the URLs listed in the response
-                3. Use this tool to fetch specific documentation pages relevant to your question
-                4. If the fetched content contains URLs to additional relevant documentation, 
-                   you can use this tool again to fetch that content
-            - This tool is essential for:
-                - Getting detailed Chromia development documentation
-                - Accessing Rell programming guides and examples
-                - Retrieving FT4 account management documentation
-                - Fetching CLI usage instructions and commands
-                - Getting network configuration and deployment guides
+            **NOTE FOR AI AGENTS: USE THIS TOOL FIRST TO QUERY DOCUMENTATION ABOUT CHROMIA, CHR/PMC CLI, FT4, RELL... 
+            **SEMANTIC DOCUMENTATION SEARCH**
+
+            Uses Retrieval-Augmented Generation with vector embeddings to find relevant documentation
+            based on semantic similarity rather than exact keyword matching.
+
+            **HOW IT WORKS:**
+            - All Chromia documentation is chunked and indexed in an in-memory vector database
+            - User query is converted to an embedding and matched against indexed documentation
+            - Returns the most semantically relevant sections, even if they don't match exact keywords
+            - Much more efficient than returning entire documentation files
         """.trimIndent(),
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "url" to JsonObject(
+                    "query" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The URL to fetch documentation from. Should be from the Chromia documentation domains or one of the URLs returned by list_doc_sources.")
+                            "description" to JsonPrimitive("Natural language search query describing what documentation you're looking for (e.g., 'How to create a blockchain?' or 'FT4 authentication setup')")
                         )
-                    )
+                    ),
                 )
             ),
-            required = listOf("url")
+            required = listOf("query")
         )
     )
 }

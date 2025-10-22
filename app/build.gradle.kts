@@ -5,7 +5,7 @@ val ktorVersion = "3.1.1"
 val postchainClientVersion = "3.36.0"
 
 plugins {
-    kotlin("plugin.serialization") version "2.1.0"
+    kotlin("plugin.serialization") version "2.2.0"
     id("com.github.johnrengelman.shadow") version "8.1.1"
     alias(libs.plugins.kotlin.jvm)
     id("com.google.cloud.tools.jib") version "3.4.5"
@@ -38,6 +38,7 @@ dependencies {
     implementation("net.postchain.client:chromia-client:${postchainClientVersion}")
     implementation("com.google.code.gson:gson:latest")
     implementation(libs.guava)
+    implementation("dev.langchain4j:langchain4j-easy-rag:1.7.1-beta14")
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
     implementation("org.apache.logging.log4j:log4j-core:2.25.1")
 }

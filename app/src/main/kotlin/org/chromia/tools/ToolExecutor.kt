@@ -3,9 +3,11 @@ package org.chromia.tools
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.TextContent
+import kotlinx.coroutines.*
 import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.json.*
 import net.postchain.common.BlockchainRid
+import org.chromia.App.Companion.logger
 import org.chromia.domain.BlockchainFilters
 import org.chromia.domain.ChromiaRepository
 import org.chromia.domain.NetworkResult
@@ -18,8 +20,13 @@ interface ToolStrategy {
 
 class ToolExecutor(
     private val repository: ChromiaRepository,
-    promptManager: PromptManager
+    promptManager: PromptManager,
 ) {
+
+    // NOTE: run this instance async (it loads documents, creates embeddings for them...) otherwise it will block
+    private val ragStoreScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val ragStoreDeferred: Deferred<RagStore> = ragStoreScope.async { RagStore() }
+
     private val strategies = mapOf(
         "get_prompts" to PromptsToolStrategy(promptManager),
         "get_blockchains_transactions" to BlockchainsTransactionsStrategy(),
@@ -44,8 +51,7 @@ class ToolExecutor(
         "get_account_blockchains" to AccountBlockchainsStrategy(),
         "get_node_unavailability" to NodeUnavailabilityStrategy(),
         "get_network_stats" to NetworkStatsStrategy(),
-        "list_doc_sources" to ListDocSourcesStrategy(),
-        "fetch_docs" to FetchDocsStrategy(),
+        "fetch_docs" to FetchDocsStrategy(ragStoreDeferred),
         "chromia_dapp_query" to DappInteractionStrategy()
     )
 
@@ -109,10 +115,7 @@ abstract class BaseToolStrategy : ToolStrategy {
                     }
                 }
                 is JsonArray -> value.mapNotNull { element ->
-                    when (element) {
-                        is JsonPrimitive -> element.content
-                        else -> element.toString()
-                    }
+                    (element as? JsonPrimitive)?.content ?: element.toString()
                 }
                 else -> null
             }
@@ -503,345 +506,6 @@ class FilterBlockchainsStrategy : BaseToolStrategy() {
     }
 }
 
-class ListDocSourcesStrategy : BaseToolStrategy() {
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val docSources = listOf(
-            mapOf(
-                "name" to "Chromia Bridge Documentation",
-                "description" to "Documentation for Chromia Bridge functionality and cross-chain operations",
-                "url" to "classpath:docs-llm/bridge/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia CLI Documentation",
-                "description" to "Complete guide to using the Chromia command-line interface",
-                "url" to "classpath:docs-llm/cli/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia CLI (chr) Usage Examples",
-                "description" to "Practical examples and usage patterns for Chromia CLI (chr)",
-                "url" to "classpath:docs-llm/cli_usage/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Client Libraries",
-                "description" to "Documentation for various client libraries and SDKs for Chromia development",
-                "url" to "classpath:docs-llm/clients/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Code Samples and Courses",
-                "description" to "Code examples, tutorials, and learning resources for Chromia development",
-                "url" to "classpath:docs-llm/code_samples/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Cookbook",
-                "description" to "Recipe-style guides and best practices for common Chromia development tasks",
-                "url" to "classpath:docs-llm/cookbook/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia FileHub",
-                "description" to "Documentation for Chromia FileHub decentralized file storage system",
-                "url" to "classpath:docs-llm/filehub/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "FT4 Library Documentation",
-                "description" to "Documentation for FT4 account management and authentication library",
-                "url" to "classpath:docs-llm/ft4/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Governance",
-                "description" to "Documentation for Chromia governance mechanisms and protocols",
-                "url" to "classpath:docs-llm/governance/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Introduction",
-                "description" to "Introduction and overview of the Chromia platform and its capabilities",
-                "url" to "classpath:docs-llm/intro/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Network Configuration",
-                "description" to "Platform network configuration for core blockchains on Chromia",
-                "url" to "classpath:docs-llm/network_config/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia PMC (Postchain Management Console)",
-                "description" to "Documentation for the Postchain Management Console and node administration",
-                "url" to "classpath:docs-llm/pmc/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain REST API",
-                "description" to "REST API documentation for Postchain blockchain operations",
-                "url" to "classpath:docs-llm/postchain_rest_api/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Providers",
-                "description" to "Documentation for Chromia hosting providers and infrastructure services",
-                "url" to "classpath:docs-llm/providers/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Quick Introduction",
-                "description" to "Quick start guide and essential concepts for getting started with Chromia",
-                "url" to "classpath:docs-llm/quick_intro/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Rell Programming Language",
-                "description" to "Complete documentation for the Rell programming language used in Chromia",
-                "url" to "classpath:docs-llm/rell/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Chromia Use Cases",
-                "description" to "Documentation covering various use cases and applications built on Chromia",
-                "url" to "classpath:docs-llm/use_cases/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "SQL to Rell",
-                "description" to "Documentation for converting SQL queries to Rell queries and vice versa",
-                "url" to "classpath:docs-llm/sql_to_rell/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Blockchain Auth",
-                "description" to "Documentation for blockchain authentication in directory chain setup",
-                "url" to "classpath:docs-llm/directory_chain/blockchain_auth/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Compression",
-                "description" to "Documentation for compression features in directory chain",
-                "url" to "classpath:docs-llm/directory_chain/compression/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Configuration",
-                "description" to "Documentation for directory chain configuration and setup",
-                "url" to "classpath:docs-llm/directory_chain/directory_chain/directory_chain_configuration/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Mainnet Blockchain Configuration Limitations",
-                "description" to "Documentation for mainnet blockchain configuration limitations in directory chain",
-                "url" to "classpath:docs-llm/directory_chain/directory_chain/mainnet_blockchain_configuration_limitations/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Economy Chain",
-                "description" to "Documentation for economy chain setup and management in directory chain",
-                "url" to "classpath:docs-llm/directory_chain/economy_chain/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Economy Chain Container Management",
-                "description" to "Documentation for container management in economy chain",
-                "url" to "classpath:docs-llm/directory_chain/economy_chain/container_management/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Economy Chain Synchronization",
-                "description" to "Documentation for directory chain to economy chain synchronization",
-                "url" to "classpath:docs-llm/directory_chain/economy_chain/directory_chain_to_economy_chain_synchnozation/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Economy Chain Configuration Setup",
-                "description" to "Documentation for economy chain configuration and setup",
-                "url" to "classpath:docs-llm/directory_chain/economy_chain/economy_chain_configuration_setup/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Full Network Setup",
-                "description" to "Documentation for complete network setup in directory chain",
-                "url" to "classpath:docs-llm/directory_chain/full_network_setup/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Begin Block Library",
-                "description" to "Documentation for begin block library functionality",
-                "url" to "classpath:docs-llm/directory_chain/libraries/begin_block/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Transaction Prioritization Library",
-                "description" to "Documentation for transaction prioritization library",
-                "url" to "classpath:docs-llm/directory_chain/libraries/transaction_prioritization/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Price Oracle Setup",
-                "description" to "Documentation for setting up price oracle in directory chain",
-                "url" to "classpath:docs-llm/directory_chain/setup_price_oracle/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Token Chain",
-                "description" to "Documentation for token chain setup and management",
-                "url" to "classpath:docs-llm/directory_chain/token_chain/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Token Migration",
-                "description" to "Documentation for token migration processes",
-                "url" to "classpath:docs-llm/directory_chain/token_chain/migrate-token/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Token Chain Configuration Setup",
-                "description" to "Documentation for token chain configuration and setup",
-                "url" to "classpath:docs-llm/directory_chain/token_chain/token_chain_config_setup/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Token Chain Governance Guide",
-                "description" to "Documentation for token chain governance and management",
-                "url" to "classpath:docs-llm/directory_chain/token_chain/token_chain_governance_guide/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Directory Chain - Token Chain User Guide",
-                "description" to "User guide for token chain functionality and usage",
-                "url" to "classpath:docs-llm/directory_chain/token_chain/user_guide/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Overview",
-                "description" to "Comprehensive documentation for custom blockchain network infrastructure and setup",
-                "url" to "classpath:docs-llm/custom_blockchain_network/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Single Provider Setup",
-                "description" to "Guide for setting up and managing blockchain networks with a single provider",
-                "url" to "classpath:docs-llm/custom_blockchain_network/single_provider/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Multi Provider Setup",
-                "description" to "Documentation for managing networks with multiple providers and voting mechanisms",
-                "url" to "classpath:docs-llm/custom_blockchain_network/multi_provider/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Master-Sub Infrastructure",
-                "description" to "Technical guide for running nodes with master-sub infrastructure in production",
-                "url" to "classpath:docs-llm/custom_blockchain_network/master_sub_infrastructure/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Setting Up New Network",
-                "description" to "Step-by-step instructions for initializing production networks with economy chains",
-                "url" to "classpath:docs-llm/custom_blockchain_network/setting_up_new_network/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - PQC/Dilithium",
-                "description" to "Implementation guide for deploying networks with PQC/Dilithium support",
-                "url" to "classpath:docs-llm/custom_blockchain_network/pqc_dilithium/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Inter-Chain Messaging",
-                "description" to "ICMF demonstration and setup guide for cross-chain communication",
-                "url" to "classpath:docs-llm/custom_blockchain_network/inter_chain_messaging_facility_demo/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Custom Blockchain Network - Available Images",
-                "description" to "Documentation for test images, containers, and development environments",
-                "url" to "classpath:docs-llm/custom_blockchain_network/available_images/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Contract Deployment",
-                "description" to "Smart contract deployment documentation for Ethereum Integration Framework",
-                "url" to "classpath:docs-llm/postchain-eif/contract/deployment/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Contract Prerequisites",
-                "description" to "Prerequisites and requirements for EIF contract deployment",
-                "url" to "classpath:docs-llm/postchain-eif/contract/prerequisites/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Contract Owner Operations",
-                "description" to "Owner operations and management for EIF contracts",
-                "url" to "classpath:docs-llm/postchain-eif/contract/owner_operations/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Contract Scripts",
-                "description" to "Scripts and automation tools for EIF contract management",
-                "url" to "classpath:docs-llm/postchain-eif/contract/scripts/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Token Bridge Configuration",
-                "description" to "Configuration guide for token bridge setup and management",
-                "url" to "classpath:docs-llm/postchain-eif/token_bridge_configuration/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Token Bridge Chain Configuration",
-                "description" to "Chain-specific configuration for token bridge deployment",
-                "url" to "classpath:docs-llm/postchain-eif/token_bridge_chain_configuration/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Transaction Submitter Configuration",
-                "description" to "Setup and configuration for EIF transaction submitter",
-                "url" to "classpath:docs-llm/postchain-eif/transaction_submitter_configuration_setup/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Event Receiver Chain Configuration",
-                "description" to "Configuration for event receiver chains in EIF",
-                "url" to "classpath:docs-llm/postchain-eif/event-receiver-chain-configuration/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Access List Control",
-                "description" to "Access control and permissions management for EIF",
-                "url" to "classpath:docs-llm/postchain-eif/eif_access_list_control/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Bridge Admin Module",
-                "description" to "Administration module for EIF bridge management",
-                "url" to "classpath:docs-llm/postchain-eif/eif_bridge_admin_module/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Bridge Withdraw Request",
-                "description" to "Handling bridge withdrawal requests in EIF",
-                "url" to "classpath:docs-llm/postchain-eif/hbridge_withdraw_request/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Mass Exit Setup",
-                "description" to "Configuration and setup for mass exit functionality",
-                "url" to "classpath:docs-llm/postchain-eif/mass-exit-setup/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Security Model",
-                "description" to "Security model and best practices for EIF deployment",
-                "url" to "classpath:docs-llm/postchain-eif/security-model/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Upgradability",
-                "description" to "Upgrade procedures and versioning for EIF components",
-                "url" to "classpath:docs-llm/postchain-eif/upgradibility/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Troubleshooting Deposits",
-                "description" to "Troubleshooting guide for deposit issues in EIF",
-                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/deposit/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Troubleshooting Withdrawals",
-                "description" to "Troubleshooting guide for withdrawal issues in EIF",
-                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/withdrawal/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Troubleshooting Token Bridge",
-                "description" to "Troubleshooting guide for token bridge issues",
-                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/contract/token_bridge/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Troubleshooting Chromia Token Bridge",
-                "description" to "Troubleshooting guide for Chromia-specific token bridge issues",
-                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/contract/chromia_token_bridge/llms-full.txt"
-            ),
-            mapOf(
-                "name" to "Postchain EIF - Troubleshooting Token Bridge with Snapshots",
-                "description" to "Troubleshooting guide for token bridge with snapshot functionality",
-                "url" to "classpath:docs-llm/postchain-eif/troubleshooting/contract/token_bridge_with_snapshots/llms-full.txt"
-            )
-        )
-
-        val content = StringBuilder()
-        content.appendLine("Available Chromia Documentation Sources:")
-        content.appendLine()
-
-        docSources.forEachIndexed { index, source ->
-            content.appendLine("${index + 1}. ${source["name"]}")
-            content.appendLine("   Description: ${source["description"]}")
-            content.appendLine("   URL: ${source["url"]}")
-            content.appendLine()
-        }
-
-        content.appendLine("Usage Instructions:")
-        content.appendLine("1. Use the fetch_docs tool with any of the above URLs to get the documentation content")
-        content.appendLine("2. The URLs above point to llms.txt files that contain indexes of documentation pages")
-        content.appendLine(
-            "3. After fetching an llms.txt file, you can then fetch specific documentation pages mentioned in that file"
-        )
-
-        return CallToolResult(
-            content = listOf(TextContent(content.toString()))
-        )
-    }
-}
-
 class DappInteractionStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
@@ -902,31 +566,22 @@ class DappInteractionStrategy : BaseToolStrategy() {
     }
 }
 
-// TODO: Would be good to be able to crawl and fetch all mdx files from 'docs.chromia.org' directly
-//  instead of embedding llm.txt files inside the application itself
-//  the downside is that fetching / parsing files and transforming them into llm.txt takes a quite time
-class FetchDocsStrategy : BaseToolStrategy() {
+class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val url = requireParameter(args, "url")
+        val query = requireParameter(args, "query")
 
         return runCatching {
-            val resourcePath = url.removePrefix("classpath:")
-            val content = fetchClasspathResource(resourcePath)
+            val ragStore = ragStoreDeferred.await()
+            val result = ragStore.query(query)?.joinToString("\n\n") 
+                ?: "Documentation not found for requested query!"
             CallToolResult(
-                content = listOf(TextContent(content))
+                content = listOf(TextContent(result))
             )
         }.getOrElse { e ->
             CallToolResult(
                 content = listOf(TextContent("Error fetching documentation from classpath: ${e.message}"))
             )
         }
-    }
-
-    private fun fetchClasspathResource(resourcePath: String): String {
-        val inputStream = this::class.java.classLoader.getResourceAsStream(resourcePath)
-            ?: throw FileNotFoundException("Resource not found: $resourcePath")
-
-        return inputStream.use { it.bufferedReader().readText() }
     }
 }
