@@ -56,6 +56,16 @@ All AI assistants use the same MCP configuration format. Add the following JSON 
 3. In the dropdown switch from "Command" to "As JSON" and paste the JSON configuration above
 4. Set the working directory to where this project is cloned
 
+**ChatGPT:**
+1. Enable developer mode: Go to Settings → Connectors → Advanced → Developer mode
+2. Import Chromia MCP:
+    - Open Workspace settings → Connectors → Create
+    - Enter the following:
+      - MCP Server URL: `https://mcp.chromia.dev/sse`
+      - Authentication: No authentication
+    - Click Create
+    - In connector details, new tool lists and descriptions from the MCP server will be shown
+
 > The MCP server will be available in the MCP panel
 
 ## Rell LSP Integration
