@@ -20,27 +20,6 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 The server includes **RAG-powered (Retrieval-Augmented Generation) semantic documentation search** that uses vector embeddings to find relevant documentation based on meaning, not just keywords.
 The AI assistant will automatically use semantic search to find and return the most relevant documentation sections.
 
-## Installation
-
-### Prerequisites
-
-- Node.js v18 or higher, *or*
-- Java Development Kit v21 or higher
-
-Install the chromia-mcp-server globally using npm:
-
-```bash
-npm install @chromia/chromia-mcp-server -g
-```
-
-#### For local development With JDK
-
-Build it with Gradle:
-
-```bash
-./gradlew :app:shadowJar
-```
-
 ## Setup
 
 The MCP server runs automatically when configured in your AI assistant.
@@ -53,7 +32,7 @@ All AI assistants use the same MCP configuration format. Add the following JSON 
 {
   "mcpServers": {
     "chromia-mcp": {
-      "command": "chromia-mcp-server"
+      "url": "https://mcp.chromia.dev/sse"
     }
   }
 }
@@ -77,40 +56,7 @@ All AI assistants use the same MCP configuration format. Add the following JSON 
 3. In the dropdown switch from "Command" to "As JSON" and paste the JSON configuration above
 4. Set the working directory to where this project is cloned
 
-#### Local Development (with JDK)
-
-```json
-{
-  "mcpServers": {
-    "chromia": {
-      "command": "java",
-      "args": [
-        "-jar",
-        "path/to/jar/chromia-mcp-server.jar"
-      ]
-    }
-  }
-}
-```
-
 > The MCP server will be available in the MCP panel
-
-### SSE Configuration
-
-The MCP server supports Server-Sent Events (SSE) transport. 
-To use SSE mode, run the application with the `--sse` argument.
-Then add the following configuration to your AI assistant.
-#### SSE Configuration 
-
-```json
-{
-  "mcpServers": {
-    "chromia-mcp-local": {
-      "url": "http://localhost:3001/sse"
-    }
-  }
-}
-```
 
 ## Rell LSP Integration
 
@@ -124,14 +70,11 @@ npm install @chromia/chromia-lsp-mcp -g
 
 ### Configuration
 
-Add the LSP MCP server to your MCP configuration alongside the blockchain MCP server:
+Add the LSP MCP server to your MCP configuration
 
 ```json
 {
   "mcpServers": {
-    "chromia-mcp": {
-      "command": "chromia-mcp-server"
-    },
     "lsp-mcp": {
       "command": "npx",
       "args": [
@@ -391,9 +334,4 @@ The server supports multiple Chromia networks:
 Specify the network parameter in your queries to target the appropriate environment.
 
 # TODO:
-- [x] Remove mcpdoc and add tooling to the main app instead
-- [x] Implement server-sent events (SSE) transport for the MCP server"
-- [x] Add support for executing queries
 - [ ] Add support for executing transactions
-- [x] Docs can be removed safely now, and replaced with fetching mechanism from `Chromia-docs` repository to have up-to-date docs
-  - [x] Store `embeddings` in cloud storage (S3) instead of the local project directory

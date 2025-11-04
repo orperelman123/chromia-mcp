@@ -22,12 +22,9 @@ build:
     - export GRADLE_USER_HOME
   script:
     - ./gradlew check --info
-    - npm install -g jdeploy
-    - npm run build
-    - jdeploy install
+    - ./gradlew :app:shadowJar
   artifacts:
     paths:
-      - "jdeploy-bundle/"
       - "app/build/libs/"
     expire_in: 1 week
   cache:
