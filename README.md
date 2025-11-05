@@ -28,6 +28,13 @@ The AI assistant will automatically use semantic search to find and return the m
 
 #### For local development With JDK
 
+Clone the [chromia-mcp repository](https://gitlab.com/chromaway/core-tools/chromia-mcp):
+
+```bash
+git clone https://gitlab.com/chromaway/core-tools/chromia-mcp.git
+cd chromia-mcp
+```
+
 Run the application using gradle run in sse mode:
 
 ```bash
