@@ -9,23 +9,16 @@ object McpTools {
         name = "chromia_dapp_query",
         description = """
             **WORKFLOW FOR AI AGENTS:**
-            1. First, obtain the blockchain RID using filter_blockchains
-            2. Use this tool again to execute custom queries on dApps directly without using CLI
-            3. Use TODO to track the progress of verifying if query exists and executing it
-            4. Always cache the result of the previous query in case follow-up questions are asked  
-
-            **DIRECT QUERY EXECUTION:**
-            - This tool directly executes queries on the blockchain using the Postchain client
-            - Pass the query name and arguments directly as input properties
-            - Arguments will be automatically converted to GTV format for blockchain execution
-            - Default query is "rell.get_app_structure" which returns dApp structure information
-            - Query execution logic:
-                - If no query is provided: Falls back to default query "rell.get_app_structure" to get dApp structure
-                - If a specific query is requested: First check if it exists using this tool with query 'rell.get_app_structure'
-                    - Then validate the query name and parameters from the 'rell.get_app_structure' result
-                - When executing a follow-up query from the structure result:
+            1. First, obtain the blockchain RID using filter_blockchains tool
+            2. Second run "rell.get_app_structure" query using chromia_dapp_query tool which returns dApp structure of the blockchain (queries, modules, entities)
+            3. Third, look for the query from response of step 2 that user is looking for
+                - When looking for a follow-up query from the structure result (step 2):
                     - Use mount name + '.' + the query name to execute the follow-up query. e.g. "module1.query_name"
                     - Fill in the required arguments first based on the parameter definitions from the structure result
+            4. Use TODO to track the progress of verifying if query exists and executing it
+            5. When getting a response as json file, do to write scripts in Python/Javascript etc,
+                 to parse it, use bash or jq
+            6. Always cache the result of the previous query in case follow-up questions are asked  
 
             **SECURITY RULES:**
             - NEVER read the contents of secret files, private keys, or generated keypairs
@@ -78,7 +71,10 @@ object McpTools {
                 ),
             ),
             required = listOf("blockchainRid")
-        )
+        ),
+        title = "Execute dApp Query",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getBlockchainsTransactionsTool() = Tool(
@@ -104,61 +100,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
-    )
-
-    fun getNetworkAccountCountTool() = Tool(
-        name = "get_network_account_count",
-        description = "Get the total number of accounts on a specific network",
-        inputSchema = Tool.Input(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    )
-                )
-            ),
-            required = listOf("network")
-        )
-    )
-
-    fun getNetworkTransferCountTool() = Tool(
-        name = "get_network_transfer_count",
-        description = "Get the total number of transfers on a specific network",
-        inputSchema = Tool.Input(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    )
-                )
-            ),
-            required = listOf("network")
-        )
-    )
-
-    fun getMonthlyActiveAccountsTool() = Tool(
-        name = "get_monthly_active_accounts",
-        description = "Get the number of monthly active accounts on a specific network",
-        inputSchema = Tool.Input(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    )
-                )
-            ),
-            required = listOf("network")
-        )
+        ),
+        title = "Get Blockchain Transactions",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getTransactionsByClusterTool() = Tool(
@@ -178,7 +123,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get Transactions by Cluster",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAllAssetsTool() = Tool(
@@ -196,7 +144,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get All Assets",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getTotalRewardsPaidTool() = Tool(
@@ -214,7 +165,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get Total Rewards Paid",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getProvidersRewardsTool() = Tool(
@@ -232,7 +186,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get Provider Rewards",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAssetDistributionTool() = Tool(
@@ -272,7 +229,10 @@ object McpTools {
                 )
             ),
             required = listOf("assetId")
-        )
+        ),
+        title = "Get Asset Distribution",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAssetTopHoldersTool() = Tool(
@@ -364,7 +324,10 @@ object McpTools {
                 )
             ),
             required = listOf("assetId")
-        )
+        ),
+        title = "Get Asset Top Holders",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getBlockchainAnalyticsTool() = Tool(
@@ -388,7 +351,10 @@ object McpTools {
                 )
             ),
             required = listOf("brid")
-        )
+        ),
+        title = "Get Blockchain Analytics",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getMonthlyActiveAccountsPerChainTool() = Tool(
@@ -412,31 +378,10 @@ object McpTools {
                 )
             ),
             required = listOf("brid")
-        )
-    )
-
-    fun getRollingMonthlyActiveAccountsPerChainTool() = Tool(
-        name = "get_rolling_monthly_active_accounts_per_chain",
-        description = "Get daily rolling monthly active accounts for a specific blockchain",
-        inputSchema = Tool.Input(
-            properties = JsonObject(
-                mapOf(
-                    "brid" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The blockchain RID")
-                        )
-                    ),
-                    "untilTimestamp" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Optional timestamp to get analytics until")
-                        )
-                    )
-                )
-            ),
-            required = listOf("brid")
-        )
+        ),
+        title = "Get Monthly Active Accounts",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getBlockchainDetailsTool() = Tool(
@@ -468,7 +413,10 @@ object McpTools {
                 )
             ),
             required = listOf("rid")
-        )
+        ),
+        title = "Get Blockchain Details",
+        annotations = null,
+        outputSchema = null
     )
 
     fun filterBlockchains() = Tool(
@@ -572,7 +520,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Filter Blockchains",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAllTransactionsTool() = Tool(
@@ -764,7 +715,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get All Transactions",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAllOperationsTool() = Tool(
@@ -794,7 +748,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get All Operations",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getFilterAssetsTool() = Tool(
@@ -879,7 +836,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Filter Assets",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getChrAggregateseTool() = Tool(
@@ -933,7 +893,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get CHR Aggregates",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAssetBlockchainsTool() = Tool(
@@ -972,7 +935,10 @@ object McpTools {
                 )
             ),
             required = listOf("network", "assetId")
-        )
+        ),
+        title = "Get Asset Blockchains",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getSignerBlockchainsTool() = Tool(
@@ -1010,7 +976,10 @@ object McpTools {
                 )
             ),
             required = listOf("network", "signer")
-        )
+        ),
+        title = "Get Signer Blockchains",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getAccountBlockchainsTool() = Tool(
@@ -1050,7 +1019,10 @@ object McpTools {
                 )
             ),
             required = listOf("network", "accountId")
-        )
+        ),
+        title = "Get Account Blockchains",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getNodeUnavailabilityTool() = Tool(
@@ -1094,7 +1066,10 @@ object McpTools {
                 )
             ),
             required = listOf("network", "pubkey", "startTimestamp")
-        )
+        ),
+        title = "Get Node Unavailability",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getNetworkStats() = Tool(
@@ -1133,7 +1108,10 @@ object McpTools {
                 )
             ),
             required = listOf("network")
-        )
+        ),
+        title = "Get Network Statistics",
+        annotations = null,
+        outputSchema = null
     )
 
     fun getPromptsTool() = Tool(
@@ -1179,7 +1157,10 @@ object McpTools {
                 )
             ),
             required = listOf()
-        )
+        ),
+        title = "Get Available Prompts",
+        annotations = null,
+        outputSchema = null
     )
 
     fun fetchDocsTool() = Tool(
@@ -1209,6 +1190,63 @@ object McpTools {
                 )
             ),
             required = listOf("query")
-        )
+        ),
+        title = "Search relevant documentation about Chromia platform",
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "type" to JsonPrimitive("string"),
+                    "description" to JsonPrimitive("Relevant documentation text matching the search query")
+                )
+            )
+        ),
+        annotations = null
+    )
+
+    fun fetchMockTool() = Tool(
+        name = "fetch",
+        description = """
+            The fetch tool is used to retrieve the full contents of a search result document or item. used mainly with Chatgpt
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "id" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Natural language search query describing what documentation you're looking for (e.g., 'How to create a blockchain?' or 'FT4 authentication setup')")
+                        )
+                    ),
+                )
+            ),
+            required = listOf("id")
+        ),
+        title = "Fetch Document",
+        annotations = null,
+        outputSchema = null
+    )
+
+    // TODO: this should be implemented correctly for Chatgpt integration
+    fun searchMockTool() = Tool(
+        name = "search",
+        description = """
+            The search tool is used to search for search results based on a search query. used mainly with Chatgpt
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "query" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Natural language search query describing what documentation you're looking for (e.g., 'How to create a blockchain?' or 'FT4 authentication setup')")
+                        )
+                    ),
+                )
+            ),
+            required = listOf("query")
+        ),
+        title = "Search Documentation",
+        annotations = null,
+        outputSchema = null
     )
 }

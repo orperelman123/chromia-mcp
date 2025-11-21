@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-val mcpVersion = "0.4.0"
-val ktorVersion = "3.1.1"
+val mcpVersion = "0.7.7"
+val ktorVersion = "3.2.3"
 val postchainClientVersion = "3.36.0"
 
 plugins {
@@ -38,6 +38,12 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-easy-rag:1.8.0-beta15")
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
     implementation("org.apache.logging.log4j:log4j-core:2.25.1")
+    
+    // Test dependencies
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
+    testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+    testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 }
 
 java {

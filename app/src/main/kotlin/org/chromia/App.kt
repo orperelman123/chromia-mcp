@@ -1,15 +1,15 @@
 package org.chromia
 
-import io.ktor.server.cio.CIO
-import io.ktor.server.engine.embeddedServer
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.cio.*
+import io.ktor.server.engine.*
+import io.ktor.server.plugins.cors.routing.*
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
-import io.modelcontextprotocol.kotlin.sdk.server.RegisteredTool
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
-import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
-import io.modelcontextprotocol.kotlin.sdk.server.mcp
-import kotlinx.coroutines.*
+import io.modelcontextprotocol.kotlin.sdk.server.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
@@ -41,13 +41,11 @@ class App(
             options = ServerOptions(
                 capabilities = ServerCapabilities(
                     tools = ServerCapabilities.Tools(listChanged = true),
-                    // TODO: Add resources for other AI agents that supports them
-                    // NOTE: Is not supported by Cursor
-//                    resources = ServerCapabilities.Resources(
-//                        subscribe = true,
-//                        listChanged = true
-//                    ),
-//                    prompts = ServerCapabilities.Prompts(listChanged = true)
+                    resources = ServerCapabilities.Resources(
+                        subscribe = true,
+                        listChanged = true
+                    ),
+                    prompts = ServerCapabilities.Prompts(listChanged = true)
                 )
             )
         ).apply {
@@ -59,9 +57,6 @@ class App(
         val tools = listOf(
             McpTools.getPromptsTool(),
             McpTools.getBlockchainsTransactionsTool(),
-            McpTools.getNetworkAccountCountTool(),
-            McpTools.getNetworkTransferCountTool(),
-            McpTools.getMonthlyActiveAccountsTool(),
             McpTools.getTransactionsByClusterTool(),
             McpTools.getAllAssetsTool(),
             McpTools.getTotalRewardsPaidTool(),
@@ -81,37 +76,59 @@ class App(
             McpTools.getNodeUnavailabilityTool(),
             McpTools.getNetworkStats(),
             McpTools.fetchDocsTool(),
+            McpTools.fetchMockTool(),
+            McpTools.searchMockTool(),
             McpTools.runDappQueriesTool()
         )
 
         val registeredTools = tools.map { tool ->
             RegisteredTool(tool) { request ->
-                toolExecutor.executeTool(request)
+                logger.info("Request: $request")
+                val response = toolExecutor.executeTool(request)
+                logger.info("Response : \n${response.structuredContent}")
+
+                response
             }
         }
 
         addTools(registeredTools)
     }
 
+    private fun Application.installCors() {
+        install(CORS) {
+            allowMethod(HttpMethod.Options)
+            allowMethod(HttpMethod.Get)
+            allowMethod(HttpMethod.Post)
+            allowMethod(HttpMethod.Delete)
+            allowNonSimpleContentTypes = true
+        }
+    }
+
     fun runStdioMcpServer() = runBlocking {
         val server = createMcpServer()
         val transport = StdioServerTransport(
             inputStream = System.`in`.asSource().buffered(),
-            outputStream = System.out.asSink().buffered()
+            outputStream = System.out.asSink().buffered(),
         )
-        server.connect(transport)
-        val done = Job()
-        server.onClose { done.complete() }
-        done.join()
+
+        runBlocking {
+            server.createSession(transport)
+            val done = Job()
+            server.onClose {
+                done.complete()
+            }
+            done.join()
+        }
     }
 
-    suspend fun runSseMcpServer(host: String, port: Int) {
-        logger.info("Starting SSE server on $host:$port")
-        embeddedServer(CIO, host = host, port = port) {
+    fun runSseMcpServer(host: String, port: Int): EmbeddedServer<*, *> {
+        val server = embeddedServer(CIO, host = host, port = port) {
+            installCors()
             mcp {
-                createMcpServer()
+                return@mcp createMcpServer()
             }
-        }.startSuspend(wait = true)
+        }.start(wait = true)
+        return server
     }
 }
 

@@ -21,18 +21,6 @@ object NetworkQueries {
         )
     }
 
-    fun getNetworkAccountCount(): GraphQLQuery = graphqlQuery {
-        query("query { countAllAccounts }")
-    }
-
-    fun getNetworkTransferCount(): GraphQLQuery = graphqlQuery {
-        query("query { countAllTransfers }")
-    }
-
-    fun getMonthlyActiveAccounts(): GraphQLQuery = graphqlQuery {
-        query("query { monthlyActiveAccounts }")
-    }
-
     fun getTransactionsByCluster(): GraphQLQuery = graphqlQuery {
         query("query { groupedTransactionsByCluster { cluster, count } }")
     }
