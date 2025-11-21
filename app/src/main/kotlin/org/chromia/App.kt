@@ -5,6 +5,8 @@ import io.ktor.server.application.*
 import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.*
@@ -124,11 +126,30 @@ class App(
     fun runSseMcpServer(host: String, port: Int): EmbeddedServer<*, *> {
         val server = embeddedServer(CIO, host = host, port = port) {
             installCors()
+            installHealthEndpoint()
             mcp {
                 return@mcp createMcpServer()
             }
         }.start(wait = true)
         return server
+    }
+
+    private fun Application.installHealthEndpoint() {
+        routing {
+            get("/health") {
+                call.respondText(
+                    contentType = ContentType.Application.Json,
+                    status = HttpStatusCode.OK,
+                    text = """
+                    {
+                        "status": "healthy",
+                        "server": "$SERVER_NAME",
+                        "version": "$SERVER_VERSION"
+                    }
+                    """.trimIndent()
+                )
+            }
+        }
     }
 }
 
