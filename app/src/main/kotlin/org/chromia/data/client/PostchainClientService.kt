@@ -34,9 +34,12 @@ class PostchainClientService(private val config: ChromiaConfig) {
         val queryResult = dcClient.query(query, listMapAndPrimitivesToGtv(arguments))
 
         val gsonJsonElement = make_gtv_gson().toJsonTree(queryResult)
+
         val kotlinxJsonElement = gsonJsonElement.toKotlinxJson()
 
-        val jsonObject = kotlinxJsonElement as? JsonObject ?: JsonObject(mapOf("data" to kotlinxJsonElement))
+        val filteredJsonElement = filterModulesToQueriesOnly(kotlinxJsonElement)
+
+        val jsonObject = filteredJsonElement as? JsonObject ?: JsonObject(mapOf("data" to filteredJsonElement))
 
         NetworkResult.Success(jsonObject)
     }.fold(
@@ -75,5 +78,37 @@ class PostchainClientService(private val config: ChromiaConfig) {
             )
         }
         else -> JsonNull
+    }
+
+    private fun filterModulesToQueriesOnly(jsonElement: JsonElement): JsonElement {
+        return when (jsonElement) {
+            is JsonObject -> {
+                val filteredEntries = jsonElement.entries.map { (key, value) ->
+                    if (key == "modules" && value is JsonObject) {
+
+                        // Remove operations and functions from all modules
+                        val filteredModules = value.entries
+                            .map { (moduleName, moduleValue) ->
+                                if (moduleValue is JsonObject) {
+                                    val filteredModuleEntries = moduleValue.entries
+                                        .filter { (fieldKey, _) ->
+                                            fieldKey != "operations" && fieldKey != "functions"
+                                        }
+                                        .associate { it.key to filterModulesToQueriesOnly(it.value) }
+                                    moduleName to JsonObject(filteredModuleEntries)
+                                } else {
+                                    moduleName to moduleValue
+                                }
+                            }
+                            .associate { it.first to it.second }
+                        key to JsonObject(filteredModules)
+                    } else {
+                        key to filterModulesToQueriesOnly(value)
+                    }
+                }.associate { it.first to it.second }
+                JsonObject(filteredEntries)
+            }
+            else -> jsonElement
+        }
     }
 }

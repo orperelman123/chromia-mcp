@@ -4,10 +4,8 @@ import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.coroutines.*
-import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.json.*
 import net.postchain.common.BlockchainRid
-import org.chromia.App.Companion.logger
 import org.chromia.domain.BlockchainFilters
 import org.chromia.domain.ChromiaRepository
 import org.chromia.domain.NetworkResult
@@ -30,9 +28,6 @@ class ToolExecutor(
     private val strategies = mapOf(
         "get_prompts" to PromptsToolStrategy(promptManager),
         "get_blockchains_transactions" to BlockchainsTransactionsStrategy(),
-        "get_network_account_count" to NetworkAccountCountStrategy(),
-        "get_network_transfer_count" to NetworkTransferCountStrategy(),
-        "get_monthly_active_accounts" to MonthlyActiveAccountsStrategy(),
         "get_transactions_by_cluster" to TransactionsByClusterStrategy(),
         "get_all_assets" to AllAssetsStrategy(),
         "get_total_rewards_paid" to TotalRewardsPaidStrategy(),
@@ -52,6 +47,8 @@ class ToolExecutor(
         "get_node_unavailability" to NodeUnavailabilityStrategy(),
         "get_network_stats" to NetworkStatsStrategy(),
         "fetch_docs" to FetchDocsStrategy(ragStoreDeferred),
+        "search" to FetchMock("search"),
+        "fetch" to FetchMock(),
         "chromia_dapp_query" to DappInteractionStrategy()
     )
 
@@ -205,36 +202,6 @@ class BlockchainsTransactionsStrategy : BaseToolStrategy() {
 
         val result = repository.getBlockchainsTransactions(network)
         return handleResult(result, "Failed to get blockchains transactions")
-    }
-}
-
-class NetworkAccountCountStrategy : BaseToolStrategy() {
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getNetworkAccountCount(network)
-        return handleResult(result, "Failed to get network account count")
-    }
-}
-
-class NetworkTransferCountStrategy : BaseToolStrategy() {
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getNetworkTransferCount(network)
-        return handleResult(result, "Failed to get network transfer count")
-    }
-}
-
-class MonthlyActiveAccountsStrategy : BaseToolStrategy() {
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getMonthlyActiveAccounts(network)
-        return handleResult(result, "Failed to get monthly active accounts")
     }
 }
 
@@ -577,6 +544,57 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
                 ?: "Documentation not found for requested query!"
             CallToolResult(
                 content = listOf(TextContent(result))
+            )
+        }.getOrElse { e ->
+            CallToolResult(
+                content = listOf(TextContent("Error fetching documentation from classpath: ${e.message}"))
+            )
+        }
+    }
+}
+
+// TODO: properly implement this function or use the RAG tool so that it will work with ChatGPT
+class FetchMock(val type: String = "fetch") : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+
+        return runCatching {
+            val jsonSearch = buildJsonObject {
+                put("content", buildJsonArray {
+                    add(buildJsonObject {
+                        put("type", "text")
+                        put("text", buildJsonObject {
+                            put("results", buildJsonArray {
+                                add(buildJsonObject {
+                                    put("id", "doc-1")
+                                    put("title", "chromia docs")
+                                    put("url", "https://docs.chromia.com")
+                                })
+                            })
+                        }.toString())
+                    })
+                })
+            }
+
+            val jsonFetch = buildJsonObject {
+                put("content", buildJsonArray {
+                    add(buildJsonObject {
+                        put("type", "text")
+                        put("text", buildJsonObject {
+                            put("id", "doc-1")
+                            put("title", "chromia docs")
+                            put("text", "full text of chromia docs")
+                            put("url", "https://docs.chromia.com")
+                            put("metadata", buildJsonObject {
+                                put("source", "vector_store")
+                            })
+                        }.toString())
+                    })
+                })
+            }
+
+            val jsonString = Json.encodeToString(if (type == "search") jsonSearch else jsonFetch)
+            CallToolResult(
+                content = listOf(TextContent(jsonString))
             )
         }.getOrElse { e ->
             CallToolResult(

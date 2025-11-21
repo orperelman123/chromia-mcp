@@ -11,9 +11,6 @@ interface ChromiaRepository {
         arguments: Map<String, Any> = emptyMap()
     ): JsonResult
     suspend fun getBlockchainsTransactions(network: String?): JsonResult
-    suspend fun getNetworkAccountCount(network: String?): JsonResult
-    suspend fun getNetworkTransferCount(network: String?): JsonResult
-    suspend fun getMonthlyActiveAccounts(network: String?): JsonResult
     suspend fun getTransactionsByCluster(network: String?): JsonResult
     suspend fun getAllAssets(network: String?): JsonResult
     suspend fun getTotalRewardsPaid(network: String?): JsonResult

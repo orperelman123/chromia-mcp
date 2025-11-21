@@ -20,15 +20,6 @@ class ChromiaRepositoryImpl(
     override suspend fun getBlockchainsTransactions(network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(NetworkQueries.getBlockchainsTransactions(), network)
 
-    override suspend fun getNetworkAccountCount(network: String?): JsonResult =
-        httpClientService.executeGraphQLQuery(NetworkQueries.getNetworkAccountCount(), network)
-
-    override suspend fun getNetworkTransferCount(network: String?): JsonResult =
-        httpClientService.executeGraphQLQuery(NetworkQueries.getNetworkTransferCount(), network)
-
-    override suspend fun getMonthlyActiveAccounts(network: String?): JsonResult =
-        httpClientService.executeGraphQLQuery(NetworkQueries.getMonthlyActiveAccounts(), network)
-
     override suspend fun getTransactionsByCluster(network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(NetworkQueries.getTransactionsByCluster(), network)
 
