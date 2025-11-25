@@ -96,7 +96,7 @@ tasks.register<JavaExec>("runSse") {
 
 jib {
     from {
-        image = "registry.gitlab.com/chromaway/core-tools/chromia-images/java21:1.0.8@sha256:82d2e91e86908fb1095ff4bf5b42c2412f280a91362d2d216f89bd51fa48c80c"
+        image = "eclipse-temurin:21-jre-jammy@sha256:2843f155a9fe5aab6a73a71a9f65c38143e8e929366a1a7787f07c2a89c26887"
         if (System.getenv("CI_REGISTRY_IMAGE") != null) {
             platforms {
                 platform {
