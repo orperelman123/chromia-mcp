@@ -2,6 +2,14 @@
 
 A Model Context Protocol (MCP) server that provides access to Chromia blockchain infrastructure and deployed dApps through the Chromia Explorer GraphQL API.
 
+## Documentation
+
+- [Introduction](./docs/Introduction.md)
+- [Architecture](./docs/Architecture.md)
+- [Functionality](./docs/Functional.md)
+- [Setup & Development](./docs/Setup.md)
+- [Deployment](./docs/Deployment.md)
+
 ## Overview
 
 The Chromia MCP Server enables AI assistants to query and analyze Chromia blockchain data, including:
