@@ -85,7 +85,7 @@ object ChromiaYmlValidator {
                     errors += "blockchains.$name.module must be a module name (e.g. main), never a file path"
                 }
                 val webStatic = chain.entries["webStatic"]
-                if (webStatic != null && webStatic !is YamlNode.Scalar) {
+                if (webStatic is YamlNode.Scalar) {
                     warnings += "blockchains.$name.webStatic leftover official deploy-frontend-dapp prints a directory path (out)"
                 }
             }
@@ -257,10 +257,36 @@ object ChromiaYmlValidator {
 
     private fun forbiddenHit(text: String): String? {
         val lower = text.lowercase()
+        val segments = lower.split('/', '.').filter { it.isNotEmpty() }
         return forbiddenLibModules.firstOrNull { hit ->
-            lower == hit.lowercase() ||
-                lower.endsWith("/${hit.lowercase().substringAfterLast('.')}") ||
-                lower.contains(hit.lowercase())
+            val hitLower = hit.lowercase()
+            if ('.' in hitLower) {
+                containsSegmentRun(segments, hitLower.split('.'))
+            } else {
+                segments.any { segment -> containsWord(segment, hitLower) }
+            }
+        }
+    }
+
+    /** True when [run] appears as a contiguous run of whole segments inside [segments]. */
+    private fun containsSegmentRun(segments: List<String>, run: List<String>): Boolean {
+        if (run.isEmpty() || run.size > segments.size) return false
+        return (0..segments.size - run.size).any { start ->
+            run.indices.all { j -> segments[start + j] == run[j] }
+        }
+    }
+
+    /** True when [word] appears in [segment] with no identifier char (letter/digit/_) on either side. */
+    private fun containsWord(segment: String, word: String): Boolean {
+        var from = 0
+        while (true) {
+            val idx = segment.indexOf(word, from)
+            if (idx < 0) return false
+            val before = segment.getOrNull(idx - 1)
+            val after = segment.getOrNull(idx + word.length)
+            val ident = { ch: Char? -> ch != null && (ch.isLetterOrDigit() || ch == '_') }
+            if (!ident(before) && !ident(after)) return true
+            from = idx + 1
         }
     }
 
@@ -315,7 +341,9 @@ internal object SimpleYaml {
             if (noComment.isBlank()) null
             else {
                 val indent = noComment.takeWhile { it == ' ' }.length
-                Line(index + 1, indent, noComment.trim())
+                val content = noComment.trim()
+                if (indent == 0 && (content == "---" || content == "...")) null
+                else Line(index + 1, indent, content)
             }
         }
     }
@@ -324,10 +352,14 @@ internal object SimpleYaml {
         var inSingle = false
         var inDouble = false
         line.forEachIndexed { i, c ->
+            val prev = if (i > 0) line[i - 1] else null
+            val opensQuote = prev == null || prev == ' ' || prev == '[' || prev == ','
             when {
-                c == '\'' && !inDouble -> inSingle = !inSingle
-                c == '"' && !inSingle -> inDouble = !inDouble
-                c == '#' && !inSingle && !inDouble -> return line.substring(0, i)
+                inSingle -> if (c == '\'') inSingle = false
+                inDouble -> if (c == '"') inDouble = false
+                c == '\'' && opensQuote -> inSingle = true
+                c == '"' && opensQuote -> inDouble = true
+                c == '#' && (prev == null || prev == ' ') -> return line.substring(0, i)
             }
         }
         return line
@@ -366,6 +398,14 @@ internal object SimpleYaml {
                     val (child, after) = parseBlock(lines, next, indent + 1)
                     entries[key] = child
                     i = after
+                } else if (
+                    next < lines.size && lines[next].indent == indent &&
+                    (lines[next].content.startsWith("- ") || lines[next].content == "-")
+                ) {
+                    // Legal YAML: sequence items may sit at the same indent as their parent key.
+                    val (child, after) = parseSequence(lines, next, indent)
+                    entries[key] = child
+                    i = after
                 } else {
                     entries[key] = YamlNode.Mapping()
                     i++
@@ -388,7 +428,8 @@ internal object SimpleYaml {
                 throw IllegalArgumentException("bad indent at line ${line.number}")
             }
             if (!(line.content.startsWith("- ") || line.content == "-")) {
-                throw IllegalArgumentException("expected sequence item at line ${line.number}")
+                // Sequence ended; a sibling key at the same indent continues the parent mapping.
+                break
             }
             val rest = if (line.content == "-") "" else line.content.removePrefix("- ").trim()
             if (rest.isEmpty()) {
@@ -463,10 +504,13 @@ internal object SimpleYaml {
         var inSingle = false
         var inDouble = false
         content.forEachIndexed { i, c ->
+            val next = content.getOrNull(i + 1)
             when {
                 c == '\'' && !inDouble -> inSingle = !inSingle
                 c == '"' && !inSingle -> inDouble = !inDouble
-                c == ':' && !inSingle && !inDouble -> {
+                // YAML: ':' separates key and value only when followed by whitespace or end of line,
+                // so plain scalars like https://host:7740 stay scalars.
+                c == ':' && !inSingle && !inDouble && (next == null || next == ' ') -> {
                     val key = content.substring(0, i).trim()
                     val value = content.substring(i + 1).trim()
                     if (key.isEmpty()) return null

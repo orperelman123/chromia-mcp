@@ -29,12 +29,15 @@ object GraphQLResponseParser {
     }
 
     private fun parseJsonObject(jsonObject: JsonObject): JsonResult {
-        return jsonObject["errors"]?.let { errors ->
-            val errorMessage = extractErrorMessage(errors)
-            val errorList = extractErrorList(errors)
-            val error = GraphQLException(errorMessage, errorList)
-            NetworkResult.Error(error.message!!, error)
-        } ?: NetworkResult.Success(jsonObject)
+        val errors = jsonObject["errors"]
+        // "errors": null and "errors": [] mean no error per GraphQL spec.
+        if (errors == null || errors is JsonNull || (errors is JsonArray && errors.isEmpty())) {
+            return NetworkResult.Success(jsonObject)
+        }
+        val errorMessage = extractErrorMessage(errors)
+        val errorList = extractErrorList(errors)
+        val error = GraphQLException(errorMessage, errorList)
+        return NetworkResult.Error(error.message!!, error)
     }
 
     private fun extractErrorMessage(errors: JsonElement): String {

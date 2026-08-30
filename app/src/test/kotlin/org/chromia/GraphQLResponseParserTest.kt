@@ -71,4 +71,20 @@ class GraphQLResponseParserTest {
         val result = GraphQLResponseParser.parseResponse("""{"data":{}}""")
         assertTrue(result is NetworkResult.Success)
     }
+
+    @Test
+    fun nullErrorsFieldIsSuccess() {
+        val result = GraphQLResponseParser.parseResponse("""{"data":{"ok":true},"errors":null}""")
+        assertTrue(result is NetworkResult.Success, result.toString())
+        val data = (result as NetworkResult.Success).data
+        assertTrue(data.containsKey("data"))
+    }
+
+    @Test
+    fun emptyErrorsArrayIsSuccess() {
+        val result = GraphQLResponseParser.parseResponse("""{"data":{"ok":true},"errors":[]}""")
+        assertTrue(result is NetworkResult.Success, result.toString())
+        val data = (result as NetworkResult.Success).data
+        assertTrue(data.containsKey("data"))
+    }
 }

@@ -196,7 +196,7 @@ object Ft4ImportCheck {
                 i++
                 continue
             }
-            if (c == '"') {
+            if (c == '"' || c == '\'') {
                 inString = true
                 stringDelim = c
                 out.append(c)
@@ -220,13 +220,20 @@ object Ft4ImportCheck {
     }
 
     internal fun containsModule(line: String, module: String): Boolean {
-        val idx = line.indexOf(module, ignoreCase = true)
-        if (idx < 0) return false
-        val before = line.getOrNull(idx - 1)
-        val after = line.getOrNull(idx + module.length)
-        val ident = { ch: Char -> ch.isLetterOrDigit() || ch == '_' || ch == '.' }
-        if (before != null && ident(before)) return false
-        if (after != null && ident(after)) return false
-        return true
+        // A forbidden module matches as a dotted-path prefix: a following '.' is allowed
+        // (lib.ft4.admin matches lib.ft4.admin.crosschain) but a preceding '.' or
+        // identifier char is not (admin.crosschain must not match lib.ft4.crosschain).
+        var from = 0
+        while (true) {
+            val idx = line.indexOf(module, from, ignoreCase = true)
+            if (idx < 0) return false
+            val before = line.getOrNull(idx - 1)
+            val after = line.getOrNull(idx + module.length)
+            val ident = { ch: Char? -> ch != null && (ch.isLetterOrDigit() || ch == '_') }
+            val beforeOk = before == null || (!ident(before) && before != '.')
+            val afterOk = !ident(after)
+            if (beforeOk && afterOk) return true
+            from = idx + 1
+        }
     }
 }

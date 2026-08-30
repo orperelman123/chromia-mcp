@@ -93,6 +93,20 @@ class PromptTemplatesTest {
     }
 
     @Test
+    fun canonicalToolNameStripsLegacyAndRealMcpPrefixes() {
+        val prompts = PromptManager()
+        assertEquals("validate_chromia_yml", prompts.canonicalToolName("mcp_chromia-mcp_validate_chromia_yml"))
+        assertEquals("validate_chromia_yml", prompts.canonicalToolName("mcp__chromia__validate_chromia_yml"))
+        assertEquals("fetch_docs", prompts.canonicalToolName("mcp__chromia-mcp__fetch_docs"))
+        assertEquals("fetch_docs", prompts.canonicalToolName("fetch_docs"))
+        assertEquals("", prompts.canonicalToolName(null))
+        val prompt = kotlinx.serialization.json.buildJsonObject {
+            put("tool", kotlinx.serialization.json.JsonPrimitive("mcp__chromia__fetch_docs"))
+        }
+        assertTrue(prompts.matchesTool(prompt, "fetch_docs"))
+    }
+
+    @Test
     fun registeredToolSetIsComplete() {
         assertTrue(
             registeredTools.containsAll(

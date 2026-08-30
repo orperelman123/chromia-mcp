@@ -3,6 +3,11 @@ package org.chromia.tools
 import kotlinx.serialization.json.*
 
 open class PromptManager {
+    private companion object {
+        /** Real MCP tool prefix, e.g. mcp__chromia__validate_chromia_yml. */
+        private val MCP_SERVER_PREFIX = Regex("^mcp__[a-z0-9-]+__")
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
 
     private val templates: JsonObject? by lazy {
@@ -47,7 +52,9 @@ open class PromptManager {
 
     fun canonicalToolName(raw: String?): String {
         val name = raw.orEmpty().trim()
-        return name.removePrefix("mcp_chromia-mcp_")
+        return name
+            .removePrefix("mcp_chromia-mcp_")
+            .replace(MCP_SERVER_PREFIX, "")
     }
 
     fun matchesTool(promptTemplate: JsonObject, tool: String): Boolean {

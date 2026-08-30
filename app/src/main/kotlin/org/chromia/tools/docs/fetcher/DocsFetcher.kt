@@ -2,6 +2,7 @@ package org.chromia.tools.docs.fetcher
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,22 +28,31 @@ class DocsFetcher {
             }
         }.awaitAll()
 
-        HttpClient(CIO).use { sitemapClient ->
-            runCatching {
-                val written = SitemapDocsFetcher(
+        HttpClient(CIO) { installDocsHttpTimeout(this) }.use { sitemapClient ->
+            safeSitemapIngest {
+                SitemapDocsFetcher(
                     sitemapUrl = docsSettings.sitemapUrl,
                     concurrentFetches = docsSettings.concurrentFetches,
                     client = sitemapClient
                 ).fetchInto(gitFetcher.tempDir / "docs-chromia-com")
-                if (written == 0) {
-                    logger.warn("Sitemap ingest produced no pages; continuing with git remotes only")
-                }
-            }.onFailure { error ->
-                logger.warn("Sitemap ingest skipped: ${error.message}")
             }
         }
 
         gitFetcher.tempDir
+    }
+
+    internal suspend fun safeSitemapIngest(ingest: suspend () -> Int) {
+        try {
+            val written = ingest()
+            if (written == 0) {
+                logger.warn("Sitemap ingest produced no pages; continuing with git remotes only")
+            }
+        } catch (e: CancellationException) {
+            // Never swallow coroutine cancellation.
+            throw e
+        } catch (e: Exception) {
+            logger.warn("Sitemap ingest skipped: ${e::class.simpleName}: ${e.message}")
+        }
     }
 
     fun cleanDocs() {

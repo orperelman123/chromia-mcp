@@ -1,6 +1,8 @@
 package org.chromia.tools.docs.fetcher
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
@@ -15,7 +17,7 @@ import kotlin.io.path.writeText
 class SitemapDocsFetcher(
     private val sitemapUrl: String = DEFAULT_SITEMAP_URL,
     private val concurrentFetches: Int = 3,
-    private val client: HttpClient = HttpClient()
+    private val client: HttpClient = HttpClient { installDocsHttpTimeout(this) }
 ) {
     companion object {
         const val DEFAULT_SITEMAP_URL = "https://docs.chromia.com/sitemap.xml"
@@ -82,11 +84,28 @@ class SitemapDocsFetcher(
     }.onFailure { logger.warn("Sitemap fetch failed for $url: ${it.message}") }.getOrNull()
 
     private fun writePage(targetDir: Path, url: String, text: String) {
-        val relative = url.removePrefix("https://docs.chromia.com/").trim('/').ifBlank { "index" }
+        val relative = sitemapPageRelativePath(url)
         val file = targetDir.resolve("$relative.md")
         file.parent.createDirectories()
         file.writeText("# $url\n\n$text\n")
     }
+}
+
+internal const val DOCS_HTTP_REQUEST_TIMEOUT_MS = 30_000L
+internal const val DOCS_HTTP_CONNECT_TIMEOUT_MS = 10_000L
+
+internal fun installDocsHttpTimeout(config: HttpClientConfig<*>) {
+    config.install(HttpTimeout) {
+        requestTimeoutMillis = DOCS_HTTP_REQUEST_TIMEOUT_MS
+        connectTimeoutMillis = DOCS_HTTP_CONNECT_TIMEOUT_MS
+    }
+}
+
+/** File-system safe relative path for a docs page URL (query/fragment stripped, invalid chars replaced). */
+internal fun sitemapPageRelativePath(url: String): String {
+    val withoutQuery = url.substringBefore('#').substringBefore('?')
+    val relative = withoutQuery.removePrefix("https://docs.chromia.com/").trim('/').ifBlank { "index" }
+    return relative.replace(Regex("""[<>:"\\|?*]"""), "_")
 }
 
 internal fun parseSitemapLocs(xml: String): List<String> {
@@ -122,13 +141,14 @@ internal fun htmlToText(html: String): String {
         .trim()
 }
 
+// &amp; must be decoded LAST so "&amp;lt;" becomes "&lt;" (not "<").
 private fun decodeEntities(text: String): String = text
     .replace("&nbsp;", " ")
-    .replace("&amp;", "&")
     .replace("&lt;", "<")
     .replace("&gt;", ">")
     .replace("&quot;", "\"")
     .replace("&#39;", "'")
+    .replace("&amp;", "&")
 
 internal fun looksLikeLoginWall(text: String): Boolean {
     val lower = text.lowercase()

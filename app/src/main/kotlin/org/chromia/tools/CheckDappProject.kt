@@ -36,9 +36,9 @@ object CheckDappProject {
         }
         rellFiles.forEach { (path, content) ->
             val label = path.trim().ifEmpty { "rell" }
-            Ft4ImportCheck.scan(content).errors.forEach { err ->
-                errors += "$label: $err"
-            }
+            val one = Ft4ImportCheck.scan(content)
+            one.errors.forEach { err -> errors += "$label: $err" }
+            one.warnings.forEach { warn -> warnings += "$label: $warn" }
         }
         return Result(ok = errors.isEmpty(), errors = errors, warnings = warnings)
     }
