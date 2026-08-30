@@ -40,6 +40,29 @@ can verify Rell code is 100% compilable *before* suggesting it — with no `chr`
 - Module args declared in the code are not required for the check; nothing is deployed and no
   network is used — sources are compiled in-process in a temp directory and deleted afterwards
 
+## Rell Security Check (`rell_security_check`)
+
+Static security review of compiled Rell (compiles first via the embedded compiler):
+
+- **CRITICAL** — banned admin modules (`lib.ft4.admin`, `admin.crosschain`) and open
+  registration/transfer strategies (`ras_open`, `ras_transfer_open`)
+- **HIGH** — operations mutating state (`create`/`update`/`delete`) without any auth check;
+  hardcoded 64+ char hex literals that look like key material
+- **MEDIUM** — operations with parameters but no `require(...)` input validation
+
+Findings are line-anchored with a concrete fix each. `ok=true` = no CRITICAL/HIGH findings.
+Heuristic static analysis — it does not replace a security audit. The agent loop is:
+`rell_check` until it compiles → `rell_security_check` until clean → present the code.
+
+## Continuous Integration
+
+- `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21); the jar is
+  attached as a run artifact
+- `.github/workflows/embeddings-refresh.yml` — weekly RAG embeddings regeneration (Mondays
+  04:00 UTC, or manual dispatch); uploads to the GitLab package registry when a
+  `GITLAB_ACCESS_TOKEN` repo secret is configured, otherwise attaches `embeddings.json` as an
+  artifact
+
 ## Installation
 
 ### Prerequisites
