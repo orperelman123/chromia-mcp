@@ -22,11 +22,23 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - Node performance monitoring
 - dApp deployment information
 - **Documentation retrieval and search**
+- **In-process Rell compilation (`rell_check`)** — the agent feedback loop
 
 ## Documentation Tools
 
 The server includes **RAG-powered (Retrieval-Augmented Generation) semantic documentation search** that uses vector embeddings to find relevant documentation based on meaning, not just keywords.
 The AI assistant will automatically use semantic search to find and return the most relevant documentation sections.
+
+## Rell Compile Check (`rell_check`)
+
+Agents build reliable Rell by iterating **write → compile → fix**. The `rell_check` tool embeds the
+real Rell compiler (the same `net.postchain.rell` compiler the Chromia CLI uses), so an AI assistant
+can verify Rell code is 100% compilable *before* suggesting it — with no `chr` installation:
+
+- Pass `source` (checked as `main.rell`) or `files` (`{"main.rell": "...", "lib/util.rell": "..."}`)
+- Returns structured diagnostics: `ok`, `errors[]`/`warnings[]` with `file`, `line`, `column`, `text`
+- Module args declared in the code are not required for the check; nothing is deployed and no
+  network is used — sources are compiled in-process in a temp directory and deleted afterwards
 
 ## Installation
 

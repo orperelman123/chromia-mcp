@@ -1046,7 +1046,8 @@ class ToolExecutorStrategiesTest {
         assertEquals("chr-asset", variables["assetId"]!!.jsonPrimitive.content)
         assertEquals("3", variables["limit"]!!.jsonPrimitive.content)
         assertEquals(listOf("brid-1"), variables["brids"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("treasury"), variables["excludeAccounts"]!!.jsonArray.map { it.jsonPrimitive.content })
+        // Explorer schema uses `excludedAccounts` on getAssetTopHolders (unlike getAssetDistribution).
+        assertEquals(listOf("treasury"), variables["excludedAccounts"]!!.jsonArray.map { it.jsonPrimitive.content })
     }
 
     @Test
@@ -1536,7 +1537,9 @@ class ToolExecutorStrategiesTest {
 
     @Test
     fun getTransactionsByClusterHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"groupedTransactionsByCluster":[{"cluster":"system","count":88},{"cluster":"dapp","count":12}]}}"""
+        // Real explorer responses nest this under dashboardData since the top-level
+        // groupedTransactionsByCluster field was removed from the schema.
+        val fixture = """{"data":{"dashboardData":{"groupedTransactionsByCluster":[{"cluster":"system","count":88},{"cluster":"dapp","count":12}]}}}"""
         val capturedBodies = mutableListOf<String>()
         val engine = MockEngine { request ->
             capturedBodies.add(request.body.toByteArray().decodeToString())
@@ -1562,6 +1565,8 @@ class ToolExecutorStrategiesTest {
         val structured = result.structuredContent!!
         val rows = structured
             .getValue("data")
+            .jsonObject
+            .getValue("dashboardData")
             .jsonObject
             .getValue("groupedTransactionsByCluster")
             .jsonArray

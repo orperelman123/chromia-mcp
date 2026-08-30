@@ -82,3 +82,5 @@ Treat these as the current production contract unless GitLab source on the match
 - Mounted names: `mount.query_or_operation`.
 - Never print or commit private keys, `.env` secrets, or generated keypairs.
 - Prefer official modules and current CLI `chromia.yml` schema. When docs and GitLab source disagree, cite the source tag.
+- **Every piece of Rell you produce must pass `rell_check` before you present it.** The tool embeds the real Rell compiler (in-process, temp-dir, no network): pass `source` or a `files` map, fix the first error, repeat until `ok=true`. Note the embedded compiler version is reported in `notes`; if it lags the production pin, still verify against the pinned GitLab tag for new language features.
+- Security review is not optional: operations must authenticate (`ft4.auth` or explicit signer checks), validate inputs with `require(...)`, and never expose admin/unrestricted modules (see FT4 pins above). Flag any operation that mutates state without an auth check.

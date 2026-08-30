@@ -92,7 +92,8 @@ class ToolExecutor(
         "chr_library_help" to ChrLibraryHelpStrategy(),
         "chr_create_rell_dapp_help" to ChrCreateRellDappHelpStrategy(),
         "check_dapp_project" to CheckDappProjectStrategy(),
-        "check_ft4_imports" to CheckFt4ImportsStrategy()
+        "check_ft4_imports" to CheckFt4ImportsStrategy(),
+        "rell_check" to RellCheckStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest): CallToolResult = runCatching {
@@ -795,6 +796,41 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
         return toolSuccessResult(ChromiaYmlValidator.validate(yaml).toJson())
+    }
+}
+
+class RellCheckStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val source = extractString(args, "source")
+        val filesArg = args["files"]
+        val modules = extractStringList(args, "modules")
+
+        val files = linkedMapOf<String, String>()
+        if (filesArg is JsonObject) {
+            filesArg.forEach { (path, content) ->
+                if (content is JsonPrimitive && content.isString) {
+                    files[path] = content.content
+                }
+            }
+        }
+        if (source != null && files.isEmpty()) {
+            files["main.rell"] = source
+        }
+        if (files.isEmpty()) {
+            return toolErrorResult(
+                "rell_check needs Rell code: pass `source` (single main.rell) or `files` ({\"path.rell\": \"code\"})"
+            )
+        }
+
+        return runCatching {
+            val result = withContext(Dispatchers.IO) {
+                with(RellCheck) { check(files, modules).toJson() }
+            }
+            toolSuccessResult(result)
+        }.getOrElse { e ->
+            toolErrorResult("rell_check failed: ${e.message}")
+        }
     }
 }
 
