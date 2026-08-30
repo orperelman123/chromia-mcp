@@ -101,9 +101,26 @@ open class RagStore(
         }
     }
 
+    /**
+     * Constructor-injected model wins (tests); otherwise the same SPI factory
+     * the [EmbeddingStoreIngestor] uses at ingest time (easy-rag BGE-small
+     * quantized, bundled in the jar) so runtime queries embed with the model
+     * that produced the store. Without this fallback a default-constructed
+     * RagStore answered every search with "not found".
+     */
+    private val resolvedEmbeddingModel: EmbeddingModel? by lazy {
+        embeddingModel ?: runCatching {
+            java.util.ServiceLoader.load(
+                dev.langchain4j.spi.model.embedding.EmbeddingModelFactory::class.java
+            ).firstOrNull()?.create()
+        }.onFailure { error ->
+            logger.warn("SPI embedding model load failed: ${error.message}")
+        }.getOrNull()
+    }
+
     open fun query(query: String): List<TextSegment>? {
         val store = embeddingStore ?: return null
-        val model = embeddingModel
+        val model = resolvedEmbeddingModel
         if (model == null) {
             logger.info("Skipping embedding search for '$query'; no embedding model is configured")
             return emptyList()
@@ -114,7 +131,14 @@ open class RagStore(
             .maxResults(15) // topK
             .minScore(0.6) // similarity score
             .build()
-        return retriever.retrieve(Query.from(query))?.mapNotNull { it.textSegment() }?.also { rememberQueryHits(it) }
+        return runCatching {
+            retriever.retrieve(Query.from(query))?.mapNotNull { it.textSegment() }?.also { rememberQueryHits(it) }
+        }.getOrElse { error ->
+            // Dimension mismatch between the model and a foreign store must degrade
+            // to "no hits", not crash the tool call.
+            logger.warn("Embedding search failed for '$query': ${error.message}")
+            emptyList()
+        }
     }
 
     internal fun rememberQueryHits(segments: List<TextSegment>) {

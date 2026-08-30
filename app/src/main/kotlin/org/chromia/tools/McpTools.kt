@@ -99,7 +99,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get Blockchain Transactions",
         annotations = null,
@@ -122,7 +122,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get Transactions by Cluster",
         annotations = null,
@@ -143,7 +143,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get All Assets",
         annotations = null,
@@ -164,7 +164,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get Total Rewards Paid",
         annotations = null,
@@ -561,7 +561,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Filter Blockchains",
         annotations = null,
@@ -756,7 +756,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get All Transactions",
         annotations = null,
@@ -789,7 +789,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get All Operations",
         annotations = null,
@@ -877,7 +877,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Filter Assets",
         annotations = null,
@@ -934,7 +934,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get CHR Aggregates",
         annotations = null,
@@ -976,7 +976,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network", "assetId")
+            required = listOf("assetId")
         ),
         title = "Get Asset Blockchains",
         annotations = null,
@@ -1017,7 +1017,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network", "signer")
+            required = listOf("signer")
         ),
         title = "Get Signer Blockchains",
         annotations = null,
@@ -1060,7 +1060,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network", "accountId")
+            required = listOf("accountId")
         ),
         title = "Get Account Blockchains",
         annotations = null,
@@ -1107,7 +1107,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network", "pubkey", "startTimestamp")
+            required = listOf("pubkey", "startTimestamp")
         ),
         title = "Get Node Unavailability",
         annotations = null,
@@ -1149,7 +1149,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("network")
+            required = listOf()
         ),
         title = "Get Network Statistics",
         annotations = null,
@@ -1575,7 +1575,7 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive(
-                                "Optional dapp / chain name (lowercase [a-z][a-z0-9_]{0,31}). Default: hello"
+                                "Optional dapp / chain name (lowercase [a-z][a-z0-9_]{0,31}). Default: hello. `chain` is accepted as an alias."
                             )
                         )
                     )

@@ -21,8 +21,10 @@ object NetworkQueries {
         )
     }
 
+    // Top-level groupedTransactionsByCluster was removed from the explorer schema;
+    // the data now lives only under dashboardData.
     fun getTransactionsByCluster(): GraphQLQuery = graphqlQuery {
-        query("query { groupedTransactionsByCluster { cluster, count } }")
+        query("query { dashboardData { groupedTransactionsByCluster { cluster, count } } }")
     }
 
     fun getAllAssets(): GraphQLQuery = graphqlQuery {

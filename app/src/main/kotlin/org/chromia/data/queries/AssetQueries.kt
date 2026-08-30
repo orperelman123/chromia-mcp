@@ -22,11 +22,14 @@ object AssetQueries {
         filters.excludeAccountTypes?.let { variable("excludeAccountTypes", it) }
     }
 
+    // The explorer schema names this argument `excludedAccounts` on getAssetTopHolders
+    // but `excludeAccounts` on getAssetDistribution; the tool-facing parameter stays
+    // `excludeAccounts` for consistency and is mapped here.
     fun getAssetTopHolders(assetId: String, limit: Int?, filters: AssetFilters): GraphQLQuery = graphqlQuery {
         query(
             $$"""
-            query getAssetTopHolders($assetId: String!, $limit: Int, $brids: [String], $accountTypes: [String], $excludeAccounts: [String], $excludeBrids: [String], $excludeAccountTypes: [String]) {
-                getAssetTopHolders(assetId: $assetId, limit: $limit, brids: $brids, accountTypes: $accountTypes, excludeAccounts: $excludeAccounts, excludeBrids: $excludeBrids, excludeAccountTypes: $excludeAccountTypes) {
+            query getAssetTopHolders($assetId: String!, $limit: Int, $brids: [String], $accountTypes: [String], $excludedAccounts: [String], $excludeBrids: [String], $excludeAccountTypes: [String]) {
+                getAssetTopHolders(assetId: $assetId, limit: $limit, brids: $brids, accountTypes: $accountTypes, excludedAccounts: $excludedAccounts, excludeBrids: $excludeBrids, excludeAccountTypes: $excludeAccountTypes) {
                     accountId, totalBalance, chainCount, chainBrid, accountType
                 }
             }
@@ -36,7 +39,7 @@ object AssetQueries {
         limit?.let { variable("limit", it) }
         filters.brids?.let { variable("brids", it) }
         filters.accountTypes?.let { variable("accountTypes", it) }
-        filters.excludeAccounts?.let { variable("excludeAccounts", it) }
+        filters.excludeAccounts?.let { variable("excludedAccounts", it) }
         filters.excludeBrids?.let { variable("excludeBrids", it) }
         filters.excludeAccountTypes?.let { variable("excludeAccountTypes", it) }
     }
