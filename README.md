@@ -111,10 +111,12 @@ the in-process Rell compiler tools (`rell_check`, `rell_security_check`, `run_re
 the process past 512MB and get the container OOM-killed. Either:
 
 - run a **2GB instance** for the full toolset, or
-- on small instances set `CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests`
-  — the hosted server stays a rock-solid docs/analytics endpoint (ChatGPT `search`/`fetch`
-  included) and developers run the compiler loop through the local jar/stdio install, which has
-  no such limit.
+- on small instances set
+  `CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests,chromia_dapp_query`
+  (the on-chain query client is a second memory spike measured past 512MB) — the hosted server
+  stays a rock-solid docs/analytics endpoint (ChatGPT `search`/`fetch` included) and developers
+  run the compiler loop and on-chain queries through the local jar/stdio install, which has no
+  such limit.
 
 ## Upstreaming
 
