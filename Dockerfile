@@ -20,4 +20,7 @@ ENV CHROMIA_MCP_COMPACT_TOOLS=true
 
 EXPOSE 3001
 # PORT is provided by most PaaS (Render/Heroku-style); default 3001.
-CMD ["sh", "-c", "java -Xmx1536m -jar /app/chromia-mcp-server.jar --sse --host 0.0.0.0 --port ${PORT:-3001}"]
+# Container-aware heap: never exceed 70% of the cgroup limit (a fixed -Xmx above
+# the instance RAM gets the container OOM-killed). 512MB instances survive light
+# use; RAG + the Rell compiler under load want a 2GB instance.
+CMD ["sh", "-c", "java -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -jar /app/chromia-mcp-server.jar --sse --host 0.0.0.0 --port ${PORT:-3001}"]
