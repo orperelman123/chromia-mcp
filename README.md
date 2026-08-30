@@ -94,7 +94,7 @@ public first, or users must set `CHROMIA_MCP_JAR`).
 The hosted server works as a ChatGPT connector (Settings → Connectors → Add custom connector,
 or Deep Research MCP):
 
-- **URL**: `https://chromia-mcp.onrender.com/sse` (no authentication)
+- **URL**: `https://chromia-mcp.onrender.com/` (the SSE endpoint is the root path; no authentication)
 - ChatGPT's connector contract requires `search` and `fetch` tools — this server ships both
   natively: `search` returns `{results: [{id, title, url}]}` over the Chromia docs RAG store and
   `fetch` returns `{id, title, text, url}` for a result id.
