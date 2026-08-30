@@ -8,7 +8,14 @@
 FROM gradle:8.14-jdk21 AS build
 WORKDIR /src
 COPY . .
-RUN gradle :app:shadowJar --no-daemon --console=plain
+# Every image build resolves all dependencies from scratch, so one flaky Maven
+# Central download fails the whole deploy (seen live: tika jar "Read timed out").
+# Generous HTTP timeouts + retries with backoff make the build survive blips.
+RUN gradle :app:shadowJar --no-daemon --console=plain \
+    -Dorg.gradle.internal.http.connectionTimeout=60000 \
+    -Dorg.gradle.internal.http.socketTimeout=180000 \
+    -Dorg.gradle.internal.repository.max.retries=6 \
+    -Dorg.gradle.internal.repository.initial.backoff=1000
 
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
