@@ -403,6 +403,15 @@
             }
         },
         {
+            "title": "Security-review Rell code",
+            "description": "Static security pass after compile: banned FT4 admin modules, unauthenticated state mutations, missing require() validation, hardcoded key material. Line-anchored findings with fixes. Not a substitute for an audit.",
+            "tool": "mcp_chromia-mcp_rell_security_check",
+            "prompt": "Security-review this Rell code: flag unauthenticated operations, missing require() input validation, banned admin modules, and hardcoded secrets, with a fix per finding: {source}",
+            "parameters": {
+                "source": "{source}"
+            }
+        },
+        {
             "title": "FT4 module_args",
             "description": "Return FT4 v1.1.0r API 1 module_args / libs. require_mandatory_flags main-only. DEFAULT_LOGIN_CONFIG_NAME default. Never emits admin / ras_open.",
             "tool": "mcp_chromia-mcp_ft4_module_args",

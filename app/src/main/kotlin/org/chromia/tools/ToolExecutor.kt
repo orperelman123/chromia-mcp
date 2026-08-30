@@ -93,7 +93,8 @@ class ToolExecutor(
         "chr_create_rell_dapp_help" to ChrCreateRellDappHelpStrategy(),
         "check_dapp_project" to CheckDappProjectStrategy(),
         "check_ft4_imports" to CheckFt4ImportsStrategy(),
-        "rell_check" to RellCheckStrategy()
+        "rell_check" to RellCheckStrategy(),
+        "rell_security_check" to RellSecurityCheckStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest): CallToolResult = runCatching {
@@ -830,6 +831,51 @@ class RellCheckStrategy : BaseToolStrategy() {
             toolSuccessResult(result)
         }.getOrElse { e ->
             toolErrorResult("rell_check failed: ${e.message}")
+        }
+    }
+}
+
+class RellSecurityCheckStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val source = extractString(args, "source")
+        val filesArg = args["files"]
+
+        val files = linkedMapOf<String, String>()
+        if (filesArg is JsonObject) {
+            filesArg.forEach { (path, content) ->
+                if (content is JsonPrimitive && content.isString) {
+                    files[path] = content.content
+                }
+            }
+        }
+        if (source != null && files.isEmpty()) {
+            files["main.rell"] = source
+        }
+        if (files.isEmpty()) {
+            return toolErrorResult(
+                "rell_security_check needs Rell code: pass `source` or `files` ({\"path.rell\": \"code\"})"
+            )
+        }
+
+        return runCatching {
+            // Security findings on uncompilable code are noise - compile first.
+            val compile = withContext(Dispatchers.IO) { RellCheck.check(files, null) }
+            if (!compile.ok) {
+                val compileJson = with(RellCheck) { compile.toJson() }
+                return toolSuccessResult(
+                    buildJsonObject {
+                        put("ok", false)
+                        put("operationsScanned", 0)
+                        put("findings", buildJsonArray {})
+                        put("compileErrors", compileJson.getValue("errors"))
+                        put("notes", "Code does not compile - fix rell_check errors first, then re-run the security check.")
+                    }
+                )
+            }
+            toolSuccessResult(with(RellSecurityCheck) { analyze(files).toJson() })
+        }.getOrElse { e ->
+            toolErrorResult("rell_security_check failed: ${e.message}")
         }
     }
 }

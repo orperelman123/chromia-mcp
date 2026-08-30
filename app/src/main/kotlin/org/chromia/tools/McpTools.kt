@@ -1610,6 +1610,57 @@ object McpTools {
         )
     )
 
+    fun rellSecurityCheckTool() = Tool(
+        name = "rell_security_check",
+        description = """
+            Static security review of Rell code, run after a successful compile (compiles first via
+            the embedded Rell compiler; uncompilable code returns the compile errors instead).
+            Checks the production security rules for Chromia dApps:
+            - CRITICAL: banned admin modules (lib.ft4.admin, admin.crosschain) and open
+              registration/transfer strategies (ras_open, ras_transfer_open)
+            - HIGH: operations that create/update/delete state without any auth check
+              (ft4 auth.authenticate, op_context.is_signer, signer require)
+            - HIGH: hardcoded 64+ char hex literals that look like key material
+            - MEDIUM: operations with parameters but no require(...) input validation
+            Returns line-anchored findings with a concrete fix per finding. ok=true means no
+            CRITICAL/HIGH findings. Heuristic static analysis - it does not replace an audit.
+            Use with rell_check as the loop: compile clean, then security clean, then present.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Rell source for a single-file review; analyzed as main.rell. Ignored when `files` is given.")
+                        )
+                    ),
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects.")
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Security-review Rell code",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "operationsScanned" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "findings" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("ok", "operationsScanned", "findings", "notes")
+        )
+    )
+
     fun writeDeploymentConfigTool() = Tool(
         name = "write_deployment_config",
         description = """
@@ -2652,6 +2703,7 @@ object McpTools {
         checkDappProjectTool(),
         checkFt4ImportsTool(),
         rellCheckTool(),
+        rellSecurityCheckTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),
