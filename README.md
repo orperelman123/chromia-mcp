@@ -401,6 +401,14 @@ The server supports multiple Chromia networks:
 
 Specify the network parameter in your queries to target the appropriate environment.
 
-# TODO
+## Out of scope
 
-- [ ] Add support for executing transactions
+This server is a **query / documentation expert**. It does **not** send signed transactions, hold keys, or act as a wallet. Use `chromia_dapp_query` for read-only dApp queries. Transaction *inspection* (`get_all_transactions`) is supported; transaction *execution* is not. There is no OpenAPI spec.
+
+MCP resources are the existing health JSON, `docs-repositories.json`, and `prompt_templates.json` (not a generated library). Prompt templates are the `get_prompts` tool; the server does not advertise MCP `prompts`.
+
+## Local extras
+
+- Stdio mode: `./gradlew :app:run` or `java -jar app/build/libs/chromia-mcp-server.jar --stdio`
+- Fat JAR: `./gradlew :app:shadowJar` (do not run `jib` and `shadowJar` as concurrent Gradle tasks; they both write under `app/build/libs`)
+- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file) and falls back to the published GitLab package only if the local file is missing. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`). Upload still needs `GITLAB_ACCESS_TOKEN`.

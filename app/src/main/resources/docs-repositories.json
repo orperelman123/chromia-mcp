@@ -1,44 +1,87 @@
 {
   "metadata": {
-    "last_updated": "2025-10-17T10:30:00Z",
-    "description": "Documentation repositories for Chromia"
+    "last_updated": "2026-08-26T00:00:00Z",
+    "description": "Public Chromia documentation remotes on GitHub. Official docs.chromia.com source is still private and is not listed. Entries are verified public remotes. Nested module paths are allowed (not only top-level docs/doc/src). The fetcher uses sparse checkout and verifies configured paths after clone."
   },
   "repositories": [
     {
-      "name": "official-chromia-docs",
-      "url": "https://{{BITBUCKET_USERNAME}}:{{BITBUCKET_APP_PASSWORD}}@bitbucket.org/chromawallet/chromia-docs.git",
-      "branch": "master",
-      "subdirectories": ["docs", "generated"]
+      "name": "rell",
+      "url": "https://github.com/ChromiaProject/rell.git",
+      "branch": "dev",
+      "subdirectories": [
+        "doc",
+        "rell-base",
+        "rell-gtx",
+        "rell-api-base",
+        "rell-api-gtx",
+        "rell-api-native",
+        "rell-api-shell"
+      ]
+    },
+    {
+      "name": "postchain",
+      "url": "https://github.com/ChromiaProject/postchain.git",
+      "branch": "dev",
+      "subdirectories": [
+        "doc",
+        "postchain-base",
+        "postchain-common",
+        "postchain-gtv",
+        "postchain-gtx-data",
+        "postchain-server",
+        "postchain-cli",
+        "postchain-spi"
+      ]
+    },
+    {
+      "name": "ft4-lib",
+      "url": "https://github.com/ChromiaProject/ft4-lib.git",
+      "branch": "development",
+      "subdirectories": [
+        "doc",
+        "rell",
+        "client"
+      ]
     },
     {
       "name": "directory-chain",
-      "url": "https://gitlab.com/chromaway/core/directory-chain",
+      "url": "https://github.com/ChromiaProject/directory-chain.git",
       "branch": "dev",
-      "subdirectories": ["doc"]
-    },
-    {
-      "name": "directory1-examples",
-      "url": "https://gitlab.com/chromaway/example-projects/directory1-example.git",
-      "branch": "dev",
-      "subdirectories": ["docs"]
+      "subdirectories": [
+        "doc",
+        "src"
+      ]
     },
     {
       "name": "postchain-eif",
-      "url": "https://gitlab.com/chromaway/core/postchain-eif.git",
+      "url": "https://github.com/ChromiaProject/postchain-eif.git",
       "branch": "dev",
-      "subdirectories": ["doc"]
+      "subdirectories": [
+        "doc"
+      ]
     },
     {
-      "name": "chromia-cookbook",
-      "url": "https://{{BITBUCKET_USERNAME}}:{{BITBUCKET_APP_PASSWORD}}@bitbucket.org/chromawallet/chromia-cookbook.git",
-      "branch": "main",
-      "subdirectories": ["docs"]
+      "name": "chromia-cli",
+      "url": "https://github.com/ChromiaProject/chromia-cli.git",
+      "branch": "dev",
+      "subdirectories": [
+        "docs"
+      ]
+    },
+    {
+      "name": "postchain-client",
+      "url": "https://github.com/ChromiaProject/postchain-client.git",
+      "branch": "dev",
+      "subdirectories": [
+        "postchain-client/doc"
+      ]
     }
   ],
   "settings": {
     "concurrent_fetches": 3,
     "temp_dir_prefix": "chromia_docs_repos",
     "timeout_seconds": 300,
-    "cleanup_on_exit": true
+    "cleanup_on_exit": true,
+    "sitemap_url": "https://docs.chromia.com/sitemap.xml"
   }
 }

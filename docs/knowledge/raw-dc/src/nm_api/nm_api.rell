@@ -1,0 +1,651 @@
+/**
+ * Returns NM API Version
+ * NM API Version: 1
+ */
+query nm_api_version() = 27;
+
+/**
+ * Returns peer info list
+ * NM API Version: 1
+ * (API expects array, so we need suppress naming)
+ */
+query nm_get_peer_infos(): list<(text, integer, pubkey, timestamp)> {
+    val peer_infos = list<(text, integer, pubkey, timestamp)>();
+    peer_infos.add_all(node @* {} (_ = .host, _ = .port, _ = .pubkey, _ = .last_updated));
+    peer_infos.add_all(importing_foreign_blockchain @* {} (_ = .host, _ = .port, _ = .pubkey, _ = 0));
+    return peer_infos;
+}
+
+/**
+ * Returns the next configuration height for a given blockchain and height.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height after which the next configuration should be found
+ * @return next configuration height or null if no configuration exists after the given height
+ * 
+ * NM API Version: 1
+ */
+query nm_find_next_configuration_height(blockchain_rid: byte_array, height: integer): integer? {
+    val bc = blockchain @? { blockchain_rid };
+    if (bc == null) return null;
+    val conf_h = blockchain_configuration @? { bc, .height > height } (@sort .height) limit 1;
+    val sign_h = blockchain_configuration_signers @? { bc, .height > height } (@sort .height) limit 1;
+    if (conf_h == null) return sign_h;
+    if (sign_h == null) return conf_h;
+    return min(conf_h, sign_h);
+}
+
+/**
+ * Returns the previous configuration height for a given blockchain and height.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height before which the previous configuration should be found
+ * @return previous configuration height or null if no configuration exists before the given height
+ * 
+ * NM API Version: 21
+ */
+query nm_find_previous_configuration_height(blockchain_rid: byte_array, height: integer): integer? {
+    val bc = blockchain @? { blockchain_rid };
+    if (bc == null) return null;
+    val conf_h = blockchain_configuration @? { bc, .height < height } (@sort_desc .height) limit 1;
+    val sign_h = blockchain_configuration_signers @? { bc, .height < height } (@sort_desc .height) limit 1;
+    if (conf_h == null) return sign_h;
+    if (sign_h == null) return conf_h;
+    return max(conf_h, sign_h);
+}
+
+/**
+ * Returns the blockchain configuration as a byte array for a given blockchain and height.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height for which the configuration should be returned
+ * @return configuration as a byte array or null if no configuration exists for the given height
+ * @throws if blockchain does not exist or no signers configuration exists for the given height
+ * 
+ * NM API Version: 1
+ */
+query nm_get_blockchain_configuration(blockchain_rid: byte_array, height: integer): byte_array? {
+    val config = get_blockchain_configuration(blockchain_rid, height);
+    if (config != null) {
+        val full_config = map<text, gtv>.from_gtv(gtv.from_bytes(config.base_config));
+        full_config["signers"] = config.signers.to_gtv();
+        return full_config.to_gtv().to_bytes();
+    } else {
+        return null;
+    }
+}
+
+/**
+ * NM API Version: 5
+ * @deprecated in NM API Version 18, use nm_get_blockchain_configuration_info() instead
+ */
+query nm_get_blockchain_configuration_v5(blockchain_rid: byte_array, height: integer):
+    (base_config: byte_array, signers: list<pubkey>, config_hash: byte_array)?
+        = get_blockchain_configuration(blockchain_rid, height);
+
+/**
+ * Returns the blockchain configuration as a struct for a given blockchain and height.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height for which the configuration should be returned
+ * @return configuration as a byte array or null if no configuration exists for the given height
+ * @throws if blockchain does not exist or no signers configuration exists for the given height
+ *
+ * NM API Version: 18
+ */
+query nm_get_blockchain_configuration_info(blockchain_rid: byte_array, height: integer): blockchain_configuration_info? {
+    val bc_config = get_blockchain_configuration(blockchain_rid, height);
+    if (bc_config == null) return null;
+
+    return blockchain_configuration_info(
+        base_config = bc_config.base_config,
+        signers = bc_config.signers,
+        config_hash = bc_config.config_hash
+    );
+}
+
+/**
+ * Returns list of blockchains to be launched
+ * NM API Version: 1
+ * @deprecated use nm_compute_blockchain_info_list
+ */
+query nm_compute_blockchain_list(node_id: pubkey): list<byte_array> {
+    val res = list<byte_array>();
+    for (blockchain in compute_blockchain_info_list(node_id)) {
+        res.add(blockchain.rid);
+    }
+    return res;
+}
+
+/**
+ * Returns a list of blockchains to be launched or to be initialized on a node.
+ * Returns RUNNING, PAUSED, IMPORTING, UNARCHIVING blockchains.
+ * 
+ * @param node_id node public key
+ * @return list of blockchains to be launched or to be initialized on a node
+ * 
+ * NM API Version: 4
+ * Compatibility:
+ *  - NM API Version 4-8: Returns RUNNING or PAUSED blockchains
+ *  - NM API Version 9-11: Returns RUNNING or PAUSED or IMPORTING blockchains
+ */
+query nm_compute_blockchain_info_list(node_id: pubkey): list<blockchain_info> {
+    return compute_blockchain_info_list(node_id);
+}
+
+function compute_blockchain_info_list(node_id: pubkey): list<blockchain_info> {
+    val node = node @? { node_id };
+    if (exists(node)) {
+        val res = set<blockchain_info>();
+        res.add_all(get_mandatory_system_chains());
+        res.add_all(get_cluster_node_blockchains(node));
+        res.add_all(get_cluster_replica_node_blockchains(node));
+        res.add_all(get_blockchains_replicated_by_node(node));
+        return list(res);
+    } else {
+        return [blockchain_info(chain_context.blockchain_rid, true, blockchain_state.RUNNING)];
+    }
+}
+
+/**
+ * Returns a map of blockchain RIDs to their replica nodes.
+ * 
+ * @param blockchain_rids set of blockchain RIDs to get replica nodes for
+ * @return map of blockchain RIDs to their replica nodes
+ * 
+ * NM API Version: 4
+ */
+query nm_get_blockchain_replica_node_map(blockchain_rids: set<byte_array>): map<byte_array, set<byte_array>> {
+    val res = map<byte_array, set<byte_array>>();
+    for (brid in set(blockchain_rids)) {
+        res.put(brid, get_blockchain_replica_nodes(brid));
+    }
+    return res;
+}
+
+/**
+ * Returns the container limits for a given container.
+ * 
+ * @param name container name
+ * @return map of container limits
+ * @throws if container does not exist
+ * 
+ * NM API Version: 3
+ */
+query nm_get_container_limits(name): map<text, integer> {
+    val cluster = require_container(name).cluster;
+
+    val return_map = map<text, integer>();
+
+    val container_limits = get_current_container_resource_limits(name);
+
+    val container_units = container_limits[container_resource_limit_type.container_units];
+    val max_blockchains = container_limits[container_resource_limit_type.max_blockchains];
+    val extra_storage = container_limits[container_resource_limit_type.extra_storage];
+
+    val cpu = _get_container_limit_or_default(cluster.container_unit_cpu, container_units);
+    val ram = _get_container_limit_or_default(cluster.container_unit_ram, container_units);
+    val io_read = _get_container_limit_or_default(cluster.container_unit_io_read, container_units);
+    val io_write = _get_container_limit_or_default(cluster.container_unit_io_write, container_units);
+    val storage = _get_container_limit_or_default(cluster.container_unit_storage, container_units);
+
+    return_map.put(container_resource_limit_type.container_units.name, container_units);
+    return_map.put(container_resource_limit_type.max_blockchains.name, max_blockchains);
+    return_map.put("storage", storage + extra_storage);
+    return_map.put("cpu", cpu);
+    return_map.put("ram", ram);
+    return_map.put("io_read", io_read);
+    return_map.put("io_write", io_write);
+
+    return return_map;
+}
+
+function _get_container_limit_or_default(value: integer, container_units: integer): integer {
+    return if (container_units == -1 or value == -1) -1 else container_units * value;
+}
+
+/**
+ * Returns a list of containers running on a node.
+ * 
+ * @param pubkey node public key
+ * @return list of container names running on the node
+ * @throws if node does not exist
+ * 
+ * NM API Version: 3
+ */
+query nm_get_containers(pubkey): list<text> {
+    val n = require_node(pubkey);
+    val clusters = cluster_node @* { n } .cluster;
+    val res = list<text>();
+    for (cl in clusters) {
+        val containers = container @* { cl, .state == container_state.RUNNING } .name;
+        res.add_all(containers);
+    }
+    return res;
+}
+
+/**
+ * Returns all container names registered in directory chain
+ * 
+ * @return list of container names
+ * 
+ * NM API Version: 24
+ */
+query nm_get_all_containers(): list<text> {
+    return container @* {} ( .name );
+}
+
+/**
+ * Returns a list of blockchains running in a container.
+ * 
+ * @param container_name container name
+ * @return list of blockchain RIDs running in the container if container exists. Otherwise empty list.
+ * 
+ * NM API Version: 3
+ */
+query nm_get_blockchains_for_container(container_name: text): list<byte_array> {
+    val container = container @? {container_name};
+    val res = list<byte_array>();
+    if (exists(container)) {
+        res.add_all(container_blockchain @* {container, .blockchain.state in [blockchain_state.RUNNING, blockchain_state.PAUSED]} .blockchain.rid);
+    }
+    return res;
+}
+
+/**
+ * Returns the container name a blockchain is running in.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @return container name a blockchain is running in
+ * @throws if blockchain does not exist or is removed
+ * 
+ * NM API Version: 3
+ */
+query nm_get_container_for_blockchain(blockchain_rid: byte_array): text {
+    val bc = require_blockchain(blockchain_rid);
+    require(bc.state != blockchain_state.REMOVED, "Blockchain is removed: " + bc.rid);
+    return container_blockchain @ { bc } .container.name;
+}
+
+/**
+ * Returns a list of containers a blockchain is running in.
+ * Usually there is only one container a blockchain is running in.
+ * But in case of moving or unarchiving, there are two containers.
+ * 
+ * @param node_id node public key
+ * @param blockchain_rid blockchain RID
+ * @return list of container names a blockchain is running in for the given node
+ * @throws if node or blockchain does not exist
+ * 
+ * NM API Version: 14
+ */
+query nm_get_blockchain_containers_for_node(node_id: pubkey, blockchain_rid: byte_array): list<text> {
+    val node = require_node(node_id);
+    val bc = require_blockchain(blockchain_rid);
+
+    val mbc = moving_blockchain @? { bc };
+    if (exists(mbc)) {
+        val res = list<text>();
+        if (cluster_node @? { node, mbc.source.cluster } ??) res.add(mbc.source.name);
+        if (cluster_node @? { node, mbc.destination.cluster } ??) res.add(mbc.destination.name);
+        return res;
+    }
+
+    val unbc = unarchiving_blockchain @? { bc };
+    if (exists(unbc)) {
+        val res = list<text>();
+        if (cluster_node @? { node, unbc.source.cluster } ??) res.add(unbc.source.name);
+        if (cluster_node @? { node, unbc.destination.cluster } ??) res.add(unbc.destination.name);
+        return res;
+    }
+
+    return [nm_get_container_for_blockchain(blockchain_rid)];
+}
+
+/**
+ * Returns a list of blockchain RIDs with corresponding container that this blockchain is dependent on as of the given height.
+ * 
+ * @param blockchain blockchain RID
+ * @param height height for which the dependencies should be returned
+ * @return list of blockchain RIDs with corresponding container that this blockchain is dependent on as of the given height
+ * 
+ * NM API Version: 3
+ */
+query nm_get_blockchain_dependencies(blockchain, height: integer): list<(byte_array, text)> {
+    val res = list<(byte_array, text)>();
+    val conf_h = blockchain_configuration @? { blockchain, .height <= height } (@sort .height) limit 1;
+    if (conf_h != null) {
+        val brids = blockchain_dependency @* {.me == blockchain, conf_h} .dependent_on.rid;
+        for (brid in brids) {
+            res.add((brid, container_blockchain @ { blockchain @{brid}} .container.name));
+        }
+    }
+    return res;
+}
+
+/**
+ * Precise Configuration Update: Returns a list of pending blockchain configurations with a minimum_height 
+ * less than or equal to the given height.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height for which the pending configurations should be returned
+ * @return list of pending blockchain configurations with a minimum_height less than or equal to the given height
+ * @throws if blockchain does not exist
+ * 
+ * NM API Version: 5
+ */
+query nm_get_pending_blockchain_configuration(blockchain_rid: byte_array, height: integer):
+        list<(base_config: byte_array, signers: list<pubkey>, minimum_height: integer)> {
+    val bc = require_blockchain(blockchain_rid);
+    return get_pending_blockchain_configuration(bc, height);
+}
+
+/**
+ * Precise Configuration Update: Returns a pending blockchain configuration by config hash.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param config_hash config hash
+ * @return pending blockchain configuration or null if no configuration exists for the given config hash
+ * @throws if blockchain does not exist
+ * 
+ * NM API Version: 5
+ */
+query nm_get_pending_blockchain_configuration_by_hash(blockchain_rid: byte_array, config_hash: byte_array):
+        (base_config: byte_array, signers: list<pubkey>, minimum_height: integer)? {
+    val bc = require_blockchain(blockchain_rid);
+    return get_pending_blockchain_configuration_by_hash(bc, config_hash);
+}
+
+/**
+ * Precise Configuration Update: Returns the hash of the blockchain configuration that was reported as faulty 
+ * at the given height, or null if no such configuration exists.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height for which the faulty configuration should be returned
+ * @return faulty blockchain configuration hash or null if no faulty configuration exists for the given height
+ * @throws if blockchain does not exist
+ * 
+ * NM API Version: 5
+ */
+query nm_get_faulty_blockchain_configuration(blockchain_rid: byte_array, height: integer): byte_array? {
+    val bc = require_blockchain(blockchain_rid);
+    return faulty_blockchain_configuration @? { bc, .reported_at_height == height }.config_hash;
+}
+
+/**
+ * Returns the current state of a blockchain.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @return current state of the blockchain
+ * @throws if blockchain does not exist
+ * 
+ * NM API Version: 6
+ */
+query nm_get_blockchain_state(blockchain_rid: byte_array): text {
+    val bc = require_blockchain(blockchain_rid);
+    return bc.state.name;
+}
+
+/**
+ * Returns the RID of the management chain.
+ * 
+ * @return RID of the management chain
+ * 
+ * NM API Version: 7
+ */
+query nm_get_management_chain() = blockchain @ { blockchains.directory_chain } (.rid);
+
+/**
+ * Returns the blockchain configuration options for a given blockchain and height.
+ * Blockchain configuration options contain additional options for the blockchain configuration processing.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @param height height for which the configuration options should be returned
+ * @return blockchain configuration options or null if no configuration options exist for the given height
+ * 
+ * NM API Version 8
+ */
+query nm_get_blockchain_configuration_options(blockchain_rid: byte_array, height: integer)
+    = blockchain_configuration_options @? { .blockchain.rid == blockchain_rid, .height <= height }
+    (@omit @sort_desc .height, $.to_struct()) limit 1;
+
+/**
+ * Returns the blockchain signers from the latest configuration.
+ * 
+ * @param blockchain_rid blockchain RID
+ * @return list of blockchain signers from the latest configuration
+ * @throws if blockchain does not exist
+ * 
+ * NM API Version 9
+ */
+query nm_get_blockchain_signers_in_latest_configuration(blockchain_rid: byte_array): list<byte_array> {
+    val bc = require_blockchain(blockchain_rid);
+    val signers_bytes = blockchain_configuration_signers @ { bc } (@omit @sort_desc .height, .signers) limit 1;
+    return list<byte_array>.from_gtv(gtv.from_bytes(signers_bytes));
+}
+
+/**
+ * Returns a list of blockchain RIDs and heights at which blockchains were deactivated (removed, archived) after the given height.
+ * 
+ * @param height height after which the deactivated blockchains should be returned
+ * @return list of blockchain RIDs and heights at which blockchains were deactivated (removed, archived) after the given height
+ * 
+ * NM API Version 11
+ */
+query nm_find_next_inactive_blockchains(height: integer): list<inactive_blockchain_info> {
+    val next_height = inactive_blockchain @? { .height > height } (@sort .height) limit 1;
+    return if (empty(next_height)) []
+    else inactive_blockchain @* { .height == next_height } ( inactive_blockchain_info(.blockchain.rid, .blockchain.state, .height) );
+}
+
+/**
+ * Returns information about a migrating (moving or unarchiving) blockchain for a given node.
+ * 
+ * @param node_id node public key
+ * @param blockchain_rid blockchain RID
+ * @return information about a migrating (moving or unarchiving) blockchain. 
+ *      Returns null if blockchain does not exist or is not migrating.
+ * 
+ * NM API Version 15
+ */
+query nm_get_migrating_blockchain_node_info(node_id: pubkey, blockchain_rid: byte_array): migrating_blockchain_node_info? {
+    val node = node @? { node_id };
+    if (node == null) return null;
+
+    val bc = blockchain @? { blockchain_rid };
+    if (bc == null) return null;
+
+    val mvbc = moving_blockchain @? { bc } ($.to_struct());
+    if (exists(mvbc)) {
+        return migrating_blockchain_node_info(
+            rid = [bc.rid.to_gtv(), mvbc.transaction.tx_rid.to_gtv()].hash(),
+            source_container = mvbc.source.name,
+            destination_container = mvbc.destination.name,
+            is_source_node = exists(cluster_node @? { mvbc.source.cluster, node }),
+            is_destination_node = exists(cluster_node @? { mvbc.destination.cluster, node }),
+            final_height = mvbc.final_height
+        );
+    }
+
+    val unbc = unarchiving_blockchain @? { bc } ($.to_struct());
+    if (exists(unbc)) {
+        return migrating_blockchain_node_info(
+            rid = [bc.rid.to_gtv(), unbc.transaction.tx_rid.to_gtv()].hash(),
+            source_container = unbc.source.name,
+            destination_container = unbc.destination.name,
+            is_source_node = exists(cluster_node @? { unbc.source.cluster, node }),
+            is_destination_node = exists(cluster_node @? { unbc.destination.cluster, node }),
+            final_height = unbc.final_height
+        );
+    }
+
+    return null;
+}
+
+/**
+ * Returns true if the given provider is allowed to deploy to the given blockchain container, otherwise false.
+ * 
+ * @param provider_pubkey provider public key
+ * @param blockchain_rid blockchain RID
+ * @return true if the given provider is allowed to deploy to the given blockchain container, otherwise false
+ * @throws if provider or blockchain does not exist
+ * 
+ * NM API Version 19
+ */
+query nm_is_blockchain_provider(provider_pubkey: pubkey, blockchain_rid: byte_array): boolean {
+
+    val provider = require_provider(provider_pubkey);
+    val blockchain = require_blockchain(blockchain_rid);
+    val container = container_blockchain @ { blockchain } .container;
+
+    return roles.has_deploy_access(provider, container);
+}
+
+/**
+ * Returns the Docker image required to run subnode for a given container,
+ * or `null` if the container does not specify any image.
+ * 
+ * @param name container name
+ * @return Docker image required to run subnode for the given container, or `null` if the container does not specify any image
+ * @throws if container does not exist
+ *
+ * NM API Version: 20
+ */
+query nm_get_container_image(name): container_image_info? {
+    val container = require_container(name);
+    val subnode_image = container_subnode_image @? { container } (.subnode_image);
+    if (subnode_image == null) return null;
+    return container_image_info(name = subnode_image.name, url = subnode_image.url, digest = subnode_image.digest);
+}
+
+/**
+ * Returns the Docker image required to run subnode for a given container,
+ * or the default subnode image if the container does not specify any image,
+ * or `null` if default image is not specified in directory chain.
+ * 
+ * @param name container name
+ * @return Docker image required to run subnode for the given container,
+ *      or the default subnode image if the container does not specify any image,
+ *      or `null` if default image is not specified in directory chain
+ * @throws if container does not exist
+ *
+ * NM API Version: 22
+ */
+query nm_get_container_image_or_default(name): container_image_info? {
+    val container = require_container(name);
+    val subnode_image = container_subnode_image @? { container } (.subnode_image);
+    return if (subnode_image == null)
+        container_image_info(name = "", url = default_subnode_image().url, digest = default_subnode_image().digest)
+    else
+        container_image_info(name = subnode_image.name, url = subnode_image.url, digest = subnode_image.digest);
+}
+
+/**
+ * Returns the time when the container was created, or `null` if that information is not available.
+ * 
+ * @param name container name
+ * @return time when the container was created, or `null` if that information is not available
+ * @throws if container does not exist
+ * 
+ * NM API Version: 23
+ */
+query nm_get_container_creation_time(name): timestamp? {
+    val container = require_container(name);
+    return if (container.created_at < 0) null else container.created_at;
+}
+
+/**
+ * Returns rate limit configuration for container as a map of task type to rate limit configuration for that type of tasks.
+ * If there is no rate limit for a particular task type for a container, it will be absent in the map.
+ * If there are no rate limits for anything for a container, the returned map will be empty.
+ * 
+ * @param name container name
+ * @return rate limit configuration for the given container
+ * @throws if container does not exist
+ * 
+ * NM API Version: 23
+ */
+query nm_get_container_rate_limits(name): map<text, container_rate_limit> {
+    val container = require_container(name);
+    val base_compute_requests = container_subnode_image @? { container } (.subnode_image.base_compute_requests) ?: 0;
+    val extra_compute_requests = get_container_limit_or_default(container,
+        container_resource_limit_type.extra_compute_requests, 0);
+    return [ "ai_inference" : container_rate_limit(
+            period_length_millis = millis_per_week,
+            rate_limit = base_compute_requests + extra_compute_requests,
+    ) ];
+}
+
+/**
+ * Returns the active configuration height for a given blockchain and a historic height.
+ *
+ * @param blockchain_rid blockchain RID
+ * @param height historic height
+ * @return historical configuration height or null if no configuration exists before or at the given height
+ *
+ * NM API Version: 25
+ */
+query nm_get_historic_configuration_height(blockchain_rid: byte_array, height: integer): integer? {
+    val bc = blockchain @? { blockchain_rid };
+    if (bc == null) return null;
+    val conf_h = blockchain_configuration @? { bc, .height <= height } (@sort_desc .height) limit 1;
+    val sign_h = blockchain_configuration_signers @? { bc, .height <= height } (@sort_desc .height) limit 1;
+    if (conf_h == null) return sign_h;
+    if (sign_h == null) return conf_h;
+    return max(conf_h, sign_h);
+}
+
+struct nm_container_configuration {
+    slow_db_statement_log_ms: integer;
+}
+
+/**
+ * Returns any container specific configuration
+ *
+ * @param name Name of the container
+ * @return container configuration
+ *
+ * NM API Version: 26
+ */
+query nm_get_container_configuration(name): nm_container_configuration? {
+    return container_configuration @? {
+        .container.name == name
+    } (
+        nm_container_configuration (
+            .slow_db_statement_log_ms
+        )
+    );
+}
+
+struct nm_container_jar_extension {
+    name;
+    hash: byte_array;
+}
+
+/**
+ * Returns any custom JAR extensions for a given container,
+ *
+ * @param name container name
+ * @return Returns a list of the names of custom JAR extensions and their hashes for the container, if any,
+ * @throws if container does not exist
+ *
+ * NM API Version: 27
+ */
+query nm_get_container_jar_extensions(name): list<nm_container_jar_extension> {
+    val container = require_container(name);
+    return container_subnode_jar_extension @* { container } (nm_container_jar_extension(
+        .subnode_jar_extension.name,
+        .subnode_jar_extension.hash,
+    ));
+}
+
+/**
+ * Returns a JAR extension,
+ *
+ * @param name extension name
+ * @return  Returns raw JAR file in bytes for a JAR extension
+ * @throws if the JAR extension does not exist
+ *
+ * NM API Version: 27
+ */
+query nm_get_jar_extension(name): byte_array = require_subnode_jar_extension(name).jar;

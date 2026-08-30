@@ -1,0 +1,113 @@
+include:
+  - project: chromaway/core-infra/gitlab-automation
+    ref: 1.1.6
+    file:
+      - templates/release.yml
+      - templates/container-dependency-scanning.yml
+
+image: registry.gitlab.com/chromaway/core-tools/chromia-images/node22-java21:1.0.0@sha256:aa1ae82142ad06190f9c2b3373887dfdecb929a005a7f7bf939f1667d85b7ff3
+
+stages:
+  - build
+  - release
+  - deploy
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+build:
+  stage: build
+  before_script:
+    - apk add --no-cache openjdk21
+    - export GRADLE_USER_HOME
+  script:
+    - ./gradlew check --info
+    - ./gradlew :app:shadowJar
+  artifacts:
+    paths:
+      - "app/build/libs/"
+    expire_in: 1 week
+  cache:
+    key: "$CI_COMMIT_REF_NAME"
+    policy: pull-push
+    paths:
+      - "**/build"
+      - ".gradle"
+
+publish:
+  stage: release
+  before_script:
+    - apk add --no-cache openjdk21
+    - export GRADLE_USER_HOME
+  script:
+    - ./gradlew publish -Pversion=$CI_COMMIT_TAG
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+  cache:
+    key: "$CI_COMMIT_REF_NAME"
+    policy: pull
+    paths:
+      - "**/build"
+      - ".gradle"
+
+release-image:
+  stage: release
+  before_script:
+    - apk add --no-cache kubectl openjdk21 wget unzip
+    - export GRADLE_USER_HOME
+    - wget -nv "https://github.com/GoogleContainerTools/jib/releases/download/v0.13.0-cli/jib-jre-0.13.0.zip"
+    - unzip jib-jre-0.13.0.zip
+    - rm jib-jre-0.13.0.zip
+  script:
+    - ./gradlew jib shadowJar
+    - cd claude-code-chromia && ./fetch-deps.sh && cd ..
+    - ./jib-0.13.0/bin/jib build --build-file claude-code-chromia/jib.yaml --target ${CI_REGISTRY_IMAGE}/claude-code-chromia --additional-tags=$CI_COMMIT_TAG --username ${CI_REGISTRY_USER} --password ${CI_REGISTRY_PASSWORD}
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+
+deploy-kubernetes:
+  stage: deploy
+  tags:
+    - private-network-0
+  image: alpine:3.22.1
+  script:
+    - apk add kubectl
+    - mkdir -p /tmp
+    - echo "$KUBECONFIG" | base64 -d > /tmp/kubeconfig
+    - KUBE_FILE="/tmp/kubeconfig"
+    - echo "Kubeconfig written to $KUBE_FILE"
+    - echo "Updating deployment with image ${CI_REGISTRY_IMAGE}/chromia-mcp:${CI_COMMIT_TAG}"
+    - kubectl --kubeconfig="$KUBE_FILE" set image deployment/chromia-mcp chromia-mcp="${CI_REGISTRY_IMAGE}/chromia-mcp:${CI_COMMIT_TAG}"
+    - kubectl --kubeconfig="$KUBE_FILE" rollout status deployment/chromia-mcp
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+
+release-patch:
+  extends: .release
+  stage: release
+  script:
+    - |
+      NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+      echo "Current version is $CURRENT_VERSION"
+      echo "Will create new version $NEXT_VERSION"
+
+      echo "Checking if version $NEXT_VERSION is documented in changelog..."
+      git tag $MAJOR.$MINOR.$((PATCH + 1))
+      git push --tags
+  only:
+    - dev
+    - /^support\/.*$/
+
+release-minor:
+  extends: .release
+  stage: release
+  script:
+    - |
+      NEXT_VERSION="$MAJOR.$((MINOR + 1)).0"
+      echo "Current version is $CURRENT_VERSION"
+      echo "Will create new version $NEXT_VERSION"
+      git tag $MAJOR.$((MINOR + 1)).0
+      git push --tags
+  only:
+    - dev
+    - /^support\/.*$/

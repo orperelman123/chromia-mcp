@@ -1,0 +1,508 @@
+@test module;
+
+import ^.ops.*;
+import ^.util.*;
+import ^^.*;
+import ^^.operations.*;
+import ^^.queries.*;
+import ^^.test.setup.*;
+import model.*;
+import proposal_provider.*;
+import direct_cluster.*;
+
+val system_provider = rell.test.keypairs.bob;
+val sp_node_key = x"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa50093798EF9D51E7260BA921CD673F";
+
+val node_provider1 = rell.test.keypairs.trudy;
+val np1_node_key = x"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb3B35584048494A3940E2D3E7A4529C1";
+
+val node_provider2 = rell.test.keypair(
+     priv = x"B39E4CCCB9B0FD71B7AC9FFF1216C34648FA7362ECD9874743776BDFDEE4F6A8",
+     pub = x"03BD01AF899839BDDB5810616C1AF8B61B415E903D73418DED238A8EEA352C72E0"
+);
+val np2_node_key = x"cccccccccccccccccccccccccccccccccccc06010A530C2FA6F6DA364433B66198";
+
+val dapp_provider1 = rell.test.keypair(
+    priv = x"71C89AE77719E3779EAE09C26A229F7AF33D8C8F7E7E8D82A9A42470C224AB56",
+    pub = x"020EE9063CED9B47CC60EB931443C01F3FD7A0DAB4B2D0505D3A2FAAD4FA9ABF13"
+);
+val dp1_node_key = x"dddddddddddddddddddddddddddddddddddd9126FE430AB4C4EC418794CEC8C5C5";
+
+val dapp_provider2 = rell.test.keypair(
+    priv = x"49DB53CB0E1CC472DE90FC833CEDB4E1B412C5AF658342762D1BB8F3886063B6",
+    pub = x"031D22EA1C599A69E35E023E1CBCEAC66C046B445FF5507DBA650B58F28C650A15"
+);
+val dp2_node_key = x"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee975F36C1E004AFD1EF059BDD0A1F5E";
+
+
+function test_register_node() {
+    setup_module();
+
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, dapp_provider1.pub, provider_tier.DAPP_PROVIDER),
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true),
+        register_provider(initial_provider.pub, system_provider.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_is_system(initial_provider.pub, system_provider.pub, true)
+    ).sign(initial_provider).run();
+
+    // SP's node is added by IP and fails
+    rell.test.tx().op(
+        register_node_with_node_data(system_provider.pub, register_node_data(sp_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(initial_provider).run_must_fail();
+
+    // SP adds a node
+    rell.test.tx().op(
+        register_node_with_node_data(system_provider.pub, register_node_data(sp_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(system_provider).run();
+    val sp_node = node @? { sp_node_key };
+    assert_not_null(sp_node);
+    assert_true(sp_node.active);
+
+    // Test get_nodes_by_provider query
+    val sp_provider_nodes = get_nodes_by_provider(system_provider.pub);
+    assert_equals(sp_provider_nodes.size(), 1);
+
+    // NP's node is added by IP and fails
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(np1_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(initial_provider).run_must_fail();
+
+    // NP node is added with trailing slash in node url and fails
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(np1_node_key, host = "host", port = 7777, api_url = "http://host/api_url/"))
+    ).sign(node_provider1).run_must_fail("URL must not end with /");
+
+    // NP adds a node
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(np1_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(node_provider1).run();
+    val np1_node = node @? { np1_node_key };
+    assert_not_null(np1_node);
+    assert_true(np1_node.active);
+    // NP adds one more node (NP's default max_nodes = -1 now)
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(x"aaaaaaaaaaaaaaaaaaa8E845F81ABAB2A2D28F558DE9DBBF4296E35AD23BF7E2C8", host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(node_provider1).run();
+
+    // DP's node is added by IP and fails
+    rell.test.tx().op(
+        register_node_with_node_data(dapp_provider1.pub, register_node_data(dp1_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(initial_provider).run_must_fail();
+    // DP adds a node, node will be added as cluster replica mode
+    rell.test.tx().op(
+        register_node_with_node_data(dapp_provider1.pub, register_node_data(dp1_node_key, host = "host", port = 7777, api_url = "http://host/api_url", clusters = list([clusters.system])))
+    ).sign(dapp_provider1).run();
+    assert_true(exists(node @? { dp1_node_key }));
+    val system_cluster_replicas = cluster_replica_node @* { .cluster.name == clusters.system } (.node.pubkey);
+    assert_true(system_cluster_replicas.contains(dp1_node_key));
+    // NP tries to add more nodes and fails
+    rell.test.tx().op(
+        register_node_with_node_data(dapp_provider1.pub, register_node_data(x"bbbbbbbbbbbbbbbbbbb8E845F81ABAB2A2D28F558DE9DBBF4296E35AD23BF7E2C8", host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(dapp_provider1).run_must_fail();
+}
+
+function test_disable_and_enable_node() {
+    setup_module(system_anchoring_config = ["any": "value".to_gtv()], cluster_anchoring_config = ["any": "value".to_gtv()]);
+
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, dapp_provider1.pub, provider_tier.DAPP_PROVIDER),
+        register_provider(initial_provider.pub, dapp_provider2.pub, provider_tier.DAPP_PROVIDER),
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        register_provider(initial_provider.pub, node_provider2.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true),
+        propose_provider_state(initial_provider.pub, node_provider2.pub, true),
+        register_provider(initial_provider.pub, system_provider.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_is_system(initial_provider.pub, system_provider.pub, true)
+    ).sign(initial_provider).run();
+
+    rell.test.tx().op(
+        register_node_with_node_data(system_provider.pub, register_node_data(sp_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(system_provider).run();
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(np1_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(node_provider1).run();
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider2.pub, register_node_data(np2_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(node_provider2).run();
+
+    // Asserting initial state
+    val sp_node = node @? { sp_node_key };
+    assert_not_null(sp_node);
+    assert_true(sp_node.active);
+
+    val np1_node = node @? { np1_node_key };
+    assert_not_null(np1_node);
+    assert_true(np1_node.active);
+
+    val np2_node = node @? { np2_node_key };
+    assert_not_null(np2_node);
+    assert_true(np2_node.active);
+
+    // ------------------------
+
+    // NP1 signs NP2's tx and fails
+    rell.test.tx().op(
+        disable_node(node_provider2.pub, np2_node_key)
+    ).sign(node_provider1).run_must_fail();
+
+    // NP1 tries to remove NP2's node and fails
+    rell.test.tx().op(
+        disable_node(node_provider1.pub, np2_node_key)
+    ).sign(node_provider1).run_must_fail();
+
+    // NP1 removes its node
+    rell.test.tx().op(
+        disable_node(node_provider1.pub, np1_node_key)
+    ).sign(node_provider1).run();
+    val np1_removed = node @? { np1_node_key };
+    assert_not_null(np1_removed);
+    assert_false(np1_removed.active);
+
+    // SP removes NP2's node
+    rell.test.tx().op(
+        disable_node(system_provider.pub, np2_node_key)
+    ).sign(system_provider).run();
+    val np2_removed = node @? { np2_node_key };
+    assert_not_null(np2_removed);
+    assert_false(np2_removed.active);
+
+    // IP tries to remove SP's node and fails
+    rell.test.tx().op(
+        disable_node(initial_provider.pub, sp_node_key)
+    ).sign(initial_provider).run_must_fail();
+
+    // SP removes its own node
+    rell.test.tx().op(
+        disable_node(system_provider.pub, sp_node_key)
+    ).sign(system_provider).run();
+    val sp_removed = node @? { np2_node_key };
+    assert_not_null(sp_removed);
+    assert_false(sp_removed.active);
+
+    //
+    // enable_node() op
+    //
+
+    // SP enables unknown node and fails
+    rell.test.tx().op(
+        enable_node(system_provider.pub, x"ff")
+    ).sign(system_provider).run_must_fail();
+
+    // SP enables NP1's node and fails
+    rell.test.tx().op(
+        enable_node(system_provider.pub, np1_node_key)
+    ).sign(system_provider).run_must_fail();
+
+    // SP enables its node
+    rell.test.tx().op(
+        enable_node(system_provider.pub, sp_node_key)
+    ).sign(system_provider).run();
+    assert_true(node @ { sp_node_key } (.active));
+
+    // SP enables its active node and fails
+    rell.test.tx().op(
+        enable_node(system_provider.pub, sp_node_key)
+    ).sign(system_provider).run_must_fail();
+
+    // Check that system anchoring is running on enabled node1
+    rell.test.tx().op(
+        enable_node(node_provider1.pub, np1_node_key)
+    ).sign(node_provider1).run();
+}
+
+function test_replace_node_with_replica_node_in_system_cluster() {
+    val provider = rell.test.keypairs.alice;
+    rell.test.tx().op(initialize_test_module(provider.pub, test_node)).run();
+    assert_not_null(node @? { initial_signer.pub });
+
+    val node = node @ { .provider == initial_provider() };
+
+    val replica_node = rell.test.keypairs.charlie;
+    rell.test.tx().op(
+        register_node(provider.pub, replica_node.pub, "replica_node", 7777, "http://replica_node/api_url")
+    ).sign(provider).run();
+
+    // Adding a replica node to system
+    rell.test.tx().op(
+        add_replica_node_to_cluster(initial_provider.pub, replica_node.pub, "system")
+    ).sign(initial_provider).run();
+    assert_true(not(empty(cluster_replica_node @* {  })));
+
+    // replace node by replica_node
+    rell.test.tx().op(
+        replace_node(provider.pub, node.pubkey, replica_node.pub, null, null, null)
+    )
+        .sign(provider)
+        .sign(initial_signer)
+        .sign(replica_node)
+        .run();
+
+
+    assert_null(node @? { provider.pub });
+    val replaced_node = node @ { replica_node.pub };
+    assert_equals(replaced_node.host, "replica_node");
+    assert_equals(replaced_node.port, 7777);
+    assert_equals(replaced_node.api_url, "http://replica_node/api_url");
+
+    assert_true(get_signers_of_cluster_name(clusters.system).contains(replaced_node.pubkey));
+    assert_false(get_signers_of_cluster_name(clusters.system).contains(provider.pub));
+}
+
+function test_if_new_node_replaces_an_old_replica_node_the_new_node_needs_to_become_a_replica_node() {
+    val provider = rell.test.keypairs.alice;
+    rell.test.tx().op(initialize_test_module(provider.pub, test_node)).run();
+    assert_not_null(node @? { initial_signer.pub });
+
+    val node = node @ { .provider == initial_provider() };
+    val node_pubkey = node.pubkey;
+
+    val replica_node = rell.test.keypairs.charlie;
+    rell.test.tx().op(
+        register_node(provider.pub, replica_node.pub, "replica_node", 7777, "http://replica_node/api_url")
+    ).sign(provider).run();
+
+    // Adding a replica node to system
+    rell.test.tx().op(
+        add_replica_node_to_cluster(initial_provider.pub, replica_node.pub, "system")
+    ).sign(initial_provider).run();
+    assert_true(not(empty(cluster_replica_node @* {  })));
+
+    // replace replica_node by node
+    rell.test.tx().op(
+        replace_node(provider.pub, replica_node.pub, node.pubkey, null, null, null)
+    )
+        .sign(provider)
+        .sign(initial_signer)
+        .sign(replica_node)
+        .run();
+
+
+    assert_null(node @? { replica_node.pub });
+    val replaced_node = node @ { .pubkey == node_pubkey };
+    assert_equals(replaced_node.host, "localhost");
+    assert_equals(replaced_node.port, 9870);
+    assert_equals(replaced_node.api_url, "http://localhost:7740");
+
+    assert_null(cluster_node @? { .node.pubkey == node_pubkey });
+    assert_not_null(cluster_replica_node @? { .node.pubkey == node_pubkey });
+    assert_false(get_signers_of_cluster_name(clusters.system).contains(replaced_node.pubkey));
+    assert_false(get_signers_of_cluster_name(clusters.system).contains(replica_node.pub));
+}
+
+function test_replace_node() {
+    val provider = rell.test.keypairs.alice;
+    rell.test.tx().op(initialize_test_module(provider.pub, test_node)).run();
+    assert_not_null(node @? { initial_signer.pub });
+
+    // 1. replace test_node by non-existent node2
+    val node2 = rell.test.keypairs.bob;
+    assert_not_null(node @? { initial_signer.pub });
+    // 1.2. replace test_node by node2
+    rell.test.tx().op(
+        replace_node_with_node_data(provider.pub, replace_node_data(old_node_key = initial_signer.pub, new_node_key = node2.pub, new_port = 123))
+    )
+    .sign(provider)
+    .sign(initial_signer)
+    .sign(node2)
+    .run();
+
+    // 1.3. asserts
+    assert_null(node @? { initial_signer.pub });
+    val new_node2 = node @? { node2.pub };
+    assert_not_null(new_node2);
+    assert_equals(new_node2.host, "localhost"); // From initialize_test_module
+    assert_equals(new_node2.port, 123);
+
+    assert_true(get_signers_of_cluster_name(clusters.system).contains(node2.pub));
+    assert_false(get_signers_of_cluster_name(clusters.system).contains(initial_signer.pub));
+
+    // 2. replace node2 by existent node3
+    // 2.1. register node3
+    val node3 = rell.test.keypairs.trudy;
+    rell.test.tx().op(
+        register_node_with_node_data(provider.pub, register_node_data(node3.pub, host = "node3", port = 7777, api_url = "http://node3/api_url"))
+    ).sign(provider).run();
+    assert_not_null(node @? { node3.pub });
+    // 2.2. replacing
+    rell.test.tx().op(
+        replace_node(provider.pub, node2.pub, node3.pub, null, null, null)
+    )
+    .sign(provider)
+    .sign(node2)
+    .sign(node3)
+    .run();
+
+    // 2.3. asserts
+    assert_null(node @? { node2.pub });
+    val new_node3 = node @ { node3.pub };
+    // host/port/api_url didn't change
+    assert_equals(new_node3.host, "node3");
+    assert_equals(new_node3.port, 7777);
+    assert_equals(new_node3.api_url, "http://node3/api_url");
+
+    assert_true(get_signers_of_cluster_name(clusters.system).contains(node3.pub));
+    assert_false(get_signers_of_cluster_name(clusters.system).contains(node2.pub));
+}
+
+function test_replace_node_and_keep_old_node_as_replica() {
+    val provider = rell.test.keypairs.alice;
+    rell.test.tx().op(initialize_test_module(provider.pub, test_node)).run();
+    assert_not_null(node @? { initial_signer.pub });
+
+    // replace test_node by non-existent node2
+    val node2 = rell.test.keypairs.bob;
+    assert_not_null(node @? { initial_signer.pub });
+    rell.test.tx().op(
+        replace_node_with_node_data_and_keep_old_node_as_replica(provider.pub, replace_node_data(old_node_key = initial_signer.pub, new_node_key = node2.pub, new_port = 123))
+    )
+        .sign(provider)
+        .sign(initial_signer)
+        .sign(node2)
+        .run();
+
+    // assert that old node still exists as a replica
+    val old_node = node @? { initial_signer.pub };
+    assert_not_null(old_node);
+    val new_node2 = node @? { node2.pub };
+    assert_not_null(new_node2);
+
+    assert_true(get_signers_of_cluster_name(clusters.system).contains(node2.pub));
+    assert_false(get_signers_of_cluster_name(clusters.system).contains(initial_signer.pub));
+    assert_true(get_replicas_of_cluster_name(clusters.system).contains(initial_signer.pub));
+}
+
+function test_update_node() {
+    setup_module();
+
+    val prov = initial_provider();
+    val before = _get_node_data(prov);
+
+    // Trivial update
+    rell.test.tx().op(
+        update_node_with_node_data(initial_provider.pub, update_node_data(pubkey = initial_signer.pub))
+    ).sign(initial_provider).run();
+    assert_equals(_get_node_data(prov), before);
+
+    // Updating cluster_units
+    rell.test.tx().op(
+        update_node_with_node_data(initial_provider.pub, update_node_data(pubkey = initial_signer.pub, cluster_units = 0))
+    ).sign(initial_provider).run_must_fail();
+
+    rell.test.tx().op(
+        update_node_with_node_data(initial_provider.pub, update_node_data(pubkey = initial_signer.pub, cluster_units = 2))
+    ).sign(initial_provider).run();
+
+    // Updating host:port
+    rell.test.tx().op(
+        update_node_with_node_data(initial_provider.pub, update_node_data(pubkey = initial_signer.pub, host = "new_host", port = 777))
+    ).sign(initial_provider).run();
+    assert_equals(
+        _get_node_data(prov),
+        ("new_host", 777, before[2], _prev_block_time(), 2)
+    );
+
+    // Updating with incorrect node url and fail
+    rell.test.tx().op(
+        update_node_with_node_data(initial_provider.pub, update_node_data(pubkey = initial_signer.pub, api_url = "http://localhost/api/v2/"))
+    ).sign(initial_provider).run_must_fail("URL must not end with /");
+
+    // Updating api_port
+    rell.test.tx().op(
+        update_node_with_node_data(initial_provider.pub, update_node_data(pubkey = initial_signer.pub, api_url = "http://localhost/api/v2"))
+    ).sign(initial_provider).run();
+    assert_equals(
+        _get_node_data(prov),
+        ("new_host", 777, "http://localhost/api/v2", _prev_block_time(), 2)
+    );
+}
+
+function test_remove_node() {
+    setup_module();
+
+    // setup
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true)
+    ).sign(initial_provider).run();
+
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(np1_node_key, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(node_provider1).run();
+
+    // asserts
+    // IP tries to remove NP1's node and fails
+    rell.test.tx().op(
+        remove_node(initial_provider.pub, np1_node_key)
+    ).sign(initial_provider).run_must_fail();
+
+    // NP1 tries to remove active node and fails
+    rell.test.tx().op(
+        remove_node(node_provider1.pub, np1_node_key)
+    ).sign(node_provider1).run_must_fail();
+
+    // NP1 disables the node and manages to remove it
+    rell.test.tx().op(
+        disable_node(node_provider1.pub, np1_node_key),
+        remove_node(node_provider1.pub, np1_node_key)
+    ).sign(node_provider1).run();
+    assert_true(empty(node @? { np1_node_key }));
+}
+
+function test_remove_cluster_node() {
+    setup_module();
+
+    // setup
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true),
+        create_cluster(initial_provider.pub, "cluster1", voter_sets.system_p, [initial_provider.pub, node_provider1.pub]),
+        create_cluster(initial_provider.pub, "cluster2", voter_sets.system_p, [initial_provider.pub, node_provider1.pub]),
+        create_cluster(initial_provider.pub, "cluster3", voter_sets.system_p, [initial_provider.pub]),
+        register_node_with_node_data(initial_provider.pub, register_node_data(np2_node_key, host = "host", port = 7777, api_url = "http://host/api_url", clusters=["cluster1", "cluster2", "cluster3"], cluster_units = 10)),
+    ).sign(initial_provider).run();
+
+    rell.test.tx().op(
+        register_node_with_node_data(node_provider1.pub, register_node_data(np1_node_key, host = "host", port = 7777, api_url = "http://host/api_url", clusters=["cluster1", "cluster2"], cluster_units = 10))
+    ).sign(node_provider1).run();
+
+    // asserts
+    // Cluster must exist
+    rell.test.tx().op(
+        remove_cluster_node(initial_provider.pub, "non-existing-cluster", np1_node_key)
+    ).sign(initial_provider).run_must_fail("Cluster non-existing-cluster not found");
+
+    // Node must be part of it
+    rell.test.tx().op(
+        remove_cluster_node(initial_provider.pub, "cluster3", np1_node_key)
+    ).sign(initial_provider).run_must_fail("Node is not part of this cluster");
+
+    // NP1 can't remove IPs nodes
+    rell.test.tx().op(
+        remove_cluster_node(node_provider1.pub, "cluster3", np2_node_key)
+    ).sign(node_provider1).run_must_fail("Non system provider is only allowed to remove own nodes");
+
+    assert_not_null(cluster_node @? { .node.pubkey == np1_node_key, .cluster.name == "cluster1" });
+    assert_not_null(cluster_node @? { .node.pubkey == np1_node_key, .cluster.name == "cluster2" });
+
+    // IP can remove NP1s node
+    rell.test.tx().op(
+        remove_cluster_node(initial_provider.pub, "cluster1", np1_node_key)
+    ).sign(initial_provider).run();
+
+    assert_null(cluster_node @? { .node.pubkey == np1_node_key, .cluster.name == "cluster1" });
+
+    // NP1s can remove its own node
+    rell.test.tx().op(
+        remove_cluster_node(node_provider1.pub, "cluster2", np1_node_key)
+    ).sign(node_provider1).run();
+
+    assert_null(cluster_node @? { .node.pubkey == np1_node_key, .cluster.name == "cluster2" });
+}
+
+function _get_node_data(provider)
+    = node @ { provider } ( _ = .host, _ = .port, _ = .api_url, _ = .last_updated, _ = .cluster_units );
+
+function _prev_block_time()
+    = (block @* { } ( @omit @sort_desc .block_height, .timestamp ) limit 2)[1];
+

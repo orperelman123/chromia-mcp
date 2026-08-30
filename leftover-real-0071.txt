@@ -1,0 +1,9 @@
+candidate_holes_from_buggy_finder 28
+encoded_urls 1254
+real_uncovered 0
+incomplete_count 1
+INCOMPLETE ('ChromiaRellLanguageHelp.kt', 'MODULES', True, False, False, 'https://docs.chromia.com/rell/language-features/modules/')
+live_docs_locs 384 live_learn_locs 247
+cached_docs_locs 384 cached_learn_locs 247
+resolve: leftover_index_resolve_0056.py complete_triples 648 candidates 0 real_holes 0
+finder_buggy_candidates: 28 (false positives; Class.CONST alias INDEX pairs cover them; leftover-find-0071.txt)

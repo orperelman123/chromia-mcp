@@ -1,10 +1,16 @@
 package org.chromia.tools.docs.fetcher
 
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.chromia.App.Companion.logger
 import org.chromia.safeDelete
+import kotlin.io.path.div
 
 class DocsFetcher {
     private val configParser: DocsConfigParser = DocsConfigParser()
@@ -14,21 +20,41 @@ class DocsFetcher {
 
     suspend fun fetchRepositories() = coroutineScope {
         logger.info("Fetching repositories --> ${docsConfig.repositories.map { it.name }}")
-        docsConfig.repositories
-            .chunked(docsSettings.concurrentFetches)
-            .flatMap { chunk ->
-                chunk.map {
-                    async { gitFetcher.fetchDocs(it) }
+        val limiter = Semaphore(docsSettings.concurrentFetches.coerceAtLeast(1))
+        docsConfig.repositories.map { repo ->
+            async(Dispatchers.IO) {
+                limiter.withPermit { gitFetcher.fetchDocs(repo) }
+            }
+        }.awaitAll()
+
+        HttpClient(CIO).use { sitemapClient ->
+            runCatching {
+                val written = SitemapDocsFetcher(
+                    sitemapUrl = docsSettings.sitemapUrl,
+                    concurrentFetches = docsSettings.concurrentFetches,
+                    client = sitemapClient
+                ).fetchInto(gitFetcher.tempDir / "docs-chromia-com")
+                if (written == 0) {
+                    logger.warn("Sitemap ingest produced no pages; continuing with git remotes only")
                 }
-            }.awaitAll()
+            }.onFailure { error ->
+                logger.warn("Sitemap ingest skipped: ${error.message}")
+            }
+        }
 
         gitFetcher.tempDir
     }
 
-    fun cleanDocs() = runCatching {
-        gitFetcher.tempDir.toFile().safeDelete()
-    }.fold(
-        onSuccess = { logger.info("temporary docs files deleted successfully") },
-        onFailure = { logger.error("Unable to delete temporary files: ${it.message}") }
-    )
+    fun cleanDocs() {
+        if (!docsSettings.cleanupOnExit) {
+            logger.info("Skipping temporary docs cleanup (cleanup_on_exit=false)")
+            return
+        }
+        runCatching {
+            gitFetcher.tempDir.toFile().safeDelete()
+        }.fold(
+            onSuccess = { logger.info("temporary docs files deleted successfully") },
+            onFailure = { logger.error("Unable to delete temporary files: ${it.message}") }
+        )
+    }
 }

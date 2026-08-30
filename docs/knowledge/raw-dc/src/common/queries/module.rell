@@ -1,0 +1,31 @@
+module;
+
+import ^.*;
+import cm_api.*;
+import model.*;
+import delay.*;
+
+struct module_args {
+    developers: gtv; //list<text>
+}
+
+/**
+ * Returns number of providers, clusters, containers, voter sets, nodes and blockchains.
+ */
+query get_summary() {
+    return (
+        providers = provider @{} (@sum 1),
+        clusters = cluster @{} (@sum 1),
+        containers = container @{} (@sum 1),
+        voter_sets = voter_set @{} (@sum 1),
+        nodes = node @{} (@sum 1),
+        blockchains = blockchain @{} (@sum 1)
+    );
+}
+
+/**
+ * Returns current developers of Core Team.
+ */
+query get_developers() {
+    return list<text>.from_gtv_pretty(chain_context.args.developers);
+}

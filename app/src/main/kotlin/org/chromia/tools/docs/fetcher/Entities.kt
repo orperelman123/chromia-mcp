@@ -33,10 +33,12 @@ data class DocumentationSettings(
     @SerialName("timeout_seconds")
     val timeoutSeconds: Int = 200,
     @SerialName("cleanup_on_exit")
-    val cleanupOnExit: Boolean = true
+    val cleanupOnExit: Boolean = true,
+    @SerialName("sitemap_url")
+    val sitemapUrl: String = "https://docs.chromia.com/sitemap.xml"
 )
 
-// TODO: Move `description` to DocumentationRepository to describe the purpose of docs in each repository.
+// Catalog-level description stays on MetaData; docs-repositories.json has no per-repo descriptions to move.
 @Serializable
 data class MetaData(
     @SerialName("last_updated")

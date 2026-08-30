@@ -1,0 +1,77 @@
+@extend(receive_icmf_message) function receive_configuration_failed(sender: byte_array, topic: text, body: gtv) {
+    if (topic != configuration_failed_topic) return;
+
+    val message = configuration_failed.from_gtv(body);
+
+    if (message.blockchain_rid == chain_context.blockchain_rid) {
+        log("Received failed configuration from chain %s for chain0 at height %d to %s, ignoring"
+            .format(sender, message.height, message.config_hash));
+        return;
+    }
+    val bc = blockchain @? { message.blockchain_rid };
+    if (bc == null) {
+        log("Unknown blockchain " + message.blockchain_rid);
+        return;
+    }
+
+    val cluster = get_cluster_for_blockchain(message.blockchain_rid);
+    val anchoring_chain = cluster_anchoring_chain @? { cluster } (.blockchain);
+    if (anchoring_chain == null) {
+        log("No anchoring chain for cluster %s".format(cluster.name));
+        return;
+    }
+    if (sender != anchoring_chain.rid and sender != system_anchoring_chain.rid) {
+        log("Received failed configuration from chain %s, which is not anchor chain for cluster %s".format(sender, cluster.name));
+        return;
+    }
+
+    val pending_configuration = pending_blockchain_configuration @?
+        { bc, .config_hash == message.config_hash, .minimum_height <= message.height };
+    if (pending_configuration == null) {
+        log("Configuration with hash %s and minimum_height<=%d not found for chain %s".format(message.config_hash, message.height, message.blockchain_rid));
+        return;
+    }
+
+    log("Deleting failed pending configuration with hash %s for chain %s".format(message.config_hash, message.blockchain_rid));
+
+    update blockchain_configuration_update_attempt @? { .config_hash == message.config_hash }
+        (state = blockchain_configuration_update_state.FAILED, applied_at_height = message.height);
+    create faulty_blockchain_configuration(
+        blockchain = bc,
+        config_hash = message.config_hash,
+        reported_at_height = message.height
+    );
+
+    // Retry signers update
+    if (pending_configuration.signers_update) {
+        log("Pending config %s with signer updates failed. Retrying.".format(pending_configuration.config_hash));
+        val excluded_signer = signer_excluded_from_pending_configuration
+                @? { bc, .config_hash == pending_configuration.config_hash };
+        val new_signers = pending_configuration.signers;
+        val unique_base_config = make_config_unique(get_latest_blockchain_configuration_data(bc).config);
+        val config_hash = calculate_configuration_hash(
+            unique_base_config,
+            list<byte_array>.from_gtv(gtv.from_bytes(new_signers))
+        );
+        val minimum_height = pending_configuration.minimum_height;
+
+        delete pending_configuration;
+        create pending_blockchain_configuration(
+            bc,
+            minimum_height,
+            config_hash = config_hash,
+            base_config = unique_base_config,
+            signers = new_signers,
+            signers_update = true
+        );
+
+        if (excluded_signer != null) {
+            create signer_excluded_from_pending_configuration(
+                bc, config_hash = config_hash, pubkey = excluded_signer.pubkey
+            );
+            delete excluded_signer;
+        }
+    } else {
+        delete pending_configuration;
+    }
+}

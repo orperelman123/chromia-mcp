@@ -17,23 +17,38 @@ import org.chromia.domain.JsonResult
 import org.chromia.domain.NetworkResult
 import org.chromia.domain.exceptions.HttpRequestException
 
-class HttpClientService(private val config: ChromiaConfig) {
+class HttpClientService(
+    private val config: ChromiaConfig,
+    httpClient: HttpClient? = null
+) {
+    constructor(config: ChromiaConfig, engine: io.ktor.client.engine.HttpClientEngine) : this(
+        config,
+        HttpClient(engine)
+    )
 
-    private val httpClient = HttpClient(CIO) {
-        install(ContentNegotiation) {
-            json(
-                Json {
-                    ignoreUnknownKeys = true
-                    isLenient = true
-                }
-            )
-        }
-        install(HttpTimeout) {
-            requestTimeoutMillis = config.httpTimeouts.requestTimeout.inWholeMilliseconds
-            connectTimeoutMillis = config.httpTimeouts.connectTimeout.inWholeMilliseconds
-        }
-        defaultRequest {
-            contentType(ContentType.Application.Json)
+    private val httpClient = httpClient ?: createProductionClient(config)
+
+    companion object {
+        /**
+         * CIO client used in production when no client/engine is injected.
+         * ContentNegotiation + HttpTimeout + JSON defaultRequest.
+         */
+        fun createProductionClient(config: ChromiaConfig): HttpClient = HttpClient(CIO) {
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        isLenient = true
+                    }
+                )
+            }
+            install(HttpTimeout) {
+                requestTimeoutMillis = config.httpTimeouts.requestTimeout.inWholeMilliseconds
+                connectTimeoutMillis = config.httpTimeouts.connectTimeout.inWholeMilliseconds
+            }
+            defaultRequest {
+                contentType(ContentType.Application.Json)
+            }
         }
     }
 
@@ -53,7 +68,7 @@ class HttpClientService(private val config: ChromiaConfig) {
                 when {
                     !response.status.isSuccess() -> {
                         val error = HttpRequestException(response.status.description, response.status.value)
-                        NetworkResult.Error(error.message!!)
+                        NetworkResult.Error(error.message!!, error)
                     }
 
                     else -> GraphQLResponseParser.parseResponse(response.body())

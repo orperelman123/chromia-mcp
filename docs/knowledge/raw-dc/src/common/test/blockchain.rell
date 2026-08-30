@@ -1,0 +1,253 @@
+@test module;
+
+import ^^.*;
+import ^.util.*;
+import ^.helper_operations.*;
+import ^^.operations.*;
+import ^^.queries.*;
+import ^^.test.ops.*;
+import ^^.test.setup.*;
+import nm_api.*;
+import proposal_blockchain.*;
+import proposal_container.*;
+import proposal_provider.*;
+
+function test_add_and_remove_blockchain_replica() {
+    setup_module();
+
+    val node_provider1 = rell.test.keypairs.bob;
+    val np1_node_key = x"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb6D21B6E98F0CCE20A0310B7A5";
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties().to_gtv().to_bytes(),
+            "foo_chain", "container1"),
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true)
+    ).sign(initial_provider).run();
+
+    rell.test.tx().op(
+        register_node(node_provider1.pub, np1_node_key, "host", 7777, "http://host/api_url")
+    ).sign(node_provider1).run();
+
+    val np1_node = node @ { np1_node_key };
+    val foo_chain = blockchain @ { "foo_chain" };
+
+    // adding blockchain replica node
+    rell.test.tx().op(
+        add_blockchain_replica(node_provider1.pub, foo_chain.rid, np1_node_key)
+    ).sign(node_provider1).run();
+    // adding the same again, must fail
+    rell.test.tx().op(
+        add_blockchain_replica(node_provider1.pub, foo_chain.rid, np1_node_key)
+    ).sign(node_provider1).run_must_fail();
+    // asserts
+    val db_replicas = blockchain_replica_node @* { foo_chain } (.node.pubkey);
+    assert_equals(db_replicas, [np1_node_key]);
+    val query_replicas = get_blockchain_replicas(foo_chain.rid);
+    assert_equals(query_replicas.size(), 1);
+    assert_equals(query_replicas[0][0], np1_node_key);
+
+    // removing blockchain replica node
+    rell.test.tx().op(
+        remove_blockchain_replica(node_provider1.pub, foo_chain.rid, np1_node_key)
+    ).sign(node_provider1).run();
+    // asserts
+    assert_true(empty(blockchain_replica_node @* { foo_chain } (.node.pubkey)));
+    assert_true(empty(get_blockchain_replicas(foo_chain.rid)));
+
+    // Testing requirement: Not my node
+    rell.test.tx().op(
+        add_blockchain_replica(initial_provider.pub, foo_chain.rid, np1_node_key),
+        remove_blockchain_replica(initial_provider.pub, foo_chain.rid, np1_node_key)
+    ).sign(initial_provider).run_must_fail();
+
+    // Test that disabled node can't be added as bc replica
+    rell.test.tx().op(
+        disable_node(node_provider1.pub, np1_node_key)
+    ).sign(node_provider1).run();
+
+    rell.test.tx().op(
+        rell.test.nop(),
+        add_blockchain_replica(node_provider1.pub, foo_chain.rid, np1_node_key)
+    ).sign(node_provider1).run_must_fail("Node not found or disabled");
+}
+
+function test_blockchain_dependencies() {
+    setup_module(provider_quota_max_containers = 2);
+
+    var foo_conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, foo_conf.to_gtv().to_bytes(),
+            "foo_chain", "container1")
+    ).sign(initial_provider).run();
+    val foo_chain = blockchain @ { "foo_chain" };
+
+    val list = list<(text, byte_array)>();
+    list.add(("", foo_chain.rid));
+    var feeConf = apply_required_configuration_properties();
+    feeConf["dependencies"] = list.to_gtv();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, feeConf.to_gtv().to_bytes(), "fee_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val foo_dependency = blockchain_dependency @ { .dependent_on == foo_chain, .height == 0 };
+    val fee_chain = blockchain @ { "fee_chain" };
+    assert_equals(foo_dependency.me, fee_chain);
+
+    // Assert that we can't remove chain with dependent chains
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, foo_chain.rid, blockchain_action.remove)
+    ).sign(initial_provider).run_must_fail();
+}
+
+function test_blockchain_dependencies_only_allowed_in_same_container() {
+    setup_module(provider_quota_max_containers = 3);
+
+    var foo_conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, foo_conf.to_gtv().to_bytes(),
+            "foo_chain", "container1")
+    ).sign(initial_provider).run();
+    val foo_chain = blockchain @ { "foo_chain" };
+
+    val list = list<(text, byte_array)>();
+    list.add(("", foo_chain.rid));
+    var feeConf = apply_required_configuration_properties();
+    feeConf["dependencies"] = list.to_gtv();
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container2", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, feeConf.to_gtv().to_bytes(),
+            "fee_chain", "container2")
+    ).sign(initial_provider).run_must_fail("Blockchain dependencies are only allowed within the same container");
+}
+
+function test_duplicate_blockchains() {
+    setup_module();
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties().to_gtv().to_bytes(),
+            "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val bc = blockchain @ { .name == "foo_chain" };
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties().to_gtv().to_bytes(),
+        "foo_chain2", "container1")
+    ).sign(initial_provider)
+        .run_must_fail("Another blockchain with same RID %s has previously been deployed to this network. Please ensure that the initial configuration is unique.".format(bc.rid));
+
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties(["test": (1).to_gtv()]).to_gtv().to_bytes(),
+        "foo_chain", "container1")
+    ).sign(initial_provider)
+        .run_must_fail("A blockchain with the same name already exists");
+
+    // Remove chain
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, bc.rid, blockchain_action.remove)
+    ).sign(initial_provider).run();
+
+    assert_null(blockchain @? { .name == "foo_chain", .state == blockchain_state.RUNNING });
+
+    // Same brid should still not be allowed
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties().to_gtv().to_bytes(),
+            "foo_chain2", "container1")
+    ).sign(initial_provider)
+        .run_must_fail("Another blockchain with same RID %s has previously been deployed to this network. Please ensure that the initial configuration is unique.".format(bc.rid));
+
+    // Same name should be allowed
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties(["test": (1).to_gtv()]).to_gtv().to_bytes(),
+        "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    assert_not_null(blockchain @? { .name == "foo_chain", .state == blockchain_state.RUNNING });
+}
+
+function test_set_latest_blockchain_configuration_values() {
+
+    setup_module();
+
+    var conf = apply_required_configuration_properties();
+    val config_delay = (10000).to_gtv();
+    val dc_config = [DIRECTORY_CHAIN_CONFIG_DELAY_CONFIG_KEY: config_delay].to_gtv();
+    conf[DIRECTORY_CHAIN_CONFIG_KEY] = dc_config;
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(),
+            "foo_chain", "container1")
+    ).sign(initial_provider).run();
+    val chain = blockchain @ { "foo_chain" };
+
+    assert_equals(latest_blockchain_configuration_values @ { chain } ( .config_delay ), 10000);
+}
+
+function test_set_latest_blockchain_configuration_values_update() {
+
+    test_set_latest_blockchain_configuration_values_default();
+    val chain = blockchain @ { "foo_chain" };
+
+    var conf = apply_required_configuration_properties();
+    val config_delay = (20000).to_gtv();
+    val dc_config = [DIRECTORY_CHAIN_CONFIG_DELAY_CONFIG_KEY: config_delay].to_gtv();
+    conf[DIRECTORY_CHAIN_CONFIG_KEY] = dc_config;
+
+    rell.test.tx().op(
+        set_latest_blockchain_configuration_values_op(chain, conf),
+    ).sign(initial_provider).run();
+
+
+    assert_equals(latest_blockchain_configuration_values @ { chain } ( .config_delay ), 20000);
+}
+
+function test_set_latest_blockchain_configuration_values_default() {
+
+    setup_module();
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        propose_blockchain(initial_provider.pub, apply_required_configuration_properties().to_gtv().to_bytes(),
+            "foo_chain", "container1")
+    ).sign(initial_provider).run();
+    val chain = blockchain @ { "foo_chain" };
+
+    assert_equals(latest_blockchain_configuration_values @ { chain } ( .config_delay ), 0);
+}
+
+function test_generate_config_hash_based_on_hash_version() {
+    setup_module();
+
+    // Test v1 case
+    val config_v1 = apply_required_configuration_properties(["features": ["merkle_hash_version": 1].to_gtv(), "conflict": [["a"]].to_gtv()]);
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        add_blockchain_op(config_v1.to_gtv().to_bytes(), [], "v1_chain", container @ {}, false),
+    ).sign(initial_provider).run();
+
+    val v1_chain_rid = blockchain @ { "v1_chain" }.rid;
+    val v1_chain_raw_config = gtv.from_bytes(nm_get_blockchain_configuration(v1_chain_rid, 0)!!);
+    val v1_chain_config_hash_v1 = gtv.legacy_hash(v1_chain_raw_config, 1);
+    val v1_chain_config_hash_v2 = gtv.legacy_hash(v1_chain_raw_config, 2);
+    assert_not_equals(v1_chain_config_hash_v1, v1_chain_config_hash_v2);
+    assert_equals(v1_chain_rid, v1_chain_config_hash_v1);
+
+    // Test v2 case
+    val config_v2 = apply_required_configuration_properties(["features": ["merkle_hash_version": 2].to_gtv(), "conflict": [["a"]].to_gtv()]);
+    rell.test.tx().op(
+        add_blockchain_op(config_v2.to_gtv().to_bytes(), [], "v2_chain", container @ { "container1" } , false),
+    ).sign(initial_provider).run();
+
+    val v2_chain_rid = blockchain @ { "v2_chain" }.rid;
+    val v2_chain_raw_config = gtv.from_bytes(nm_get_blockchain_configuration(v2_chain_rid, 0)!!);
+    val v2_chain_config_hash_v1 = gtv.legacy_hash(v2_chain_raw_config, 1);
+    val v2_chain_config_hash_v2 = gtv.legacy_hash(v2_chain_raw_config, 2);
+    assert_not_equals(v2_chain_config_hash_v1, v2_chain_config_hash_v2);
+    assert_equals(v2_chain_rid, v2_chain_config_hash_v2);
+}

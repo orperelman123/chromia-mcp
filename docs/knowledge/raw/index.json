@@ -1,0 +1,4250 @@
+[
+  {
+    "file": "courses__big-data__blockchain-side-description.html",
+    "title": "Blockchain components",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/big-data/python-side-description",
+        "Lesson 5 - Explore Python components"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/big-data/project-run",
+        "Lesson 3 - Run your project"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/setup/ft4-setup",
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://docs.chromia.com/rell/core-concepts#entity-definitions",
+      "https://docs.chromia.com/rell/core-concepts#operations",
+      "https://docs.chromia.com/rell/core-concepts#queries",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3607
+  },
+  {
+    "file": "courses__big-data__introduction.html",
+    "title": "Big data analysis with Chromia blockchain and PySpark",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/big-data/setup",
+        "Lesson 1 - Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com/rell/rell-intro",
+      "https://bitbucket.org/chromawallet/big-data-spark/src/main/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1405
+  },
+  {
+    "file": "courses__big-data__project-launch.html",
+    "title": "Prepare the project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/big-data/project-run",
+        "Lesson 3 - Run your project"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/big-data/setup",
+        "Lesson 1 - Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 609
+  },
+  {
+    "file": "courses__big-data__project-run.html",
+    "title": "Run the project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/big-data/blockchain-side-description",
+        "Lesson 4 - Explore the blockchain components"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/big-data/project-launch",
+        "Lesson 2 - Prepare your project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1140
+  },
+  {
+    "file": "courses__big-data__python-side-description.html",
+    "title": "Python components",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/big-data/blockchain-side-description",
+        "Lesson 4 - Explore the blockchain components"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3830
+  },
+  {
+    "file": "courses__big-data__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/big-data/project-launch",
+        "Lesson 2 - Prepare your project"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/big-data/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://bitbucket.org/chromawallet/big-data-spark/src/main/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://bitbucket.org/chromawallet/big-data-spark/src/main/</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 11349
+  },
+  {
+    "file": "courses__book-review__blockchain-transactions.html",
+    "title": "Lesson 5 - Understand blockchain state and transactions",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/blockchain-transactions/query-transaction",
+        "Understanding blockchain state and transactions"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/sign-transaction/structure",
+        "Using filters and sorting in queries"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 963
+  },
+  {
+    "file": "courses__book-review__blockchain-transactions__example.html",
+    "title": "Let&#x27;s look at an example",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/build-client/",
+        "Lesson 6 - Build the client"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/blockchain-transactions/query-transaction",
+        "Understanding blockchain state and transactions"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/cli/key-pair-management#key-pair-reading-flow",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6168
+  },
+  {
+    "file": "courses__book-review__blockchain-transactions__query-transaction.html",
+    "title": "Understanding blockchain state and transactions",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/blockchain-transactions/example",
+        "Let&#x27;s look at an example"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/blockchain-transactions/",
+        "Lesson 5 - Understand blockchain state and transactions"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/language-features/systemlib/system-entities",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3084
+  },
+  {
+    "file": "courses__book-review__book-entity.html",
+    "title": "Lesson 1 - Create your first entity",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-entity/tables",
+        "Create your first entity"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/rell-structure",
+        "Rell project structure"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 701
+  },
+  {
+    "file": "courses__book-review__book-entity__basic-operations.html",
+    "title": "Add your first operation",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-entity/write-queries",
+        "Write a query to retrieve all books"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-entity/tables",
+        "Create your first entity"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3645
+  },
+  {
+    "file": "courses__book-review__book-entity__tables.html",
+    "title": "Create your first entity",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-entity/basic-operations",
+        "Add your first operation"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-entity/",
+        "Lesson 1 - Create your first entity"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1250
+  },
+  {
+    "file": "courses__book-review__book-entity__write-queries.html",
+    "title": "Write a query to retrieve all books",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-review-entity/",
+        "Lesson 2 - Create a related entity"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-entity/basic-operations",
+        "Add your first operation"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3578
+  },
+  {
+    "file": "courses__book-review__book-review-entity.html",
+    "title": "Lesson 2 - Create a related entity",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-review-entity/tables",
+        "Defining the book review entity"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-entity/write-queries",
+        "Write a query to retrieve all books"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 869
+  },
+  {
+    "file": "courses__book-review__book-review-entity__basic-operations.html",
+    "title": "Adding an operation to create a book review",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-review-entity/write-queries",
+        "Write a query to retrieve all reviews of a book"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-review-entity/tables",
+        "Defining the book review entity"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4807
+  },
+  {
+    "file": "courses__book-review__book-review-entity__tables.html",
+    "title": "Defining the book review entity",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-review-entity/basic-operations",
+        "Adding an operation to create a book review"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-review-entity/",
+        "Lesson 2 - Create a related entity"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2085
+  },
+  {
+    "file": "courses__book-review__book-review-entity__write-queries.html",
+    "title": "Write a query to retrieve all reviews of a book",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/input-verification/",
+        "Lesson 3 - Verify and validate inputs"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-review-entity/basic-operations",
+        "Adding an operation to create a book review"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2269
+  },
+  {
+    "file": "courses__book-review__build-client.html",
+    "title": "Lesson 6 - Build the client",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/build-client/prerequisites",
+        "Prerequisites"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/blockchain-transactions/example",
+        "Let&#x27;s look at an example"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1038
+  },
+  {
+    "file": "courses__book-review__build-client__complete-example.html",
+    "title": "Complete the example",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/what-next",
+        "What\u2019s next?"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/build-client/query-blockchain",
+        "Querying the blockchain with postchain-client"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3189
+  },
+  {
+    "file": "courses__book-review__build-client__prerequisites.html",
+    "title": "Prerequisites",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/build-client/sign-transaction",
+        "Connecting to the Chromia blockchain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/build-client/",
+        "Lesson 6 - Build the client"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2597
+  },
+  {
+    "file": "courses__book-review__build-client__query-blockchain.html",
+    "title": "Querying the blockchain with postchain-client",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/build-client/complete-example",
+        "Complete the example"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/build-client/sign-transaction",
+        "Connecting to the Chromia blockchain"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2386
+  },
+  {
+    "file": "courses__book-review__build-client__sign-transaction.html",
+    "title": "Connecting to the Chromia blockchain",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/build-client/query-blockchain",
+        "Querying the blockchain with postchain-client"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/build-client/prerequisites",
+        "Prerequisites"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/cli/commands/keygen",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6530
+  },
+  {
+    "file": "courses__book-review__input-verification.html",
+    "title": "Lesson 3 - Verify and validate inputs",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/input-verification/input-verification",
+        "Verify inputs"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/book-review-entity/write-queries",
+        "Write a query to retrieve all reviews of a book"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 844
+  },
+  {
+    "file": "courses__book-review__input-verification__input-verification.html",
+    "title": "Verify inputs",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/input-verification/structure",
+        "Adding structured results from queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/input-verification/",
+        "Lesson 3 - Verify and validate inputs"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/language-features/systemlib/require-function",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2628
+  },
+  {
+    "file": "courses__book-review__input-verification__structure.html",
+    "title": "Adding structured results from queries",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/sign-transaction/",
+        "Lesson 4 - Sign a transaction and filter queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/input-verification/input-verification",
+        "Verify inputs"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3301
+  },
+  {
+    "file": "courses__book-review__introduction.html",
+    "title": "Build your first app with Rell on Chromia",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/setup",
+        "Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com",
+      "https://docs.chromia.com/intro/about/architecture/node",
+      "https://docs.chromia.com/intro/about/dapp",
+      "https://docs.chromia.com/rell/language-features/",
+      "https://bitbucket.org/chromawallet/book-course",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2474
+  },
+  {
+    "file": "courses__book-review__rell-structure.html",
+    "title": "Rell project structure",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/book-entity/",
+        "Lesson 1 - Create your first entity"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/setup",
+        "Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/rell-intro",
+      "https://docs.chromia.com/rell/language-features/modules/entity",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2566
+  },
+  {
+    "file": "courses__book-review__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/rell-structure",
+        "Rell project structure"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 10434
+  },
+  {
+    "file": "courses__book-review__sign-transaction.html",
+    "title": "Lesson 4 - Sign a transaction and filter queries",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/sign-transaction/sign-transaction",
+        "Sign a transaction"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/input-verification/structure",
+        "Adding structured results from queries"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 733
+  },
+  {
+    "file": "courses__book-review__sign-transaction__sign-transaction.html",
+    "title": "Sign a transaction",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/sign-transaction/structure",
+        "Using filters and sorting in queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/sign-transaction/",
+        "Lesson 4 - Sign a transaction and filter queries"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/intro/getting-started/installation/cli-installation#updating-chromia-cli",
+      "https://docs.chromia.com/intro/configuration/project-config",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 8228
+  },
+  {
+    "file": "courses__book-review__sign-transaction__structure.html",
+    "title": "Using filters and sorting in queries",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/book-review/blockchain-transactions/",
+        "Lesson 5 - Understand blockchain state and transactions"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/book-review/sign-transaction/sign-transaction",
+        "Sign a transaction"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 5140
+  },
+  {
+    "file": "courses__book-review__what-next.html",
+    "title": "What\u2019s next?",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/book-review/build-client/complete-example",
+        "Complete the example"
+      ]
+    ],
+    "official_links": [
+      "https://discord.com/invite/chromia?ref=learn.chromia.com",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 962
+  },
+  {
+    "file": "courses__chat-agent-course__configure-api-key.html",
+    "title": "Configure your API key",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chat-agent-course/test-your-setup",
+        "Test your setup"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/chat-agent-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2485
+  },
+  {
+    "file": "courses__chat-agent-course__explore-and-extend.html",
+    "title": "Explore and extend",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/chat-agent-course/test-your-setup",
+        "Test your setup"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/chat-agent-course/src/main/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2769
+  },
+  {
+    "file": "courses__chat-agent-course__introduction.html",
+    "title": "Create your chat agent with Chromia",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chat-agent-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com",
+      "https://bitbucket.org/chromawallet/chat-agent-course",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2270
+  },
+  {
+    "file": "courses__chat-agent-course__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chat-agent-course/configure-api-key",
+        "Configure your API key"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/chat-agent-course/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://bitbucket.org/chromawallet/chat-agent-course.git",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://bitbucket.org/chromawallet/chat-agent-course.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 10731
+  },
+  {
+    "file": "courses__chat-agent-course__test-your-setup.html",
+    "title": "Test your setup",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chat-agent-course/explore-and-extend",
+        "Explore and extend"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/chat-agent-course/configure-api-key",
+        "Configure your API key"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2101
+  },
+  {
+    "file": "courses__chromia-goat-chat-agent__codebase-overview.html",
+    "title": "Code walkthrough",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/chromia-goat-chat-agent/explore-agent",
+        "Lesson 2 - Explore the chat agent"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 5587
+  },
+  {
+    "file": "courses__chromia-goat-chat-agent__explore-agent.html",
+    "title": "Explore the chat agent",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chromia-goat-chat-agent/codebase-overview",
+        "Lesson 3 - Code walkthrough"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/chromia-goat-chat-agent/setup",
+        "Lesson 1 - Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2558
+  },
+  {
+    "file": "courses__chromia-goat-chat-agent__introduction.html",
+    "title": "AI chat agent for Chromia transactions",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chromia-goat-chat-agent/setup",
+        "Lesson 1 - Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/chromia-goat-demo",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 921
+  },
+  {
+    "file": "courses__chromia-goat-chat-agent__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/chromia-goat-chat-agent/explore-agent",
+        "Lesson 2 - Explore the chat agent"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/chromia-goat-chat-agent/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/chromia-goat-demo.gitcd",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://bitbucket.org/chromawallet/chromia-goat-demo.git</span><br></span><span",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1512
+  },
+  {
+    "file": "courses__ft4-asset__asset-operations.html",
+    "title": "Asset functions, operations &amp; queries",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-asset/testing",
+        "Lesson 3 - Testing"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-asset/ft4-basics",
+        "Lesson 1 - Asset basics"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 5075
+  },
+  {
+    "file": "courses__ft4-asset__consideration-recomendations.html",
+    "title": "Considerations and recommendations",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/ft4-asset/testing",
+        "Lesson 3 - Testing"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/ft4/backend/accounts/",
+      "https://docs.chromia.com/intro/getting-started/testnet/",
+      "https://docs.chromia.com/intro/deployment/",
+      "https://docs.chromia.com/ft4/client/client-setup",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1043
+  },
+  {
+    "file": "courses__ft4-asset__ft4-basics.html",
+    "title": "Asset basics",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-asset/asset-operations",
+        "Lesson 2 - Asset functions, operations &amp; queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-asset/setup",
+        "Project setup and configuration"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2272
+  },
+  {
+    "file": "courses__ft4-asset__introduction.html",
+    "title": "Asset management",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-asset/setup",
+        "Project setup and configuration"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/ft4/backend/assets/",
+      "https://bitbucket.org/chromawallet/ft4-course/src/main/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1401
+  },
+  {
+    "file": "courses__ft4-asset__setup.html",
+    "title": "Project setup and configuration",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-asset/ft4-basics",
+        "Lesson 1 - Asset basics"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-asset/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 12048
+  },
+  {
+    "file": "courses__ft4-asset__testing.html",
+    "title": "Testing",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-asset/consideration-recomendations",
+        "Considerations and recommendations"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-asset/asset-operations",
+        "Lesson 2 - Asset functions, operations &amp; queries"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/ft4-course/src/main/",
+      "https://docs.chromia.com/ft4/account-management/auth-descriptors#built-in-authorization-flags",
+      "https://docs.chromia.com/ft4/backend/assets/locking-assets#lock-account-overview",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3698
+  },
+  {
+    "file": "courses__ft4-demo-app__introduction.html",
+    "title": "Build an asset management system with FT4",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-init/",
+        "Module 1 - Init Fullstack application"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/dapp-templates/src/main/asset_management/",
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/ft4/account-management/",
+      "https://docs.chromia.com/ft4/asset-management/",
+      "https://docs.chromia.com/intro/dapp",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1442
+  },
+  {
+    "file": "courses__ft4-demo-app__module-blockchain.html",
+    "title": "Module 2 - Blockchain dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/setup",
+        "Lesson 1 - Configure the Blockchain dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-init/setup-application",
+        "Set up the Fullstack application"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 748
+  },
+  {
+    "file": "courses__ft4-demo-app__module-blockchain__account-management.html",
+    "title": "Account management",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/asset-registration",
+        "Lesson 3 - Asset Registration"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/setup",
+        "Lesson 1 - Configure the Blockchain dapp"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/ft4/backend/accounts/overview#account-registration-framework",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1674
+  },
+  {
+    "file": "courses__ft4-demo-app__module-blockchain__asset-registration.html",
+    "title": "Asset Registration and Minting",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/test",
+        "Lesson 4 - Test"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/account-management",
+        "Lesson 2 - Account Management"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/language-features/modules/namespace",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2080
+  },
+  {
+    "file": "courses__ft4-demo-app__module-blockchain__setup.html",
+    "title": "Lesson 1 - Configure the Blockchain dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/account-management",
+        "Lesson 2 - Account Management"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/",
+        "Module 2 - Blockchain dapp"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1362
+  },
+  {
+    "file": "courses__ft4-demo-app__module-blockchain__test.html",
+    "title": "Testing the Asset Management System",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/",
+        "Module 3 - Frontend application"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/asset-registration",
+        "Lesson 3 - Asset Registration"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 8256
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application.html",
+    "title": "Module 3 - Frontend application",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/setup",
+        "Lesson 1 - Set up the Frontend Application"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/test",
+        "Lesson 4 - Test"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1192
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__account-regisration.html",
+    "title": "Lesson 3 - Account Registration",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/register-and-mint",
+        "Lesson 4 - Register and Mint"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/tools",
+        "Lesson 2 - Chromia tools"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2024
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__burn.html",
+    "title": "Lesson 5 - Burn Tokens",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/transfer",
+        "Lesson 6 - Transfer asset"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/register-and-mint",
+        "Lesson 4 - Register and Mint"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1211
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__deploy-onchain.html",
+    "title": "Lesson 7 - Deploy onchain",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/transfer",
+        "Lesson 6 - Transfer asset"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/intro/deployment/frontend-application/deploy-on-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 437
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__register-and-mint.html",
+    "title": "Lesson 4 - Register and Mint",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/burn",
+        "Lesson 5 - Burn Tokens"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/account-regisration",
+        "Lesson 3 - Account Registration"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2313
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__setup.html",
+    "title": "Lesson 1 - Set up the Frontend Application",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/tools",
+        "Lesson 2 - Chromia tools"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/",
+        "Module 3 - Frontend application"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 925
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__tools.html",
+    "title": "Lesson 2 - Chromia tools",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/account-regisration",
+        "Lesson 3 - Account Registration"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/setup",
+        "Lesson 1 - Set up the Frontend Application"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/client/client-key-store#keystore-interface",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 805
+  },
+  {
+    "file": "courses__ft4-demo-app__module-frontend-application__transfer.html",
+    "title": "Lesson 6 - Transfer asset",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/deploy-onchain",
+        "Lesson 7 - Deploy onchain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-frontend-application/burn",
+        "Lesson 5 - Burn Tokens"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2542
+  },
+  {
+    "file": "courses__ft4-demo-app__module-init.html",
+    "title": "Module 1 - Init Fullstack application",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-init/setup-application",
+        "Set up the Fullstack application"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/introduction",
+        "Course Overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 473
+  },
+  {
+    "file": "courses__ft4-demo-app__module-init__setup-application.html",
+    "title": "Set up the Fullstack application",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/ft4-demo-app/module-blockchain/",
+        "Module 2 - Blockchain dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/ft4-demo-app/module-init/",
+        "Module 1 - Init Fullstack application"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 10551
+  },
+  {
+    "file": "courses__iccf-course__digital-warehouse-chain.html",
+    "title": "Digital warehouse chain",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/iccf-course/manual-testing",
+        "Lesson 4 - Test the dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/iccf-course/subscription-chain",
+        "Lesson 2 - Subscription chain"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core/directory-chain</span><br></span><span",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 12540
+  },
+  {
+    "file": "courses__iccf-course__introduction.html",
+    "title": "Confirm Events Across Blockchains",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/iccf-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com/intro/about/protocols/icmf",
+      "https://docs.chromia.com/intro/cross-chain/icmf",
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/intro/getting-started/create-dapp/",
+      "https://bitbucket.org/chromawallet/iccf-course",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4827
+  },
+  {
+    "file": "courses__iccf-course__manual-testing.html",
+    "title": "Testing the dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/iccf-course/digital-warehouse-chain",
+        "Lesson 3 - Digital warehouse chain"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4701
+  },
+  {
+    "file": "courses__iccf-course__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/iccf-course/system-overview",
+        "Lesson 1 - System overview"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/iccf-course/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://gitlab.com/chromaway/core/directory-chain</span><br></span><span",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 12028
+  },
+  {
+    "file": "courses__iccf-course__subscription-chain.html",
+    "title": "Subscription chain",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/iccf-course/digital-warehouse-chain",
+        "Lesson 3 - Digital warehouse chain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/iccf-course/system-overview",
+        "Lesson 1 - System overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core/directory-chain</span><br></span><span",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 7415
+  },
+  {
+    "file": "courses__iccf-course__system-overview.html",
+    "title": "System overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/iccf-course/subscription-chain",
+        "Lesson 2 - Subscription chain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/iccf-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2249
+  },
+  {
+    "file": "courses__icmf-course__defining-messages.html",
+    "title": "Define messages",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/icmf-course/order-chain",
+        "Lesson 2 - Order chain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/icmf-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1776
+  },
+  {
+    "file": "courses__icmf-course__delivery-chain.html",
+    "title": "Delivery chain (receive message)",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/icmf-course/factory-chain",
+        "Lesson 4 - Factory chain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/icmf-course/order-chain",
+        "Lesson 2 - Order chain"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 8019
+  },
+  {
+    "file": "courses__icmf-course__factory-chain.html",
+    "title": "Factory chain (send and receive)",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/icmf-course/manual-testing",
+        "Lesson 5 - Test the dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/icmf-course/delivery-chain",
+        "Lesson 3 - Delivery chain"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6349
+  },
+  {
+    "file": "courses__icmf-course__introduction.html",
+    "title": "Build an event-driven multi-blockchain dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/icmf-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com/intro/cross-chain/icmf",
+      "https://docs.chromia.com/intro/cross-chain/iccf",
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/intro/getting-started/",
+      "https://bitbucket.org/chromawallet/icmf-course",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 5235
+  },
+  {
+    "file": "courses__icmf-course__manual-testing.html",
+    "title": "Test the dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/icmf-course/factory-chain",
+        "Lesson 4 - Factory chain"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2789
+  },
+  {
+    "file": "courses__icmf-course__order-chain.html",
+    "title": "Order chain (send message)",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/icmf-course/delivery-chain",
+        "Lesson 3 - Delivery chain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/icmf-course/defining-messages",
+        "Lesson 1 - Define messages"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 8143
+  },
+  {
+    "file": "courses__icmf-course__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/icmf-course/defining-messages",
+        "Lesson 1 - Define messages"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/icmf-course/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 13539
+  },
+  {
+    "file": "courses__marketplace-course__introduction.html",
+    "title": "Build a decentralized marketplace using FT4",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://bitbucket.org/chromawallet/marketplace-course",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 884
+  },
+  {
+    "file": "courses__marketplace-course__module-assets.html",
+    "title": "Module 3 - Build a marketplace",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-assets/buy-mystery-card",
+        "Lesson 1 - Add a fee for buying a mystery card"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-nft/randomness",
+        "Lesson 3 - Add randomness to the card"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 846
+  },
+  {
+    "file": "courses__marketplace-course__module-assets__buy-listed-card.html",
+    "title": "Purchase a card from the marketplace",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-assets/test-marketplace",
+        "Lesson 4 - Test our marketplace"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-assets/list-card",
+        "Lesson 2 - List a card for sale on the marketplace"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1277
+  },
+  {
+    "file": "courses__marketplace-course__module-assets__buy-mystery-card.html",
+    "title": "Add a fee for buying a mystery card",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-assets/list-card",
+        "Lesson 2 - List a card for sale on the marketplace"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-assets/",
+        "Module 3 - Build a marketplace"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3825
+  },
+  {
+    "file": "courses__marketplace-course__module-assets__list-card.html",
+    "title": "List a card for sale on the marketplace",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-assets/buy-listed-card",
+        "Lesson 3 - Purchase a card from the marketplace"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-assets/buy-mystery-card",
+        "Lesson 1 - Add a fee for buying a mystery card"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2671
+  },
+  {
+    "file": "courses__marketplace-course__module-assets__test-cli.html",
+    "title": "Test using Chromia CLI",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-assets/test-marketplace",
+        "Lesson 4 - Test our marketplace"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/cli/introduction",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4993
+  },
+  {
+    "file": "courses__marketplace-course__module-assets__test-marketplace.html",
+    "title": "Test our marketplace",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-assets/test-cli",
+        "Lesson 5 - Test using Chromia CLI"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-assets/buy-listed-card",
+        "Lesson 3 - Purchase a card from the marketplace"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3533
+  },
+  {
+    "file": "courses__marketplace-course__module-ft4.html",
+    "title": "Module 1 - Register accounts and assets",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-ft4/register-token",
+        "Lesson 1 - Register payment token"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/setup",
+        "Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 507
+  },
+  {
+    "file": "courses__marketplace-course__module-ft4__register-account.html",
+    "title": "Create user accounts",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-nft/",
+        "Module 2 - Build NFT model in Rell"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-ft4/register-token",
+        "Lesson 1 - Register payment token"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3389
+  },
+  {
+    "file": "courses__marketplace-course__module-ft4__register-token.html",
+    "title": "Register payment token",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-ft4/register-account",
+        "Lesson 2 - Create user accounts"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-ft4/",
+        "Module 1 - Register accounts and assets"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1196
+  },
+  {
+    "file": "courses__marketplace-course__module-nft.html",
+    "title": "Module 2 - Build NFT model in Rell",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-nft/nft",
+        "Lesson 1 - Define the NFT model"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-ft4/register-account",
+        "Lesson 2 - Create user accounts"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 687
+  },
+  {
+    "file": "courses__marketplace-course__module-nft__mint-nfts.html",
+    "title": "Mint NFTs",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-nft/randomness",
+        "Lesson 3 - Add randomness to the card"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-nft/nft",
+        "Lesson 1 - Define the NFT model"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2455
+  },
+  {
+    "file": "courses__marketplace-course__module-nft__nft.html",
+    "title": "Define the NFT model",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-nft/mint-nfts",
+        "Lesson 2 - Mint NFTs"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-nft/",
+        "Module 2 - Build NFT model in Rell"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1721
+  },
+  {
+    "file": "courses__marketplace-course__module-nft__randomness.html",
+    "title": "Add randomness to the card",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-assets/",
+        "Module 3 - Build a marketplace"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/module-nft/mint-nfts",
+        "Lesson 2 - Mint NFTs"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3502
+  },
+  {
+    "file": "courses__marketplace-course__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/marketplace-course/module-ft4/",
+        "Module 1 - Register accounts and assets"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/marketplace-course/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 11389
+  },
+  {
+    "file": "courses__monetize-dapp__account-registration.html",
+    "title": "Account registration",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/monetize-dapp/open",
+        "Lesson 4 - Open strategy"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/monetize-dapp/setup",
+        "Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1401
+  },
+  {
+    "file": "courses__monetize-dapp__introduction.html",
+    "title": "Monetize your dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/monetize-dapp/setup",
+        "Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 901
+  },
+  {
+    "file": "courses__monetize-dapp__open.html",
+    "title": "Open strategy",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/monetize-dapp/transfer",
+        "Lesson 5 - Transfer strategies"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/monetize-dapp/account-registration",
+        "Account registration"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/open/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/open/rell/src/test/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/open/rell/chromia.yml",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1624
+  },
+  {
+    "file": "courses__monetize-dapp__setup.html",
+    "title": "Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/monetize-dapp/account-registration",
+        "Account registration"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/monetize-dapp/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 11655
+  },
+  {
+    "file": "courses__monetize-dapp__transfer.html",
+    "title": "Transfer strategies",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/monetize-dapp/open",
+        "Lesson 4 - Open strategy"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_open/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_open/rell/chromia.yml",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_fee/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_fee/rell/chromia.yml",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_subscription/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_subscription/rell/chromia.yml",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_open/rell/src/test/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_fee/rell/src/test/",
+      "https://bitbucket.org/chromawallet/fee-samples/src/main/transfer_subscription/rell/src/test/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 8375
+  },
+  {
+    "file": "courses__my-news-feed__introduction.html",
+    "title": "A simple app on Chromia is created using Rell, React, and FT4",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/setup",
+        "The project is set up"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/news-course",
+      "https://docs.chromia.com/rell/language-features/",
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/intro/getting-started/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2221
+  },
+  {
+    "file": "courses__my-news-feed__module-one.html",
+    "title": "Module 1 - Create a Rell backend app with FT accounts",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/data-modeling/",
+        "Lesson 1 - Database schema"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/setup",
+        "The project is set up"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1200
+  },
+  {
+    "file": "courses__my-news-feed__module-one__create-accounts.html",
+    "title": "Lesson 2 - Create accounts",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/create-accounts/install-configure-ft4",
+        "FT4 accounts configuration"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/data-modeling/model",
+        "Implement the model in Rell"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 783
+  },
+  {
+    "file": "courses__my-news-feed__module-one__create-accounts__authentication.html",
+    "title": "Authentication with FT4 accounts",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/operations-queries/",
+        "Lesson 3 - Explore operations and queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/create-accounts/install-configure-ft4",
+        "FT4 accounts configuration"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/backend/authentication/auth#the-authenticate-function",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1529
+  },
+  {
+    "file": "courses__my-news-feed__module-one__create-accounts__install-configure-ft4.html",
+    "title": "FT4 accounts configuration",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/create-accounts/authentication",
+        "Authentication with FT4 accounts"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/create-accounts/",
+        "Lesson 2 - Create accounts"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/ft4-lib.git",
+      "https://gitlab.com/chromaway/core/directory-chain",
+      "https://docs.chromia.com/ft4/intro",
+      "https://docs.chromia.com/intro/configuration/project-structure",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3119
+  },
+  {
+    "file": "courses__my-news-feed__module-one__data-modeling.html",
+    "title": "Lesson 1 - Database schema",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/data-modeling/tables",
+        "The data model"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/",
+        "Module 1 - Create a Rell backend app with FT accounts"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 775
+  },
+  {
+    "file": "courses__my-news-feed__module-one__data-modeling__model.html",
+    "title": "Implement the model in Rell",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/create-accounts/",
+        "Lesson 2 - Create accounts"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/data-modeling/tables",
+        "The data model"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2399
+  },
+  {
+    "file": "courses__my-news-feed__module-one__data-modeling__tables.html",
+    "title": "The data model",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/data-modeling/model",
+        "Implement the model in Rell"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/data-modeling/",
+        "Lesson 1 - Database schema"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 674
+  },
+  {
+    "file": "courses__my-news-feed__module-one__input-verification.html",
+    "title": "Lesson 4 - Input verification and validation",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/input-verification/input-verification",
+        "Verify inputs"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/operations-queries/write-queries",
+        "Basic queries"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 829
+  },
+  {
+    "file": "courses__my-news-feed__module-one__input-verification__input-verification.html",
+    "title": "Verify inputs",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/input-verification/tests",
+        "Run unit tests"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/input-verification/",
+        "Lesson 4 - Input verification and validation"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/language-features/systemlib/require-function",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2546
+  },
+  {
+    "file": "courses__my-news-feed__module-one__input-verification__tests.html",
+    "title": "Run unit tests",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/project-structure/",
+        "Lesson 5 - Project structure of the dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/input-verification/input-verification",
+        "Verify inputs"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3139
+  },
+  {
+    "file": "courses__my-news-feed__module-one__operations-queries.html",
+    "title": "Lesson 3 - Explore operations and queries",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/operations-queries/basic-operations",
+        "Basic operations"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/create-accounts/authentication",
+        "Authentication with FT4 accounts"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1081
+  },
+  {
+    "file": "courses__my-news-feed__module-one__operations-queries__basic-operations.html",
+    "title": "Basic operations",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/operations-queries/write-queries",
+        "Basic queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/operations-queries/",
+        "Lesson 3 - Explore operations and queries"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6984
+  },
+  {
+    "file": "courses__my-news-feed__module-one__operations-queries__write-queries.html",
+    "title": "Basic queries",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/input-verification/",
+        "Lesson 4 - Input verification and validation"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/operations-queries/basic-operations",
+        "Basic operations"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/language-features/modules/struct",
+      "https://docs.chromia.com/rell/language-features/modules/struct#structmutable-t",
+      "https://docs.chromia.com/rell/language-features/types/complex-types#tuple",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 8015
+  },
+  {
+    "file": "courses__my-news-feed__module-one__project-structure.html",
+    "title": "Lesson 5 - Project structure of the dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/project-structure/modules",
+        "Work with Rell modules"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/input-verification/tests",
+        "Run unit tests"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 980
+  },
+  {
+    "file": "courses__my-news-feed__module-one__project-structure__incorporate-modules.html",
+    "title": "Incorporate modules in the dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/register-evm-accounts/",
+        "Lesson 6 - Register users using EVM wallet"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/project-structure/modules",
+        "Work with Rell modules"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3225
+  },
+  {
+    "file": "courses__my-news-feed__module-one__project-structure__modules.html",
+    "title": "Work with Rell modules",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/project-structure/incorporate-modules",
+        "Incorporate modules in the dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/project-structure/",
+        "Lesson 5 - Project structure of the dapp"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1428
+  },
+  {
+    "file": "courses__my-news-feed__module-one__register-evm-accounts.html",
+    "title": "Lesson 6 - Register users using EVM wallet",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/register-evm-accounts/register-evm-accounts",
+        "Register accounts using EVM Wallets"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/project-structure/incorporate-modules",
+        "Incorporate modules in the dapp"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 862
+  },
+  {
+    "file": "courses__my-news-feed__module-one__register-evm-accounts__register-evm-accounts.html",
+    "title": "Register accounts using EVM Wallets",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/register-evm-accounts/test-registration",
+        "Test the registration"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/register-evm-accounts/",
+        "Lesson 6 - Register users using EVM wallet"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/backend/accounts/overview#account-registration-framework",
+      "https://docs.chromia.com/intro/configuration/project-structure",
+      "https://docs.chromia.com/ft4/backend/authentication/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3184
+  },
+  {
+    "file": "courses__my-news-feed__module-one__register-evm-accounts__test-registration.html",
+    "title": "Test the registration",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-two/",
+        "Module 2 - React project"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/register-evm-accounts/register-evm-accounts",
+        "Register accounts using EVM Wallets"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6364
+  },
+  {
+    "file": "courses__my-news-feed__module-two.html",
+    "title": "Module 2 - React project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-two/setup",
+        "Set up the project"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-one/register-evm-accounts/test-registration",
+        "Test the registration"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 886
+  },
+  {
+    "file": "courses__my-news-feed__module-two__connecting-the-client.html",
+    "title": "Connect the client",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-two/summary-and-tests",
+        "Summary and manual testing"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-two/scaffold",
+        "Project scaffold"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 15609
+  },
+  {
+    "file": "courses__my-news-feed__module-two__scaffold.html",
+    "title": "Project scaffold",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-two/connecting-the-client",
+        "Connect the client"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-two/setup",
+        "Set up the project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 9776
+  },
+  {
+    "file": "courses__my-news-feed__module-two__setup.html",
+    "title": "Set up the project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-two/scaffold",
+        "Project scaffold"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-two/",
+        "Module 2 - React project"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/news-course/src/main/frontend/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 877
+  },
+  {
+    "file": "courses__my-news-feed__module-two__summary-and-tests.html",
+    "title": "Summary and manual testing",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/what-next",
+        "What is next?"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-two/connecting-the-client",
+        "Connect the client"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 736
+  },
+  {
+    "file": "courses__my-news-feed__setup.html",
+    "title": "The project is set up",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/my-news-feed/module-one/",
+        "Module 1 - Create a Rell backend app with FT accounts"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/my-news-feed/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://gitlab.com/chromaway/core-tools/chromia-cli",
+      "https://gitlab.com/chromaway/core-tools/chromia-cli/-/packages",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git",
+      "https://gitlab.com/chromaway/core-tools/scoop-chromia/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://gitlab.com/chromaway/core-tools/homebrew-chromia.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 10560
+  },
+  {
+    "file": "courses__my-news-feed__what-next.html",
+    "title": "What is next?",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/my-news-feed/module-two/summary-and-tests",
+        "Summary and manual testing"
+      ]
+    ],
+    "official_links": [
+      "https://discord.com/invite/chromia?ref=learn.chromia.com",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 947
+  },
+  {
+    "file": "courses__vector-db-movie-demo__code-deep-dive.html",
+    "title": "Module 4 \u2013 Code deep dive",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/code-deep-dive/rell-interface",
+        "Lesson 1 \u2013 Connecting your data to the Vector DB (Rell)"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/search",
+        "Module 3 \u2013 Search the vector database"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 998
+  },
+  {
+    "file": "courses__vector-db-movie-demo__code-deep-dive__python-client.html",
+    "title": "Interacting with Chromia using the Python client",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/use-cases",
+        "Module 5 \u2013 Use cases"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/code-deep-dive/rell-interface",
+        "Lesson 1 \u2013 Connecting your data to the Vector DB (Rell)"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/clients/postchain-clients/python-client",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 5187
+  },
+  {
+    "file": "courses__vector-db-movie-demo__code-deep-dive__rell-interface.html",
+    "title": "Connecting your data to the Vector DB (Rell)",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/code-deep-dive/python-client",
+        "Lesson 2 \u2013 Interacting with Chromia using the Python client"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/code-deep-dive/",
+        "Module 4 \u2013 Code deep dive"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4961
+  },
+  {
+    "file": "courses__vector-db-movie-demo__data-pipeline.html",
+    "title": "Module 2 \u2013 Run the data pipeline",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/preprocess",
+        "Lesson 1 \u2013 Preprocess movie data"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/setup/finalize-python-env",
+        "Lesson 4 \u2013 Finalize your Python environment"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1154
+  },
+  {
+    "file": "courses__vector-db-movie-demo__data-pipeline__generate-embeddings.html",
+    "title": "Generate sentence embeddings",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/upload-vectors",
+        "Lesson 3 \u2013 Upload vectors to the blockchain"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/preprocess",
+        "Lesson 1 \u2013 Preprocess movie data"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1874
+  },
+  {
+    "file": "courses__vector-db-movie-demo__data-pipeline__preprocess.html",
+    "title": "Preprocess movie data",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/generate-embeddings",
+        "Lesson 2 \u2013 Generate sentence embeddings"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/",
+        "Module 2 \u2013 Run the data pipeline"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1500
+  },
+  {
+    "file": "courses__vector-db-movie-demo__data-pipeline__upload-vectors.html",
+    "title": "Upload vectors to the blockchain",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/search",
+        "Module 3 \u2013 Search the vector database"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/generate-embeddings",
+        "Lesson 2 \u2013 Generate sentence embeddings"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1727
+  },
+  {
+    "file": "courses__vector-db-movie-demo__introduction.html",
+    "title": "Semantic movie search on Chromia",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/setup/",
+        "Module 1 \u2013 Set up your project"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/vector-db-movie-demo/src/main/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1079
+  },
+  {
+    "file": "courses__vector-db-movie-demo__search.html",
+    "title": "Search the vector database",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/code-deep-dive/",
+        "Module 4 \u2013 Code deep dive"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/upload-vectors",
+        "Lesson 3 \u2013 Upload vectors to the blockchain"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2320
+  },
+  {
+    "file": "courses__vector-db-movie-demo__setup.html",
+    "title": "Module 1 \u2013 Set up your project",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/setup/embedding-model",
+        "Lesson 1 \u2013 Embedding model"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1044
+  },
+  {
+    "file": "courses__vector-db-movie-demo__setup__configure.rell.html",
+    "title": "Configure your Rell module",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/setup/deploy-rell-module",
+        "Lesson 3 \u2013 Deploy your Rell module"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/setup/embedding-model",
+        "Lesson 1 \u2013 Embedding model"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/intro/getting-started/testnet/get-container",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3754
+  },
+  {
+    "file": "courses__vector-db-movie-demo__setup__deploy-rell-module.html",
+    "title": "Deploy your Rell module",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/setup/finalize-python-env",
+        "Lesson 4 \u2013 Finalize your Python environment"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/setup/configure.rell",
+        "Lesson 2 \u2013 Configure your Rell module"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2209
+  },
+  {
+    "file": "courses__vector-db-movie-demo__setup__embedding-model.html",
+    "title": "Choose an embedding model",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/setup/configure.rell",
+        "Lesson 2 \u2013 Configure your Rell module"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/setup/",
+        "Module 1 \u2013 Set up your project"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/vector-db-movie-demo.gitcd",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://bitbucket.org/chromawallet/vector-db-movie-demo.git</span><br></span><span",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2202
+  },
+  {
+    "file": "courses__vector-db-movie-demo__setup__finalize-python-env.html",
+    "title": "Finalize your Python environment",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/vector-db-movie-demo/data-pipeline/",
+        "Module 2 \u2013 Run the data pipeline"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/setup/deploy-rell-module",
+        "Lesson 3 \u2013 Deploy your Rell module"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2817
+  },
+  {
+    "file": "courses__vector-db-movie-demo__use-cases.html",
+    "title": "Use cases and extensions",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/vector-db-movie-demo/code-deep-dive/python-client",
+        "Lesson 2 \u2013 Interacting with Chromia using the Python client"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2448
+  },
+  {
+    "file": "courses__web3-for-web2-devs__chromia-web3-stack.html",
+    "title": "Chromia dapp overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/compare-backend",
+        "Lesson 3 - Comparing backends"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/classic-web2-stack",
+        "Lesson 1 - Traditional web app overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4500
+  },
+  {
+    "file": "courses__web3-for-web2-devs__classic-web2-stack.html",
+    "title": "Traditional web app overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/chromia-web3-stack",
+        "Lesson 2 - Chromia dapp overview"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/introduction",
+        "Course overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1212
+  },
+  {
+    "file": "courses__web3-for-web2-devs__compare-authentication.html",
+    "title": "Authentication",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/web3-benefits",
+        "Lesson 6 - Benefits and challenges of Web3"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/compare-frontend",
+        "Lesson 4 - Comparing frontends"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6759
+  },
+  {
+    "file": "courses__web3-for-web2-devs__compare-backend.html",
+    "title": "Comparing backends",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/compare-frontend",
+        "Lesson 4 - Comparing frontends"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/chromia-web3-stack",
+        "Lesson 2 - Chromia dapp overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/courses/book-review/introduction",
+      "https://learn.chromia.com/courses/my-news-feed/introduction",
+      "https://learn.chromia.com/courses/my-news-feed/introduction/",
+      "https://docs.chromia.com/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/"
+    ],
+    "chars": 6546
+  },
+  {
+    "file": "courses__web3-for-web2-devs__compare-frontend.html",
+    "title": "Comparing frontends",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/compare-authentication",
+        "Lesson 5 - Authentication"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/compare-backend",
+        "Lesson 3 - Comparing backends"
+      ]
+    ],
+    "official_links": [
+      "https://bitbucket.org/chromawallet/postchain-client/",
+      "https://gitlab.com/chromaway/",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3513
+  },
+  {
+    "file": "courses__web3-for-web2-devs__introduction.html",
+    "title": "Web3 for Web2 developers",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/classic-web2-stack",
+        "Lesson 1 - Traditional web app overview"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://docs.chromia.com/intro/architecture/platform-architecture",
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4650
+  },
+  {
+    "file": "courses__web3-for-web2-devs__revenues-and-op-costs.html",
+    "title": "Revenue models and operational costs",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/summary",
+        "Summary"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/security",
+        "Lesson 8 - Security"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4666
+  },
+  {
+    "file": "courses__web3-for-web2-devs__scalability.html",
+    "title": "Scalability",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/security",
+        "Lesson 8 - Security"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/web3-benefits",
+        "Lesson 6 - Benefits and challenges of Web3"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3190
+  },
+  {
+    "file": "courses__web3-for-web2-devs__security.html",
+    "title": "Security",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/revenues-and-op-costs",
+        "Lesson 9 - Revenue models and operational costs"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/scalability",
+        "Lesson 7 - Scalability"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2063
+  },
+  {
+    "file": "courses__web3-for-web2-devs__summary.html",
+    "title": "Summary",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/revenues-and-op-costs",
+        "Lesson 9 - Revenue models and operational costs"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 912
+  },
+  {
+    "file": "courses__web3-for-web2-devs__web3-benefits.html",
+    "title": "Benefits and challenges of Web3",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/web3-for-web2-devs/scalability",
+        "Lesson 7 - Scalability"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/web3-for-web2-devs/compare-authentication",
+        "Lesson 5 - Authentication"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2059
+  },
+  {
+    "file": "courses__zero-knowledge-proof__architecture-overview.html",
+    "title": "Architecture overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/",
+        "Module 1 \u2013 Circom circuits"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/setup",
+        "Project setup"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/rell/rell-intro",
+      "https://docs.chromia.com/intro/about/architecture/node#overview-of-postchain",
+      "https://docs.chromia.com/ft4/intro",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2518
+  },
+  {
+    "file": "courses__zero-knowledge-proof__circom-circuits.html",
+    "title": "Module 1 \u2013 Circom circuits",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/circom-circuits-introduction",
+        "Circom circuits: introduction"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/architecture-overview",
+        "Architecture overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1058
+  },
+  {
+    "file": "courses__zero-knowledge-proof__circom-circuits__circom-circuits-compile.html",
+    "title": "Circom circuits: compile",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/",
+        "Module 2 \u2013 Dapp"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/circom-circuits-project",
+        "Circom circuits: project"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1267
+  },
+  {
+    "file": "courses__zero-knowledge-proof__circom-circuits__circom-circuits-introduction.html",
+    "title": "Circom circuits: introduction",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/circom-circuits-project",
+        "Circom circuits: project"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/",
+        "Module 1 \u2013 Circom circuits"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3157
+  },
+  {
+    "file": "courses__zero-knowledge-proof__circom-circuits__circom-circuits-project.html",
+    "title": "Circom files overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/circom-circuits-compile",
+        "Circom circuits: compile"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/circom-circuits-introduction",
+        "Circom circuits: introduction"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 6872
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp.html",
+    "title": "Module 2 \u2013 Dapp",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-setup-run",
+        "Dapp: setup and run"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/circom-circuits/circom-circuits-compile",
+        "Circom circuits: compile"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1319
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp__dapp-entities.html",
+    "title": "Dapp entities",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-verification",
+        "Dapp: PLONK verification"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-overview",
+        "Dapp: overview"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 4896
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp__dapp-operations.html",
+    "title": "Dapp operations overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-queries",
+        "Dapp: queries"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-verification",
+        "Dapp: PLONK verification"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 7405
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp__dapp-overview.html",
+    "title": "Dapp overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-entities",
+        "Dapp: entities"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-setup-run",
+        "Dapp: setup and run"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1423
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp__dapp-queries.html",
+    "title": "Dapp queries overview",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/frontend/",
+        "Module 3 \u2013 Frontend"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-operations",
+        "Dapp: operations"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3468
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp__dapp-setup-run.html",
+    "title": "Dapp: setup and run",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-overview",
+        "Dapp: overview"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/",
+        "Module 2 \u2013 Dapp"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1436
+  },
+  {
+    "file": "courses__zero-knowledge-proof__dapp__dapp-verification.html",
+    "title": "PLONK verification",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-operations",
+        "Dapp: operations"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-entities",
+        "Dapp: entities"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 3325
+  },
+  {
+    "file": "courses__zero-knowledge-proof__frontend.html",
+    "title": "Module 3 \u2013 Frontend",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/frontend/frontend-setup-run",
+        "Frontend: setup and run"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/dapp/dapp-queries",
+        "Dapp: queries"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 962
+  },
+  {
+    "file": "courses__zero-knowledge-proof__frontend__frontend-explore.html",
+    "title": "Frontend architecture",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/frontend/frontend-test",
+        "Frontend: test"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/frontend/frontend-setup-run",
+        "Frontend: setup and run"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 15038
+  },
+  {
+    "file": "courses__zero-knowledge-proof__frontend__frontend-setup-run.html",
+    "title": "Frontend: setup and run",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/frontend/frontend-explore",
+        "Frontend: architecture"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/frontend/",
+        "Module 3 \u2013 Frontend"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1051
+  },
+  {
+    "file": "courses__zero-knowledge-proof__frontend__frontend-test.html",
+    "title": "Frontend: test",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/frontend/frontend-explore",
+        "Frontend: architecture"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1539
+  },
+  {
+    "file": "courses__zero-knowledge-proof__introduction.html",
+    "title": "Introduction to the course",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/zero-knowledge-proof",
+        "Zero-knowledge proof"
+      ]
+    ],
+    "prev": [],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1755
+  },
+  {
+    "file": "courses__zero-knowledge-proof__setup.html",
+    "title": "Project setup",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/architecture-overview",
+        "Architecture overview"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/zero-knowledge-proof",
+        "Zero-knowledge proof"
+      ]
+    ],
+    "official_links": [
+      "https://docs.chromia.com/intro/getting-started/installation/cli-installation",
+      "https://bitbucket.org/chromawallet/zkp-demo.git",
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://bitbucket.org/chromawallet/zkp-demo.git</span><br></span></code></pre></div></div>",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 1139
+  },
+  {
+    "file": "courses__zero-knowledge-proof__zero-knowledge-proof.html",
+    "title": "Zero-knowledge proof",
+    "url": "https://learn.chromia.com",
+    "slug": "",
+    "next": [
+      [
+        "/courses/zero-knowledge-proof/setup",
+        "Project setup"
+      ]
+    ],
+    "prev": [
+      [
+        "/courses/zero-knowledge-proof/introduction",
+        "Introduction to the course"
+      ]
+    ],
+    "official_links": [
+      "https://learn.chromia.com/learn.png",
+      "https://learn.chromia.com",
+      "https://bitbucket.org/chromawallet/learn-chromia/",
+      "https://docs.chromia.com/"
+    ],
+    "chars": 2444
+  }
+]

@@ -1,0 +1,208 @@
+
+/**
+ * Returns cluster by name.
+ */
+query get_cluster(name) = cluster @ { name };
+
+/**
+ * Returns all clusters.
+ */
+query get_clusters(): list<cluster_data> {
+    val counts = map(cluster_node @* {} (@group .cluster, @sum 1));
+    return (cluster, @outer cluster_subnode_image @* { .cluster == cluster }) @* {} (
+        @group name = .name,
+        @group governor = .governance.name,
+        @group is_operational = .operational,
+        @group cluster_units = .cluster_units,
+        @group extra_storage = .extra_storage,
+        @group number_of_nodes = counts.get_or_default(cluster, 0),
+        @group container_units_available = get_available_container_units(cluster),
+        @group extra_storage_available = get_available_extra_storage(cluster),
+        @list subnode_images = cluster_subnode_image?.subnode_image?.name,
+    ) @* {} (cluster_data(
+        name = .name,
+        governor = .governor,
+        is_operational = .is_operational,
+        operational = .is_operational,
+        cluster_units = .cluster_units,
+        extra_storage = .extra_storage,
+        number_of_nodes = .number_of_nodes,
+        container_units_available = .container_units_available,
+        extra_storage_available = .extra_storage_available,
+        subnode_images = .subnode_images @* { $ != null },
+    ));
+}
+
+struct cluster_data {
+    name;
+    governor: text;
+    is_operational: boolean;
+    /** Added for backwards compatibility, use `is_operational` instead */
+    operational: boolean?;
+
+    /** Cluster units supported by cluster */
+    cluster_units: integer?;
+
+    /** extra storage in MiB */
+    extra_storage: integer?;
+    number_of_nodes: integer?;
+    container_units_available: integer?;
+
+    /** extra storage available in MiB */
+    extra_storage_available: integer?;
+    subnode_images: list<text>;
+}
+
+/**
+ * Returns information for a specified cluster, including any special subnode images supported by the cluster.
+ */
+query get_cluster_data(name) {
+    val cluster = require_cluster(name);
+    return cluster_data(
+        name = cluster.name,
+        governor = cluster.governance.name,
+        is_operational = cluster.operational,
+        operational = cluster.operational,
+        cluster_units = cluster.cluster_units,
+        extra_storage = cluster.extra_storage,
+        number_of_nodes = number_of_nodes_in_cluster(cluster),
+        container_units_available = get_available_container_units(cluster),
+        extra_storage_available = get_available_extra_storage(cluster),
+        subnode_images = cluster_subnode_image @* { cluster } (.subnode_image.name),
+    );
+}
+
+/**
+ * Returns information for all operational dapp clusters, including any special subnode images supported by the cluster.
+ */
+query get_operational_dapp_clusters(): list<cluster_data> {
+    val counts = map(cluster_node @* { .cluster.operational == true, .cluster.name != clusters.system } (@group .cluster, @sum 1));
+    return (cluster, @outer cluster_subnode_image @* { .cluster == cluster }) @* { .operational == true, .name != clusters.system } (
+        @group name = .name,
+        @group governor = .governance.name,
+        @group is_operational = .operational,
+        @group cluster_units = .cluster_units,
+        @group extra_storage = .extra_storage,
+        @group number_of_nodes = counts.get_or_default(cluster, 0),
+        @group container_units_available = get_available_container_units(cluster),
+        @group extra_storage_available = get_available_extra_storage(cluster),
+        @list subnode_images = cluster_subnode_image?.subnode_image?.name,
+    ) @* {} (cluster_data(
+        name = .name,
+        governor = .governor,
+        is_operational = .is_operational,
+        operational = .is_operational,
+        cluster_units = .cluster_units,
+        extra_storage = .extra_storage,
+        number_of_nodes = .number_of_nodes,
+        container_units_available = .container_units_available,
+        extra_storage_available = .extra_storage_available,
+        subnode_images = .subnode_images @* { $ != null },
+    ));
+}
+
+/**
+ * Returns subnode images for a cluster.
+ */
+query get_cluster_subnode_images(name): list<(name:text, url:text, digest:text)> {
+    val cluster = require_cluster(name);
+    return cluster_subnode_image @* { cluster } (name = .subnode_image.name, url = .subnode_image.url, digest = .subnode_image.digest);
+}
+
+/**
+ * Returns subnode JAR extensions for a cluster.
+ */
+query get_cluster_subnode_jar_extensions(name): list<text> {
+    val cluster = require_cluster(name);
+    return cluster_subnode_jar_extension @* { cluster } (.subnode_jar_extension.name);
+}
+
+/**
+ * Returns providers by cluster name.
+ */
+query get_cluster_providers(name): list<(name:text, pubkey:pubkey)> {
+    val cluster = require_cluster(name);
+    return cluster_provider @* { cluster } (name = .provider.name, pubkey = .provider.pubkey);
+}
+
+/**
+ * Returns nodes by cluster name.
+ */
+query get_cluster_nodes(name) {
+    val cluster = require_cluster(name);
+    return cluster_node @* { cluster } (
+        pubkey = .node.pubkey,
+        host = .node.host,
+        port = .node.port,
+        api_url = .node.api_url,
+        active = .node.active
+    );
+}
+
+/**
+ * Returns cluster replica nodes by cluster name.
+ */
+query get_cluster_replica_nodes(name) {
+    val cluster = require_cluster(name);
+    return cluster_replica_node @* { cluster } (
+        pubkey = .node.pubkey,
+        host = .node.host,
+        port = .node.port,
+        api_url = .node.api_url,
+        active = .node.active
+    );
+}
+
+/**
+ * Returns cluster containers by cluster name.
+ */
+query get_cluster_containers(cluster_name: text): list<(name:text, deployer:text)> {
+    return container @* { .cluster.name == cluster_name } ( @sort name = .name, deployer = .deployer.name);
+}
+
+/**
+ * Returns cluster's blockchains ids by cluster name.
+ */
+query get_cluster_blockchains(name) = cm_get_cluster_blockchains(name);
+
+/**
+ * Returns cluster nodes api urls.
+ */
+query get_cluster_api_urls(name) {
+    return (cluster_node, cluster) @* { cluster.name == name and cluster == cluster_node.cluster } ( cluster_node.node.api_url );
+}
+
+
+/**
+ * Resource limits for 1 container unit.
+ */
+struct container_unit_resource_limits {
+    /** Container unit CPU limitation. Percent of cpus, i.e. 50 = 0.5 vCPU */
+    cpu: integer;
+
+    /** Container unit memory limitation (MiB) */
+    ram: integer;
+
+    /** Container unit I/O read limitation (MiB/s) */
+    io_read: integer;
+
+    /** Container unit I/O write limitation (MiB/s) */
+    io_write: integer;
+
+    /** Container unit storage limitation (MiB) */
+    storage: integer;
+}
+
+/**
+ * Return resource limit specification for 1 cluster unit.
+ */
+query get_cluster_container_unit_limits(cluster_name: text) {
+    val cluster = require_cluster(cluster_name);
+    return container_unit_resource_limits(
+        cpu = cluster.container_unit_cpu,
+        ram = cluster.container_unit_ram,
+        io_read = cluster.container_unit_io_read,
+        io_write = cluster.container_unit_io_write,
+        storage = cluster.container_unit_storage,
+    );
+}

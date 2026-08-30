@@ -1,0 +1,28 @@
+function make_config_unique(config_data: byte_array): byte_array {
+    val config_map = map<text, gtv>.from_gtv(gtv.from_bytes(config_data));
+
+    val chain0_block_rid = if (op_context.block_height >= 1)
+        block @ { .block_height == op_context.block_height - 1 } ( .block_rid )
+    else
+        chain_context.blockchain_rid;
+    config_map["chain0_last_block_rid"] = chain0_block_rid.to_gtv();
+    config_map["chain0_block_height"] = op_context.block_height.to_gtv();
+    config_map["chain0_tx_rid"] = op_context.transaction.tx_rid.to_gtv();
+    config_map["chain0_op_index"] = op_context.op_index.to_gtv();
+
+    return config_map.to_gtv().to_bytes();
+}
+
+function require_height_is_greater_or_equal_to_last_config_height(blockchain, height: integer) {
+    val last_config_height = require(blockchain_configuration @? { blockchain } (@sort_desc .height) limit 1,
+        "No configurations found for blockchain: " + blockchain.rid
+    );
+    require(height >= last_config_height,
+        "Given height %d must be greater than or equal to the last config height %d for blockchain %s"
+            .format(height, last_config_height, blockchain.rid)
+    );
+}
+
+function get_voter_set_members_sorted(name) {
+    return voter_set_member @* { voter_set @ {name} } ( @sort .provider.pubkey );
+}

@@ -1,0 +1,24 @@
+fire: 0070
+when: 2026-08-30 10:17 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only chr code check/lint/format local walk); no INDEX encode
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse from rebuilt jar after leftover_code_* improve)
+
+encoder_mid_write: no (no process writing *Help.kt)
+finder_buggy_candidates: 28 (false positives; alias INDEX pairs cover them; leftover-find-0070.txt + leftover-real-0070.txt)
+real_hole_count: 0 (docs+learn; live sitemaps 384/247 match cache)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+dapp_build: leftover_code_* on ChrCreateRellDappHelp.kt leftover_dapp_build_help
+- leftover_code_check / leftover_code_check_hide_lib_warnings: chr code check empty stdout exit 0 (hello_world does not import ft4)
+- leftover_code_lint_hello_world: chr code lint src/main.rell, src/test, main/* all exit 0
+- leftover_code_lint_project: project-wide chr code lint walks materialized src/lib/ft4 exit 1 unknown_name:iccf import:not_found:lib.iccf; do not leftover leftover install iccf; HELP ONLY WRITE SKIP --fix
+- leftover_code_format_printed: chr code format --file=src/main.rell printed "Formatting src/main.rell... no changes"; src/test checksums unchanged
+- leftover_code_rell_format / leftover_code_rell_lint: leftover default create .rell_format max_line_width=120 insert_spaces=true tab_size=4
+- leftover_next_step_architecture: next is chr repl (query-only, chr_repl_help / REPL_INDEX_TITLE)
+- tests in DappBuildSchemaAndHelpTest.kt; HELP ONLY WRITE SKIP; no keys, no signed txs, no invented RID
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

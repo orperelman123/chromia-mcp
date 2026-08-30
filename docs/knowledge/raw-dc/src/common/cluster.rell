@@ -1,0 +1,297 @@
+function create_cluster_impl(me: provider, name, governor: voter_set, providers: list<pubkey>, cluster_creation_data) {
+    require(empty(cluster @* { name }), "Cluster with name %s already exists".format(name));
+    validate_entity_name(name);
+    require(cluster_creation_data.cluster_units > 0, "Cluster must have at least 1 cluster unit");
+    require(cluster_creation_data.extra_storage >= 0, "Extra storage must not be negative");
+    val c = create cluster(
+        name,
+        governor,
+        false,
+        cluster_units = cluster_creation_data.cluster_units,
+        extra_storage = cluster_creation_data.extra_storage,
+        container_unit_cpu = cluster_creation_data.container_unit_cpu ?: standard_container_unit.cpu,
+        container_unit_ram = cluster_creation_data.container_unit_ram ?: standard_container_unit.ram,
+        container_unit_io_read = cluster_creation_data.container_unit_io_read ?: standard_container_unit.io_read,
+        container_unit_io_write = cluster_creation_data.container_unit_io_write ?: standard_container_unit.io_write,
+        container_unit_storage = cluster_creation_data.container_unit_storage ?: standard_container_unit.storage,
+        system_container_units = cluster_creation_data.system_container_units ?: system_container_defaults.container_units,
+        max_nodes = cluster_creation_data.max_nodes,
+    );
+
+    require(c.system_container_units >= 0, "System container units must not be negative");
+    require(c.container_unit_cpu > 0, "Container unit CPU must be at least 1");
+    require(c.container_unit_ram > 0, "Container unit RAM must be at least 1");
+    require(c.container_unit_io_read > 0, "Container unit I/O read must be at least 1");
+    require(c.container_unit_io_write > 0, "Container unit I/O write must be at least 1");
+    require(c.container_unit_storage >= 0, "Container unit storage must not be negative");
+
+    for (p_key in providers) {
+        val provider = require_provider(p_key);
+        require_node_access(provider);
+        create cluster_provider(c, provider);
+    }
+
+    create_system_container(
+        me,
+        system_container_name(c.name),
+        cluster = c,
+        voter_set = governor
+    );
+    require(get_available_container_units(c) >= 0, "System container requires more container units than cluster supports");
+
+    after_cluster_creation(me, c);
+    return c;
+}
+
+function require_cluster_quotas(cluster, wanted_container_units: integer, wanted_extra_storage: integer) {
+    require_cluster_container_units(cluster, wanted_container_units);
+    require_cluster_extra_storage(cluster, wanted_extra_storage);
+}
+
+function require_cluster_container_units(cluster, wanted_container_units: integer) {
+    if (wanted_container_units > 0) {
+        val available_container_units = get_available_container_units(cluster);
+        require(wanted_container_units <= available_container_units,
+            "Cluster %s has %d available container units but wanted %d".format(cluster.name, available_container_units, wanted_container_units));
+    }
+}
+
+function require_cluster_extra_storage(cluster, wanted_extra_storage: integer) {
+    if (wanted_extra_storage > 0) {
+        val available_extra_storage = get_available_extra_storage(cluster);
+        require(wanted_extra_storage <= available_extra_storage,
+            "Cluster %s has %d MiB available extra storage but wanted %d MiB".format(cluster.name, available_extra_storage, wanted_extra_storage));
+    }
+}
+
+/**
+ * @return extra storage in MiB
+ */
+function get_available_extra_storage(cluster): integer {
+    return cluster.extra_storage - get_used_extra_storage_for_cluster(cluster);
+}
+
+function get_available_container_units(cluster): integer {
+    val max_container_units = get_max_container_units_for_cluster(cluster);
+    val used_container_units = get_used_container_units(cluster);
+    return max_container_units - used_container_units;
+}
+
+function get_max_container_units_for_cluster(cluster): integer {
+    return standard_cluster_unit.container_units * cluster.cluster_units;
+}
+
+function get_used_container_units(cluster): integer {
+    return container_resource_limit @ {
+        .container.cluster == cluster,
+        container_resource_limit_type.container_units
+    } (@sum .value);
+}
+
+function get_minimum_cluster_units_for_current_container_units(cluster): integer {
+    val currently_used_container_units = get_used_container_units(cluster);
+    return (decimal(currently_used_container_units) / standard_cluster_unit.container_units).ceil().to_integer();
+}
+
+/**
+ * @return extra storage in MiB
+ */
+function get_minimum_extra_storage_for_clusters(clusters: list<cluster>): integer {
+    return clusters @ {} (@sum .extra_storage);
+}
+
+/**
+ * @return extra storage in MiB
+ */
+function get_used_extra_storage_for_cluster(cluster): integer {
+    return container_resource_limit @ {
+        .container.cluster == cluster,
+        container_resource_limit_type.extra_storage
+    } (@sum .value);
+}
+
+function _add_replica_node_to_cluster_internal(cluster, node) {
+    require_cluster_units_for_node(cluster, node);
+    require_extra_storage_for_node(cluster, node);
+    create cluster_replica_node(cluster, node);
+    after_replica_node_added_to_cluster(node, cluster);
+}
+
+function _remove_replica_node_from_cluster_internal(cluster, node) {
+    val crn = cluster_replica_node @? { cluster, node };
+    if (exists(crn)) {
+        after_replica_node_removed_from_cluster(node, cluster);
+        delete crn;
+    }
+}
+
+/**
+ * When all providers have provided a node each, cluster goes operational and
+ * stays operational even if a new provider is added to the cluster or
+ * a provider disables its node (if it is not the last node of the cluster).
+ */
+function check_operational(cl: cluster) {
+    if (not cl.operational) {
+        val providers = cluster_provider @* { cl }.provider;
+        val nodes = cluster_node @* { cl }.node;
+        if (nodes.size() == providers.size()) {
+            update cluster @ { .name == cl.name } (.operational = true);
+            after_cluster_operational(cl);
+        }
+    }
+}
+
+/**
+ * If a provider is part of that cluster, and if provider do not already have a node in this cluster,
+ * add node as block signer to this cluster. blockchain_configuration_signers update is included.
+ */
+function add_node_to_cluster_internal(provider, node, cluster) {
+    if (exists(cluster_node @? { cluster, node })) {
+        log("Node %s already is part of cluster %s".format(node.pubkey, cluster.name));
+        return;
+    }
+
+    if (exists(cluster_provider @* { cluster, provider })) {
+        require(cluster_node @ { cluster } (@sum 1) < cluster.max_nodes,
+            "Cluster %s is full, no more than %d nodes allowed".format(cluster.name, cluster.max_nodes));
+        val provider_cluster_nodes = cluster_node @* { cluster, .node in node @* { provider } };
+        require(empty(provider_cluster_nodes), "A provider can only provide one node to each cluster");
+        _remove_replica_node_from_cluster_internal(cluster, node);
+        require_cluster_units_for_node(cluster, node);
+        require_extra_storage_for_node(cluster, node);
+        create cluster_node(cluster, node);
+        update_configuration_signers(cluster, null);
+        // check if cluster now is operational, if so update the flag:
+        check_operational(cluster);
+        log("blockchain configuration signers are updated");
+        after_node_added_to_cluster(node, cluster);
+    } else {
+        log("Provider %s is not a member of cluster %s".format(provider.pubkey, cluster.name));
+    }
+}
+
+// Use this to update signers after a change in cluster_node table.
+function update_configuration_signers(cluster, excluded_node: node?) {
+    val signers = cluster_node @* { cluster } (@sort .node.pubkey);
+    // do not write new configuration when size is 0 since it's impossible to recover from that
+    require(signers.size() > 0);
+
+    val bcs = container_blockchain @* { .container.cluster == cluster } .blockchain;
+    for (blockchain in bcs) {
+        val is_chain0 = blockchain.rid == chain_context.blockchain_rid;
+        if (is_chain0) {
+            update_configuration_signers_chain0(blockchain, signers);
+        } else {
+            update_configuration_signers_regular(blockchain, signers, excluded_node?.pubkey);
+        }
+    }
+}
+
+function update_configuration_signers_chain0(blockchain, signers: list<pubkey>) {
+    val height = op_context.block_height + 1; // NB: compute_blockchain_info_list()/get_cluster_node_blockchains() relies on this
+    log("Signers update for chain0 at height %d: %s".format(height, signers));
+
+    // make a base_config at `height` unique
+    if (empty(blockchain_configuration @? { blockchain, height })) {
+        val base_config = blockchain_configuration @? { blockchain, .height < height } (@omit @sort_desc .height, .data) limit 1;
+        val unique_base_config = make_config_unique(base_config!!);
+        create blockchain_configuration(blockchain, height, unique_base_config);
+        add_dependencies(unique_base_config, blockchain.rid, height);
+    }
+
+    // signers
+    val bc_signers = blockchain_configuration_signers @? { blockchain, height };
+    val signer_bytes = signers.to_gtv().to_bytes();
+    if (bc_signers == null) {
+        create blockchain_configuration_signers(blockchain, height, signer_bytes);
+    } else {
+        bc_signers.signers = signer_bytes;
+    }
+
+    signal_signer_list_update(chain_context.blockchain_rid, signer_bytes);
+}
+
+function update_configuration_signers_regular(blockchain, signers: list<pubkey>, excluded_signer: pubkey?) {
+    val last_signers_config = blockchain_configuration_signers @? { blockchain } (@sort_desc .height, .signers) limit 1;
+
+    if (last_signers_config == null) {
+        // No initial signers config found, add new config as initial
+        create blockchain_configuration_signers(blockchain, 0, signers.to_gtv().to_bytes());
+        return;
+    }
+
+    val last_pending_config = get_latest_pending_blockchain_configuration_data(blockchain);
+    val (minimum_height, base_config, last_signers) = if (last_pending_config != null) (
+        last_signers_config.height.max(last_pending_config.minimum_height) + 1,
+        last_pending_config.base_config,
+        last_pending_config.signers
+    ) else (
+        last_signers_config.height + 1,
+        get_latest_blockchain_configuration_data(blockchain).config,
+        last_signers_config.signers
+    );
+
+    if (signers.to_gtv().to_bytes() == last_signers) {
+        log("Signers update for chain %s not necessary, already %s".format(blockchain.rid, signers));
+        return;
+    }
+
+    log("Signers update for chain %s at minimum height %d: %s".format(blockchain.rid, minimum_height, signers));
+    val unique_base_config = make_config_unique(base_config);
+    val config_hash = calculate_configuration_hash(unique_base_config, signers);
+    create pending_blockchain_configuration(
+        blockchain,
+        minimum_height,
+        config_hash = config_hash,
+        base_config = unique_base_config,
+        signers = signers.to_gtv().to_bytes(),
+        signers_update = true
+    );
+
+    if (excluded_signer != null) {
+        create signer_excluded_from_pending_configuration(
+            blockchain,
+            config_hash = config_hash,
+            pubkey = excluded_signer
+        );
+    }
+}
+
+function require_cluster_available_for_removal(cluster) {
+    require(cluster.name != clusters.system, "System cluster can't be deleted");
+    require(
+        empty(container @* { cluster, .system == false }),
+        "Cluster %s is not empty and can't be deleted. Delete containers first".format(cluster.name)
+    );
+}
+
+function get_cluster_for_blockchain(blockchain_rid: byte_array): cluster {
+    return (container_blockchain, blockchain) @ { blockchain.rid == blockchain_rid, blockchain == container_blockchain.blockchain }
+                 ( container_blockchain.container.cluster );
+}
+
+function remove_cluster_impl(cluster) {
+    before_cluster_removal(cluster);
+    delete cluster_node @* { cluster };
+    delete cluster_replica_node @* { cluster };
+    delete cluster_provider @* { cluster };
+    delete cluster;
+}
+
+function number_of_nodes_in_cluster(cluster): integer = cluster_node @ { cluster } ( @sum 1 );
+
+@extendable function before_cluster_removal(cluster) {}
+
+@extendable function after_cluster_creation(provider, cluster) {}
+
+@extendable function after_cluster_operational(cluster) {}
+
+@extendable function after_cluster_updated(cluster) {}
+
+@extendable function after_node_added_to_cluster(node, cluster) {}
+
+@extendable function after_replica_node_added_to_cluster(node, cluster) {}
+
+@extendable function after_node_removed_from_cluster(node, cluster?) {}
+
+@extendable function after_replica_node_removed_from_cluster(node, cluster?) {}

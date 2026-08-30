@@ -58,3 +58,6 @@ $RECYCLE.BIN/
 
 jdeploy-bundle
 node_modules
+
+# Local RAG embeddings (default lives under build/; ignore stray copies)
+embeddings.json

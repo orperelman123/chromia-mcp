@@ -39,11 +39,12 @@
         },
         {
             "title": "Find DApp BRID",
-            "description": "Find the blockchain RID (BRID) for a specific dApp by name",
-            "tool": "mcp_chromia-mcp_get_blockchains_transactions",
+            "description": "Find the blockchain RID (BRID) for a specific dApp by name using filter_blockchains",
+            "tool": "mcp_chromia-mcp_filter_blockchains",
             "prompt": "What is the BRID of {dappName} on {network}?",
             "parameters": {
-                "network": "{network}"
+                "network": "{network}",
+                "name": "{dappName}"
             }
         }
     ],
@@ -82,9 +83,36 @@
                 ],
                 "limit": 50
             }
+        },
+        {
+            "title": "Transactions By Blockchain",
+            "description": "Get transactions grouped by blockchains, including names, RIDs, cluster, state, height, and transaction count",
+            "tool": "mcp_chromia-mcp_get_blockchains_transactions",
+            "prompt": "Show me transactions grouped by blockchain on {network}",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
+        {
+            "title": "Transactions By Cluster",
+            "description": "Get transaction counts grouped by cluster on a specific network",
+            "tool": "mcp_chromia-mcp_get_transactions_by_cluster",
+            "prompt": "Show me transaction counts by cluster on {network}",
+            "parameters": {
+                "network": "{network}"
+            }
         }
     ],
     "assets": [
+        {
+            "title": "List All Assets",
+            "description": "Get information about all assets on a specific network",
+            "tool": "mcp_chromia-mcp_get_all_assets",
+            "prompt": "Show me all assets on {network}",
+            "parameters": {
+                "network": "{network}"
+            }
+        },
         {
             "title": "Asset Distribution",
             "description": "Shows distribution information for a specific asset",
@@ -150,7 +178,7 @@
         {
             "title": "Network Overview",
             "description": "Get comprehensive network statistics and metrics",
-            "tool": "mcp_chromia-mcp_get_dashboard_data",
+            "tool": "mcp_chromia-mcp_get_network_stats",
             "prompt": "Show me an overview of the {network} network",
             "parameters": {
                 "network": "{network}"
@@ -159,7 +187,7 @@
         {
             "title": "Account Statistics",
             "description": "Get account-related statistics for a network",
-            "tool": "mcp_chromia-mcp_get_network_account_count",
+            "tool": "mcp_chromia-mcp_get_network_stats",
             "prompt": "How many accounts are there on {network}?",
             "parameters": {
                 "network": "{network}"
@@ -168,7 +196,7 @@
         {
             "title": "Transfer Statistics",
             "description": "Get transfer-related statistics for a network",
-            "tool": "mcp_chromia-mcp_get_network_transfer_count",
+            "tool": "mcp_chromia-mcp_get_network_stats",
             "prompt": "How many transfers have occurred on {network}?",
             "parameters": {
                 "network": "{network}"
@@ -267,10 +295,11 @@
         {
             "title": "Find DApp by Name",
             "description": "Search for a dApp by its name and get its details",
-            "tool": "mcp_chromia-mcp_get_blockchains_transactions",
+            "tool": "mcp_chromia-mcp_filter_blockchains",
             "prompt": "Find me details about the dApp called {dappName} on {network}",
             "parameters": {
-                "network": "{network}"
+                "network": "{network}",
+                "name": "{dappName}"
             }
         },
         {
@@ -284,11 +313,15 @@
         },
         {
             "title": "DApp Asset Usage",
-            "description": "Find which assets are most used in a specific dApp",
-            "tool": "mcp_chromia-mcp_get_blockchain_analytics",
-            "prompt": "Which assets are most used in {dappName} on {network}?",
+            "description": "Find which assets exist on a specific dApp blockchain, optionally sorted by transfer count",
+            "tool": "mcp_chromia-mcp_filter_assets",
+            "prompt": "Which assets are most used on blockchain {brid} on {network}?",
             "parameters": {
-                "brid": "{brid}"
+                "network": "{network}",
+                "brid": "{brid}",
+                "sortBy": "transferCount",
+                "sortDirection": "DESC",
+                "limit": 20
             }
         }
     ],
@@ -305,21 +338,338 @@
     ],
     "documentation": [
         {
-            "title": "List Documentation",
-            "description": "Get a list of all available documentation files and directories",
-            "tool": "mcp_chromia-mcp_list_documentation",
-            "prompt": "Show me available documentation in {path}",
+            "title": "Search Documentation",
+            "description": "Semantic search over the Chromia RAG store; returns id/title/url results",
+            "tool": "mcp_chromia-mcp_search",
+            "prompt": "Search Chromia documentation for {query}",
             "parameters": {
-                "path": "{path}"
+                "query": "{query}"
             }
         },
         {
             "title": "Read Documentation",
-            "description": "Read the content of a specific documentation file",
-            "tool": "mcp_chromia-mcp_read_documentation",
-            "prompt": "Show me the content of documentation file {path}",
+            "description": "Retrieve a documentation segment by id from search, or semantically via fetch_docs",
+            "tool": "mcp_chromia-mcp_fetch_docs",
+            "prompt": "Show me Chromia documentation about {query}",
             "parameters": {
-                "path": "{path}"
+                "query": "{query}"
+            }
+        },
+        {
+            "title": "Fetch Documentation Segment",
+            "description": "Fetch a specific documentation segment by id returned from search",
+            "tool": "mcp_chromia-mcp_fetch",
+            "prompt": "Fetch Chromia documentation segment {id}",
+            "parameters": {
+                "id": "{id}"
+            }
+        }
+    ],
+    "chromia_stack": [
+        {
+            "title": "Chromia stack expert",
+            "description": "Act as a Chromia stack expert. Narrative from docs.chromia.com; versions and source from gitlab.com/chromaway. Source wins over docs. Not on-chain voting.",
+            "tool": "mcp_chromia-mcp_fetch_docs",
+            "prompt": "You are a Chromia stack expert. Authority: docs.chromia.com for narrative; gitlab.com/chromaway for versions and source; learn.chromia.com for courses. Source wins over docs. This is not an on-chain voting agent.\n\nProduction pins:\n- Rell source tag 0.16.7 vs docs 0.16.4. Compiler pipeline: S_ \u2192 13 C_ passes \u2192 R_ \u2192 RR_ \u2192 Rt. SQL is generated at runtime via DbSqlGen/jOOQ. Tables are c${chainId}.${mount}. json=JSONB. rowid comes from a counter table.\n- Postchain: one JDBC write transaction per block, SAVEPOINT per GTX tx. Only org.postgresql.Driver. REST submit is POST /tx. merkle_hash_version must be 2.\n- FT4 docs pin v1.1.0r API 1. Never ship lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open. require_mandatory_flags only on the main descriptor.\n- Chromia CLI tags through 0.33.x. Since 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.\n- Directory api_version 110. Mainnet BRID 7E5BE539\u2026 testnet 6F1B061C\u2026. Java 21+, Postgres 16+.\n\nUse fetch_docs (or search/fetch) against the RAG store before inventing APIs. Full agent brief: AGENTS.md (Codex) and CLAUDE.md (Claude Code) in this repo.",
+            "parameters": {}
+        }
+    ],
+    "dapp_build": [
+        {
+            "title": "Scaffold a new Chromia dapp",
+            "description": "Return a production-correct chromia.yml + Rell skeleton. Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1. Never ships lib.ft4.admin / ras_open. Not signed transactions.",
+            "tool": "mcp_chromia-mcp_scaffold_dapp",
+            "prompt": "Scaffold a new Chromia dapp named {name} with production pins (Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1). Never include lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.",
+            "parameters": {
+                "name": "{name}"
+            }
+        },
+        {
+            "title": "Validate chromia.yml",
+            "description": "Validate chromia.yml production pins: Rell 0.16.7, merkle_hash_version 2, no FT4 admin / ras_open. Not signed transactions.",
+            "tool": "mcp_chromia-mcp_validate_chromia_yml",
+            "prompt": "Validate this chromia.yml against production pins (Rell 0.16.7, merkle_hash_version 2, no lib.ft4.admin / ras_open): {yaml}",
+            "parameters": {
+                "yaml": "{yaml}"
+            }
+        },
+        {
+            "title": "FT4 module_args",
+            "description": "Return FT4 v1.1.0r API 1 module_args / libs. require_mandatory_flags main-only. DEFAULT_LOGIN_CONFIG_NAME default. Never emits admin / ras_open.",
+            "tool": "mcp_chromia-mcp_ft4_module_args",
+            "prompt": "Give me production FT4 v1.1.0r API 1 module_args for dapp {name}. Never include lib.ft4.admin, ras_open, or ras_transfer_open.",
+            "parameters": {
+                "name": "{name}"
+            }
+        },
+        {
+            "title": "Chromia CLI build help",
+            "description": "Official Chromia CLI 0.33.x install / chr install / chr build / chr test commands and chromia.yml shape. chr repl --sql-log is in chr_repl_help. Does not run chr.",
+            "tool": "mcp_chromia-mcp_chr_build_help",
+            "prompt": "How do I install Chromia CLI 0.33.x and run chr install, chr build, and chr test?",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI repl help",
+            "description": "Official Chromia CLI 0.33.x chr repl flags. Entity SQL analysis is chr repl --sql-log --use-db --module (official leftover /rell/analyze-rell-dapp-code). chr test --sql-log was removed in 0.31.0. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_repl_help",
+            "prompt": "What are the official Chromia CLI 0.33.x flags for chr repl? Include chr repl --sql-log --use-db --module main from /rell/analyze-rell-dapp-code, and that chr test --sql-log was removed in 0.31.0. Do not run chr or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI tools help",
+            "description": "Official Chromia CLI 0.33.x chr tools (gtv / validate-config / lib-model). chr gtv alias. Does not run chr, generate keys, invent a BRID, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_tools_help",
+            "prompt": "What are the official Chromia CLI 0.33.x chr tools commands and flags (gtv, validate-config, lib-model)? Include the chr gtv alias. Do not run chr or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI seeder help",
+            "description": "Official Chromia CLI 0.33.x chr seeder init / generate flags. Early-stage local fake-data helper. Does not run chr, generate keys, invent a BRID, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_seeder_help",
+            "prompt": "What are the official Chromia CLI 0.33.x flags for chr seeder init and chr seeder generate? Early-stage. Do not run chr or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "chromia.yml blockchain-properties help",
+            "description": "Official chromia.yml blockchains.<name>.config keys (gtx / blockstrategy / query timeouts). merkle_hash_version 2. Official keys only. Does not invent keys, run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_blockchain_properties_help",
+            "prompt": "What are the official chromia.yml blockchain-properties for gtx, blockstrategy, and query timeouts? Official keys only. merkle_hash_version must be 2. Do not invent keys.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI eif help",
+            "description": "Official Chromia CLI 0.33.x chr eif generate-events-config flags (--abi, --events, --target, --format XML|YAML). Does not run chr, generate keys, invent a BRID, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_eif_help",
+            "prompt": "What are the official Chromia CLI 0.33.x flags for chr eif generate-events-config? Include --abi, --events, --target, and --format. Do not run chr or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "chromia.yml definitions / YAML include help",
+            "description": "Official chromia.yml definitions / YAML anchors / !include (project-config examples only). Does not invent include semantics. Does not run chr, generate keys, invent a BRID, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_yml_definitions_help",
+            "prompt": "How do official chromia.yml YAML anchors and !include work? Use project-config examples only (definitions, &anchor / *alias, !include other.yml, !include other.yml#tag). Do not invent include semantics.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI completion help",
+            "description": "Official Chromia CLI 0.33.x chr help / chr version / --generate-completion (bash|zsh|fish) and two-letter shortcuts. Documents skipped hidden verbs fetch-config, lease-info, remove-container. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_completion_help",
+            "prompt": "How do I enable Chromia CLI 0.33.x shell completion with chr --generate-completion? Include bash, zsh, fish, chr help, chr version, and the two-letter shortcut. Do not run chr or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI multi-signature view help",
+            "description": "Official Chromia CLI 0.33.x read-only chr multi-signature view (-f/--file). Skips create, sign, send, and chr tx. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_multi_signature_help",
+            "prompt": "How do I view an existing multi-signature transaction file with official Chromia CLI 0.33.x chr multi-signature view? Only the read-only -f/--file flag. Do not document create, sign, or send. Do not run chr or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "chromia.yml project-structure / Rell modules help",
+            "description": "Official Chromia project-structure and Rell modules layout. create-rell-dapp + multi-file directory modules, recommended app/ files, official import forms. module is a name, never a path. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_project_structure_help",
+            "prompt": "What is the official Chromia project structure and Rell module layout? Include create-rell-dapp files, multi-file directory modules, the recommended app/ files, and official import forms. blockchains.<name>.module is a module name, never a path.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI create-rell-dapp help",
+            "description": "Official Chromia CLI 0.33.x chr create-rell-dapp templates and flags (plain, plain-multi, minimal, plain-library, asset-management, --devcontainer). Does not run chr, write files, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_create_rell_dapp_help",
+            "prompt": "How do I create a new Rell dapp with chr create-rell-dapp? Official CLI 0.33.x templates and flags only. Do not run chr, generate a key, or invent a BRID.",
+            "parameters": {}
+        },
+        {
+            "title": "Write deployment config",
+            "description": "Return chromia.yml deployments.<network> for CLI 0.33.x (url, official Directory BRID, chains placeholder). testnet or mainnet. Does not invent a BRID or send signed transactions.",
+            "tool": "mcp_chromia-mcp_write_deployment_config",
+            "prompt": "Write a chromia.yml deployments block for {network} chain {name}. Use the official Directory Chain BRID. Do not invent a BRID. Note that chr deployment create writes chains back.",
+            "parameters": {
+                "network": "{network}",
+                "name": "{name}"
+            }
+        },
+        {
+            "title": "Chromia CLI deploy help",
+            "description": "Official Chromia CLI 0.33.x chr deployment create / update / inspect plus read-only info / proposal list|info / voterset info|list flags. -y, --key-id (reference only), schema-compare DROP warning, create writes deployments.<net>.chains. Does not generate keys, invent a lease/BRID, run chr, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_deploy_help",
+            "prompt": "What are the official Chromia CLI 0.33.x flags for chr deployment create, update, inspect, and the read-only info / proposal list|info / voterset info|list verbs? Include -y, --key-id (do not generate a key), the schema-compare DROP warning, and that create writes deployments.<net>.chains back. Skip vote/propose/pause/resume/remove.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI node help",
+            "description": "Official Chromia CLI 0.33.x chr node start / update flags. --wipe / --no-wipe, Postgres 16+, default http://localhost:7740, relation to chr build / chr test. Does not start a node, generate keys, invent a BRID, run chr, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_node_help",
+            "prompt": "What are the official Chromia CLI 0.33.x flags for chr node start and chr node update? Include --wipe, the Postgres 16+ requirement, default local API http://localhost:7740, and how the local node relates to chr build and chr test. Do not start a node or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI query help",
+            "description": "Official Chromia CLI 0.33.x read-only chr query flags against a local node or named deployment. Does not sign, execute a transaction, generate keys, invent a BRID, or run chr.",
+            "tool": "mcp_chromia-mcp_chr_query_help",
+            "prompt": "How do I run a read-only chr query against a local chr node start or a named chromia.yml deployment? Official CLI 0.33.x flags only. Do not sign or execute a transaction.",
+            "parameters": {}
+        },
+        {
+            "title": "Vault / PMC lease help",
+            "description": "Official Vault/PMC container lease workflow for testnet/mainnet. How to get a Container ID and set deployments.<net>.container. Official Directory BRIDs only. Does not invent a lease id, generate keys, run chr, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_vault_lease_help",
+            "prompt": "How do I lease a Chromia Vault/PMC container on testnet or mainnet and put the Container ID in chromia.yml deployments.<net>.container? Official Directory BRIDs only. Do not invent a lease id or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI generate-client help",
+            "description": "Official Chromia CLI 0.33.x chr generate client-stubs / graph / docs-site plus official postchain-client / FT4 query-only wiring (blockchainRid, directoryNodeUrlPool). Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_generate_client_help",
+            "prompt": "How do I generate Chromia client stubs and wire official postchain-client / FT4 query-only createClient (nodeUrlPool or directoryNodeUrlPool + blockchainRid)? Official CLI 0.33.x and official package names only. Do not run chr, generate a key, or sign a transaction.",
+            "parameters": {}
+        },
+        {
+            "title": "chromia.yml docs section help",
+            "description": "Official chromia.yml docs: keys for chr generate docs-site (title, footerMessage, customStyleSheets, customAssets, additionalContent, sourceLink). GitHub/GitLab #L, Bitbucket #lines-. Does not invent theme/nav/logo. Does not run chr.",
+            "tool": "mcp_chromia-mcp_chromia_docs_yml_help",
+            "prompt": "What are the official chromia.yml docs: keys for chr generate docs-site? Project-config only. Do not invent theme, nav, or logo.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI library help",
+            "description": "Official Chromia CLI 0.33.x chr library install / list / view / versions. chr install alias. Library-chain vs git libs:. Does not invent a BRID, generate keys, run chr, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_library_help",
+            "prompt": "How do I install and discover Chromia Rell libraries with chr library install / list / view / versions? Official CLI 0.33.x only. Do not invent a library-chain BRID or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Check dapp project",
+            "description": "Read-only in-memory project check: chromia.yml plus one or more .rell files. Combines validate_chromia_yml and check_ft4_imports.",
+            "tool": "mcp_chromia-mcp_check_dapp_project",
+            "prompt": "Check this Chromia project in memory. Call check_dapp_project with the chromia.yml string and one or more .rell file contents. It runs validate_chromia_yml and check_ft4_imports and returns {ok, errors, warnings}. Do not write files, run chr, or talk to a network.",
+            "parameters": {
+                "yaml": "{yaml}",
+                "rell": "{rell}"
+            }
+        },
+        {
+            "title": "Check FT4 imports",
+            "description": "Read-only in-memory scan of .rell sources for forbidden FT4 production imports (lib.ft4.admin, ras_open, ras_transfer_open, admin.crosschain). Used by check_dapp_project.",
+            "tool": "mcp_chromia-mcp_check_ft4_imports",
+            "prompt": "Scan these Rell sources for forbidden FT4 production imports (lib.ft4.admin, admin.crosschain, ras_open, ras_transfer_open). Call check_ft4_imports with one or more .rell file contents. Do not write files, run chr, or talk to a network.",
+            "parameters": {
+                "rell": "{rell}"
+            }
+        },
+        {
+            "title": "Chromia cookbook help",
+            "description": "Official BUILD cookbook pages for queries, client reads, and tests. Skips signed-tx recipes and cookbook-only flags/keys. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_cookbook_help",
+            "prompt": "What official Chromia cookbook pages teach querying a dapp from a client and running chr test? Skip anything that signs a live transaction. Official CLI 0.33.x flags only.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia CLI existing-key reference",
+            "description": "Official Chromia CLI 0.33.x existing-key lookup only (--key-id / key.id precedence). Does not generate a key, print a private key, run chr, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chr_key_id_help",
+            "prompt": "How does Chromia CLI 0.33.x resolve an existing --key-id or key.id? Existing-key reference only. Do not generate a key or print a private key.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell types help",
+            "description": "Official Rell types (simple, collection, complex, iterables, sub-types, virtual). Quotes docs.chromia.com/rell type pages only. Official slug is sub-types (not subtypes). Does not invent types, run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_rell_types_help",
+            "prompt": "What official Rell types exist? Quote docs.chromia.com/rell type pages only. Include simple, collection, complex (T?, tuple, range, gtv), iterables, sub-types, and virtual. Official slug is sub-types. Do not invent types.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell expressions help",
+            "description": "Official Rell expression pages (values, operators, conditional, jump, lambda). Quotes docs.chromia.com/rell only. Does not invent operators, run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_rell_expressions_help",
+            "prompt": "What official Rell expression operators, values, if/when expressions, jump expressions, and lambdas exist? Quote docs.chromia.com/rell expression pages only. Do not invent operators.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell statements help",
+            "description": "Official Rell statement pages (val/var, assignment, if/when, for/while, break/continue). Quotes docs.chromia.com/rell only. Does not invent statements, run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_rell_statements_help",
+            "prompt": "What official Rell statements exist for val/var, assignment, if/when, for/while, break, and continue? Quote docs.chromia.com/rell statement pages only. Do not invent statements.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell database language help",
+            "description": "Official Rell at / create / update / delete syntax. Quotes docs.chromia.com/rell database pages only. These constructs run inside operations. Does not document chr tx or signed send.",
+            "tool": "mcp_chromia-mcp_chromia_rell_database_help",
+            "prompt": "What is the official Rell syntax for at-expressions, create, update, and delete? Quote docs.chromia.com/rell database pages only. Rell language constructs that run inside operations. Do not document chr tx or sending a signed transaction.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell system library help",
+            "description": "Official Rell systemlib (STARTED: global functions, require/error, system entities, system queries). Skips privkey/signing helpers. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_rell_systemlib_help",
+            "prompt": "What official Rell system library global functions, require/error helpers, system entities, and system queries exist? Quote docs.chromia.com/rell systemlib pages only. Skip privkey and signing helpers.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell language definition help",
+            "description": "Official Rell query / operation / entity / object / struct / enum / function / module syntax plus leftover RellDoc (/rell/rell-doc) and identifiers-syntax. Quotes docs.chromia.com/rell only. Official Hello World query hello_world. Does not invent language features, run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_rell_language_help",
+            "prompt": "What is the official Rell syntax for query, operation, entity, object, struct, enum, function, module, identifiers, and RellDoc comments? Quote docs.chromia.com/rell pages only. Include official Hello World query hello_world and RellDoc tags. Do not invent language features.",
+            "parameters": {}
+        },
+        {
+            "title": "Rell security and best-practices help",
+            "description": "Official leftover /rell/security and /rell/rell-best-practices. Leftover chromia.yml config.directory_chain.config_delay. Composite keys, indexing, require, run_must_fail. BUILD / read-only. No exploit recipes, signing, key material, or proposal vote/retract.",
+            "tool": "mcp_chromia-mcp_chromia_rell_practices_help",
+            "prompt": "What are the official leftover Rell security and best-practices pages? Quote docs.chromia.com/rell/security and /rell/rell-best-practices only. Include config.directory_chain.config_delay and require validation. No signing, no vote/retract, no key material.",
+            "parameters": {}
+        },
+        {
+            "title": "FT4 read-only query catalog",
+            "description": "Official FT4 v1.1.0r / API 1 read-only queries (get_all_assets, get_assets_by_name, get_account_by_id, pagination, does_account_require_memo). Queries only. Never emits admin / ras_open / register / transfer write paths.",
+            "tool": "mcp_chromia-mcp_chromia_ft4_queries_help",
+            "prompt": "What official FT4 v1.1.0r read-only queries exist beyond getAllAssets? Include pagination page_size / page_cursor and does_account_require_memo. Queries only. Do not document register, transfer, auth, or admin.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia integrations hub help",
+            "description": "Official BUILD integrations hub read-only facts and leftover official token-chain query shapes (get_token_chain_constants, get_proposals_by_proposer proposer=, get_all_bridges). Memo query does_account_require_memo. Does not invent package ids. C# NuGet id unpublished. Skips write paths.",
+            "tool": "mcp_chromia-mcp_chromia_integrations_help",
+            "prompt": "What official Chromia BUILD integrations hub pages exist, what leftover official token-chain read-only query shapes exist, and what is the official memo requirement query? Read-only. Do not invent a C# NuGet id, TOKEN_CHAIN_RID, or document exchange / propose_token writes.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia language clients help",
+            "description": "Official BUILD query-only C# / Go / Rust / React Kit / REST client wiring. Skips signed txs and key generation. Does not run chr, generate keys, or send signed transactions.",
+            "tool": "mcp_chromia-mcp_chromia_language_clients_help",
+            "prompt": "How do I query a Chromia dapp from the official C#, Go, Rust, or React clients, or via Postchain REST? Query-only. Official pages only. Do not sign a transaction or generate a key.",
+            "parameters": {}
+        },
+        {
+            "title": "Chromia vector-search help",
+            "description": "Official leftover BUILD vector-search (overview + sample-workloads). Index /build/vector-search/ is 404. Official leftover BUILD pages print no module names, yml keys, or query names. Hard skip ingest embeddings / ONNX.",
+            "tool": "mcp_chromia-mcp_chromia_vector_search_help",
+            "prompt": "What official leftover Chromia BUILD vector-search pages exist? Quote leftover official overview and sample-workloads only. Do not invent module names, yml keys, or query names. Skip ingest embeddings and ONNX.",
+            "parameters": {}
+        }
+    ],
+    "dapp_query": [
+        {
+            "title": "Discover dApp Structure",
+            "description": "Call rell.get_app_structure to list queries, operations, and entities",
+            "tool": "mcp_chromia-mcp_chromia_dapp_query",
+            "prompt": "Show the dApp structure for blockchain {blockchainRid} on {network}",
+            "parameters": {
+                "network": "{network}",
+                "blockchainRid": "{blockchainRid}",
+                "query": "rell.get_app_structure"
+            }
+        },
+        {
+            "title": "Execute dApp Query",
+            "description": "Execute a named read-only query on a deployed dApp. This is not signed transaction sending.",
+            "tool": "mcp_chromia-mcp_chromia_dapp_query",
+            "prompt": "Run query {query} on blockchain {blockchainRid} on {network}",
+            "parameters": {
+                "network": "{network}",
+                "blockchainRid": "{blockchainRid}",
+                "query": "{query}"
             }
         }
     ]

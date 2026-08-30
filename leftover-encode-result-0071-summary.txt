@@ -1,0 +1,40 @@
+fire: 0071
+when: 2026-08-30 10:39 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only chr repl local walk + leftover_repl_output_format/script extras); no INDEX encode
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse pid 2443557 from rebuilt shadowJar after leftover_repl_* improve)
+
+encoder_mid_write: no (no process writing *Help.kt)
+finder_buggy_candidates: 28 (false positives; alias INDEX pairs cover them; leftover-find-0071.txt + leftover-real-0071.txt)
+real_hole_count: 0 (docs+learn; live sitemaps 384/247 match cache)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+dapp_build: leftover_repl_* on ChrCreateRellDappHelp.kt leftover_dapp_build_help
+- leftover_repl / leftover_repl_command / leftover_repl_arithmetic: chr repl -c '1+1' → 2 exit 0
+- leftover_repl_module: chr repl --module main -c '1+1' → 2 exit 0
+- leftover_repl_blockchain: chr repl --blockchain my_rell_dapp -c '1+1' → 2 exit 0
+- leftover_repl_local_vars: chr repl --module main -c 'val x = 1; x + 2' → 3 exit 0
+- leftover_repl_format_string: chr repl --module main -c '"Hello %s!".format("World")' → "Hello World!" exit 0
+- leftover_repl_hello_world_no_db: chr repl --module main -c 'hello_world()' → Run-time error: No database connection exit 1
+- leftover_repl_hello_world_use_db: chr repl --module main --use-db -c 'hello_world()' → "Hello World!" exit 0; SqlInit chain_iid=0
+- leftover_repl_sql_log: chr repl --module main --use-db --sql-log -c 'hello_world()' → SqlConnectionLogger SELECT A00."name" FROM "c0.my_name" A00; "Hello World!" exit 0
+- leftover_repl_sql_log_needs_use_db: --sql-log without --use-db still No database connection exit 1
+- leftover_repl_duration: chr repl --module main -d -c '1+1' → 2 + Script took ...s exit 0
+- leftover_repl_output_format_json: -f JSON matches pretty for 1+1 and hello_world (2 / "Hello World!") exit 0
+- leftover_repl_output_format_xml: -f XML → <int>2</int> / <string>Hello World!</string> exit 0
+- leftover_repl_output_format_yaml: --help lists YAML; -f YAML (and -f yaml) Error: Unsupported output format YAML exit 1 (help mismatch 0.33.2)
+- leftover_repl_output_format_raw: -f raw → 2 exit 0; -r/--raw-output deprecated
+- leftover_repl_script_stdin: printf '1+1\n' | chr repl - → 2 exit 0 (experimental stdin dash)
+- leftover_repl_script_args: printf 'args\n' | chr repl - leftover one → ["leftover", "one"] exit 0 (args: list<text>)
+- leftover_repl_command_not_with_script: chr repl -c '2+2' - → Error: Cannot use -c when specifying script file exit 1
+- leftover_repl_op_write_skip: set_name Type rell.test.op cannot be converted to Gtv. Switch to a different output format. exit 0; HELP ONLY WRITE SKIP ops/txs
+- leftover_tools_help / leftover_tools_index_title / leftover_query_index_title pointed for next
+- leftover_next_step_architecture: next is chr tools (query-only, chr_tools_help / TOOLS_INDEX_TITLE) or chr query after node (QUERY_INDEX_TITLE)
+- tests in DappBuildSchemaAndHelpTest.kt; HELP ONLY WRITE SKIP; no keys, no signed txs, no invented RID
+
+memory_note: On 2026-08-30 fire 0071 leftover INDEX still 0 real holes (docs 384 / learn 247). Encoded leftover_repl_* on leftover_dapp_build_help: chr repl -c 1+1 → 2; --module main --use-db hello_world() → Hello World!; --sql-log SELECT c0.my_name; -f YAML help-mismatch exit 1; stdin chr repl - plus args list; Cannot use -c with script; set_name WRITE SKIP. Next leftover chr tools query-only. Suite 312/0/0, :3001 healthy.
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

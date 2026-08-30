@@ -1,0 +1,42 @@
+
+/**
+ * Returns subnode image data.
+ */
+query get_subnode_image(name): subnode_image_data = get_subnode_image_data(require_subnode_image(name));
+
+/**
+ * Returns all subnode images.
+ */
+query get_subnode_images(): list<subnode_image_data> = subnode_image @* {} (get_subnode_image_data($));
+
+struct subnode_image_data {
+    name;
+    url: text;
+    digest: text;
+    subnode_image_type;
+    owner: pubkey;
+    active: boolean;
+    description: text;
+    /** GTX modules exposed by this subnode image (comma separated list of FQCNs) */
+    gtx_modules: text = "";
+    /** Synchronization infrastructure extensions exposed by this subnode image (comma separated list of FQCNs) */
+    sync_exts: text = "";
+    /** How many compute requests per week a container gets by default. */
+    base_compute_requests: integer = 0;
+    /** Rell native function implementations exposed by this subnode image (comma separated list of FQCNs) */
+    native_functions: text? = "";
+}
+
+function get_subnode_image_data(subnode_image) = subnode_image_data(
+    name = subnode_image.name,
+    url = subnode_image.url,
+    digest = subnode_image.digest,
+    subnode_image_type = subnode_image.subnode_image_type,
+    owner = subnode_image.owner.pubkey,
+    active = subnode_image.active,
+    description = subnode_image.description,
+    gtx_modules = subnode_image.gtx_modules,
+    sync_exts = subnode_image.sync_exts,
+    base_compute_requests = subnode_image.base_compute_requests,
+    native_functions = subnode_image.native_functions
+);

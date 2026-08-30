@@ -1,0 +1,404 @@
+definitions:
+  chain_version: &chain_version
+    release_version: ${RELEASE_VERSION:-dev}
+    release_commit: ${RELEASE_COMMIT:-dev}
+blockchains:
+  mainnet:
+    module: management_chain_mainnet
+    config:
+      features:
+        merkle_hash_version: 2
+      signers:
+        - x"037434C8D4F2B7B7DE44E80486A814676DC3D898FD4488E10E1940B1C4C5837200"
+      sync_ext:
+        - "net.postchain.d1.icmf.IcmfReceiverSynchronizationInfrastructureExtension"
+      gtx:
+        modules:
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+          - "net.postchain.d1.icmf.IcmfReceiverGTXModule"
+          - "net.postchain.eif.transaction.signerupdate.directorychain.SignerUpdateGTXModule"
+          - "net.postchain.d1.iccf.IccfGTXModule"
+      icmf:
+        receiver:
+          anchoring:
+            topics:
+              - G_configuration_updated
+              - G_configuration_failed
+          global:
+            blockchains:
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_create_cluster_v2
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_create_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_stop_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_restart_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_upgrade_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_remove_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_assign_subnode_image_to_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_add_subnode_jar_extensions_to_container
+              - bc-rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+                topic: G_register_dapp_provider
+    moduleArgs:
+      common.init:
+        initial_provider: 0319852651DB3ACA5D5DFDF71D8600566345FE1713BCBC7F2C1B6434B7A8C88C6F
+        genesis_node:
+          - 037434C8D4F2B7B7DE44E80486A814676DC3D898FD4488E10E1940B1C4C5837200
+          - system.chromaway.com
+          - 9870
+          - https://system.chromaway.com:7740
+          - SE
+      common:
+        allow_blockchain_dependencies: false
+        provider_quota_max_actions_per_day: 100
+      common.queries:
+        developers:
+          - andrei.ursu@chromaway.com
+          - eugene.tykulov@chromaway.com
+          - johan.nilsson@chromaway.com
+          - mikael.staldal@chromaway.com
+          - robert.wideberg@chromaway.com
+      proposal_blockchain_move:
+        provider_quota_move_cost: 35
+      proposal_blockchain.util: # Please update doc/Mainnet-Blockchain-Configuration-Limits.md and notify docs team if you modify these
+        max_config_path_depth: 10
+        max_config_size: 5242880 # 5 MiB
+        max_block_size: 27262976 # 26 MiB
+        min_inter_block_interval: 1000
+        min_fast_revolt_status_timeout: 2000
+        allowed_dapp_chain_gtx_modules:
+          - "net.postchain.rell.module.RellPostchainModuleFactory"
+          - "net.postchain.gtx.StandardOpsGTXModule"
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+          - "net.postchain.d1.icmf.IcmfReceiverGTXModule"
+          - "net.postchain.d1.iccf.IccfGTXModule"
+          - "net.postchain.eif.EifGTXModule"
+          - "net.postchain.web.WebStaticGTXModuleFactory"
+          - "net.postchain.crypto.ethereum.EthereumAuthGTXModule"
+#          - "net.postchain.crypto.webauthn.WebAuthnGTXModuleFactory"
+        allowed_dapp_chain_sync_exts:
+          - "net.postchain.d1.icmf.IcmfReceiverSynchronizationInfrastructureExtension"
+          - "net.postchain.eif.EifSynchronizationInfrastructureExtension"
+        allowed_blockchain_features:
+          - "merkle_hash_version"
+        required_blockchain_features: []
+        require_min_merkle_hash_version: 2
+        require_min_merkle_hash_version_ignore_existing_chains: true # For now...
+        require_eif_snapshot_version: 2
+        allowed_dapp_chain_native_functions:
+          - "net.postchain.d1.BlockWitnessRellNative"
+      proposal_container.proposal_container_configuration:
+        min_slow_db_statement_log_ms: 1000
+      chain_version: *chain_version
+      node_software_version:
+        node_image:
+          url: registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-server
+          tag: 3.28.1
+          digest: sha256:f426ce4bda073d63ade194a3dbbe095a532466672ef4a80de71df8d165de879e
+        default_subnode_image:
+          url: registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode
+          tag: 3.28.1
+          digest: sha256:e736c6d1465b6a5ae480b5431619e16438000a500fae9214a5ef23c69614dd15
+#      blockchain_auth_icmf:
+#        icmf_rate_limit_ms: 10000
+  system_anchoring:
+    module: anchoring_chain_system
+    config:
+      features:
+        merkle_hash_version: 2
+      blockstrategy:
+        maxblocktime: 300000
+      gtx:
+        modules:
+          - "net.postchain.d1.anchoring.system.SystemAnchoringGTXModule"
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+    moduleArgs:
+      chain_version: *chain_version
+    test:
+      modules:
+        - anchoring_chain_system.test
+  cluster_anchoring:
+    module: anchoring_chain_cluster
+    config:
+      features:
+        merkle_hash_version: 2
+      blockstrategy:
+        maxblocktime: 300000
+      sync_ext:
+        - "net.postchain.d1.icmf.IcmfReceiverSynchronizationInfrastructureExtension"
+      gtx:
+        modules:
+          - "net.postchain.d1.anchoring.cluster.ClusterAnchoringGTXModule"
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+          - "net.postchain.d1.icmf.IcmfReceiverGTXModule"
+      icmf:
+        receiver:
+          directory-chain:
+            topics:
+              - L_container_blockchain_update
+    moduleArgs:
+      chain_version: *chain_version
+    test:
+      modules:
+        - anchoring_chain_cluster.test
+      moduleArgs:
+        anchoring_chain_cluster:
+          imcf_headers_with_messages_query_limit: 3 # Good for testing limits
+  economy_chain_prod:
+    module: economy_chain_prod
+    config:
+      features:
+        merkle_hash_version: 2
+      sync_ext:
+        - "net.postchain.d1.icmf.IcmfReceiverSynchronizationInfrastructureExtension"
+      gtx:
+        modules:
+          - "net.postchain.d1.icmf.IcmfReceiverGTXModule"
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+          - 'net.postchain.eif.EifGTXModule'
+          - "net.postchain.d1.iccf.IccfGTXModule"
+      icmf:
+        receiver:
+          anchoring:
+            topics:
+              - G_node_availability_report
+              - G_resource_usage_statistics
+          directory-chain:
+            topics:
+              - L_create_cluster_error
+              - L_ticket_container_result
+              - L_cluster_update
+              - L_provider_update
+              - L_provider_auth_update
+              - L_node_update
+              - L_cluster_node_update
+              - L_blockchain_rid_topic
+              - L_subnode_image_update
+              - L_cluster_subnode_image_update
+              - L_subnode_jar_extension_update
+              - L_cluster_subnode_jar_extension_update
+          global:
+            blockchains:
+              - bc-rid: x"44DD7379901AA3517BC83D85F071ED6A18D409151FC8A222FCE2DE1AEE621F53" # evm_transaction_submitter_chain
+                topic: G_evm_transaction_submitter_cost_topic
+              - bc-rid: x"1C80EC35F3B9BBE5B516CCAD2E6B69FD3961FC1D8DB980E13F97BB5C21CF0AEB" # price_oracle_chain
+                topic: G_token_price_changed
+          local:
+            - topic: L_evm_block_events
+              bc-rid: x"51857CBDE9E58410BF371F8C1E480129D15939E5F98E03575B106702D7972C17"
+    moduleArgs:
+      lib.hbridge.core:
+        evm_read_offsets:
+          "56": 100
+          "1": 50
+      lib.ft4.core.accounts:
+        rate_limit:
+          active: 1
+          max_points: 20
+          recovery_time: 5000
+          points_at_account_creation: 1
+      lib.ft4.core.auth:
+        evm_signatures_authorized_operations:
+          - eif.hbridge.link_evm_eoa_account
+      lib.ft4.core.accounts.strategies.transfer:
+        rules:
+          - sender_blockchain:
+              - "4EED8C21E3AAB544F172945859E466E55CE3E60180D0C314DB648658CE8DC2A6" # chr repl -c '("EVM",1,x"8A2279d4A90B6fe1C4B30fa660cC9f926797bAA2").hash()' - token address from https://gitlab.com/chromaway/core/postchain-eif/-/blob/dev/postchain-eif-contracts/tasks/deployers/chromiabridge.ts?ref_type=heads#L21-L34
+              - "BB3B3F342048A851B994BFD29995AF5F0B7C1D3E604F1A53C1E164677FA108BF" # chr repl -c '("EVM",56,x"f9CeC8d50f6c8ad3Fb6dcCEC577e05aA32B224FE").hash()' - token address from https://gitlab.com/chromaway/core/postchain-eif/-/blob/dev/postchain-eif-contracts/tasks/deployers/chromiabridge.ts?ref_type=heads#L21-L34
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "Chromia" # Should match `economy_chain_module_args.asset_name`
+                min_amount: 10000000L # 10.0 CHR
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: "*"
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "Chromia" # Should match `economy_chain_module_args.asset_name`
+                min_amount: 10000000L # 10.0 CHR
+            timeout_days: 1
+            strategy: "fee"
+      lib.ft4.core.accounts.strategies.transfer.fee:
+        asset:
+          - name: "Chromia"  # Should match `economy_chain_module_args.asset_name`
+            amount: 10000000L # 10.0 CHR
+        fee_account: x"A97CEAF65C5D7BE1B1307B0CD11AC9B3DB7065D24B8C1D36B135C68A846A4426" # pool account
+      economy_chain:
+        evm_bridges:
+          - network_id: 56
+            asset_address: "f9CeC8d50f6c8ad3Fb6dcCEC577e05aA32B224FE"
+            bridge_address: "c5B2d0F1F659A72c3c94E6E654C859771161eFD3"
+            skip_to_height: 7743093
+          - network_id: 1
+            asset_address: "8A2279d4A90B6fe1C4B30fa660cC9f926797bAA2"
+            bridge_address: "b1632e7de8B3d18277Cc3C99B6819795bBDe8654"
+            skip_to_height: 11223368
+        asset_name: "Chromia"
+        asset_symbol: "CHR"
+        asset_decimals: 6
+        asset_icon: "https://assets.chromia.com/chr.png"
+        pool_amount_to_mint: 600000000000 # 600k CHR
+        staking_withdrawal_delay_ms: 1209600000 # 14 days
+        staking_delegation_delay_ms: 604800000 # 7 days
+        staking_rewards_payout_interval_ms: 86400000 # 1 day
+        staking_withdrawals_payout_interval_ms: 30000 # 60 seconds (approximately every other block)
+        staking_rewards_payout_batch_size: 50
+        staking_default_rewards_share: 0.1
+        staking_rewards_start_time: 1727182800000 # Tues Sep 24 2024 15:00:00 GMT+0200 (Central European Summer Time)
+        pool_refill_limit_ms: 86400000 # 1 day
+        max_dapp_providers_per_lease: 50
+        max_bridge_leases_per_container: 10
+        evm_transaction_submitters_bonus: 0.1
+        container_removal_timeout: 31536000000 # 1 year
+        token_rate_update_interval_ms: 3600000 # 1 hour
+        staking_oracle_pubkey: x"03C096B5A11941348CCFD305FB2F57C674E49882889DA2973635A2BDBA042D49A8"
+        chromia_foundation_mint_amount_limit: 10000000000000 # 10m CHR
+      chain_version: *chain_version
+  token_chain_mainnet:
+    module: token_chain
+    config:
+      features:
+        merkle_hash_version: 2
+      gtx:
+        modules:
+          - "net.postchain.d1.icmf.IcmfSenderGTXModule"
+          - "net.postchain.d1.icmf.IcmfReceiverGTXModule"
+          - "net.postchain.d1.iccf.IccfGTXModule"
+          - "net.postchain.eif.EifGTXModule"
+      sync_ext:
+        - "net.postchain.d1.icmf.IcmfReceiverSynchronizationInfrastructureExtension"
+      icmf:
+        receiver:
+          directory-chain:
+            topics:
+              - L_provider_update # To sync system providers
+              - L_provider_auth_update
+          local:
+            - topic: L_evm_block_events
+              bc-rid: x"34769FA2534904D61905D32612D0C960416A82EF2CD1CFE62CD69653259445D1" # evm_event_receiver_token_chain
+      eif:
+        snapshot:
+          version: 2
+    moduleArgs:
+      token_chain:
+        # TODO change to something more appropriate
+        init_pubkey: x"0319852651DB3ACA5D5DFDF71D8600566345FE1713BCBC7F2C1B6434B7A8C88C6F" # Chromaway provider
+        asset_name: "Chromia"
+        asset_symbol: "CHR"
+        asset_decimals: 6
+        asset_icon: "https://assets.chromia.com/chr.png"
+        economy_chain_blockchain_rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+        proposal_revoke_timeout_days: 1
+      lib.begin_block:
+        detect_configuration_updates: true
+      lib.hbridge.core:
+        evm_read_offsets:
+          "56": 100
+          "1": 50
+          "8453": 10 # Base mainnet, block time 2s = 20s (no risk of reorgs)
+          "42161": 10 # Arbitrum mainnet, block time 0.25s = 2.5s (no risk of reorgs)
+      lib.hbridge:
+        version: 2 # multiple bridges
+      lib.ft4.core.auth:
+        evm_signatures_authorized_operations:
+          - eif.hbridge.link_evm_eoa_account
+      lib.ft4.core.accounts.strategies.transfer:
+        rules:
+          - sender_blockchain: "*"
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "Chromia" # Should match `economy_chain_module_args.asset_name`
+                min_amount: 1000000L # 1.0 CHR
+                issuing_blockchain_rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+            timeout_days: 10
+            strategy: "fee"
+          - sender_blockchain: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # set to economy chain RID
+            sender: "X"
+            recipient: "X"
+            asset:
+              - name: "Chromia" # Should match `economy_chain_module_args.asset_name`
+                min_amount: 1L # Smallest possible unit of CHR should be OK
+                issuing_blockchain_rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # set to economy chain RID
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: x"D0E3E68298951F1DD80076EC1BA7D0C46FE7DFB119E34C62D5C9E8EB8D3D27C7" # Used for account creation when depositing ALICE tokens from BSC
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "ALICE"
+                min_amount: 1L # Smallest possible unit of ALICE should be OK
+                issuing_blockchain_rid: x"8035EBF322D0057B00E1D596431A78D535DB45035FAF2045B76942034C0FC507" # token chain RID
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: x"17C9FEC142B464D6FCAD03BDE675DE0361B7DCC87191B5B5C2CB9D66CCDFD905" # Used for account creation when depositing ALICE tokens from Ethereum
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "ALICE"
+                min_amount: 1L # Smallest possible unit of ALICE should be OK
+                issuing_blockchain_rid: x"8035EBF322D0057B00E1D596431A78D535DB45035FAF2045B76942034C0FC507" # token chain RID
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: x"E7E3FAD8F08AB0883D66A869401DFB8B000E9AE621856E57988D22668BD3A4D0" # chr repl -c '("EVM", 56, x"8fB238058E71f828F505582E65b1D14f8cf52067").hash()'
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "DAR Open Network"
+                min_amount: 1L # Smallest possible unit of DAR should be OK
+                issuing_blockchain_rid: x"8035EBF322D0057B00E1D596431A78D535DB45035FAF2045B76942034C0FC507" # token chain RID
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: x"8489BF971BC6B6114712127310EC530037F95D733D85F550635C841FAB597D2D" # chr repl -c '("EVM", 8453, x"DD78523217390BB0D49C7601E7E54C36D71622F0").hash()'
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "EVAL Engine"
+                min_amount: 1L # Smallest possible unit of EVAL should be OK
+                issuing_blockchain_rid: x"8035EBF322D0057B00E1D596431A78D535DB45035FAF2045B76942034C0FC507" # token chain RID
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: x"C99D93F4878A18463B75CDD7149B07DB46B9BB41EC14AC16325AC41FF61A7F7D" # chr repl -c '("EVM", 56, x"A992FFB0C9B753307B9704079C61DB4E405DEFFD").hash()'
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "Alliance Games"
+                min_amount: 1L # Smallest possible unit of COA should be OK
+                issuing_blockchain_rid: x"8035EBF322D0057B00E1D596431A78D535DB45035FAF2045B76942034C0FC507" # token chain RID
+            timeout_days: 10
+            strategy: "open"
+          - sender_blockchain: x"5395090407A4652E7F667D2D95368096F59F8DF4BC43C6FC543A7D6BFEA9AF3A" # chr repl -c '("EVM", 8453, x"A992FFB0C9B753307B9704079C61DB4E405DEFFD").hash()'
+            sender: "*"
+            recipient: "*"
+            asset:
+              - name: "Alliance Games"
+                min_amount: 1L # Smallest possible unit of COA should be OK
+                issuing_blockchain_rid: x"8035EBF322D0057B00E1D596431A78D535DB45035FAF2045B76942034C0FC507" # token chain RID
+            timeout_days: 10
+            strategy: "open"
+      lib.ft4.core.accounts.strategies.transfer.fee:
+        asset:
+          - name: "Chromia"  # Should match `economy_chain_module_args.asset_name`
+            amount: 1000000L # 1.0 CHR
+            issuing_blockchain_rid: x"15C0CA99BEE60A3B23829968771C50E491BD00D2E3AE448580CD48A8D71E7BBA" # economy chain
+        fee_account: x"06F63A7A83FF05273516DD468943DA15B106AC4736C63C3FCC6EB2F2C1590B22" # Token chain governance account id - chr repl -c "\"TOKEN_CHAIN_GOVERNANCE\".hash()"
+      chain_version: *chain_version
+
+docs:
+  title: Directory chain
+  footerMessage: © 2024 Chromia
+  additionalContent:
+    - module-docs.md
+  sourceLink:
+    remoteUrl: https://gitlab.com/chromaway/core/directory-chain/-/tree/dev/src
+    remoteLineSuffix: "#L"
+
+compile:
+  rellVersion: 0.15.3

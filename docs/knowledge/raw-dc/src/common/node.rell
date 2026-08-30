@@ -1,0 +1,89 @@
+function add_node_internal(provider, node_data: register_node_data, require_not_exists: boolean = true): node {
+    require(empty(provider @? { node_data.pubkey }),
+        "This pubkey is already registered as a provider: " + node_data.pubkey
+    );
+    require_provider_quota(provider, provider_quota_type.max_nodes);
+    if (require_not_exists) {
+        require(empty(node @? { node_data.pubkey }), "Node already exists: " + node_data.pubkey);
+    }
+
+    val clusters = require_clusters(node_data.clusters);
+    val minimum_extra_storage = get_minimum_extra_storage_for_clusters(clusters);
+    require(node_data.extra_storage >= minimum_extra_storage,
+        "Node needs a minimum of %d MiB extra storage to fulfill cluster(s) extra storage requirements.".format(minimum_extra_storage));
+
+    validate_host(node_data.host);
+    validate_node_url(node_data.api_url);
+    validate_territory_code(node_data.territory);
+
+    val node = node @? { node_data.pubkey } ?: create node (
+        provider,
+        node_data.pubkey,
+        host = node_data.host,
+        port = node_data.port,
+        api_url = node_data.api_url,
+        last_updated = op_context.last_block_time,
+        cluster_units = node_data.cluster_units,
+        territory = node_data.territory,
+        extra_storage = node_data.extra_storage
+    );
+    after_node_added(node);
+
+    for (cluster in clusters) {
+        if (roles.has_node_access(provider)) {
+            add_node_to_cluster_internal(provider, node, cluster);
+        } else { // provider_tier.DAPP_PROVIDER
+            _add_replica_node_to_cluster_internal(cluster, node);
+        }
+    }
+    return node;
+}
+
+function require_node_provider(node_pubkey: pubkey, provider_pubkey: pubkey) {
+    val provider = require_is_provider_with_rate_limit(provider_pubkey);
+    val node = require_node(node_pubkey);
+    require(node.provider == provider, "Must be provider of node to update its state");
+    return node;
+}
+
+function require_cluster_units_for_node(cluster, node) {
+    val available_cluster_units = get_available_cluster_units_for_node(node);
+    require(available_cluster_units >= cluster.cluster_units,
+        "Node %s has %d cluster unit(s). To support cluster %s %d more unit(s) are required."
+            .format(node.pubkey, node.cluster_units, cluster.name, cluster.cluster_units - available_cluster_units));
+}
+
+function require_extra_storage_for_node(cluster, node) {
+    val available_extra_storage = get_available_extra_storage_for_node(node);
+    require(available_extra_storage >= cluster.extra_storage,
+        "Node %s has %d MiB extra storage. To support cluster %s %d more MiBs are required."
+            .format(node.pubkey, node.extra_storage, cluster.name, cluster.extra_storage - available_extra_storage));
+}
+
+function get_available_cluster_units_for_node(node): integer {
+    return node.cluster_units - get_used_cluster_units_for_node(node);
+}
+
+function get_used_cluster_units_for_node(node): integer {
+    return (cluster_node, cluster) @ { node, cluster_node.cluster == cluster } ( @sum cluster.cluster_units ) +
+        (cluster_replica_node, cluster) @ { node, cluster_replica_node.cluster == cluster } ( @sum cluster.cluster_units );
+}
+
+function get_available_extra_storage_for_node(node): integer {
+    return node.extra_storage - get_used_extra_storage_for_node(node);
+}
+
+function get_used_extra_storage_for_node(node): integer {
+    return (cluster_node, cluster) @ { node, cluster_node.cluster == cluster } ( @sum cluster.extra_storage ) +
+        (cluster_replica_node, cluster) @ { node, cluster_replica_node.cluster == cluster } ( @sum cluster.extra_storage );
+}
+
+function get_cluster_count_for_node(node): integer {
+    return cluster_node @ { node } ( @sum 1 ) + cluster_replica_node @ { node } ( @sum 1 );
+}
+
+@extendable function after_node_added(node) {}
+
+@extendable function before_node_removal(node) {}
+
+@extendable function after_node_updated(node) {}

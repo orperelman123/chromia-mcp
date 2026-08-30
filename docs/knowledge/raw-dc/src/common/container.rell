@@ -1,0 +1,153 @@
+function create_system_container(me: provider, name, cluster, voter_set): container {
+    val c = create container(name, cluster, voter_set, me, system = true, created_at = op_context.last_block_time);
+    create container_resource_limit(c, container_resource_limit_type.container_units, cluster.system_container_units);
+    create container_resource_limit(c, container_resource_limit_type.max_blockchains, system_container_defaults.max_blockchains);
+    create container_resource_limit(c, container_resource_limit_type.extra_storage, system_container_defaults.extra_storage);
+    create container_resource_limit(c, container_resource_limit_type.extra_compute_requests, system_container_defaults.extra_compute_requests);
+    return c;
+}
+
+function create_container_with_limits(me: provider, name, cluster, voter_set, container_units: integer,
+        max_blockchains: integer, extra_storage: integer, extra_compute_requests: integer): container {
+    require(container_units > 0, "Container must have at least 1 container unit");
+    require(extra_storage >= 0, "Invalid value for extra_storage: %d, must be greater or equal to 0".format(extra_storage));
+    require(extra_compute_requests >= 0, "Invalid value for extra_compute_requests: %d, must be greater or equal to 0".format(extra_compute_requests));
+    require_cluster_quotas(cluster, container_units, extra_storage);
+    val c = create container(name, cluster, voter_set, me, created_at = op_context.last_block_time);
+    create container_resource_limit(c, container_resource_limit_type.container_units, container_units);
+    create container_resource_limit(c, container_resource_limit_type.max_blockchains, max_blockchains);
+    create container_resource_limit(c, container_resource_limit_type.extra_storage, extra_storage);
+    create container_resource_limit(c, container_resource_limit_type.extra_compute_requests, extra_compute_requests);
+    return c;
+}
+
+function remove_container_impl(container) {
+    before_remove_container(container);
+    delete container_resource_limit @* { container };
+    delete container_configuration @? { container };
+    delete container_subnode_image @? { container };
+    delete container_subnode_jar_extension @* { container };
+    delete container;
+}
+
+@extendable function before_remove_container(container) {}
+
+@extendable function is_container_available_for_removal(container): text? {
+    return when {
+        container.system -> "System container can't be deleted";
+        exists(moving_blockchain @* { .source == container }) ->
+            "Container %s is currently a source in a moving blockchain process and can't be deleted".format(container.name);
+        exists(moving_blockchain @* { .destination == container }) ->
+            "Container %s is currently a destination in a moving blockchain process and can't be deleted".format(container.name);
+        exists(unarchiving_blockchain @* { .source == container }) ->
+            "Container %s is currently a source in an unarchiving blockchain process and can't be deleted".format(container.name);
+        exists(unarchiving_blockchain @* { .destination == container }) ->
+            "Container %s is currently a destination in an unarchiving blockchain process and can't be deleted".format(container.name);
+        else -> null;
+    };
+}
+
+function require_container_available_for_removal(container) {
+    val objections = is_container_available_for_removal(container);
+    require(empty(objections), objections!!);
+}
+
+@extend(before_cluster_removal) function remove_system_container(cluster) {
+    before_system_container_removal(cluster);
+    remove_container_impl(container @ { cluster, .system == true });
+}
+
+@extendable function before_system_container_removal(cluster) {}
+
+function create_container_impl(me: provider, name, cluster, consensus_threshold: integer, deployers: list<pubkey>,
+        container_units: integer, max_blockchains: integer, extra_storage: integer, extra_compute_requests: integer): container {
+    require(consensus_threshold >= -1 and consensus_threshold <= deployers.size(), "Invalid threshold");
+
+    val vs_name = "container_" + name + "_deployer";
+    require(empty(voter_set @? { vs_name }), "Voter set named %s already exists".format(vs_name));
+    val vs = create_voter_set_internal(vs_name, consensus_threshold);
+    for (deployer_key in deployers) {
+        val deployer = require_provider(deployer_key);
+        require(deployer.active, "Provider %s is not active".format(deployer.pubkey));
+        create voter_set_member(vs, deployer);
+    }
+
+    return create_container_with_limits(me, name, cluster, vs, container_units, max_blockchains, extra_storage, extra_compute_requests);
+}
+
+function remove_container_and_voter_set(container) {
+    if (empty(is_container_available_for_removal(container))) {
+        remove_container_impl(container);
+    }
+}
+
+function get_current_container_resource_limits(container_name: text): map<container_resource_limit_type, integer> {
+    var limits_map = map<container_resource_limit_type, integer>();
+    val cur_limits_list = container_resource_limit @* { .container.name == container_name };
+    for (l in cur_limits_list) {
+        limits_map[l.container_resource_limit_type] = l.value;
+    }
+    return limits_map;
+}
+
+function get_container_limit_or_default(container, type: container_resource_limit_type, default: integer): integer {
+    return container_resource_limit @? { container, .container_resource_limit_type == type } (.value) ?: default;
+}
+
+function require_container_is_not_full(container) {
+    val max_blockchains = container_resource_limit @ { container, container_resource_limit_type.max_blockchains } (.value);
+    if (max_blockchains > 0) {
+        val container_dapps_count = container_blockchain @* { container } (@sum 1)[0];
+        require(container_dapps_count < max_blockchains, "Can't add blockchain, container %s is full".format(container.name));
+    }
+}
+
+function get_container_blockchain_count(container) {
+    return container_blockchain @* { container } (@sum 1)[0];
+}
+
+function upgrade_container(container, container_units: integer, extra_storage: integer, max_blockchains: integer,
+        extra_compute_requests: integer) {
+    require_container_units(container, container_units);
+    require_max_blockchains(container, max_blockchains);
+    require_extra_storage(container, extra_storage);
+    require(extra_compute_requests >= 0, "Invalid value for extra_compute_requests: %d, must be greater or equal to 0".format(extra_compute_requests));
+
+    update container_resource_limit @ { container, container_resource_limit_type.container_units } ( container_units );
+    update container_resource_limit @ { container, container_resource_limit_type.max_blockchains } ( max_blockchains );
+    update container_resource_limit @ { container, container_resource_limit_type.extra_storage } ( extra_storage );
+    val extra_compute_request_limit = container_resource_limit @? { container, container_resource_limit_type.extra_compute_requests };
+    if (exists(extra_compute_request_limit)) {
+        extra_compute_request_limit.value = extra_compute_requests;
+    } else {
+        create container_resource_limit(container, container_resource_limit_type.extra_compute_requests, extra_compute_requests);
+    }
+}
+
+function require_container_units(container, new_container_units: integer) {
+    val current_container_units = get_container_limit_or_default(container, container_resource_limit_type.container_units, standard_container_defaults.container_units);
+    val available_container_units = get_available_container_units(container.cluster);
+    val required_container_units = new_container_units - current_container_units;
+    require(
+        required_container_units <= 0 or required_container_units <= available_container_units,
+        "Can not change container limits since container_units is too high for current cluster. Available container_units in cluster are %d but needed is %d".format(available_container_units, required_container_units)
+    );
+}
+
+function require_max_blockchains(container, new_max_blockchains: integer) {
+    val current_blockchain_count = get_container_blockchain_count(container);
+    require(
+        current_blockchain_count <= new_max_blockchains,
+        "Can not change container limits since max_blockchains is too low. Current number of blockchains is %d".format(current_blockchain_count)
+    );
+}
+
+function require_extra_storage(container, new_extra_storage: integer) {
+    val current_extra_storage = get_container_limit_or_default(container, container_resource_limit_type.extra_storage, standard_container_defaults.extra_storage);
+    val available_extra_storage = get_available_extra_storage(container.cluster);
+    val required_extra_storage = new_extra_storage - current_extra_storage;
+    require(
+        required_extra_storage <= available_extra_storage,
+        "Can not change container limits since extra_storage is too high. Available extra_storage is %d MiB but needed is %d MiB. Consider manually transferring blockchains to a new cluster that provides necessary storage requirements.".format(available_extra_storage, required_extra_storage)
+    );
+}

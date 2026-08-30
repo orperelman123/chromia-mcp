@@ -1,0 +1,204 @@
+/**
+ * Returns blockchain by rid.
+ */
+query get_blockchain(rid: byte_array) = blockchain @ { rid };
+
+/**
+ * Returns blockchain signer nodes.
+ */
+query get_blockchain_signers(blockchain_rid: byte_array): list<(byte_array, text, integer, boolean, integer)> {
+    val blockchain = require_active_blockchain(blockchain_rid);
+    return get_blockchain_signer_nodes(blockchain) @* {} (
+        @sort _ = .pubkey,
+        _ = .host,
+        _ = .port,
+        _ = .active,
+        _ = .last_updated
+    );
+}
+
+/**
+ * Returns blockchain replica nodes.
+ */
+query get_blockchain_replicas(blockchain_rid: byte_array) {
+    return blockchain_replica_node @* { .blockchain.rid == blockchain_rid } (
+        @sort .node.pubkey,
+        .node.host,
+        .node.port,
+        .node.active,
+        .node.last_updated
+    );
+}
+
+/**
+ * Returns all blockchains by criteria.
+ */
+query get_blockchains(include_inactive: boolean): list<struct<blockchain>> {
+    if (include_inactive) {
+        return blockchain @* {} ($.to_struct());
+    }
+    return blockchain @* { .state == blockchain_state.RUNNING } ($.to_struct());
+}
+
+// Will return RUNNING and PAUSED if include_inactive == true
+function get_blockchains_with_container(include_inactive: boolean) {
+    if (include_inactive) {
+        return (b: blockchain, c: container_blockchain) @* { c.blockchain == b } (blockchain=b, c.container) ;
+    } else {
+        return (b: blockchain, c: container_blockchain) @* { c.blockchain == b and b.state == blockchain_state.RUNNING } (blockchain = b, c.container);
+    }
+}
+
+struct blockchain_info {
+    rid: byte_array;
+    name: text;
+    state: blockchain_state;
+    container: name?;
+    container_state: container_state?;
+    cluster: name?;
+    system: boolean?;
+    is_foreign_importing: boolean?;
+    is_moving: boolean?;
+    is_unarchiving: boolean?;
+
+    /** If set then this blockchain has the delay feature enabled. Time in milliseconds. */
+    config_delay: integer?;
+}
+
+/**
+ * Returns blockchain info by rid, or null if not found.
+ */
+query get_blockchain_info(rid: byte_array): blockchain_info? {
+    val blockchain = blockchain @? { rid };
+    return to_blockchain_info(blockchain);
+}
+
+/**
+ * Returns blockchain info by name, or null if not found.
+ */
+query get_blockchain_info_by_name(name): blockchain_info? {
+    val blockchain = blockchain @* { name, .state != blockchain_state.REMOVED };
+    return when {
+        empty(blockchain) -> null; // not found
+        blockchain.size() == 1 -> to_blockchain_info(blockchain[0]); // one found
+        else -> null; // more than one found
+    };
+}
+
+/**
+ * Returns blockchains info by criteria.
+ *
+ * @param include_inactive  will return RUNNING, PAUSED and REMOVED if true
+ */
+query get_blockchain_info_list(include_inactive: boolean): list<blockchain_info> {
+    var bc_infos = list<(blockchain: blockchain, container: container?)>();
+    if (include_inactive) {
+        val connected_blockchains = container_blockchain @* {} (.blockchain, .container);
+        val removed_blockchains = blockchain @* {
+            blockchain not in connected_blockchains @* {}.blockchain
+        } (blockchain = blockchain, container = null);
+        bc_infos.add_all(connected_blockchains);
+        bc_infos.add_all(removed_blockchains);
+    } else {
+        bc_infos.add_all((b: blockchain, c: container_blockchain) @* { c.blockchain == b and b.state == blockchain_state.RUNNING } (blockchain = b, c.container));
+    }
+
+    val blockchains = list<blockchain>();
+    for (bc_info in bc_infos) {
+        blockchains.add(bc_info.blockchain);
+    }
+    val config_delays = get_blockchains_config_delay_value(blockchains);
+
+    val result = list<blockchain_info>();
+    for (bc in bc_infos) {
+        result.add(blockchain_info(
+            rid = bc.blockchain.rid,
+            name = bc.blockchain.name,
+            state = bc.blockchain.state,
+            container = bc.container?.name,
+            container_state = bc.container?.state,
+            cluster = bc.container?.cluster?.name,
+            system = bc.blockchain.system,
+            is_foreign_importing = importing_foreign_blockchain @? { .blockchain_rid == bc.blockchain.rid } ??,
+            is_moving = moving_blockchain @? { bc.blockchain } ??,
+            is_unarchiving = unarchiving_blockchain @? { bc.blockchain } ??,
+            config_delay = config_delays.get_or_null(bc.blockchain),
+        ));
+    }
+    return result;
+}
+
+function to_blockchain_info(blockchain?){
+    if (blockchain != null) {
+        val container = container_blockchain @? { blockchain } (.container);
+        return blockchain_info(
+            rid = blockchain.rid,
+            name = blockchain.name,
+            state = blockchain.state,
+            container = container?.name,
+            container_state = container?.state,
+            cluster = container?.cluster?.name,
+            system = blockchain.system,
+            is_foreign_importing = importing_foreign_blockchain @? { .blockchain_rid == blockchain.rid } ??,
+            is_moving = moving_blockchain @? { blockchain } ??,
+            is_unarchiving = unarchiving_blockchain @? { blockchain } ??,
+            config_delay = get_blockchain_config_delay_value(blockchain.rid),
+        );
+    } else {
+        return null;
+    }
+}
+
+/**
+ * Returns blockchain's cluster.
+ */
+query get_blockchain_cluster(blockchain_rid: byte_array) = cm_get_blockchain_cluster(blockchain_rid);
+
+/**
+ * Returns blockchain nodes api urls.
+ */
+query get_blockchain_api_urls(blockchain_rid: byte_array) = cm_get_blockchain_api_urls(blockchain_rid);
+
+struct blockchain_signers_info {
+    height: integer;
+    signers: list<pubkey>;
+}
+
+/**
+ * Returns blockchain configuration signers from height.
+ */
+query get_blockchain_signer_updates(blockchain_rid: byte_array, from_height: integer): list<blockchain_signers_info> {
+    val blockchain = require_blockchain(blockchain_rid);
+    return blockchain_configuration_signers @* { blockchain, .height >= from_height }
+        (@omit @sort .height, blockchain_signers_info(.height, list<pubkey>.from_gtv(gtv.from_bytes(.signers))));
+}
+
+/**
+ * Returns compressed blockchain configuration part.
+ */
+query get_compressed_configuration_parts(configuration_part_hashes: set<byte_array>): list<byte_array> =
+        compressed_blockchain_configuration_part @* { .hash in configuration_part_hashes }.hash;
+
+/**
+ * Returns importing foreign blockchain.
+ */
+query get_importing_foreign_blockchain_info(blockchain_rid: byte_array): struct<importing_foreign_blockchain>? =
+        importing_foreign_blockchain @? { blockchain_rid } ($.to_struct());
+
+/**
+ * Returns moving blockchain.
+ */
+query get_moving_blockchain_info(blockchain_rid: byte_array) = moving_blockchain @? { .blockchain.rid == blockchain_rid } (
+    source_container = .source.name,
+    destination_container = .destination.name,
+    final_height = .final_height
+);
+
+/**
+ * Returns unarchiving blockchain.
+ */
+query get_unarchiving_blockchain_info(blockchain_rid: byte_array) = unarchiving_blockchain @? { .blockchain.rid == blockchain_rid } (
+    source_container = .source.name,
+    destination_container = .destination.name,
+    final_height = .final_height
+);

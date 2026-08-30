@@ -1,0 +1,30 @@
+module;
+
+import ^^.*;
+import ^^^.economy_chain_in_directory_chain.*;
+import ^^^.model.*;
+
+// Query wrapped in func to be able to assert require() call
+function _query_in_fun__nm_get_container_for_blockchain(blockchain_rid: byte_array) {
+    nm_get_container_for_blockchain(blockchain_rid);
+}
+
+operation create_empty_container_op(my_pubkey: pubkey, container_name: text) {
+    create container(container_name, require_cluster(clusters.system), voter_set @ { voter_sets.system_p }, provider @ { my_pubkey });
+}
+
+operation stop_container_op(container_name: text) {
+    stop_container(container_name);
+}
+
+operation restart_container_op(container_name: text) {
+    restart_container(container_name);
+}
+
+operation associate_subnode_image_with_cluster(cluster_name: text, subnode_image_name: text) {
+    create cluster_subnode_image(require_cluster(cluster_name), subnode_image @ { .name == subnode_image_name });
+}
+
+operation associate_subnode_image_with_container(container_name: text, subnode_image_name: text) {
+    create container_subnode_image(require_container(container_name), subnode_image @ { .name == subnode_image_name });
+}

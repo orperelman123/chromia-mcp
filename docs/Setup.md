@@ -32,7 +32,12 @@
 
 **Environment Variables:**
 - No environment variables are required for local development
-- Optional: `GITLAB_ACCESS_TOKEN` - Only needed if generating RAG embeddings locally (currently not used)
+- Optional: `GITLAB_ACCESS_TOKEN` - Needed to upload RAG embeddings (`./gradlew :app:generateEmbeddings` or `--generate-embeddings`). If the token is missing, generation still fetches, ingests, and persists `embeddings.json` locally, then skips upload. Use `--generate-embeddings-no-upload` / `:app:generateEmbeddingsNoUpload` to force that path.
+- Optional: `CHROMIA_EMBEDDINGS_PATH` - Absolute or relative path to local `embeddings.json`. Gradle `run` / `runSse` / `generateEmbeddings` / `generateEmbeddingsNoUpload` set this to `app/build/embeddings.json`. Default when unset: the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to the process working directory (so `java -jar` from the repo root finds the Gradle-generated file). If neither exists, `build/embeddings.json`. Runtime loads this file first; GitLab packages are the fallback.
+
+**Docs remotes:** public GitHub only — `rell` (`dev` → `doc` + `rell-base`/`rell-gtx`/`rell-api-*`), `postchain` (`dev` → `doc` + core `postchain-*` modules), `ft4-lib` (`development` → `doc`/`rell`/`client`), `directory-chain` (`dev`/`doc`+`src`), `postchain-eif` (`dev`/`doc`), `chromia-cli` (`dev`/`docs`), `postchain-client` (`dev` → nested `postchain-client/doc`). Config: `app/src/main/resources/docs-repositories.json`. Nested paths are supported via sparse checkout. Generation also crawls the public `docs.chromia.com` sitemap when reachable (Bitbucket mentions in examples are not treated as login walls). Ingest keeps documentation and source text and skips binaries. Do not invent unofficial URLs or missing subdirectories.
+
+**Standalone agent pack:** `AGENTS.md` (Codex) and `CLAUDE.md` (Claude Code) at the repo root. Same Chromia stack expert pins are also available via `get_prompts` (`category=chromia_stack`).
 
 ## Step-by-Step Setup Instructions
 
@@ -80,6 +85,8 @@ chmod +x gradlew
 ./gradlew :app:shadowJar
 ```
 
+Do **not** run `jib` and `shadowJar` in the same Gradle invocation as parallel siblings (`./gradlew jib shadowJar`). Both write under `app/build/libs`. Run `:app:shadowJar` first, then `jib`, or rely on the `mustRunAfter` wiring in `app/build.gradle.kts`.
+
 **What this does:**
 - Creates a single JAR file with all dependencies included
 - Output: `app/build/libs/chromia-mcp-server.jar`
@@ -123,9 +130,13 @@ curl http://127.0.0.1:3001/health
 {
   "status": "healthy",
   "server": "chromia-mcp-server",
-  "version": "0.0.1"
+  "version": "0.2.2"
 }
 ```
+
+`version` is Gradle `project.version`, generated into `BuildInfo` at compile time (`app/build.gradle.kts` `generateBuildInfo`). `gradle.properties` pins `0.2.2` (latest official GitLab tag of chromaway/core-tools/chromia-mcp). Publish/release jobs override with `-Pversion=$CI_COMMIT_TAG`. It is not a hardcoded `0.0.1`.
+
+The same JSON is also the MCP resource `chromia://server/health`. The server additionally exposes classpath `docs-repositories.json` (`chromia://config/docs-repositories`) and `prompt_templates.json` (`chromia://config/prompt-catalog`). It does not advertise MCP `prompts` (use the `get_prompts` tool). Tools and resources are static (`listChanged=false`; resources also `subscribe=false`). There is no OpenAPI spec and no `execute_transaction` tool.
 
 #### Stdio Mode (Subprocess)
 
@@ -157,6 +168,8 @@ java -jar app/build/libs/chromia-mcp-server.jar --sse
 ```bash
 java -jar app/build/libs/chromia-mcp-server.jar --stdio
 ```
+
+Run these from the **repo root**. If `app/build/embeddings.json` exists, the default local-embeddings lookup finds it (no `CHROMIA_EMBEDDINGS_PATH` required). Gradle `run` / `runSse` still set that env to the same file.
 
 ### Running from IDE
 
@@ -194,14 +207,14 @@ java -jar app/build/libs/chromia-mcp-server.jar --stdio
 3. Open browser to URL shown by inspector (usually `http://localhost:5173`)
 4. In the MCP Inspector interface:
    - Choose the transport type to be **SSE**
-   - Write the MCP server endpoint: `http://127.0.0.1:3001`
+   - Write the MCP server endpoint: `http://127.0.0.1:3001/sse`
    - Press **Connect**
 5. Test tools in the web interface 
 
 **2. Test with actual MCP client**
 
 Configure your MCP client (Cursor, Claude Desktop, etc.) to use local server:
-- SSE mode: `http://127.0.0.1:3001`
+- SSE mode: `http://127.0.0.1:3001/sse` (health check remains `http://127.0.0.1:3001/health`)
 - Stdio mode: Configure command as `java -jar /path/to/chromia-mcp-server.jar --stdio`
 
 **Note:** Testing with actual MCP clients can be costly due to repeated query testing.
@@ -230,9 +243,10 @@ chmod +x gradlew
 **Symptoms:** Documentation search returns errors.
 
 **Fix:**
-- Check internet connection (embeddings are downloaded from GitLab packages)
+- If you generated locally, confirm `CHROMIA_EMBEDDINGS_PATH` (Gradle default: `app/build/embeddings.json`) exists, or that you started `java -jar` from the repo root so the default finds `app/build/embeddings.json`. Runtime loads that file first.
+- Otherwise check internet connection (fallback download is the GitLab generic package)
 - Verify GitLab packages are accessible
-- Check server logs for download errors
+- Check server logs for local-load or download errors
 - If embeddings are unavailable, documentation search will not work (but server continues running)
 
 ### Issue: MCP Inspector cannot connect
@@ -281,7 +295,7 @@ See [Architecture.md](./Architecture.md) for detailed instructions on adding new
 - Helps identify parameter issues
 
 **Check server logs:**
-- Server logs all tool requests and responses
+- Console logs go to **stderr** (`SYSTEM_ERR`) so stdio MCP JSON-RPC on stdout is not corrupted. Request/response payloads are DEBUG. Noisy libraries (`dev.langchain4j`, `ai.djl`, `io.ktor`, `io.netty`) are WARN/ERROR.
 - Look for error messages in console output
 - Check for exception stack traces
 

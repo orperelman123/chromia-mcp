@@ -1,0 +1,127 @@
+
+/**
+ * Returns node.
+ */
+query get_node(pubkey) = node @ { pubkey };
+
+struct node_data {
+    provider: pubkey;
+    pubkey;
+    active: boolean;
+    host: text;
+    port: integer;
+    last_updated: timestamp;
+    api_url: text;
+    cluster_units: integer?;
+    territory: text?;
+
+    /** extra storage in MiB */
+    extra_storage: integer?;
+}
+
+/**
+ * Returns node data.
+ */
+query get_node_data(pubkey) {
+    val node = require_node(pubkey);
+    return node_data(
+        provider = node.provider.pubkey,
+        pubkey = node.pubkey,
+        active = node.active,
+        host = node.host,
+        port = node.port,
+        last_updated = node.last_updated,
+        api_url = node.api_url,
+        cluster_units = node.cluster_units,
+        territory = node.territory,
+        extra_storage = node.extra_storage
+    );
+}
+
+/**
+ * Returns clusters of node.
+ */
+query list_clusters_of_node(pubkey): list<text> {
+    val node = require_node(pubkey);
+    return cluster_node @* { node }.cluster.name;
+}
+
+/**
+ * Returns containers of node's clusters.
+ */
+query get_node_containers(pubkey): list<(cluster:text, name:text, deployer:text)> {
+    val node = require_node(pubkey);
+    val clusters = cluster_node @* { node } .cluster;
+    val res = list<(cluster:text, name:text, deployer:text)>();
+    for (cl in clusters) {
+        val containers = container @* { cl } (@sort cluster = .cluster.name, @sort name = .name, deployer = .deployer.name);
+        res.add_all(containers);
+    }
+    return res;
+}
+
+// deprecated
+query get_nodes_with_provider() {
+    return node @* {} (
+        pubkey = .pubkey,
+        node_active = .active,
+        host = .host,
+        port = .port,
+        last_updated = .last_updated,
+        name = .provider.name,
+        provider_active = .provider.active,
+        @sort provider = .provider.pubkey
+    );
+}
+
+/**
+ * @param pubkey The node
+ * @param cluster_name Cluster to check
+ * @param blockchain_states Filter on blockchain states to include
+ * @param container_states Filter on container states to include
+ * @return All chains where node is signer according to blockchain configuration.
+ * This ignores any pending configurations that might be in use.
+ */
+query get_node_signer_cluster_blockchains(
+    pubkey,
+    cluster_name: text,
+    blockchain_states: list<blockchain_state> = [blockchain_state.RUNNING],
+    container_states: list<container_state> = [container_state.RUNNING]
+): list<byte_array> {
+    val blockchains_in_cluster = (container_blockchain) @* {
+        container_states.empty() or .container.state in container_states,
+        .container.cluster.name == cluster_name,
+        blockchain_states.empty() or .blockchain.state in blockchain_states,
+    }.blockchain;
+
+    val signer_chains = list<byte_array>();
+    for (blockchain in blockchains_in_cluster) {
+        val latest_config = blockchain_configuration_signers @? { blockchain } (@omit @sort_desc .height, $) limit 1;
+        if (latest_config != null and pubkey in list<byte_array>.from_gtv(gtv.from_bytes(latest_config.signers))) {
+            signer_chains.add(latest_config.blockchain.rid);
+        }
+    }
+
+    return signer_chains;
+}
+
+struct node_info {
+    pubkey;
+    host: text;
+    port: integer;
+    api_url: text;
+    territory: text?;
+}
+
+/**
+ * Returns all nodes.
+ */
+query get_all_nodes(include_inactive: boolean) {
+    val nodes = if (include_inactive) node @* {} else node @* { .active };
+    return nodes @* {} (
+        info = node_info(.pubkey, host = .host, port = .port, api_url = .api_url, territory = .territory),
+        active = .active,
+        last_updated = .last_updated,
+        provider = .provider.to_struct()
+    );
+}

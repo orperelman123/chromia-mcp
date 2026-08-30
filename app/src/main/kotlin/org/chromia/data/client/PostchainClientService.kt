@@ -15,7 +15,14 @@ import org.chromia.domain.NetworkResult
 import org.chromia.domain.exceptions.NetworkConfigurationException
 import org.chromia.domain.exceptions.PostchainClientException
 
-class PostchainClientService(private val config: ChromiaConfig) {
+fun interface BlockchainQueryClient {
+    fun query(blockchainRid: BlockchainRid, queryName: String, arguments: Gtv): Gtv
+}
+
+class PostchainClientService(
+    private val config: ChromiaConfig,
+    private val queryClient: BlockchainQueryClient? = null
+) {
 
     fun executeBlockchainQuery(
         network: String?,
@@ -29,17 +36,15 @@ class PostchainClientService(private val config: ChromiaConfig) {
         val urls = config.predefinedNetworks[networkName]
             ?: throw NetworkConfigurationException(networkName, config.predefinedNetworks.keys)
 
-        val dcClient = StandardChromiaClient(EndpointPool.default(urls)).getClient(blockchainRid)
-
-        val queryResult = dcClient.query(query, listMapAndPrimitivesToGtv(arguments))
+        val gtvArgs = listMapAndPrimitivesToGtv(arguments)
+        val queryResult = queryClient?.query(blockchainRid, query, gtvArgs)
+            ?: StandardChromiaClient(EndpointPool.default(urls)).getClient(blockchainRid).query(query, gtvArgs)
 
         val gsonJsonElement = make_gtv_gson().toJsonTree(queryResult)
 
         val kotlinxJsonElement = gsonJsonElement.toKotlinxJson()
 
-        val filteredJsonElement = filterModulesToQueriesOnly(kotlinxJsonElement)
-
-        val jsonObject = filteredJsonElement as? JsonObject ?: JsonObject(mapOf("data" to filteredJsonElement))
+        val jsonObject = kotlinxJsonElement as? JsonObject ?: JsonObject(mapOf("data" to kotlinxJsonElement))
 
         NetworkResult.Success(jsonObject)
     }.fold(
@@ -50,7 +55,7 @@ class PostchainClientService(private val config: ChromiaConfig) {
                 blockchainRid.toHex(),
                 e
             )
-            NetworkResult.Error(error.message!!, e)
+            NetworkResult.Error(error.message!!, error)
         }
     )
 
@@ -80,35 +85,4 @@ class PostchainClientService(private val config: ChromiaConfig) {
         else -> JsonNull
     }
 
-    private fun filterModulesToQueriesOnly(jsonElement: JsonElement): JsonElement {
-        return when (jsonElement) {
-            is JsonObject -> {
-                val filteredEntries = jsonElement.entries.map { (key, value) ->
-                    if (key == "modules" && value is JsonObject) {
-
-                        // Remove operations and functions from all modules
-                        val filteredModules = value.entries
-                            .map { (moduleName, moduleValue) ->
-                                if (moduleValue is JsonObject) {
-                                    val filteredModuleEntries = moduleValue.entries
-                                        .filter { (fieldKey, _) ->
-                                            fieldKey != "operations" && fieldKey != "functions"
-                                        }
-                                        .associate { it.key to filterModulesToQueriesOnly(it.value) }
-                                    moduleName to JsonObject(filteredModuleEntries)
-                                } else {
-                                    moduleName to moduleValue
-                                }
-                            }
-                            .associate { it.first to it.second }
-                        key to JsonObject(filteredModules)
-                    } else {
-                        key to filterModulesToQueriesOnly(value)
-                    }
-                }.associate { it.first to it.second }
-                JsonObject(filteredEntries)
-            }
-            else -> jsonElement
-        }
-    }
 }

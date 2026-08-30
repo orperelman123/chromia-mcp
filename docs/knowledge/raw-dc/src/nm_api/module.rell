@@ -1,0 +1,112 @@
+module;
+
+import common.*;
+import model.*;
+import roles.*;
+import node_software_version.*;
+
+/*
+    NM API
+
+    Version 1: Initial Managed Mode support
+    Version 2: MustSyncUntil feature
+    Version 3: Containers and Clusters
+    Version 4: Blockchain.system property added (chain0, anchoring_chain are system chains)
+    Version 5: Precise Configuration Update
+    Version 6: Blockchain states
+    Version 7: nm_get_management_chain() query added
+    Version 8: Blockchain Configuration Options
+    Version 9: IMPORTING blockchains added to the result set of nm_compute_blockchain_info_list() query and nm_get_blockchain_signers_in_latest_configuration() query added
+    Version 10: nm_find_next_removed_blockchains() query added
+    Version 11: nm_find_next_inactive_blockchains() query added
+    Version 12: nm_get_container_for_blockchain_on_node() query added
+    Version 13: nm_get_unarchiving_blockchain_node_info() query added
+    Version 14: nm_get_blockchain_containers_for_node() query added
+    Version 15: nm_get_migrating_blockchain_node_info() query added
+    Version 16: migrating_blockchain_node_info.up_to_height renamed to .final_height
+    Version 17: nm_find_next_removed_blockchains(), nm_get_unarchiving_blockchain_node_info(), nm_get_peer_list_version(), nm_compute_blockchain_list(), nm_get_blockchain_configuration_v5(), nm_get_container_for_blockchain_on_node() removed
+    Version 18: nm_get_blockchain_configuration_v5() recovered, nm_get_blockchain_configuration_info() added
+    Version 19: nm_compute_blockchain_list() recovered
+    Version 20: nm_get_container_image() query added
+    Version 21: nm_find_previous_configuration_height() query added
+    Version 22: nm_get_container_image_or_default() query added
+    Version 23: nm_get_container_creation_time() and nm_get_container_rate_limits() queries added
+    Version 24: nm_get_all_containers() query added
+    Version 25: nm_get_historic_configuration_height() query added
+    Version 26: nm_get_container_configuration() query added
+    Version 27: nm_get_container_jar_extensions() and nm_get_jar_extension() queries added
+*/
+
+/**
+ * Information about a blockchain
+ */
+struct blockchain_info {
+    /** The blockchain RID */
+    rid: byte_array;
+    /** Whether this is a system blockchain */
+    system: boolean;
+    /** The state of the blockchain */
+    state: blockchain_state;
+}
+
+/**
+ * Information about an inactive blockchain
+ */
+struct inactive_blockchain_info {
+    /** The blockchain RID */
+    rid: byte_array;
+    /** The state of the blockchain */
+    state: blockchain_state;
+    /** The height of chain0 at which the blockchain became inactive */
+    height: integer;
+}
+
+/**
+ * Information about a blockchain migration for a node
+ */
+struct migrating_blockchain_node_info {
+    /** The unique identifier for this migration */
+    rid: byte_array;
+    /** Name of the container the blockchain is migrating from */
+    source_container: text;
+    /** Name of the container the blockchain is migrating to */
+    destination_container: text;
+    /** Whether this node is the source of the migration */
+    is_source_node: boolean;
+    /** Whether this node is the destination of the migration */
+    is_destination_node: boolean;
+    /** The height up to which the migration will last (the height of the last block in the migration) */
+    final_height: integer;
+}
+
+/**
+ * Information about a blockchain configuration
+ */
+struct blockchain_configuration_info {
+    /** The base configuration (without signers) */
+    base_config: byte_array;
+    /** The list of signers */
+    signers: list<pubkey>;
+    /** The hash of the configuration, calculated using base_config and signers */
+    config_hash: byte_array;
+}
+
+/**
+ * Information about a container image
+ */
+struct container_image_info {
+    /** The name of the container image */
+    name: text;
+    /** The URL of the container image */
+    url: text;
+    /** The digest of the container image */
+    digest: text;
+}
+
+/**
+ * Information about container rate limits.
+ */
+struct container_rate_limit {
+    period_length_millis: integer;
+    rate_limit: integer;
+}

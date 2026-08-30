@@ -1,0 +1,39 @@
+fire: 0077
+when: 2026-08-30 ~11:56 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only leftover seeder HELP ONLY WRITE SKIP); no INDEX encode; leftover_tx_* leftover_vault_* leftover_multi_* left intact from 0076
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse pid 2529132 from current-tree shadowJar mtime 08:51:47Z after Help.kt 08:50:05; waited in-flight :app:shadowJar --offline; old 0076 pid 2509237 gone; interim 2524087 replaced)
+
+encoder_mid_write: no (claimed /tmp/leftover-encode-0077.lock; no other writer on ChrCreateRellDappHelp.kt)
+finder_buggy_candidates: 28-36 (false positives; alias INDEX pairs cover them)
+real_hole_count: 0 (docs+learn; reused 0076 cache; live sitemaps 384/247)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+already_on_disk_0076_not_reencoded:
+- leftover_tx_*: chr tx IS a 0.33.2 command (Make a transaction towards a node); leftover_tx leftover_tx_index_title=tx leftover_tx_help=chr_query_help leftover_tx_help_text leftover_tx_missing_opname leftover_tx_no_node leftover_tx_brid_invalid_hex leftover_tx_brid_wrong_size leftover_tx_api_refused leftover_tx_network_missing leftover_tx_blockchain_needs_network leftover_tx_settings_missing leftover_tx_cid_not_integer leftover_tx_unknown_option leftover_tx_flags leftover_tx_write_skip; NOTHING signed or posted this fire
+- leftover_vault_*: leftover_vault=vault_lease_help leftover_vault_testnet_get_container_index_title=Get a container for your dapp leftover_vault_hosting_index_title=Hosting leftover_vault_workflow leftover_vault_write_skip leftover_vault_container_placeholder=<containerIID>; no chr vault/lease in 0.33.2 root help; no lease created, no payment, no keys this fire
+- leftover_multi_*: leftover_multi leftover_multi_view_help leftover_multi_write_skip intact
+
+dapp_build: leftover_seeder_* on ChrCreateRellDappHelp.kt leftover_dapp_build_help from real chr 0.33.2 HELP ONLY WRITE SKIP walk (scratch /workspace/leftover-dapp-build-scratch/my-rell-dapp; :7740 not listening; init/generate NEVER run; no .chromia/seeder written)
+- leftover_seeder=chr seeder leftover_seeder_help=chr_seeder_help leftover_seeder_index_title=Seeder leftover_seeder_commands_index_title=seeder leftover_seeder_generator_index_title=Available generators leftover_seeder_example_index_title=Using the seeder leftover_seeder_configurable_index_title=Configurable generators leftover_seeder_default_config_folder=.chromia/seeder
+- leftover_seeder_help_text: chr seeder --help / bare chr seeder Usage: chr seeder [OPTIONS] COMMAND [ARGS]... Generate fake data for a local database init/generate exit 0
+- leftover_seeder_missing_subcommand: chr seed Error: no such subcommand seed. Did you mean seeder? exit 1; chr seeder seed Error: no such subcommand seed (no Did you mean) exit 1 — official command IS chr seeder (unlike leftover chr deploy)
+- leftover_seeder_init_help: Create initial seeder configuration for blockchains -s/--settings -bc/--blockchain (defaults to all) exit 0; NEVER run WRITE SKIP
+- leftover_seeder_generate_help: Generate Rell blockchain seeder module --alternative-config-folder=<path> -s -bc exit 0; NEVER run WRITE SKIP
+- leftover_seeder_settings_missing: init/generate -s /tmp/no-such-chromia.yml file does not exist exit 1
+- leftover_seeder_no_project: from /tmp Project settings file not found exit 1 (settings lookup before unknown-option when no -s)
+- leftover_seeder_unknown_option: chr seeder --foo no such option --foo exit 1; with -s missing also option --blockchain requires a value / --alternative-config-folder requires a value
+- leftover_seeder_flags leftover_seeder_write_skip: HELP ONLY WRITE SKIP init/generate never run; do not invent seeder.yml keys; titles already on disk ChrSeederHelp/ChrDeployHelp/ChrQueryHelp/ChromiaYmlDefinitionsHelp
+- leftover_next_step_architecture: seeder walk done; next leftover eif HELP ONLY (ChrEifHelp.EIF_INDEX_TITLE)
+- tests in DappBuildSchemaAndHelpTest.kt folded into existing test (suite stayed 312); HELP ONLY WRITE SKIP; no keys, no signed txs, no invented RID, no pasted 64-hex, no invented seeder.yml keys
+- live :3001 tools 61 after restart
+- notes no mnemonic / no adjacent chr keygen; official loop unchanged
+
+live_e2e: GET / 200 text/event-stream event: endpoint; JSON-RPC POST /?sessionId= 202 then SSE event: message; GET /sse 404; tools/list count 61; leftover_dapp_build_help leftover_seeder HIT (leftover_seeder chr seeder leftover_seeder_index_title Seeder Generate fake data for a local database Did you mean seeder? HELP ONLY WRITE SKIP leftover_tx/vault/multi intact)
+
+memory_note: On 2026-08-30 fire 0077 leftover INDEX still 0 real holes (docs 384 / learn 247). leftover_tx_* leftover_vault_* leftover_multi_* already on disk from 0076 not re-encoded. Encoded leftover_seeder_* on leftover_dapp_build_help from real chr 0.33.2 HELP ONLY: chr seeder --help init/generate exit 0; chr seed Did you mean seeder? exit 1; init/generate NEVER run WRITE SKIP; missing -s file does not exist exit 1; no project Project settings file not found exit 1. Next leftover eif HELP ONLY. Suite 312/0/0, :3001 pid 2529132 healthy.
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

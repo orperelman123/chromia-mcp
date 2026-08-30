@@ -2,7 +2,7 @@ package org.chromia.tools
 
 import kotlinx.serialization.json.*
 
-class PromptManager {
+open class PromptManager {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val templates: JsonObject? by lazy {
@@ -26,7 +26,7 @@ class PromptManager {
         }
     }
 
-    fun getCategories(): List<String> = templates?.keys?.toList() ?: emptyList()
+    open fun getCategories(): List<String> = templates?.keys?.toList() ?: emptyList()
 
     fun getPromptsForCategory(category: String) =
         templates?.get(category)?.jsonArray?.mapNotNull { element ->
@@ -43,6 +43,15 @@ class PromptManager {
 
     fun getToolForPrompt(promptTemplate: JsonObject): String? {
         return promptTemplate["tool"]?.jsonPrimitive?.content
+    }
+
+    fun canonicalToolName(raw: String?): String {
+        val name = raw.orEmpty().trim()
+        return name.removePrefix("mcp_chromia-mcp_")
+    }
+
+    fun matchesTool(promptTemplate: JsonObject, tool: String): Boolean {
+        return canonicalToolName(getToolForPrompt(promptTemplate)) == canonicalToolName(tool)
     }
 
     fun searchPrompts(query: String): Map<String, List<JsonObject>> {
@@ -66,7 +75,7 @@ class PromptManager {
     fun getPromptsByTool(toolName: String): Map<String, List<JsonObject>> {
         return getCategories().associateWith { category ->
             getPromptsForCategory(category)?.filter { prompt ->
-                getToolForPrompt(prompt) == toolName
+                matchesTool(prompt, toolName)
             } ?: emptyList()
         }.filterValues { it.isNotEmpty() }
     }

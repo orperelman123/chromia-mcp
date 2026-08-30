@@ -5,15 +5,47 @@ val ktorVersion = "3.2.3"
 val postchainClientVersion = "3.36.0"
 
 plugins {
-    kotlin("plugin.serialization") version "2.2.0"
-    id("com.gradleup.shadow") version "8.3.6"
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
+    id("com.gradleup.shadow") version "8.3.6"
     id("com.google.cloud.tools.jib") version "3.4.5"
     id("maven-publish")
 }
 
 group = "com.chromia"
 version = project.findProperty("version")?.toString() ?: error("Version is not set")
+
+// Health / MCP Implementation.version. Gradle `project.version`:
+// gradle.properties pins 0.2.2 (latest official GitLab tag). Publish CI
+// overrides with -Pversion=$CI_COMMIT_TAG.
+val generateBuildInfo by tasks.registering {
+    val outputDir = layout.buildDirectory.dir("generated/sources/buildInfo/kotlin")
+    val projectVersion = project.version.toString()
+    inputs.property("projectVersion", projectVersion)
+    outputs.dir(outputDir)
+    doLast {
+        val file = outputDir.get().asFile.resolve("org/chromia/BuildInfo.kt")
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            package org.chromia
+
+            /**
+             * Server version from Gradle `project.version`.
+             * Default is gradle.properties `version` (0.2.2, latest official GitLab tag).
+             * Publish jobs override with -Pversion and the CI commit tag.
+             */
+            object BuildInfo {
+                const val VERSION = "$projectVersion"
+            }
+            """.trimIndent() + "\n"
+        )
+    }
+}
+
+kotlin {
+    sourceSets.getByName("main").kotlin.srcDir(generateBuildInfo)
+}
 
 repositories {
     mavenCentral()
@@ -44,6 +76,9 @@ dependencies {
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+    testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
+    // Umbrella kotlin-sdk only exposes the client at runtime; tests compile against Client/StdioClientTransport.
+    testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
 }
 
 java {
@@ -57,21 +92,35 @@ tasks.named<Test>("test") {
 }
 
 val compileKotlin: KotlinCompile by tasks
-compileKotlin.compilerOptions {
-    freeCompilerArgs.set(listOf("-XXLanguage:+MultiDollarInterpolation"))
-}
+compileKotlin.dependsOn(generateBuildInfo)
 
 tasks.shadowJar {
     archiveBaseName.set("chromia-mcp-server")
     archiveClassifier.set("")
+    // Docs, jib.yaml, and local java -jar examples use chromia-mcp-server.jar.
+    // Version stays in the manifest Implementation-Version / BuildInfo.
+    archiveVersion.set("")
     manifest {
         attributes["Main-Class"] = "org.chromia.AppKt"
+        attributes["Implementation-Title"] = "chromia-mcp-server"
+        attributes["Implementation-Version"] = project.version.toString()
     }
     mergeServiceFiles()
 }
 
 tasks.named("jar") {
     enabled = false
+}
+
+// jib and shadowJar both write under app/build/libs. Do not let Gradle run them concurrently.
+listOf("jib", "jibDockerBuild", "jibBuildTar").forEach { name ->
+    tasks.findByName(name)?.mustRunAfter(tasks.named("shadowJar"))
+}
+
+val localEmbeddingsFile = layout.buildDirectory.file("embeddings.json")
+
+fun JavaExec.withLocalEmbeddingsPath() {
+    environment("CHROMIA_EMBEDDINGS_PATH", localEmbeddingsFile.get().asFile.absolutePath)
 }
 
 tasks.register<JavaExec>("run") {
@@ -83,6 +132,7 @@ tasks.register<JavaExec>("run") {
     args = listOf("--stdio")
     standardInput = System.`in`
     standardOutput = System.out
+    withLocalEmbeddingsPath()
 }
 
 tasks.register<JavaExec>("runSse") {
@@ -92,6 +142,29 @@ tasks.register<JavaExec>("runSse") {
     classpath = files(tasks.shadowJar.get().archiveFile)
     mainClass.set("org.chromia.AppKt")
     args = listOf("--sse")
+    withLocalEmbeddingsPath()
+}
+
+tasks.register<JavaExec>("generateEmbeddings") {
+    dependsOn("shadowJar")
+    group = "application"
+    description = "Fetch documentation, create embeddings, persist locally, and upload embeddings.json to GitLab packages"
+    classpath = files(tasks.shadowJar.get().archiveFile)
+    mainClass.set("org.chromia.AppKt")
+    args = listOf("--generate-embeddings")
+    jvmArgs = listOf("-Xmx4g")
+    withLocalEmbeddingsPath()
+}
+
+tasks.register<JavaExec>("generateEmbeddingsNoUpload") {
+    dependsOn("shadowJar")
+    group = "application"
+    description = "Fetch documentation, create embeddings, and persist embeddings.json locally (no GitLab upload)"
+    classpath = files(tasks.shadowJar.get().archiveFile)
+    mainClass.set("org.chromia.AppKt")
+    args = listOf("--generate-embeddings-no-upload")
+    jvmArgs = listOf("-Xmx4g")
+    withLocalEmbeddingsPath()
 }
 
 jib {
@@ -143,7 +216,7 @@ publishing {
     publications {
         create<MavenPublication>("chromia-mcp") {
             artifactId = "chromia-mcp"
-            shadow.component(this)
+            from(components["shadow"])
         }
     }
 }

@@ -1,0 +1,307 @@
+@test module;
+
+import ^.util.constants.*;
+import ^^.*;
+import ^^.operations.*;
+import ^^.test.ops.*;
+import ^^.test.setup.*;
+import direct_cluster.*;
+import direct_container.*;
+import model.*;
+import proposal_cluster.*;
+import proposal_container.*;
+import proposal_provider.*;
+
+val p1key = initial_provider;
+
+// Adding someone to system cluster will be through enroll system role and not this operation (propose_provider_is_system)
+function test_add_provider_to_system_cluster() {
+    setup_module();
+
+    rell.test.tx().op(
+        register_provider(p1key.pub, rell.test.pubkeys.bob, provider_tier.NODE_PROVIDER)
+        ).sign(p1key).run();
+
+    // Adding to cluster directly must fail
+    rell.test.tx().op(
+        propose_cluster_provider(p1key.pub, clusters.system, rell.test.pubkeys.bob, true)
+        ).sign(p1key).run_must_fail();
+
+    rell.test.tx().op(
+        propose_provider_is_system(p1key.pub, rell.test.pubkeys.bob, true)
+        ).sign(p1key).run();
+
+    assert_not_null(cluster_provider @? { system_cluster(), provider @ { rell.test.pubkeys.bob } });
+}
+
+function test_add_node_to_cluster() {
+    setup_module();
+
+    val system_cluster = system_cluster();
+    val p1 = initial_provider();
+
+    // asserting node added
+    assert_equals(
+        cluster_node @ { system_cluster } .node,
+        node @ { } limit 1
+    );
+
+    // must fail
+    rell.test.tx().op(
+        create_test_node(p1, rell.test.pubkeys.bob, system_cluster)
+        ).sign(p1key).run_must_fail();
+}
+
+function test_remove_cluster() {
+    setup_module();
+
+    // 1. Deleting system cluster. Must fail.
+    rell.test.tx().op(
+        propose_remove_cluster(rell.test.pubkeys.alice, clusters.system)
+    ).sign(rell.test.keypairs.alice).run_must_fail();
+
+    // 2. Deleting unknown cluster. Must fail.
+    rell.test.tx().op(
+        propose_remove_cluster(rell.test.pubkeys.alice, "unknown")
+    ).sign(rell.test.keypairs.alice).run_must_fail();
+
+    // 3. Adding a new cluster
+    rell.test.tx().op(
+        create_cluster(rell.test.pubkeys.alice, "cluster1", voter_sets.system_p, list())
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting cluster1 added
+    val cluster1 = cluster @? { .name == "cluster1" };
+    assert_not_null(cluster1);
+
+    // Adding a node into cluster1
+    val alice = provider @ { rell.test.pubkeys.alice };
+    val node = node @ { .provider == alice };
+    rell.test.tx().op(
+        update_node_with_units(rell.test.pubkeys.alice, node.pubkey, cluster_units = 2),
+        propose_cluster_provider(alice.pubkey, cluster1.name, alice.pubkey, true),
+        add_node_to_cluster(rell.test.pubkeys.alice, node.pubkey, "cluster1")
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting cluster1's stuff added
+    assert_not_null(cluster_node @? { cluster1 });
+    assert_not_null(cluster_provider @? { cluster1 });
+
+    // Adding container
+    rell.test.tx().op(
+        propose_container(alice.pubkey, cluster1.name, "container1", voter_sets.system_p)
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting container1 is added
+    assert_not_null(container @? { "container1" });
+
+    // Trying to remove cluster1 and fail because it contains container1
+    rell.test.tx().op(
+        propose_remove_cluster(rell.test.pubkeys.alice, "cluster1")
+    ).sign(rell.test.keypairs.alice).run_must_fail();
+
+    // Removing container1 from cluster1
+    rell.test.tx().op(
+        propose_remove_container(rell.test.pubkeys.alice, "container1")
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting container1 is deleted
+    assert_null(container @? { "container1" });
+
+    // Trying to remove cluster1 again
+    rell.test.tx().op(
+        propose_remove_cluster(rell.test.pubkeys.alice, "cluster1")
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting cluster1 is deleted with its stuff
+    assert_null(cluster @? { .name == "cluster1" });
+    assert_null(cluster_node @? { cluster1 });
+    assert_null(cluster_provider @? { cluster1 });
+}
+
+function test_cluster_units() {
+    setup_module();
+
+    // Adding a new cluster
+    rell.test.tx().op(
+        create_cluster(rell.test.pubkeys.alice, "cluster1", voter_sets.system_p, list())
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting cluster1 added
+    val cluster1 = cluster @? { .name == "cluster1" };
+    assert_not_null(cluster1);
+    assert_equals(cluster1.cluster_units, 1);
+
+    // Adding a node into cluster1
+    val alice = provider @ { rell.test.pubkeys.alice };
+    val node = node @ { .provider == alice };
+
+    // Node with too few cluster_units should fail
+    rell.test.tx().op(
+        propose_cluster_provider(alice.pubkey, cluster1.name, alice.pubkey, true),
+        add_node_to_cluster(rell.test.pubkeys.alice, node.pubkey, "cluster1")
+    ).sign(rell.test.keypairs.alice).run_must_fail();
+
+    rell.test.tx().op(
+        update_node_with_units(rell.test.pubkeys.alice, node.pubkey, cluster_units = 2),
+        propose_cluster_provider(alice.pubkey, cluster1.name, alice.pubkey, true),
+        add_node_to_cluster(rell.test.pubkeys.alice, node.pubkey, "cluster1")
+    ).sign(rell.test.keypairs.alice).run();
+
+    rell.test.tx().op(
+        update_node_with_units(rell.test.pubkeys.alice, node.pubkey, cluster_units = 1)
+    ).sign(initial_provider).run_must_fail();
+}
+
+function test_add_disabled_node_to_cluster_fails() {
+    setup_module();
+
+    // Create a new node
+    rell.test.tx().op(
+        register_node_with_node_data(rell.test.pubkeys.alice, register_node_data(rell.test.pubkeys.bob, host = "host", port = 7777, api_url = "http://host/api_url"))
+    ).sign(rell.test.keypairs.alice).run();
+    val node = node @ { .pubkey == rell.test.pubkeys.bob };
+
+    // Adding a new cluster
+    rell.test.tx().op(
+        create_cluster(rell.test.pubkeys.alice, "cluster1", voter_sets.system_p, [rell.test.pubkeys.alice])
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Disable node
+    rell.test.tx().op(
+        disable_node(rell.test.pubkeys.alice, node.pubkey)
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Adding a disabled node into cluster1 should fail
+    rell.test.tx().op(
+        add_node_to_cluster(rell.test.pubkeys.alice, node.pubkey, "cluster1")
+    ).sign(rell.test.keypairs.alice).run_must_fail("Node not found or disabled");
+
+    // Adding a disabled replica node into cluster1 should fail
+    rell.test.tx().op(
+        add_replica_node_to_cluster(rell.test.pubkeys.alice, node.pubkey, "cluster1")
+    ).sign(rell.test.keypairs.alice).run_must_fail("Node not found or disabled");
+}
+
+function test_add_another_providers_node_to_a_cluster_fails() {
+    setup_module();
+
+    // Add a new provider and new cluster
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, rell.test.pubkeys.bob, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, rell.test.pubkeys.bob, true),
+        create_cluster(rell.test.pubkeys.alice, "cluster1", voter_sets.system_p, [rell.test.pubkeys.alice, rell.test.pubkeys.bob])
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Adding another providers node into a cluster should fail
+    rell.test.tx().op(
+        add_node_to_cluster(rell.test.pubkeys.bob, test_node.pubkey, "cluster1")
+    ).sign(rell.test.keypairs.bob).run_must_fail("It is only allowed to add own node to a cluster");
+}
+
+function test_propose_cluster_limits__units_limits() {
+    setup_module();
+
+    // Adding a new cluster
+    rell.test.tx().op(
+        create_cluster(rell.test.pubkeys.alice, "cluster1", voter_sets.system_p, list())
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Asserting cluster1 added
+    val cluster1 = cluster @? { .name == "cluster1" };
+    assert_not_null(cluster1);
+    assert_equals(cluster1.cluster_units, 1);
+
+    val container_units_available = standard_cluster_unit.container_units - system_container_defaults.container_units;
+
+    // Adding with total - 5 container units
+    rell.test.tx().op(
+        create_container_with_resource_limits(
+            rell.test.pubkeys.alice, "container1", cluster1.name, -1, [rell.test.pubkeys.alice],
+        map([container_resource_limit_type.container_units: container_units_available - 5]))
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Test update cluster units
+    rell.test.tx().op(
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1"), // no change is fine
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 2), // increase is fine
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 1), // decrease is fine
+        propose_remove_container(rell.test.pubkeys.alice, "container1"),
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Adding container with all units occupied
+    rell.test.tx().op(
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 1),
+        create_container_with_resource_limits(
+            rell.test.pubkeys.alice, "container2", cluster1.name, -1, [rell.test.pubkeys.alice],
+            map([container_resource_limit_type.container_units: container_units_available]))
+    ).sign(rell.test.keypairs.alice).run();
+
+    // Test update cluster units
+    rell.test.tx().op(
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1"), // no change is fine
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 2), // increase is fine
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 1), // decrease from 2 is fine
+        propose_remove_container(rell.test.pubkeys.alice, "container2"),
+    ).sign(rell.test.keypairs.alice).nop().run();
+
+    // Adding container which will make the cluster occupy more than 1 cluster unit
+    rell.test.tx().op(
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 2),
+        create_container_with_resource_limits(
+            rell.test.pubkeys.alice, "container3", cluster1.name, -1, [rell.test.pubkeys.alice],
+            map([container_resource_limit_type.container_units: container_units_available+ 3]))
+    ).sign(rell.test.keypairs.alice).nop().run();
+
+    // Test update cluster units
+    rell.test.tx().op(
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1"), // no change is fine
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 3), // increase is fine
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 2), // decrease from 2 is fine
+    ).sign(rell.test.keypairs.alice).nop().run();
+
+    rell.test.tx().op(
+        propose_cluster_limits(rell.test.pubkeys.alice, "cluster1", cluster_units = 1), // decrease from 2 must fail
+    ).sign(rell.test.keypairs.alice).nop().run_must_fail("Minimum cluster_units is 2");
+}
+
+function test_max_nodes_per_cluster() {
+    setup_module();
+
+    rell.test.tx().op(
+        create_cluster_with_cluster_data(initial_provider.pub, "cluster1", voter_sets.system_p, list(), cluster_creation_data(max_nodes = 2))
+    ).sign(initial_provider).run();
+    val cluster1 = cluster @ { .name == "cluster1" };
+
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, rell.test.pubkeys.bob, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, rell.test.pubkeys.bob, active = true),
+        propose_cluster_provider(initial_provider.pub, "cluster1", rell.test.pubkeys.bob, add = true)
+    ).sign(initial_provider).run();
+    rell.test.tx().op(
+        register_node_with_node_data(rell.test.pubkeys.bob, register_node_data(rell.test.pubkeys.eve, host = "node1", port = 7777, api_url = "http://host/api_url")),
+        add_node_to_cluster(rell.test.pubkeys.bob, rell.test.pubkeys.eve, "cluster1")
+    ).sign(rell.test.keypairs.bob).run();
+    assert_equals((cluster_node @* { cluster1 } .node).size(), 1);
+
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, rell.test.pubkeys.charlie, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, rell.test.pubkeys.charlie, active = true),
+        propose_cluster_provider(initial_provider.pub, "cluster1", rell.test.pubkeys.charlie, add = true)
+    ).sign(initial_provider).run();
+    rell.test.tx().op(
+        register_node_with_node_data(rell.test.pubkeys.charlie, register_node_data(rell.test.pubkeys.frank, host = "node2", port = 7777, api_url = "http://host/api_url")),
+        add_node_to_cluster(rell.test.pubkeys.charlie, rell.test.pubkeys.frank, "cluster1")
+    ).sign(rell.test.keypairs.charlie).run();
+    assert_equals((cluster_node @* { cluster1 } .node).size(), 2);
+
+    rell.test.tx().op(
+        register_provider(initial_provider.pub, rell.test.pubkeys.dave, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, rell.test.pubkeys.dave, active = true),
+        propose_cluster_provider(initial_provider.pub, "cluster1", rell.test.pubkeys.dave, add = true)
+    ).sign(initial_provider).run();
+    rell.test.tx().op(
+        register_node_with_node_data(rell.test.pubkeys.dave, register_node_data(rell.test.pubkeys.grace, host = "node3", port = 7777, api_url = "http://host/api_url")),
+        add_node_to_cluster(rell.test.pubkeys.dave, rell.test.pubkeys.grace, "cluster1")
+    ).sign(rell.test.keypairs.dave).run_must_fail("Cluster cluster1 is full, no more than 2 nodes allowed");
+}

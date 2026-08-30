@@ -1,0 +1,31 @@
+#!/bin/bash
+
+mkdir -p "${HOME}/.yarn"
+mkdir -p "${HOME}/.cache/node"
+mkdir -p "${HOME}/.claude"
+if [ ! -f "${HOME}/.claude.json" ]; then
+  echo "{}" > "${HOME}/.claude.json"
+fi
+
+mkdir -p /tmp/pgrun
+mkdir -p /tmp/pgdata
+
+if [ -t 0 ] && [ -t 1 ] ; then TTY="--tty"; else TTY=""; fi
+
+docker run \
+  -e "TZ=$(readlink /etc/localtime | sed 's#.*/zoneinfo/##')" \
+  -e HOME \
+  --user "1:1" \
+  --mount type=bind,source=/tmp/pgrun,target=/var/run/postgresql \
+  --mount type=bind,source=/tmp/pgdata,target=/pgdata \
+  --mount type=bind,source=/etc/passwd,target=/etc/passwd,readonly \
+  --mount type=bind,source=/etc/group,target=/etc/group,readonly \
+  --mount type=bind,source="${HOME}/.yarn,target=${HOME}/.yarn" \
+  --mount type=bind,source="${HOME}/.cache/node,target=${HOME}/.cache/node" \
+  --mount type=bind,source="${HOME}/.claude.json,target=${HOME}/.claude.json" \
+  --mount type=bind,source="${HOME}/.claude,target=${HOME}/.claude" \
+  --mount type=bind,source="$(pwd)",target="$(pwd)" \
+  --workdir "$(pwd)" \
+  --rm \
+  --interactive "${TTY}" \
+  registry.gitlab.com/chromaway/core-tools/chromia-mcp/claude-code-chromia "$@"

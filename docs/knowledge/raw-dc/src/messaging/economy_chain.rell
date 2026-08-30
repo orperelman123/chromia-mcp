@@ -1,0 +1,203 @@
+module;
+
+import lib.icmf.constants.*;
+import ^.provider.*;
+
+val create_cluster_v2_topic = ICMF_TOPIC_GLOBAL_PREFIX + "create_cluster_v2";
+val create_cluster_error_topic = ICMF_TOPIC_LOCAL_PREFIX + "create_cluster_error";
+
+val create_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "create_container";
+val stop_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "stop_container";
+val restart_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "restart_container";
+val upgrade_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "upgrade_container";
+val remove_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "remove_container";
+val assign_subnode_image_to_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "assign_subnode_image_to_container";
+val add_subnode_jar_extensions_to_container_topic = ICMF_TOPIC_GLOBAL_PREFIX + "add_subnode_jar_extensions_to_container";
+
+val register_dapp_provider_topic = ICMF_TOPIC_GLOBAL_PREFIX + "register_dapp_provider";
+
+val ticket_container_result_topic = ICMF_TOPIC_LOCAL_PREFIX + "ticket_container_result";
+val cluster_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "cluster_update";
+val cluster_node_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "cluster_node_update";
+val node_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "node_update";
+val subnode_image_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "subnode_image_update";
+val cluster_subnode_image_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "cluster_subnode_image_update";
+val subnode_jar_extension_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "subnode_jar_extension_update";
+val cluster_subnode_jar_extension_update_topic = ICMF_TOPIC_LOCAL_PREFIX + "cluster_subnode_jar_extension_update";
+
+struct create_cluster_message {
+    name: text;
+    governor_voter_set_name: text;
+    voter_set_name: text;
+    cluster_units: integer;
+    extra_storage: integer;
+    proposer_pubkey: byte_array;
+    max_nodes: integer = integer.MAX_VALUE;
+}
+
+struct create_cluster_v2_message {
+    name: text;
+    governor_voter_set_name: text;
+    voter_set_name: text;
+    cluster_units: integer;
+    extra_storage: integer;
+    container_unit_cpu: integer;
+    container_unit_ram: integer;
+    container_unit_io_read: integer;
+    container_unit_io_write: integer;
+    container_unit_storage: integer;
+    system_container_units: integer;
+    proposer_pubkey: byte_array;
+    max_nodes: integer = integer.MAX_VALUE;
+}
+
+struct create_cluster_error_message {
+    name: text;
+    error_message: text;
+}
+
+struct create_container_message_v1 {
+    ticket_id: integer;
+    provider_pubkey: pubkey;
+    container_units: integer;
+    extra_storage: integer;
+    cluster_name: text;
+    subnode_image_name: text;
+}
+
+struct create_container_message_v2 {
+    ticket_id: integer;
+    provider_pubkey: pubkey;
+    container_units: integer;
+    extra_storage: integer;
+    cluster_name: text;
+    subnode_image_name: text;
+    extra_compute_requests: integer = 0;
+}
+
+struct create_container_message {
+    ticket_id: integer;
+    provider_pubkey: pubkey;
+    container_units: integer;
+    extra_storage: integer;
+    cluster_name: text;
+    subnode_image_name: text;
+    extra_compute_requests: integer = 0;
+    subnode_jar_extension_names: list<text>;
+}
+
+struct upgrade_container_message_v1 {
+    ticket_id: integer;
+    container_name: text;
+    container_units: integer;
+    extra_storage: integer;
+    cluster_name: text;
+}
+
+struct upgrade_container_message {
+    ticket_id: integer;
+    container_name: text;
+    container_units: integer;
+    extra_storage: integer;
+    cluster_name: text; // Unused starting from API version 68
+    extra_compute_requests: integer = 0;
+    require_empty_container: boolean = false;
+}
+
+struct assign_subnode_image_to_container_message {
+    ticket_id: integer;
+    container_name: text;
+    subnode_image_name: text;
+}
+
+struct add_subnode_jar_extensions_to_container_message {
+    ticket_id: integer;
+    container_name: text;
+    subnode_jar_extension_names: list<text>;
+}
+
+struct stop_container_message {
+    container_name: text;
+}
+
+struct restart_container_message {
+    container_name: text;
+}
+
+struct remove_container_message {
+    container_name: text;
+    ticket_id: integer? = null;
+}
+
+struct ticket_container_result_message {
+    ticket_id: integer;
+    error_message: text?;
+    container_name: text? = null;
+    cluster_name: text? = null;
+}
+
+struct cluster_update_message {
+    name;
+    deleted: boolean;
+    operational: boolean;
+    cluster_units: integer;
+    extra_storage: integer;
+    anchoring_chain: byte_array?;
+}
+
+struct cluster_node_update_message {
+    name?;
+    pubkey;
+    replica_node: boolean;
+    deleted: boolean;
+}
+
+struct cluster_provider_update_message {
+    pairs: list<(text, pubkey)>;
+    deleted: boolean;
+}
+
+struct node_update_message {
+    provider_pubkey: pubkey;
+    pubkey;
+    active: boolean;
+    territory: text;
+    cluster_units: integer;
+    extra_storage: integer;
+    deleted: boolean;
+}
+
+struct register_dapp_provider_message {
+    container_name: text;
+    new_provider: pubkey;
+}
+
+struct subnode_image_update_message {
+    name;
+    url: text;
+    digest: text;
+    subnode_image_type: text;
+    owner: pubkey;
+    description: text;
+    active: boolean;
+}
+
+struct cluster_subnode_image_update_message {
+    cluster: text;
+    subnode_image: text;
+    deleted: boolean;
+}
+
+struct subnode_jar_extension_update_message {
+    name;
+    subnode_jar_extension_type: text;
+    owner: pubkey;
+    description: text;
+    active: boolean;
+}
+
+struct cluster_subnode_jar_extension_update_message {
+    cluster: text;
+    subnode_jar_extension: text;
+    deleted: boolean;
+}

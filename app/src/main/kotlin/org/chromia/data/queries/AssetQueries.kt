@@ -70,5 +70,7 @@ object AssetQueries {
         filters.type?.let { variable("type", it) }
         filters.pagination.limit?.let { variable("limit", it) }
         filters.pagination.offset?.let { variable("offset", it) }
+        filters.sorting.sortBy?.let { variable("sortBy", it) }
+        filters.sorting.sortDirection?.let { variable("sortDirection", it) }
     }
 }

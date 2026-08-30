@@ -1,0 +1,618 @@
+@test module;
+
+import ^.helpers.*;
+import ^^.*;
+import common.*;
+import common.operations.*;
+import common.test.setup.*;
+import common.test.util.*;
+import common.test.helper_operations.*;
+import direct_cluster.*;
+import direct_container.*;
+import model.*;
+import proposal.*;
+import proposal_blockchain.*;
+import proposal_container.*;
+import proposal_provider.*;
+
+function test_nm_get_blockchains_for_container() {
+    setup_module();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container")
+    ).sign(initial_provider).run();
+
+    val chains = nm_get_blockchains_for_container("container");
+    assert_equals(chains.size(), 1);
+    assert_true(chains.contains(blockchain @ { "foo_chain" } (.rid)));
+}
+
+function test_nm_get_container_for_blockchain() {
+    setup_module();
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p)
+    ).sign(initial_provider).run();
+    val container1 = container @ { "container1" };
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val chain0_brid = blockchain @ { blockchains.directory_chain } (.rid);
+    assert_equals(nm_get_container_for_blockchain(chain0_brid), system_container_name(clusters.system));
+
+    val foo_chain = blockchain @ { "foo_chain" } (.rid);
+    assert_equals(nm_get_container_for_blockchain(foo_chain), "container1");
+
+    // Unknown blockchain
+    // Using a partial function application to pass a function to assert_fails(), see Rell 0.11.0 Release notes
+    assert_fails("Unknown blockchain 0xff", _query_in_fun__nm_get_container_for_blockchain(x"ff", *));
+}
+
+function test_nm_compute_blockchain_info_list__and__nm_get_blockchain_replica_node_map() {
+    setup_module(provider_quota_max_containers = 2, system_anchoring_config = ["any": "value".to_gtv()], cluster_anchoring_config = ["any": "value".to_gtv()]);
+    val node_provider1 = rell.test.keypairs.bob;
+    val np1_node_key = x"1111111111111111111111111111111B8DD00AC8E5CB0869F267212F35425E3C8F";
+    val node_provider2 = rell.test.keypairs.trudy;
+    val np2_node_key = x"026ACA0462715E7B897D22023D4734C22222222222222222222222222222222222";
+
+    val cluster1_name = "cluster1";
+    /*
+        system cluster:
+            - providers:    initial_provider
+            - nodes:        initial_node
+            - replicas:     np1_node
+            - containers:   container1
+            - blockchains:  foo_chain
+        cluster1:
+            - providers:    node_provider1
+            - nodes:        np1_node
+            - replicas:     initial_node
+    */
+    rell.test.tx().op(
+        // container to system cluster
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        // new node provider1
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true),
+        // new node provider2
+        register_provider(initial_provider.pub, node_provider2.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider2.pub, true),
+        // new cluster
+        create_cluster(initial_provider.pub, cluster1_name, voter_sets.system_p, [node_provider1.pub]),
+        update_node_with_units(initial_provider.pub, test_node.pubkey, cluster_units = 2),
+        add_replica_node_to_cluster(initial_provider.pub, test_node.pubkey, cluster1_name)
+    ).sign(initial_provider).run();
+    // Adding np1's node
+    rell.test.tx().op(
+        register_node_with_units(node_provider1.pub, np1_node_key, "host", 7777, "http://host/api_url", cluster_units = 2),
+        add_node_to_cluster(node_provider1.pub, np1_node_key, cluster1_name),
+        add_replica_node_to_cluster(node_provider1.pub, np1_node_key, clusters.system)
+    ).sign(node_provider1).run();
+    // Adding np2's node
+    rell.test.tx().op(
+        register_node(node_provider2.pub, np2_node_key, "host", 8888, "http://host/api_url")
+    ).sign(node_provider2).run();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val chain0 = blockchain @ { blockchains.directory_chain } (.rid);
+    val system_anchoring = blockchain @ { blockchains.system_anchoring } (.rid);
+    val cluster_anchoring_system = blockchain @ { blockchains.cluster_anchoring_prefix + clusters.system } (.rid);
+    val foo_chain = blockchain @ { "foo_chain" } (.rid);
+    val cluster_anchoring_cluster1 = blockchain @ { blockchains.cluster_anchoring_prefix + cluster1_name } (.rid);
+
+    // np2 adds its node as a replica of `foo_chain`
+    rell.test.tx().op(
+        add_blockchain_replica(node_provider2.pub, foo_chain, np2_node_key)
+    ).sign(node_provider2).run();
+
+    // test_node::nm_compute_blockchain_info_list
+    val blockchain_info_list = nm_compute_blockchain_info_list(test_node.pubkey);
+    assert_equals(blockchain_info_list.size(), 5);
+    assert_true(blockchain_info_list.contains(blockchain_info(chain0, true, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list.contains(blockchain_info(system_anchoring, true, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list.contains(blockchain_info(cluster_anchoring_system, true, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list.contains(blockchain_info(foo_chain, false, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list.contains(blockchain_info(cluster_anchoring_cluster1, true, blockchain_state.RUNNING)));
+    // Asserting impl
+    assert_equals(to_brids(get_mandatory_system_chains()), set([system_anchoring]));
+    assert_equals(to_brids(get_cluster_node_blockchains(initial_node())), set([chain0, system_anchoring, cluster_anchoring_system, foo_chain]));
+    assert_equals(to_brids(get_cluster_replica_node_blockchains(initial_node())), set([cluster_anchoring_cluster1]));
+    assert_equals(to_brids(get_blockchains_replicated_by_node(initial_node())), set([cluster_anchoring_cluster1]));
+    // test_node::nm_get_blockchain_replica_node_map
+    val replica_node_map = nm_get_blockchain_replica_node_map(
+        to_brids(set(blockchain_info_list))
+    );
+    assert_equals(replica_node_map.size(), 5);
+    assert_equals(replica_node_map[chain0], set([np1_node_key]));
+    assert_equals(replica_node_map[system_anchoring], set([np1_node_key]));
+    assert_equals(replica_node_map[cluster_anchoring_system], set([np1_node_key]));
+    assert_equals(replica_node_map[foo_chain], set([np1_node_key, np2_node_key])); // + np2's node
+    assert_equals(replica_node_map[cluster_anchoring_cluster1], set([test_node.pubkey, np1_node_key]));
+
+    // np1_node
+    val np1_node = node @ { np1_node_key };
+    val blockchain_info_list1 = nm_compute_blockchain_info_list(np1_node_key);
+    assert_equals(blockchain_info_list1.size(), 5);
+    assert_true(blockchain_info_list1.contains(blockchain_info(chain0, true, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list1.contains(blockchain_info(system_anchoring, true, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list1.contains(blockchain_info(cluster_anchoring_system, true, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list1.contains(blockchain_info(foo_chain, false, blockchain_state.RUNNING)));
+    assert_true(blockchain_info_list1.contains(blockchain_info(cluster_anchoring_cluster1, true, blockchain_state.RUNNING)));
+    // Asserting impl
+    assert_equals(to_brids(get_mandatory_system_chains()), set([system_anchoring]));
+    assert_equals(to_brids(get_cluster_node_blockchains(np1_node)), set([cluster_anchoring_cluster1]));
+    assert_equals(to_brids(get_cluster_replica_node_blockchains(np1_node)), set([chain0, system_anchoring, cluster_anchoring_system, foo_chain]));
+    // test_node::nm_get_blockchain_replica_node_map
+    val replica_node_map1 = nm_get_blockchain_replica_node_map(
+        to_brids(set(blockchain_info_list1))
+    );
+    assert_equals(replica_node_map1.size(), 5);
+    assert_equals(replica_node_map1[chain0], set([np1_node_key]));
+    assert_equals(replica_node_map1[system_anchoring], set([np1_node_key]));
+    assert_equals(replica_node_map1[cluster_anchoring_system], set([np1_node_key]));
+    assert_equals(replica_node_map1[foo_chain], set([np1_node_key, np2_node_key])); // + np2's node
+    assert_equals(replica_node_map1[cluster_anchoring_cluster1], set([test_node.pubkey, np1_node_key]));
+}
+
+function test_nm_compute_blockchain_info_list__and__nm_get_containers__with__stopped_container() {
+    setup_module(provider_quota_max_containers = 2, system_anchoring_config = ["any": "value".to_gtv()], cluster_anchoring_config = ["any": "value".to_gtv()]);
+    val node_provider1 = rell.test.keypairs.bob;
+    val np1_node_key = x"1111111111111111111111111111111B8DD00AC8E5CB0869F267212F35425E3C8F";
+
+    val cluster1_name = "cluster1";
+    rell.test.tx().op(
+        // new node provider1
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true),
+        // new cluster
+        create_cluster(initial_provider.pub, cluster1_name, voter_sets.system_p, [node_provider1.pub]),
+        update_node_with_units(initial_provider.pub, test_node.pubkey, cluster_units = 2),
+        add_replica_node_to_cluster(initial_provider.pub, test_node.pubkey, cluster1_name),
+        propose_container(initial_provider.pub, "cluster1", "container1", voter_sets.system_p)
+    ).sign(initial_provider).run();
+    // Adding np1's node
+    rell.test.tx().op(
+        register_node_with_units(node_provider1.pub, np1_node_key, "host", 7777, "http://host/api_url", cluster_units = 2),
+        add_node_to_cluster(node_provider1.pub, np1_node_key, cluster1_name),
+        add_replica_node_to_cluster(node_provider1.pub, np1_node_key, clusters.system)
+    ).sign(node_provider1).run();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val chain0 = blockchain @ { blockchains.directory_chain } (.rid);
+    val system_anchoring = blockchain @ { blockchains.system_anchoring } (.rid);
+    val cluster_anchoring_system = blockchain @ { blockchains.cluster_anchoring_prefix + clusters.system } (.rid);
+    val foo_chain = blockchain @ { "foo_chain" } (.rid);
+    val cluster_anchoring_cluster1 = blockchain @ { blockchains.cluster_anchoring_prefix + cluster1_name } (.rid);
+
+    assert_equals(nm_get_containers(np1_node_key), ["cluster1_system", "container1"]);
+
+    rell.test.tx().op(
+        stop_container_op("container1")
+    ).sign(initial_provider).run();
+
+    val blockchain_info_list = nm_compute_blockchain_info_list(test_node.pubkey);
+    assert_equals(blockchain_info_list.size(), 4);
+    assert_false(blockchain_info_list.contains(blockchain_info(foo_chain, false, blockchain_state.RUNNING)));
+
+    assert_equals(nm_get_containers(np1_node_key), ["cluster1_system"]);
+
+    rell.test.tx().op(
+        restart_container_op("container1")
+    ).sign(initial_provider).run();
+
+    val blockchain_info_list2 = nm_compute_blockchain_info_list(test_node.pubkey);
+    assert_equals(blockchain_info_list2.size(), 5);
+    assert_true(blockchain_info_list2.contains(blockchain_info(foo_chain, false, blockchain_state.RUNNING)));
+
+    assert_equals(nm_get_containers(np1_node_key), ["cluster1_system", "container1"]);
+}
+
+function test_get_blockchains_replicated_by_node__with_stopped_container() {
+    setup_module();
+    val node_provider1 = rell.test.keypairs.bob;
+    val np1_node_key = x"1111111111111111111111111111111B8DD00AC8E5CB0869F267212F35425E3C8F";
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p),
+        register_provider(initial_provider.pub, node_provider1.pub, provider_tier.NODE_PROVIDER),
+        propose_provider_state(initial_provider.pub, node_provider1.pub, true)
+    ).sign(initial_provider).run();
+    // np1's node is not a member of any cluster, so it only sees blockchains it's explicitly a replica of
+    rell.test.tx().op(
+        register_node(node_provider1.pub, np1_node_key, "host", 7777, "http://host/api_url")
+    ).sign(node_provider1).run();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val foo_chain = blockchain @ { "foo_chain" } (.rid);
+    val np1_node = node @ { np1_node_key };
+
+    // np1 explicitly adds its node as a replica of `foo_chain`
+    rell.test.tx().op(
+        add_blockchain_replica(node_provider1.pub, foo_chain, np1_node_key)
+    ).sign(node_provider1).run();
+
+    assert_true(to_brids(get_blockchains_replicated_by_node(np1_node)).contains(foo_chain));
+    assert_true(nm_compute_blockchain_list(np1_node_key).contains(foo_chain));
+
+    rell.test.tx().op(
+        stop_container_op("container1")
+    ).sign(initial_provider).run();
+
+    assert_false(to_brids(get_blockchains_replicated_by_node(np1_node)).contains(foo_chain));
+    assert_false(nm_compute_blockchain_list(np1_node_key).contains(foo_chain));
+
+    rell.test.tx().op(
+        restart_container_op("container1")
+    ).sign(initial_provider).run();
+
+    assert_true(to_brids(get_blockchains_replicated_by_node(np1_node)).contains(foo_chain));
+    assert_true(nm_compute_blockchain_list(np1_node_key).contains(foo_chain));
+}
+
+function to_brids(bc_info_list: set<blockchain_info>): set<byte_array> = set(bc_info_list @* {} .rid);
+
+function test_nm_get_container_limits() {
+    setup_module();
+
+    val cluster1_name = "cluster1";
+    val container1_name = "container1";
+
+    rell.test.tx().op(
+        create_cluster_with_cluster_data(initial_provider.pub, cluster1_name, voter_sets.system_p, [], cluster_creation_data(extra_storage = 2)),
+        propose_container(initial_provider.pub, cluster1_name, container1_name, voter_sets.system_p)
+    ).sign(initial_provider).run();
+
+    val limits = nm_get_container_limits(container1_name);
+    assert_equals(limits["container_units"], 1);
+    assert_equals(limits["max_blockchains"], 10);
+    assert_equals(limits["storage"], 16384);
+    assert_equals(limits["cpu"], 50);
+    assert_equals(limits["ram"], 2048);
+    assert_equals(limits["io_read"], 25);
+    assert_equals(limits["io_write"], 20);
+
+    val proposed_limits = map<container_resource_limit_type, integer>();
+    proposed_limits[container_resource_limit_type.container_units] = 2;
+    proposed_limits[container_resource_limit_type.max_blockchains] = 2;
+    proposed_limits[container_resource_limit_type.extra_storage] = 2;
+    rell.test.tx().op(
+        propose_container_limits(initial_provider.pub, container1_name, proposed_limits)
+    ).sign(rell.test.keypairs.alice).run();
+
+    val limits_after = nm_get_container_limits(container1_name);
+    assert_equals(limits_after["container_units"], 2);
+    assert_equals(limits_after["max_blockchains"], 2);
+    assert_equals(limits_after["storage"], 32768 + 2);
+    assert_equals(limits_after["cpu"], 100);
+    assert_equals(limits_after["ram"], 4096);
+    assert_equals(limits_after["io_read"], 50);
+    assert_equals(limits_after["io_write"], 40);
+
+    val f = assert_fails(nm_get_container_limits("bogus", *));
+    assert_equals(f.message, "Container bogus not found");
+}
+
+function test_nm_get_blockchain_state() {
+    setup_module();
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p)
+    ).sign(initial_provider).run();
+    val container1 = container @ { "container1" };
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val foo_chain = blockchain @ { "foo_chain" } (.rid);
+    assert_equals(nm_get_blockchain_state(foo_chain), "RUNNING");
+
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, foo_chain, blockchain_action.pause)
+    ).sign(initial_provider).run();
+
+    assert_equals(nm_get_blockchain_state(foo_chain), "PAUSED");
+
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, foo_chain, blockchain_action.remove)
+    ).sign(initial_provider).run();
+
+    assert_equals(nm_get_blockchain_state(foo_chain), "REMOVED");
+}
+
+function test_nm_get_blockchain_configuration() {
+    setup_module();
+
+    val directory_chain = blockchain @ { blockchains.directory_chain };
+    val directory_chain_raw_config = nm_get_blockchain_configuration(directory_chain.rid, 0);
+    assert_not_null(directory_chain_raw_config);
+
+    val directory_chain_config = map<text,gtv>.from_gtv(gtv.from_bytes(directory_chain_raw_config));
+    val directory_chain_gtx_config = map<text,gtv>.from_gtv(directory_chain_config["gtx"]);
+    val directory_chain_gtx_modules = list<text>.from_gtv(directory_chain_gtx_config["modules"]);
+
+    assert_true(directory_chain_gtx_modules.contains("net.postchain.rell.module.RellPostchainModuleFactory"));
+}
+
+function test_blockchain_rid() {
+    setup_module();
+
+    rell.test.tx().op(
+        propose_container(initial_provider.pub, clusters.system, "container1", voter_sets.system_p)
+    ).sign(initial_provider).run();
+    val container1 = container @ { "container1" };
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container1")
+    ).sign(initial_provider).run();
+
+    val blockchain_info_list = nm_compute_blockchain_info_list(test_node.pubkey);
+    assert_true(blockchain_info_list.contains(blockchain_info(
+        calculate_configuration_hash(conf.to_gtv().to_bytes(), [test_node.pubkey]),
+        false,
+        blockchain_state.RUNNING
+    )));
+}
+
+function test_nm_get_blockchain_configuration_options() {
+    // See test_propose_import_blockchain()
+    // This empty stub is potentially for a code coverage tool.
+}
+
+function test_nm_find_next_inactive_blockchains() {
+    setup_module();
+
+    // Adding 3 blockchains
+    var conf0 = apply_required_configuration_properties(["serial": (0).to_gtv()]);
+    var conf1 = apply_required_configuration_properties(["serial": (1).to_gtv()]);
+    var conf2 = apply_required_configuration_properties(["serial": (2).to_gtv()]);
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+        propose_blockchain(initial_provider.pub, conf0.to_gtv().to_bytes(), "foo", "container"),
+        propose_blockchain(initial_provider.pub, conf1.to_gtv().to_bytes(), "bar", "container"),
+        propose_blockchain(initial_provider.pub, conf2.to_gtv().to_bytes(), "foo_bar", "container")
+    ).sign(initial_provider).run();
+    val foo = blockchain @ { "foo" } (.rid);
+    val bar = blockchain @ { "bar" } (.rid);
+    val foo_bar = blockchain @ { "foo_bar" } (.rid);
+
+    // Action 0: removing `foo` chain
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, foo, blockchain_action.remove)
+    ).sign(initial_provider).run();
+
+    // Asserts 0
+    val removed0 = inactive_blockchain @* {} (inactive_blockchain_info(.blockchain.rid, .blockchain.state, .height));
+    assert_equals(removed0, [inactive_blockchain_info(foo, blockchain_state.REMOVED, 2)]); // block 2
+    assert_equals(nm_find_next_inactive_blockchains(0), [inactive_blockchain_info(foo, blockchain_state.REMOVED, 2)]);
+    assert_true(nm_find_next_inactive_blockchains(2).empty());
+
+    // Action 1: removing `bar` and archiving `foo_bar`
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, bar, blockchain_action.remove),
+        propose_blockchain_action(initial_provider.pub, foo_bar, blockchain_action.archive)
+    ).sign(initial_provider).run();
+
+    // Asserts 1
+    val removed1 = inactive_blockchain @* {} (inactive_blockchain_info(.blockchain.rid, .blockchain.state, .height));
+    assert_equals(removed1, [
+        inactive_blockchain_info(foo, blockchain_state.REMOVED, 2),
+        inactive_blockchain_info(bar, blockchain_state.REMOVED, 3),
+        inactive_blockchain_info(foo_bar, blockchain_state.ARCHIVED, 3)
+    ]);
+    assert_equals(nm_find_next_inactive_blockchains(0), [inactive_blockchain_info(foo, blockchain_state.REMOVED, 2)]);
+    assert_equals(nm_find_next_inactive_blockchains(2), [inactive_blockchain_info(bar, blockchain_state.REMOVED, 3), inactive_blockchain_info(foo_bar, blockchain_state.ARCHIVED, 3)]);
+    assert_true(nm_find_next_inactive_blockchains(3).empty());
+
+    // Action 2: removing already archived `foo_chain`
+    rell.test.tx().op(
+        propose_blockchain_action(initial_provider.pub, foo_bar, blockchain_action.remove)
+    ).sign(initial_provider).run();
+    assert_equals(nm_find_next_inactive_blockchains(3), [inactive_blockchain_info(foo_bar, blockchain_state.REMOVED, 4)]);
+    assert_true(nm_find_next_inactive_blockchains(4).empty());
+}
+
+function test_nm_is_blockchain_provider() {
+
+    setup_module();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+        propose_blockchain(initial_provider.pub, conf.to_gtv().to_bytes(), "foo_chain", "container"),
+        register_provider(initial_provider.pub, rell.test.keypairs.bob.pub, provider_tier.NODE_PROVIDER)
+    ).sign(initial_provider).run();
+
+    val chains = nm_get_blockchains_for_container("container");
+    assert_equals(chains.size(), 1);
+    val blockchain_rid = chains[0];
+
+    assert_true(nm_is_blockchain_provider(initial_provider.pub, blockchain_rid));
+    assert_false(nm_is_blockchain_provider(rell.test.keypairs.bob.pub, blockchain_rid));
+    assert_fails(nm_is_blockchain_provider(rell.test.keypairs.charlie.pub, blockchain_rid, *));
+}
+
+function test_nm_get_container_image_null() {
+    setup_module();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+    ).sign(initial_provider).run();
+
+    assert_null(nm_get_container_image("container"));
+    assert_equals(nm_get_container_image_or_default("container"),
+        container_image_info(name = "",
+            url = "registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode",
+            digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+}
+
+function test_nm_get_container_image_common() {
+    setup_module();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+        create_subnode_image(
+            name = "chromaway/chromia-subnode",
+            url = "registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode",
+            digest = "sha256:3d8ec76e4e510ad90515e5fd71c6185360cd3ba32e3feb80f1cc15460722f482",
+            subnode_image_type = subnode_image_type.COMMON,
+            provider_pubkey = initial_provider.pub,
+            active = true,
+        ),
+        associate_subnode_image_with_container("container", "chromaway/chromia-subnode")
+    ).sign(initial_provider).run();
+
+    val image_info = require(nm_get_container_image("container"));
+    assert_equals(image_info.name, "chromaway/chromia-subnode");
+    assert_equals(image_info.url, "registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode");
+    assert_equals(image_info.digest, "sha256:3d8ec76e4e510ad90515e5fd71c6185360cd3ba32e3feb80f1cc15460722f482");
+    val image_info2 = nm_get_container_image_or_default("container");
+    assert_equals(image_info2, image_info);
+}
+
+function test_nm_get_container_image_special_for_cluster() {
+    setup_module();
+
+    var conf = apply_required_configuration_properties();
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+        create_subnode_image(
+            name = "chromaway/chromia-subnode",
+            url = "registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode",
+            digest = "sha256:3d8ec76e4e510ad90515e5fd71c6185360cd3ba32e3feb80f1cc15460722f482",
+            subnode_image_type = subnode_image_type.SPECIAL,
+            provider_pubkey = initial_provider.pub,
+            active = true,
+        ),
+        associate_subnode_image_with_container("container", "chromaway/chromia-subnode"),
+        associate_subnode_image_with_cluster(clusters.system, "chromaway/chromia-subnode"),
+    ).sign(initial_provider).run();
+
+    val image_info = require(nm_get_container_image("container"));
+    assert_equals(image_info.name, "chromaway/chromia-subnode");
+    assert_equals(image_info.url, "registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode");
+    assert_equals(image_info.digest, "sha256:3d8ec76e4e510ad90515e5fd71c6185360cd3ba32e3feb80f1cc15460722f482");
+    val image_info2 = nm_get_container_image_or_default("container");
+    assert_equals(image_info2, image_info);
+}
+
+function test_nm_find_next_previous_and_historic_configuration_height() {
+    setup_module();
+    val directory_chain = blockchain @ { blockchains.directory_chain };
+
+    val conf = apply_required_configuration_properties();
+
+    conf["version"] = (1).to_gtv();
+    rell.test.tx().op(
+        propose_configuration_at(initial_provider.pub, directory_chain.rid, conf.to_gtv().to_bytes(), 2, false)
+    ).sign(initial_provider).run();
+
+    conf["version"] = (2).to_gtv();
+    rell.test.tx().op(
+        propose_configuration_at(initial_provider.pub, directory_chain.rid, conf.to_gtv().to_bytes(), 5, false)
+    ).sign(initial_provider).run();
+
+    assert_equals(nm_find_next_configuration_height(directory_chain.rid, 0), 2);
+    assert_equals(nm_find_next_configuration_height(directory_chain.rid, 2), 5);
+
+    assert_equals(nm_find_previous_configuration_height(directory_chain.rid, 5), 2);
+    assert_equals(nm_find_previous_configuration_height(directory_chain.rid, 2), 0);
+
+    assert_equals(nm_get_historic_configuration_height(directory_chain.rid, 5), 5);
+    assert_equals(nm_get_historic_configuration_height(directory_chain.rid, 3), 2);
+    assert_equals(nm_get_historic_configuration_height(directory_chain.rid, 2), 2);
+}
+
+function test_nm_get_container_creation_time_null() {
+    setup_module();
+
+    rell.test.tx().op(
+        create_empty_container_op(initial_provider.pub, "container"),
+    ).sign(initial_provider).run();
+
+    assert_null(nm_get_container_creation_time("container"));
+}
+
+function test_nm_get_container_creation_time_value() {
+    setup_module();
+
+    val created_at = rell.test.last_block_time;
+    rell.test.tx().op(
+        create_container(initial_provider.pub, "container", clusters.system, 0, [initial_provider.pub]),
+    ).sign(initial_provider).run();
+
+    assert_equals(nm_get_container_creation_time("container"), created_at);
+}
+
+function test_nm_get_container_rate_limits() {
+    setup_module();
+
+    rell.test.tx().op(
+        create_cluster_impl_op(provider @ { initial_provider.pub }, "c1", system_p_voter_set(), [initial_provider.pub],
+            cluster_creation_data()),
+        create_container_with_resource_limits(initial_provider.pub, "container", "c1", 0, [initial_provider.pub],
+            [container_resource_limit_type.extra_compute_requests : 500]),
+        create_subnode_image(
+            name = "chromaway/chromia-subnode",
+            url = "registry.gitlab.com/chromaway/postchain-chromia/chromaway/chromia-subnode",
+            digest = "sha256:3d8ec76e4e510ad90515e5fd71c6185360cd3ba32e3feb80f1cc15460722f482",
+            subnode_image_type = subnode_image_type.COMMON,
+            provider_pubkey = initial_provider.pub,
+            active = true,
+            base_compute_requests = 1000,
+        ),
+        associate_subnode_image_with_container("container", "chromaway/chromia-subnode")
+    ).sign(initial_provider).run();
+    assert_equals(nm_get_container_rate_limits("container"), [
+        "ai_inference" : container_rate_limit(period_length_millis = millis_per_week, rate_limit = 1500),
+    ]);
+}
+
+function test_nm_get_all_containers() {
+    setup_module(provider_quota_max_containers = 10);
+
+    val node_pubkey = node @ {} (.pubkey);
+
+    rell.test.tx().op(
+        create_cluster_with_cluster_data(initial_provider.pub, "cluster2", voter_sets.system_p, [initial_provider.pub], cluster_creation_data(
+            cluster_units = 10,
+            extra_storage = 0,
+            system_container_units = 0,
+            container_unit_cpu = 10,
+            container_unit_ram = 10,
+            container_unit_io_read = 10,
+            container_unit_io_write = 10,
+            container_unit_storage = 10
+        )),
+        update_node_with_units(initial_provider.pub, node_pubkey, null, null, null, 20),
+        add_node_to_cluster(initial_provider.pub, node_pubkey, "cluster2"),
+        create_container(initial_provider.pub, "container1", clusters.system, 1, [initial_provider.pub]),
+        create_container(initial_provider.pub, "container2", clusters.system, 1, [initial_provider.pub]),
+        stop_container_op("container2"),
+        create_container(initial_provider.pub, "container3", "cluster2", 1, [initial_provider.pub]),
+    ).sign(initial_provider).run();
+
+    assert_equals(nm_get_containers(node_pubkey), list<text>(["system", "container1", "cluster2_system", "container3"]));
+    assert_equals(nm_get_all_containers(), list<text>(["system", "cluster2_system", "container1", "container2", "container3"]));
+}

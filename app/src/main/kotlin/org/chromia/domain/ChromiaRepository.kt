@@ -79,7 +79,8 @@ data class AssetSearchFilters(
     val brid: String? = null,
     val searchQuery: String? = null,
     val type: String? = null,
-    val pagination: PaginationParams = PaginationParams()
+    val pagination: PaginationParams = PaginationParams(),
+    val sorting: SortingParams = SortingParams()
 )
 
 data class TransactionFilters(

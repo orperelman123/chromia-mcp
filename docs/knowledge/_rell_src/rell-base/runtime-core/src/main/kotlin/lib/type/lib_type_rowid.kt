@@ -1,0 +1,90 @@
+/*
+ * Copyright (C) 2026 ChromaWay AB. See LICENSE for license information.
+ */
+
+package net.postchain.rell.base.lib.type
+
+import net.postchain.rell.base.lmodel.dsl.Ld_NamespaceDsl
+import net.postchain.rell.base.model.rr.RR_PrimitiveKind
+import net.postchain.rell.base.model.rr.RR_Type
+import net.postchain.rell.base.runtime.Rt_IntValue
+import net.postchain.rell.base.runtime.Rt_RowidValue
+import net.postchain.rell.base.runtime.utils.Rt_Utils
+
+object Lib_Type_Rowid {
+    val NAMESPACE = Ld_NamespaceDsl.make {
+        type(Rt_RowidValue, "rowid", since = "0.9.0") {
+            rrType(RR_Type.Primitive(RR_PrimitiveKind.ROWID))
+            """
+                The primary key of a database record.
+
+                Implemented as a 64-bit integer, but requires explicit conversion to and from integer with the
+                constructor `rowid(integer)` and the method `rowid.to_integer()`. ROWID values cannot be negative.
+
+                ROWID supports the standard complement of comparison operators (`==`, `!=`, `<`, `>`, `<=` and `>=`),
+                and conversion to and from GTV.
+
+                Examples:
+
+                ```rell
+                function get_rowid(username: text) {
+                    val u = user @ { .name == username };
+                    return u.rowid;
+                }
+
+                val freds_rowid: rowid = user @ { .name == "Fred" } ( .rowid );
+
+                val valid_rowids: list<rowid> = user @* { .rowid >= min_rowid };
+                ```
+
+                Note that the recommended way to manipulate entity values is via typed references (e.g. `u: user` in
+                the above example), as this is type-safe. Reliance on `rowid` is only recommended in rare cases where
+                the standard pattern is not possible, as the compiler does not know what type of entity a given `rowid`
+                value is intended to reference. Consider the example below:
+
+                ```rell
+                entity user {}
+                entity company {}
+
+                val u: user = user @ {};
+                val c: company = company @ {};
+
+                val u2: user = c; // Bad, and the compiler tells us so.
+
+                val u_rowid: rowid = c.rowid; // Likely to lead to errors, but the compiler can't help us.
+                ```
+
+                @see 1. <a href="../integer/index.html"><code>integer</code> - Rell Standard Library</a>
+                @see 2. <a href="../gtv/index.html"><code>gtv</code> - Rell Standard Library</a>
+            """.comment()
+
+            // Constructor to create a ROWID from an integer value
+            constructor(pure = true, since = "0.11.0") {
+                """
+                    Construct a ROWID from an integer value.
+
+                    @throws exception if `value` is negative
+                """.comment()
+
+                val value by param(Rt_IntValue, comment = "the row ID integer value")
+
+                body(Rt_RowidValue) {
+                    Rt_Utils.check(value.value >= 0) {
+                        "rowid(integer):negative:${value.value}" to "Negative value: ${value.value}"
+                    }
+                    value.value
+                }
+            }
+
+            // Method to get the integer value of the ROWID
+            function("to_integer", pure = true, since = "0.11.0") {
+                comment("Get the integer value of this ROWID.")
+                val self by self()
+                dbFunctionTemplate("rowid.to_integer", 1, "#0")
+                body(Rt_IntValue) {
+                    self.value
+                }
+            }
+        }
+    }
+}

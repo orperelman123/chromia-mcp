@@ -1,0 +1,15 @@
+fire: 0069
+when: 2026-08-30 10:02 Asia/Jerusalem
+work: watch only (no INDEX encode, no dapp-build change this fire)
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 (java chromia-mcp-server.jar --sse; concurrent peer restarted jar after dapp-build library-list improve)
+
+encoder_mid_write: no (no process writing *Help.kt; ChrCreateRellDappHelp.kt stable after peer fire library-list walk)
+finder_buggy_candidates: 28–36 (false positives; alias INDEX pairs cover them; leftover-index-holes-now.json + check_real_holes_0066)
+real_hole_count: 0 (docs+learn)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+dapp_build: no change this fire (leftover_dapp_build_help already walks create→yml→node→query; peer just added leftover_library_list*; left alone)
+WakeParent: no (nothing new from this fire; INDEX 0; stay quiet)

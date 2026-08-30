@@ -15,8 +15,7 @@
 - No deployment process - engineers run locally via `./gradlew :app:runSse` or `./gradlew :app:run`
 
 **Configuration:**
-- Host hardcoded to `127.0.0.1` in `App.kt` main function
-- Port hardcoded to `3001` in `App.kt` main function
+- SSE defaults to `127.0.0.1:3001`; override with `--sse --host <host> --port <port>` (`parseSseArgs` in `Utils.kt`)
 - CORS configured to allow all origins (for local development)
 - Health check available at `/health` endpoint
 
@@ -109,7 +108,7 @@ Deployment is **semi-automated** with manual tag creation:
 **What it does:**
 1. Installs kubectl, OpenJDK 21, wget, unzip
 2. Downloads Jib CLI tool (v0.13.0)
-3. Builds application JAR: `./gradlew jib shadowJar`
+3. Builds application JAR sequentially: `./gradlew :app:shadowJar` then `./gradlew jib` (do not run them as concurrent siblings; both write under `app/build/libs`)
 4. Fetches dependencies for `claude-code-chromia` subproject
 5. Builds Docker image using Jib:
    - Base image: `eclipse-temurin:21-jre-jammy`
@@ -304,9 +303,11 @@ Deployment is **semi-automated** with manual tag creation:
 {
   "status": "healthy",
   "server": "chromia-mcp-server",
-  "version": "0.0.1"
+  "version": "<Gradle project.version>"
 }
 ```
+
+`version` comes from Gradle `project.version` (generated `BuildInfo.VERSION` in `App.kt`). `gradle.properties` pins `0.2.2` (latest official GitLab tag). Tagged publish jobs pass `-Pversion=$CI_COMMIT_TAG`, so a released image reports the tag. This is not a hardcoded `0.0.1`.
 
 **Use cases:**
 - Kubernetes liveness/readiness probes
@@ -326,8 +327,8 @@ Deployment is **semi-automated** with manual tag creation:
 
 ### RAG Store Initialization
 
-**Risk:** RAG store downloads embeddings from GitLab packages at startup.
+**Risk:** RAG store loads local `embeddings.json` first, then downloads from GitLab packages at startup.
 
-**Impact:** If GitLab packages are unavailable, documentation search will not work (but server continues running).
+**Impact:** If neither the local file nor GitLab packages are available, documentation search will not work (but server continues running).
 
-**Mitigation:** Server continues running even if RAG store fails. Consider pre-loading embeddings.
+**Mitigation:** Server continues running even if RAG store fails. Local no-upload ingest writes `app/build/embeddings.json` (or `CHROMIA_EMBEDDINGS_PATH`) so a developer machine does not need the GitLab package.

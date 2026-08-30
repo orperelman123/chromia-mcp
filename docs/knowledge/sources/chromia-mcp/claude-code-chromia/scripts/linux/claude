@@ -1,0 +1,28 @@
+#!/bin/bash
+
+mkdir -p "${HOME}/.yarn"
+mkdir -p "${HOME}/.cache/node"
+mkdir -p "${HOME}/.claude"
+if [ ! -f "${HOME}/.claude.json" ]; then
+  echo "{}" > "${HOME}/.claude.json"
+fi
+
+if [ -t 0 ] && [ -t 1 ] ; then TTY="--tty"; else TTY=""; fi
+
+docker run \
+  -e "TZ=$(cat /etc/timezone)" \
+  -e HOME \
+  --user "$(id -u):$(id -g)" \
+  --tmpfs "/var/run/postgresql:uid=$(id -u),gid=$(id -g)" \
+  --tmpfs "/pgdata:size=1g,uid=$(id -u),gid=$(id -g)" \
+  --mount type=bind,source=/etc/passwd,target=/etc/passwd,readonly \
+  --mount type=bind,source=/etc/group,target=/etc/group,readonly \
+  --mount type=bind,source="${HOME}/.yarn,target=${HOME}/.yarn" \
+  --mount type=bind,source="${HOME}/.cache/node,target=${HOME}/.cache/node" \
+  --mount type=bind,source="${HOME}/.claude.json,target=${HOME}/.claude.json" \
+  --mount type=bind,source="${HOME}/.claude,target=${HOME}/.claude" \
+  --mount type=bind,source="$(pwd)",target="$(pwd)" \
+  --workdir "$(pwd)" \
+  --rm \
+  --interactive "${TTY}" \
+  registry.gitlab.com/chromaway/core-tools/chromia-mcp/claude-code-chromia "$@"

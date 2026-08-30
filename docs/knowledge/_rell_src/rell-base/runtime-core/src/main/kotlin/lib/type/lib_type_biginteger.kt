@@ -1,0 +1,504 @@
+/*
+ * Copyright (C) 2026 ChromaWay AB. See LICENSE for license information.
+ */
+
+package net.postchain.rell.base.lib.type
+
+import net.postchain.rell.base.compiler.base.lib.C_SysFunctionBody
+import net.postchain.rell.base.lib.Lib_Math
+import net.postchain.rell.base.lmodel.dsl.Ld_NamespaceDsl
+import net.postchain.rell.base.model.expr.Db_SysFunction
+import net.postchain.rell.base.model.rr.RR_PrimitiveKind
+import net.postchain.rell.base.model.rr.RR_Type
+import net.postchain.rell.base.runtime.*
+import net.postchain.rell.base.runtime.utils.Rt_Utils
+import net.postchain.rell.base.sql.SqlConstants
+import net.postchain.rell.base.utils.checkEquals
+import net.postchain.rell.base.utils.checkedPow
+import org.jooq.DataType
+import org.jooq.impl.SQLDataType
+import java.math.BigInteger
+import java.math.MathContext
+import java.math.RoundingMode
+
+object Lib_Type_BigInteger {
+    val FromInteger_Db = Db_SysFunction.cast("big_integer(integer)", Lib_BigIntegerMath.SQL_TYPE_STR)
+
+    val FromInteger = C_SysFunctionBody.simple(FromInteger_Db, pure = true) { a ->
+        calcFromInteger(a)
+    }
+
+    private val FromText_1 = C_SysFunctionBody.simple(
+        Db_SysFunction.simple("big_integer(text)", SqlConstants.FN_BIGINTEGER_FROM_TEXT),
+        pure = true
+    ) { a ->
+        val s = (a as Rt_TextValue).value
+        Rt_BigIntegerValue.get(s)
+    }
+
+    private const val SINCE0 = "0.12.0"
+
+    val NAMESPACE = Ld_NamespaceDsl.make {
+        type(Rt_BigIntegerValue, "big_integer", since = SINCE0) {
+            rrType(RR_Type.Primitive(RR_PrimitiveKind.BIG_INTEGER))
+            """
+                An immutable signed integer type, supporting extremely large values (upwards of 100,000 decimal digits).
+
+                Literals of `big_integer` type can be written like integers, but with the suffix `L`, e.g. `123L` or
+                `0x123L`. `big_integer`s support the operators `+`, `-`, `*`, `/` and `%` with typical behavior.
+            """.comment()
+
+            constant("PRECISION", Lib_BigIntegerMath.PRECISION.toLong(), since = SINCE0) {
+                comment("The maximum number of digits a `big_integer` can have, `131072`, or `2^17`.")
+            }
+
+            constant("MIN_VALUE", Lib_BigIntegerMath.MIN_VALUE, since = SINCE0) {
+                comment("The minimum value a `big_integer` can have, `-(10^131072)+1`.")
+            }
+
+            constant("MAX_VALUE", Lib_BigIntegerMath.MAX_VALUE, since = SINCE0) {
+                comment("The maximum value a `big_integer` can have, `(10^131072)-1`.")
+            }
+
+            constructor(since = SINCE0) {
+                """
+                    Construct a `big_integer` by parsing a signed base-10 text representation of an integer.
+                    @throws exception if the text representation is ill-formed
+                """.comment()
+                param("s", type = "text", comment = "the text to be parsed")
+                bodyRaw(FromText_1)
+            }
+
+            constructor(since = SINCE0) {
+                comment("Construct a big_integer from an integer.")
+                param("value", type = "integer", comment = "the integer value")
+                bodyRaw(FromInteger)
+            }
+
+            staticFunction("from_bytes", pure = true, since = SINCE0) {
+                """
+                    Create a `big_integer` from a byte array.
+
+                    The byte array is interpreted with the first bit representing the sign (two's complement), and for
+                    subsequent bits, more significant bits are on the left and less significant bits are on the left
+                    (big-endian).
+
+                    Inverse of `big_integer.to_bytes()`.
+
+                    @throws exception if the byte array is empty
+                """.comment()
+                val value by param(Rt_ByteArrayValue, comment = "the byte array to convert")
+                body(Rt_BigIntegerValue) {
+                    BigInteger(value.value)
+                }
+            }
+
+            staticFunction("from_bytes_unsigned", pure = true, since = SINCE0) {
+                """
+                    Create a `big_integer` from a byte array.
+
+                    The byte array is interpreted with more significant bits on the left and less significant bits on
+                    the right (big-endian). An empty byte array is interpreted as `0`.
+
+                    Inverse of `big_integer.to_bytes_unsigned()`.
+                """.comment()
+                val value by param(Rt_ByteArrayValue, comment = "the byte array to convert")
+                body(Rt_BigIntegerValue) {
+                    BigInteger(1, value.value)
+                }
+            }
+
+            staticFunction("from_text", result = "big_integer", pure = true, since = SINCE0) {
+                """
+                    Parse a signed base-10 text representation of an integer.
+                    @throws exception if the text is ill-formed
+                """.comment()
+                param("value", type = "text", comment = "the text to parse")
+                bodyRaw(FromText_1)
+            }
+
+            staticFunction("from_text", result = "big_integer", pure = true, since = SINCE0) {
+                """
+                    Parse a signed text representation of an integer. The integer is interpreted in the specified radix
+                    (from ${Character.MIN_RADIX} to ${Character.MAX_RADIX} inclusive).
+                    @throws exception when
+                    - the text is ill-formed
+                    - the radix is outside the supported range
+                """.comment()
+                val value by param(Rt_TextValue, comment = "the text to parse")
+                val radix by param(Rt_IntValue, comment = "the radix with which to interpret `value`")
+                body {
+                    if (radix.value < Character.MIN_RADIX || radix.value > Character.MAX_RADIX) {
+                        throw Rt_Exception.common(
+                            "fn:big_integer.from_text:radix:${radix.value}", "Invalid radix: ${radix.value}"
+                        )
+                    }
+                    calcFromText(value.value, radix.value.toInt(), "from_text")
+                }
+            }
+
+            staticFunction("from_hex", result = "big_integer", pure = true, since = SINCE0) {
+                """
+                    Parses an unsigned hexadecimal text representation of a `big_integer`.
+
+                    Base prefixes are not supported, so one must write e.g. `integer.from_hex('CAFE')` rather than
+                    `integer.from_hex('0xCAFE')`.
+
+                    Case is ignored, i.e. `integer.from_hex('CAFE')` and `integer.from_hex('cafe')` are equivalent.
+                    @throws exception if the text representation is ill-formed
+                """.comment()
+                val value by param(Rt_TextValue, comment = "the hexadecimal text to be parsed")
+                body {
+                    calcFromText(value.value, 16, "from_hex")
+                }
+            }
+
+            function("abs", "big_integer", since = SINCE0) {
+                """
+                    Returns the absolute value of this `big_integer`; i.e. the `big_integer` itself if it's positive
+                    or its negation if it's negative.
+                """.comment()
+                bodyRaw(Lib_Math.Abs_BigInteger)
+            }
+
+            function("min", "big_integer", since = SINCE0) {
+                """
+                    Returns the lesser of this and another `big_integer` value; i.e. `value` if `value` is less than
+                    this, or this `big_integer` otherwise.
+                    @return the lesser of `value` and this `big_integer`
+                """.comment()
+                param("value", "big_integer", comment = "the value to compare against")
+                bodyRaw(Lib_Math.Min_BigInteger)
+            }
+
+            function("min", pure = true, since = SINCE0) {
+                """
+                    Returns the numerically lesser of this `big_integer` a `decimal` value; i.e. `value` if `value` is
+                    less than this `big_integer`, or this `big_integer` otherwise.
+                    @return the lesser of `value` and this `big_integer`
+                """.comment()
+                val self by self()
+                val value by param(Rt_DecimalValue, comment = "the decimal value to compare against")
+                dbFunctionSimple("big_integer.min", "LEAST")
+                body(Rt_DecimalValue) {
+                    self.value.toBigDecimal().min(value.value)
+                }
+            }
+
+            function("max", "big_integer", since = SINCE0) {
+                """
+                    Returns the greater of this and another `big_integer` value; i.e. `value` if `value` is greater than
+                    this, or this `big_integer` otherwise.
+                    @return the greater of `value` and this `big_integer`
+                """.comment()
+                param("value", "big_integer", comment = "the value to compare against")
+                bodyRaw(Lib_Math.Max_BigInteger)
+            }
+
+            function("max", pure = true, since = SINCE0) {
+                """
+                    Returns the numerically greater of this `big_integer` a `decimal` value; i.e. `value` if `value` is
+                    greater than this `big_integer`, or this `big_integer` otherwise.
+                    @return the greater of `value` and this `big_integer`
+                """.comment()
+                val self by self()
+                val value by param(Rt_DecimalValue, comment = "the decimal value to compare against")
+                dbFunctionSimple("big_integer.max", "GREATEST")
+                body(Rt_DecimalValue) {
+                    self.value.toBigDecimal().max(value.value)
+                }
+            }
+
+            function("pow", pure = true, since = "0.13.6") {
+                """
+                    Raise this `big_integer` to the power of the given exponent. SQL compatible.
+
+                    Note that:
+                    - the exponent cannot be negative
+                    - if the exponent is 0, the result is 1
+                    - if the exponent is 1, the result is the original value
+                    @throws exception on overflow, i.e. if the result is out of `big_integer` range
+                """.comment()
+                val self by self()
+                val exponent by param(Rt_IntValue, comment = "the exponent")
+                dbFunctionSimple(fnSimpleName, SqlConstants.FN_BIGINTEGER_POWER)
+                body(Rt_BigIntegerValue) {
+                    Lib_BigIntegerMath.genericPower(
+                        fnSimpleName,
+                        self.value,
+                        exponent.value,
+                        Lib_BigIntegerMath.NumericType_BigInteger
+                    )
+                }
+            }
+
+            // Function: sign
+            function("sign", pure = true, since = SINCE0) {
+                """
+                    Returns the sign of this `big_integer`: `-1` if negative, `0` if zero, and `1` if positive.
+
+                    It holds that for all `x`, `x == x.sign() * x.abs()`.
+                """.comment()
+                val self by self()
+                dbFunctionSimple("big_integer.sign", "SIGN")
+                body(Rt_IntValue) {
+                    self.value.signum().toLong()
+                }
+            }
+
+            // Function: to_bytes
+            function("to_bytes", pure = true, since = SINCE0) {
+                """
+                    Convert this `big_integer` to a byte array.
+
+                    The first bit of the generated byte array represents the sign (two's complement), and for subsequent
+                    bits, more significant bits are on the left and less significant bits are on the left (big-endian).
+
+                    Inverse of `big_integer.from_bytes()`.
+
+                    Examples:
+                    - `0L.to_bytes()` returns `x'00'`
+                    - `(-1L).to_bytes()` returns `x'FF'`
+                    - `1L.to_bytes()` returns `x'01'`
+                    - `2L.pow(100).to_bytes()` returns `x'10000000000000000000000000'`
+                """.comment()
+                val self by self()
+                body(Rt_ByteArrayValue) {
+                    self.value.toByteArray()
+                }
+            }
+
+            function("to_bytes_unsigned", pure = true, since = SINCE0) {
+                """
+                    Convert this non-negative `big_integer` to a byte array, with no sign bit.
+
+                    The generated byte array has more significant bits on the left and less significant bits on the
+                    right (big-endian).
+
+                    Inverse of `big_integer.from_bytes_unsigned()`.
+
+                    When this `big_integer` is equal to `0`, the empty byte array `x''` is returned (this is consistent
+                    with the inverse function `big_integer.from_bytes_unsigned()`, which interprets `x''` as `0`).
+
+                    Examples:
+                    - `0L.to_bytes_unsigned()` returns `x''`
+                    - `(-1L).to_bytes_unsigned()` throws an exception
+                    - `1L.to_bytes_unsigned()` returns `x'01'`
+                    - `2L.pow(100).to_bytes_unsigned()` returns `x'10000000000000000000000000'`
+                    @throws exception if this `big_integer` is negative
+                """.comment()
+                val self by self()
+                body(Rt_ByteArrayValue) {
+                    Rt_Utils.check(self.value.signum() >= 0) {
+                        "fn:big_integer.to_bytes_unsigned:negative" to "Value is negative"
+                    }
+                    var bytes = self.value.toByteArray()
+                    val n = (self.value.bitLength() + 7) / 8
+                    if (n != bytes.size) {
+                        checkEquals(n, bytes.size - 1)
+                        bytes = bytes.copyOfRange(1, bytes.size)
+                    }
+                    bytes
+                }
+            }
+
+            // Function: to_decimal
+            function("to_decimal", "decimal", since = SINCE0) {
+                comment("Convert this `big_integer` to a decimal.")
+                bodyRaw(Lib_Type_Decimal.FromBigInteger)
+            }
+
+            // Function: to_hex
+            function("to_hex", pure = true, since = SINCE0) {
+                """
+                    Convert this `big_integer` to hexadecimal text.
+
+                    Does not include a base prefix in the output, i.e. `big_integer(25).to_hex()` returns `19` rather
+                    than `0x19`.
+                """.comment()
+                val self by self()
+                body(Rt_TextValue) {
+                    self.value.toString(16)
+                }
+            }
+
+            // Function: to_integer
+            function("to_integer", pure = true, since = SINCE0) {
+                """
+                    Convert this big_integer to an integer.
+                    @throws exception if this `big_integer` is outside `integer` range
+                """.comment()
+                val self by self()
+                dbFunctionTemplate("big_integer.to_integer", 1, "(#0)::BIGINT")
+                body(Rt_IntValue) {
+                    val v = self.value
+                    if (v < Rt_IntValue.MIN_VALUE_AS_BIGINT || v > Rt_IntValue.MAX_VALUE_AS_BIGINT) {
+                        val s = v.toBigDecimal().round(MathContext(20, RoundingMode.DOWN))
+                        throw Rt_Exception.common("big_integer.to_integer:overflow:$s", "Value out of range: $s")
+                    }
+                    v.toLong()
+                }
+            }
+
+            // Function: to_text
+            function("to_text", pure = true, since = SINCE0) {
+                comment("Convert this `big_integer` to a base 10 text representation.")
+                val self by self()
+                dbFunctionTemplate("decimal.to_text", 1, "(#0)::TEXT")
+                body(Rt_TextValue) {
+                    self.value.toString()
+                }
+            }
+
+            // Function: to_text with radix
+            function("to_text", pure = true, since = SINCE0) {
+                """
+                    Convert this `big_integer` to a text representation with the specified radix.
+
+                    Does not include a base prefix in the output, i.e. `integer(25).to_text(16)` returns `19` rather
+                    than `0x19`.
+
+                    Supported radixes are from ${Character.MIN_RADIX} to ${Character.MAX_RADIX} (inclusive).
+                    @throws exception if the radix is outside the supported range
+                """.comment()
+                val self by self()
+                val radix by param(
+                    Rt_IntValue,
+                    comment = "the radix (base) to use for the text representation",
+                )
+                body(Rt_TextValue) {
+                    val v = self.value
+                    val r = radix.value
+                    if (r < Character.MIN_RADIX || r > Character.MAX_RADIX) {
+                        throw Rt_Exception.common("fn:big_integer.to_text:radix:$r", "Invalid radix: $r")
+                    }
+                    v.toString(r.toInt())
+                }
+            }
+        }
+    }
+
+    private fun calcFromText(s: String, radix: Int, fnName: String): Rt_Value {
+        val r = try {
+            BigInteger(s, radix)
+        } catch (_: NumberFormatException) {
+            throw Rt_Exception.common("fn:big_integer.$fnName:$s", "Invalid number: '$s'")
+        }
+        return Rt_BigIntegerValue.get(r)
+    }
+
+    fun calcFromInteger(a: Rt_Value): Rt_Value {
+        val i = (a as Rt_IntValue).value
+        return Rt_BigIntegerValue.get(i)
+    }
+}
+
+object Lib_BigIntegerMath {
+    const val PRECISION = 131072
+
+    val MAX_VALUE: BigInteger = BigInteger.TEN.pow(PRECISION).subtract(BigInteger.ONE)
+    val MIN_VALUE: BigInteger = -MAX_VALUE
+
+    /**
+     * Pinned to [SQLDataType.DECIMAL] (unbounded `NUMERIC`) rather than the semantically tighter
+     * [SQLDataType.DECIMAL_INTEGER] (`NUMERIC(p, 0)`) for on-disk compatibility: every existing
+     * `big_integer` column was created as plain `NUMERIC`, and the column type is consensus-visible
+     *
+     * Fixing  would require a schema migration on every deployed chain plus an ABI bump.
+     */
+    val SQL_TYPE: DataType<*> = SQLDataType.DECIMAL
+
+    const val SQL_TYPE_STR = "NUMERIC"
+
+    fun add(a: BigInteger, b: BigInteger): BigInteger {
+        return a.add(b)
+    }
+
+    fun subtract(a: BigInteger, b: BigInteger): BigInteger {
+        return a.subtract(b)
+    }
+
+    fun multiply(a: BigInteger, b: BigInteger): BigInteger {
+        return a.multiply(b)
+    }
+
+    fun divide(a: BigInteger, b: BigInteger): BigInteger {
+        val r = a.divide(b)
+        return r
+    }
+
+    fun remainder(a: BigInteger, b: BigInteger): BigInteger {
+        return a.remainder(b)
+    }
+
+    fun <T> genericPower(fnName: String, base: T, exp: Long, type: NumericType<T>): T {
+        Rt_Utils.check(exp >= 0) {
+            "$fnName:exp_negative:$exp" to "Negative exponent: $exp"
+        }
+
+        val res = when {
+            exp == 0L -> type.one
+            exp == 1L -> base
+            base == type.zero -> type.zero
+            base == type.one -> type.one
+            base == type.minusOne -> if ((exp and 1L) == 0L) type.one else type.minusOne
+            else -> {
+                try {
+                    val exp0 = Math.toIntExact(exp)
+                    type.pow(base, exp0)
+                } catch (_: ArithmeticException) {
+                    val baseStr = type.errStr(base)
+                    val msg = "Power overflow: $baseStr ^ $exp"
+                    throw Rt_Exception.common("$fnName:overflow:$baseStr:$exp", msg)
+                }
+            }
+        }
+
+        return res
+    }
+
+    sealed class NumericType<T>(val zero: T, val one: T, val minusOne: T) {
+        abstract fun pow(base: T, exp: Int): T
+        abstract fun errStr(value: T): String
+    }
+
+    data object NumericType_Long: NumericType<Long>(zero = 0, one = 1, minusOne = -1) {
+        override fun pow(base: Long, exp: Int): Long = checkedPow(base, exp)
+        override fun errStr(value: Long): String = value.toString()
+    }
+
+    data object NumericType_BigInteger: NumericType<BigInteger>(
+        zero = BigInteger.ZERO,
+        one = BigInteger.ONE,
+        minusOne = BigInteger.ONE.negate(),
+    ) {
+        override fun pow(base: BigInteger, exp: Int): BigInteger {
+            // Check overflow by examining the bit length. Without this check, some combinations of base and exp
+            // will produce a very big number by performing heavy and slow computations - checking the overflow after
+            // the computation is too inefficient in such cases (example: 1E+1000 ^ 250000 = 1E+250000000).
+            val baseExp = (base.abs().bitLength() - 1).coerceAtLeast(0)
+            val resExp = Math.multiplyExact(baseExp.toLong(), exp.toLong())
+            if (resExp + 1 > MAX_VALUE.bitLength()) {
+                throw ArithmeticException("Big integer power result out of range")
+            }
+
+            val res = base.pow(exp)
+            if (res !in MIN_VALUE..MAX_VALUE) {
+                throw ArithmeticException("Big integer power result out of range")
+            }
+
+            return res
+        }
+
+        override fun errStr(value: BigInteger): String {
+            val s = value.abs().toString()
+            val s0 = if (s.length <= 100) s else {
+                val head = s.substring(0, 1)
+                val tail = s.substring(1, 16)
+                val exp = s.length - 1
+                "$head.$tail(...)E+$exp"
+            }
+            return if (value.signum() >= 0) s0 else "-$s0"
+        }
+    }
+}

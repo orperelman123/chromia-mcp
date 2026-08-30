@@ -1,0 +1,148 @@
+function _is_node_provider(tier: provider_tier) = tier == provider_tier.NODE_PROVIDER;
+
+@extendable function register_and_enable_provider(provider_info, provider_tier, cluster?, voter_set?, enabled_by_default: boolean = false) {
+    require(empty(node @? { provider_info.pubkey }), "This pubkey is already registered as a node: " + provider_info.pubkey);
+    val provider = create provider(
+        provider_info.pubkey,
+        name = provider_info.name,
+        url = provider_info.url,
+        active = enabled_by_default,
+        tier = provider_tier
+    );
+    val max_actions_per_day = provider_quota @ {
+        .tier == provider_tier,
+        provider_quota_type.max_actions_per_day
+    } .value;
+    create provider_rl_state(provider, points = max_actions_per_day, last_update=op_context.last_block_time);
+    if (exists(cluster)) {
+        create cluster_provider(cluster, provider);
+    }
+    if (exists(voter_set)) {
+        create voter_set_member(voter_set, provider);
+    }
+    after_provider_registered(provider, cluster);
+}
+
+/**
+ * Recover provider's action points and consume `cost`, if possible
+ *
+ * @param cost Number of points to consume for this operation.
+ */
+function provider_rate_limit(provider, cost: integer = 1) {
+    val current_points = recover_provider_rate_limit(provider, cost);
+
+    require(exists(provider_rl_state @? { provider, .points >= 0 }),
+        "Provider %s has not enough points to spend. Has %s but needs %s"
+            .format(provider.pubkey, current_points, cost));
+}
+
+function recover_provider_rate_limit(provider, cost: integer): integer {
+    val (current_points, _, update_time) = current_provider_rate_limit(provider, op_context.last_block_time);
+
+    update provider_rl_state @ { provider } (
+        .points = current_points - cost,
+        .last_update = update_time
+    );
+
+    return current_points;
+}
+
+function current_provider_rate_limit(provider, current_timestamp: timestamp)
+        : (current_points: integer, max_points: integer, update_time: timestamp) {
+    val max_actions_per_day = provider_quota @ {
+            .tier == provider.tier,
+            provider_quota_type.max_actions_per_day
+    } .value;
+
+    // We recover max_actions_per_day in 24 hours, find time needed to recover 1 point
+    val recovery_time = millis_per_day / max_actions_per_day;
+    val state = provider_rl_state @ { provider } (.points, .last_update);
+    val time_delta = current_timestamp - state.last_update;
+    var recovered_points = 0;
+    var update_time = state.last_update;
+
+    if (time_delta > recovery_time) {
+        recovered_points = time_delta / recovery_time;
+        // advance  update_time to a multiple of recovery_time to avoid wasting time
+        update_time = state.last_update + recovered_points * recovery_time;
+        if (recovered_points + state.points > max_actions_per_day) {
+            recovered_points = max_actions_per_day - state.points;
+            // if user is at the maximum reset his timer
+            update_time = current_timestamp;
+        }
+    }
+
+    val current_points = state.points + recovered_points;
+
+    return (current_points = current_points, max_points = max_actions_per_day, update_time = update_time);
+}
+
+function require_provider_quota(provider, quota_type: provider_quota_type) {
+    val quota = provider_quota @ { provider.tier, quota_type } (.value);
+    if (quota > 0) {
+        when (quota_type) {
+            max_nodes -> _require_provider_quota(quota, quota_type, node @ { provider } (@sum 1));
+            max_containers -> _require_provider_quota(quota, quota_type, container @ { provider, .system == false } (@sum 1));
+        }
+    }
+}
+
+function disable_provider(provider) {
+    provider.active = false;
+
+    update node @* { provider } ( .active = false );
+
+    // cluster nodes
+    val cluster_nodes = cluster_node @* { .node.provider == provider } ( .cluster, .node );
+    delete cluster_node @* { .node.provider == provider };
+    for (cn in cluster_nodes) {
+        update_configuration_signers(cn.cluster, cn.node);
+        after_node_removed_from_cluster(cn.node, cn.cluster);
+    }
+
+    val pending_proposals_with_provider_as_voter = (prop: proposal, vsm: voter_set_member) @* { prop.voter_set == vsm.voter_set, vsm.provider == provider, prop.state == proposal_state.PENDING } ( prop );
+
+    // cluster replica nodes
+    val cluster_replica_nodes = cluster_replica_node @* { .node.provider == provider } ( .cluster, .node );
+    delete cluster_replica_node @* { .node.provider == provider };
+    for (crn in cluster_replica_nodes) {
+        after_replica_node_removed_from_cluster(crn.node, crn.cluster);
+    }
+
+    // blockchain replica nodes
+    delete blockchain_replica_node @* { .node.provider == provider };
+    // remove disabled provider from voter_set_member table
+    delete voter_set_member @* { .provider == provider };
+    // if provider is last to vote on proposals make sure the proposals are voted on
+    for (prop in pending_proposals_with_provider_as_voter) {
+        // We should delete any vote that the removed provider has cast on the pending proposal (for correctness)
+        val vote = vote @? { prop, provider };
+        if (exists(vote)) {
+            delete vote_transaction @? { vote };
+            delete vote;
+        }
+        try_to_apply_proposal(prop);
+    }
+    after_provider_updated(provider);
+}
+
+function enable_provider(provider) {
+    provider.active = true;
+
+    // If enabled provider is a system provider, update SYSTEM_P voter set
+    if (roles.has_system_access(provider)) {
+        val voter_set = system_p_voter_set();
+        if (empty(voter_set_member @? { voter_set, provider })) {
+            create voter_set_member(voter_set, provider);
+        }
+    }
+    after_provider_updated(provider);
+}
+
+function _require_provider_quota(quota: integer, quota_type: provider_quota_type, count: integer) {
+    require(count < quota , "Provider quota exceeded: %s = %d".format(quota_type, quota));
+}
+
+@extendable function after_provider_registered(provider, cluster: cluster?) {}
+
+@extendable function after_provider_updated(provider) {}

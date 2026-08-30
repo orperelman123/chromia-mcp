@@ -1,0 +1,72 @@
+// Proposed enabling/disabling of providers are put here while waiting for enough positive votes.
+entity pending_provider_state {
+    key proposal;
+    provider;
+    active: boolean;
+}
+
+@extend(apply_voting_result_handlers) function() = [proposal_type.provider_state.name: apply_provider_state(*)];
+
+// For both enabling and disabling of providers:
+function apply_provider_state(proposal) {
+    val pps = pending_provider_state @? { proposal };
+    if (pps == null) return;
+    update_provider_state(pps.provider, pps.active);
+}
+
+@extend(delete_proposal_handlers) function(): map<text, (proposal) -> unit> = [proposal_type.provider_state.name: delete_pending_provider_state(*)];
+
+function delete_pending_provider_state(proposal) {
+    delete pending_provider_state @? { proposal };
+}
+
+/**
+ * Propose provider change state to another provider. NP can enable/disable DP without voting.
+ * 
+ * Permission: SP > [SP, NP, DP], NP > DP
+ * 
+ * Rate limit: actions
+ * 
+ * @param my_pubkey pubkey of provider
+ */
+operation propose_provider_state(my_pubkey: pubkey, provider_pubkey: pubkey, active: boolean, description: text = "") {
+    val me = require_is_provider_with_rate_limit(my_pubkey);
+
+    val other_prov = require_provider(provider_pubkey);
+
+    // Only SP and NP can enable/disable providers
+    require_node_access(me);
+
+    if (roles.has_node_access(me) and other_prov.tier == provider_tier.DAPP_PROVIDER) {
+        update_provider_state(other_prov, active);
+    } else {
+        require_system_access(me);
+        require(empty(pending_provider_state @* { .provider == other_prov, .active == active, .proposal.state == proposal_state.PENDING } limit 1), "Already proposed");
+        require(other_prov.active != active, "Provider is already %s".format(if (active) "active" else "not active"));
+        val prop = create_proposal(proposal_type.provider_state, me, system_p_voter_set(), description);
+        create pending_provider_state(prop, other_prov, .active = active);
+        internal_vote(me, prop, true);
+    }
+}
+
+function update_provider_state(provider, active: boolean) {
+    if (active == false) {
+        disable_provider(provider);
+    } else { // enable
+        enable_provider(provider);
+    }
+}
+
+/**
+ * Returns provider state proposal.
+ */
+query get_provider_state_proposal(rowid) {
+    val proposal = get_latest_proposal(rowid, proposal_type.provider_state);
+    if (proposal == null) return null;
+    val pps = pending_provider_state @ { proposal };
+    return (
+        provider = pps.provider.pubkey,
+        provider_name = pps.provider.name,
+        active = pps.active
+    );
+}

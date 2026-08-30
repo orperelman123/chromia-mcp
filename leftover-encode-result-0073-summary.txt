@@ -1,0 +1,39 @@
+fire: 0073
+when: 2026-08-30 11:12 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only chr query after leftover node); no INDEX encode
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse pid 2469434 from rebuilt shadowJar after leftover_query_* improve)
+
+encoder_mid_write: no (no process writing *Help.kt)
+finder_buggy_candidates: 28-36 (false positives; alias INDEX pairs cover them; leftover-find-0073.txt + leftover-real-0073.txt)
+real_hole_count: 0 (docs+learn; cached live sitemaps 384/247)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+10:55_failure: fire 0072 DID land leftover_tools_* + suite 312/0/0 at 10:55 (leftover-encode-result-0072-summary.txt). Parent missed WakeParent — executor likely died after writing the 0072 summary (07:52 UTC) while a leftover_tools_* deep walk continued (Help.kt 07:56, jar 07:58, :3001 killed/restarted as 0073 at 07:59). Recovered: INDEX still 0; this fire continued leftover chr query after node.
+
+dapp_build: leftover_query_* on ChrCreateRellDappHelp.kt leftover_dapp_build_help
+- leftover_query / leftover_query_help / leftover_query_missing_name: chr query (no name) missing argument <queryname> exit 1
+- leftover_query_hello_world: chr query hello_world after chr node start → "Hello World!" exit 0; needs no --blockchain-rid
+- leftover_query_output_format pretty/JSON "Hello World!"; XML <string>Hello World!</string>; raw Hello World! (no quotes); YAML/yaml --- Hello World! exit 0 (YAML works for query unlike repl)
+- leftover_query_unknown: leftover_no_such_query 400 Unknown query from http://localhost:7740 exit 1
+- leftover_query_cid: --cid 0 hello_world "Hello World!" exit 0
+- leftover_query_api_url / leftover_query_settings: --api-url http://localhost:7740 and -s chromia.yml exit 0
+- leftover_query_invalid_arg: hello_world foo=1 Invalid argument(s): foo exit 1
+- leftover_query_dashdash: hello_world -- "Hello World!" exit 0
+- leftover_query_op_as_query: chr query set_name Unknown query HELP ONLY WRITE SKIP ops/txs
+- leftover_query_blockchain_needs_network: --blockchain my_rell_dapp missing option --network exit 1
+- leftover_query_cid_missing: --cid 99 Could not auto-detect brid 404 exit 1
+- leftover_query_brid_invalid_hex / leftover_query_brid_wrong_size: --blockchain-rid ZZ Char Z is not a hex digit exit 3; AB Wrong size of Blockchain RID was 1 should be 32 (64 characters) exit 3 — never paste computed BRID
+- leftover_query_brid_alias: --brid is not an option; official is -brid / --blockchain-rid
+- leftover_query_mainnet_local_query / leftover_query_testnet_timeout: --mainnet hello_world Unknown query (scaffold local only); --testnet timed out; do not invent a BRID
+- leftover_query_from_parent: from parent dir still "Hello World!" when local node is up
+- leftover_query_rest_root / leftover_query_node_initialized: REST GET / 200 Postchain REST API; chr node start Node is initialized Chain-id 0
+- leftover_next_step_architecture: leftover query walk done; next leftover deploy HELP ONLY (DEPLOYMENT_INDEX_TITLE)
+- tests in DappBuildSchemaAndHelpTest.kt; HELP ONLY WRITE SKIP; no keys, no signed txs, no invented RID, no pasted 64-hex
+
+memory_note: On 2026-08-30 fire 0073 leftover INDEX still 0 real holes (docs 384 / learn 247). Encoded leftover_query_* on leftover_dapp_build_help from real chr 0.33.2 walk after leftover node: chr query hello_world "Hello World!" exit 0; YAML works for query unlike repl; Unknown query / Invalid argument(s) / missing --network / Char Z is not a hex digit / Wrong size of Blockchain RID exit 3; REST GET / Postchain REST API 200. Next leftover deploy HELP ONLY. Suite 312/0/0, :3001 restarted healthy. 10:55 fire 0072 actually landed; WakeParent missed.
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

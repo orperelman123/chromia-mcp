@@ -16,11 +16,19 @@ import kotlin.io.path.createTempFile
 import kotlin.io.path.outputStream
 
 const val USAGE_HELP = """
-    Usage: program [--sse --host <host> --port <port> | --stdio]
+    Usage: program [--sse --host <host> --port <port> | --stdio | --generate-embeddings | --generate-embeddings-no-upload]
       --sse                    Start SSE server (127.0.0.1:3001)
       --sse --host <host>        Custom host (default: 127.0.0.1)
       --sse --port <port>       Custom port (default: 3001)
       --stdio                  Start stdio server (default)
+      --generate-embeddings    Fetch docs, create embeddings, persist locally, upload to GitLab packages
+      --generate-embeddings-no-upload  Fetch docs, create embeddings, persist to local embeddings.json (no upload)
+    
+    Local embeddings path: CHROMIA_EMBEDDINGS_PATH if set; otherwise the first existing of
+    build/embeddings.json or app/build/embeddings.json relative to cwd (so java -jar from
+    the repo root finds the Gradle-generated file). If neither exists, app/build/embeddings.json
+    when cwd is the repo root and app/build/ exists; otherwise build/embeddings.json.
+    Runtime loads that local file first and falls back to the GitLab package only if it is missing.
     
     Examples:
       --sse                             # 127.0.0.1:3001
@@ -50,8 +58,6 @@ fun getResourcePath(pathStr: String) = object {}.javaClass.classLoader.getResour
 
 fun File.safeDelete(): Boolean = if (isDirectory) deleteRecursively() else delete()
 
-inline fun <T, R> Collection<T>.ifNotEmpty(block: (Collection<T>) -> R): R? =
-    if (isNotEmpty()) block(this) else null
 
 suspend fun HttpClient.downloadFile(url: String) = runCatching {
     val response: HttpResponse = get(url)
@@ -75,9 +81,14 @@ suspend fun HttpClient.downloadFile(url: String) = runCatching {
     }
 }.getOrNull()
 
-suspend fun HttpClient.uploadFile(url: String, token: String, file: File) {
+suspend fun HttpClient.uploadFile(
+    url: String,
+    token: String,
+    file: File,
+    tokenHeader: String = "PRIVATE-TOKEN"
+) {
     val response: HttpResponse = put(url) {
-        header("PRIVATE-TOKEN", token)
+        header(tokenHeader, token)
         // Use Multipart if docs size gets bigger
         setBody(file.readBytes())
     }

@@ -1,0 +1,66 @@
+include:
+  - project: chromaway/core-infra/gitlab-automation
+    ref: 1.3.9
+    file:
+      - templates/release.yml
+      - templates/container-dependency-scanning.yml
+
+image: registry.gitlab.com/chromaway/core-tools/chromia-images/graal21:1.0.0@sha256:8dcf858d21703b3bfef2c6a31e399cad7c9def1e625bd0c3c302cbcd7fa1564c
+
+stages:
+  - build
+  - deploy
+  - dependency-check
+  - release
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+cache:
+  key:
+    files:
+      - gradle/libs.versions.toml
+      - gradle/wrapper/gradle-wrapper.properties
+  paths:
+    - .gradle/caches
+    - .gradle/wrapper
+
+# Compiles and runs the whole suite, integration tests included: they drive a real Rell
+# language server, which Gradle resolves as the `rellLsp` dependency.
+build:
+  stage: build
+  interruptible: true
+  script:
+    - ./gradlew build
+  artifacts:
+    when: always
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Triggered by a semver tag pushed by release-patch / release-minor.
+# Jib assembles the linux/amd64 and linux/arm64 images and pushes them straight to the registry,
+# so this needs no Docker daemon, no dind service, and no privileged runner.
+deploy:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^[0-9]+\.[0-9]+\.[0-9]+$/
+  script:
+    - ./gradlew jib -Pversion=$CI_COMMIT_TAG -PimageTags=$CI_COMMIT_TAG,latest
+    - echo "Pushed $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG and :latest"
+
+container-scanning:
+  variables:
+    REGISTRY: registry.gitlab.com/chromaway/core-tools
+  parallel:
+    matrix:
+      - IMAGE: [ chromia-lsp-mcp ]
+        VERSION: [ latest ]
+  only:
+    variables:
+      - $RUN_DEPENDENCY_CHECK == "true"

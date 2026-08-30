@@ -15,13 +15,15 @@ object GraphQLResponseParser {
             onSuccess = { jsonElement ->
                 when (jsonElement) {
                     is JsonObject -> parseJsonObject(jsonElement)
-                    else -> NetworkResult.Error(
-                        JsonParsingException("Invalid response format: expected JSON object").message!!
-                    )
+                    else -> {
+                        val error = JsonParsingException("Invalid response format: expected JSON object")
+                        NetworkResult.Error(error.message!!, error)
+                    }
                 }
             },
             onFailure = { e ->
-                NetworkResult.Error(JsonParsingException(e.message ?: "Unknown parsing error", e).message!!, e)
+                val error = JsonParsingException(e.message ?: "Unknown parsing error", e)
+                NetworkResult.Error(error.message!!, error)
             }
         )
     }
@@ -30,7 +32,8 @@ object GraphQLResponseParser {
         return jsonObject["errors"]?.let { errors ->
             val errorMessage = extractErrorMessage(errors)
             val errorList = extractErrorList(errors)
-            NetworkResult.Error(GraphQLException(errorMessage, errorList).message!!)
+            val error = GraphQLException(errorMessage, errorList)
+            NetworkResult.Error(error.message!!, error)
         } ?: NetworkResult.Success(jsonObject)
     }
 

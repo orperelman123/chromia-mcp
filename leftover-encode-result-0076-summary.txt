@@ -1,0 +1,41 @@
+fire: 0076
+when: 2026-08-30 11:41 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only leftover vault-lease + chr tx + multi-signature HELP ONLY); no INDEX encode
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse pid 2509237 from current-tree shadowJar after leftover_vault_*/leftover_tx_*/leftover_multi_* improve; old 0075 pid 2495201 gone)
+
+encoder_mid_write: no (claimed /tmp/leftover-encode-0076.lock; no other writer on ChrCreateRellDappHelp.kt)
+finder_buggy_candidates: 28-36 (false positives; alias INDEX pairs cover them)
+real_hole_count: 0 (docs+learn; check_real_holes_0066.py real_uncovered 0; cached live sitemaps 384/247)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+note: parent asked fire 0075 but 0075 summary already landed at 11:30 Asia/Jerusalem (leftover_query deep); this fire is 0076
+
+dapp_build: leftover_vault_* + leftover_tx_* + leftover_multi_* on ChrCreateRellDappHelp.kt leftover_dapp_build_help from real chr 0.33.2 HELP ONLY WRITE SKIP walk (scratch /workspace/leftover-dapp-build-scratch/my-rell-dapp; :7740 not listening)
+- leftover_vault / leftover_vault_help=vault_lease_help / leftover_vault_testnet_get_container_index_title=Get a container for your dapp / leftover_vault_hosting_index_title=Hosting / leftover_vault_supported_wallets / leftover_vault_provider_staking / leftover_vault_testnet_containers / leftover_vault_mainnet_containers / leftover_vault_testnet_faucet / leftover_vault_mainnet_deposit / leftover_vault_container_placeholder=<containerIID>
+- leftover_vault_workflow: faucet→Vault containers→lease with existing ~/.chromia/<key-id>.pubkey→chromia.yml deployments.<net>.container→chr deployment create WRITE SKIP; never invent container id; Directory BRIDs already on disk via write_deployment_config — never paste 64-hex; this tool does not generate a key
+- leftover_vault_write_skip / leftover_vault_yml_container
+- leftover_tx / leftover_tx_index_title=tx / leftover_tx_help=chr_query_help
+- leftover_tx_help_text: chr tx --help Make a transaction towards a node; FT4 --ft-auth/--ft-account-id/--evm-auth/--ft-register-account; ICCF; Examples primitive_args/dict_arg/map_arg/struct_arg exit 0
+- leftover_tx_missing_opname: missing argument <opname> exit 1
+- leftover_tx_no_node: set_name Alice with no node Connection Refused exit 1 — do not send even when node up
+- leftover_tx_brid_invalid_hex: --blockchain-rid ZZ Char Z is not a hex digit exit 3
+- leftover_tx_brid_wrong_size: --blockchain-rid AB Wrong size ... exit 3 — never paste 64-hex
+- leftover_tx_api_refused: --api-url http://127.0.0.1:1 --cid 0 Connection Refused exit 1
+- leftover_tx_network_missing: --network testnet Specified target [testnet] does not exist exit 1
+- leftover_tx_blockchain_needs_network: --blockchain my_rell_dapp missing option --network exit 1
+- leftover_tx_settings_missing / leftover_tx_cid_not_integer / leftover_tx_unknown_option / leftover_tx_flags / leftover_tx_write_skip
+- leftover_multi / leftover_multi_help=chr_multi_signature_help / leftover_multi_index_title=multi-signature
+- leftover_multi_help_text: create/sign/send/view exit 0
+- leftover_multi_view_help: view --help -f/--file; missing --file exit 1; missing file exit 1 (query-only subcommand)
+- leftover_multi_write_skip: create/sign/send WRITE SKIP; create missing OPNAME + must provide one of --signer/--signers/--signers-file exit 1
+- leftover_next_step_architecture: vault+tx+multi walks done; next leftover seeder HELP ONLY (ChrSeederHelp.SEEDER_INDEX_TITLE)
+- tests in DappBuildSchemaAndHelpTest.kt folded into existing test (suite stayed 312); HELP ONLY WRITE SKIP; no keys, no signed txs, no invented RID, no pasted 64-hex
+- live :3001 tools 61 after restart
+
+memory_note: On 2026-08-30 fire 0076 leftover INDEX still 0 real holes (docs 384 / learn 247). Encoded leftover_vault_* + leftover_tx_* + leftover_multi_* on leftover_dapp_build_help from real chr 0.33.2 HELP ONLY: vault_lease_help Get a container for your dapp / Hosting workflow never invent <containerIID>; chr tx --help FT4/ICCF exit 0; missing <opname> exit 1; ZZ/AB BRID exit 3; --network testnet Specified target does not exist exit 1; Connection Refused exit 1; never send; multi-signature view query-only missing --file exit 1; create/sign/send WRITE SKIP. Next leftover seeder HELP ONLY. Suite 312/0/0, :3001 pid 2509237 healthy.
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

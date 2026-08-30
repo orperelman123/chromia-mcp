@@ -1,0 +1,46 @@
+@test module;
+
+import ^^.*;
+import ^.helper_operations.*;
+
+import ^.setup.*;
+import ^^.operations.*;
+import provider_auth.test.helper_operations.*;
+
+function test_require_pubkey() {
+    // success
+    // compressed 33-byte value
+    require_pubkey(rell.test.pubkeys.alice);
+
+    // uncompressed 65-byte value
+    assert_fails(require_pubkey(x"aaaaaaaaaaaaaaaaa0995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f70beaf8f588b541507fed6a642c5ab42dfdf8120a7f639de5122d47a69a8e8d1", *));
+
+    // failure
+    assert_fails(require_pubkey(x"", *));
+    assert_fails(require_pubkey(x"ff", *));
+    assert_fails(require_pubkey(x"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", *));
+}
+
+function test_require_active_blockchain() {
+    rell.test.tx().op(
+        create_blockchain(x"00", "BC1", false, blockchain_state.RUNNING),
+        create_blockchain(x"01", "BC3", false, blockchain_state.REMOVED),
+    ).run();
+
+    assert_fails(require_active_blockchain(x"AA", *));
+    require_active_blockchain(x"00");
+    assert_fails(require_active_blockchain(x"01", *));
+}
+
+function test_require_blockchain() {
+    rell.test.tx().op(
+        create_blockchain(x"00", "BC1", false, blockchain_state.RUNNING),
+        create_blockchain(x"01", "BC3", false, blockchain_state.REMOVED),
+    ).run();
+
+    assert_fails(require_blockchain(x"AA", *));
+    require_blockchain(x"00");
+    require_blockchain(x"01");
+    require_blockchain(x"00", [blockchain_state.RUNNING]);
+    assert_fails(require_blockchain(x"00", [blockchain_state.ARCHIVED], *));
+}

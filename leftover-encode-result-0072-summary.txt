@@ -1,0 +1,36 @@
+fire: 0072
+when: 2026-08-30 10:55 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only chr tools local walk gtv/validate-config/lib-model); no INDEX encode
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse pid 2456010 from rebuilt shadowJar after leftover_tools_* improve)
+
+encoder_mid_write: no (no process writing *Help.kt)
+finder_buggy_candidates: 36 (false positives; alias INDEX pairs cover them; leftover-find-0072.txt + leftover-real-0072.txt)
+real_hole_count: 0 (docs+learn; live sitemaps 384/247 match cache)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+dapp_build: leftover_tools_* on ChrCreateRellDappHelp.kt leftover_dapp_build_help
+- leftover_tools / leftover_tools_commands: chr tools --help → gtv validate-config lib-model exit 0
+- leftover_tools_gtv / leftover_tools_gtv_alias: chr tools gtv; chr gtv is alias
+- leftover_tools_gtv_hex / leftover_tools_gtv_pretty: chr tools gtv --hex official sample → ["a": "FOO", "b": "BAR"] exit 0
+- leftover_tools_gtv_json: -f JSON → {"a": "FOO", "b": "BAR"} exit 0
+- leftover_tools_gtv_xml: -f XML → <dict><entry key="a">... exit 0
+- leftover_tools_gtv_raw: -f raw → a=FOO b=BAR exit 0
+- leftover_tools_gtv_yaml: -f YAML → --- a: FOO b: BAR exit 0 (YAML works for tools gtv unlike chr repl)
+- leftover_tools_gtv_alias_decode: chr gtv --hex sample same pretty exit 0
+- leftover_tools_gtv_missing_hex: no --hex waits stdin; empty pipe → Invalid GTV data: Unexpected end of input stream exit 1
+- leftover_tools_gtv_invalid_hex: --hex ZZ → Char Z is not a hex digit exit 1
+- leftover_tools_validate_config / leftover_tools_validate_config_printed: parent-dir -f my-rell-dapp/chromia.yml → No issues found in chromia.yml exit 0
+- leftover_tools_validate_config_file_required: missing --file exit 1; -f src/main.rell Unsupported file format exit 1; bare -f chromia.yml getParent(...) must not be null exit 3
+- leftover_tools_lib_model / leftover_tools_lib_model_source_required: missing --library-source exit 1; invalid --registry → Registry must be a valid git URL exit 1
+- leftover_tools_lib_model_no_rid: full flags prints libs: block and computes rid from library source — do not invent a RID (never paste computed 64-hex); HELP ONLY WRITE SKIP leftover leftover install
+- leftover_tools_flags / leftover_tools_write_skip
+- leftover_next_step_architecture: leftover chr tools walk done; next leftover chr query after leftover node (QUERY_INDEX_TITLE / NODE_INDEX_TITLE)
+- tests in DappBuildSchemaAndHelpTest.kt; HELP ONLY WRITE SKIP; no keys, no signed txs, no invented RID
+
+memory_note: On 2026-08-30 fire 0072 leftover INDEX still 0 real holes (docs 384 / learn 247). Encoded leftover_tools_* on leftover_dapp_build_help: chr tools gtv sample FOO/BAR pretty/JSON/XML/raw/YAML exit 0; validate-config No issues found exit 0 (bare chromia.yml getParent exit 3); lib-model computes rid — no 64-hex pasted. Next leftover chr query after node. Suite 312/0/0, :3001 restarted healthy.
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

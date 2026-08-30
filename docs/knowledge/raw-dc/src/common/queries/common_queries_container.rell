@@ -1,0 +1,55 @@
+
+/**
+ * Returns container.
+ */
+query get_container(name) = container @ { name };
+
+struct container_data {
+    name: text;
+    cluster: text;
+    deployer: text;
+    proposed_by_pubkey: byte_array;
+    proposed_by_name: text;
+    system: boolean;
+    state: container_state?;
+    subnode_image: text?;
+    jar_extensions: list<text>?;
+}
+
+/**
+ * Returns container data.
+ */
+query get_container_data(name): container_data {
+    val container = require_container(name);
+    return container_data(
+        name = container.name,
+        cluster = container.cluster.name,
+        deployer = container.deployer.name,
+        proposed_by_pubkey = container.proposed_by.pubkey,
+        proposed_by_name = container.proposed_by.name,
+        system = container.system,
+        state = container.state,
+        subnode_image = container_subnode_image @? { container } (.subnode_image.name),
+        jar_extensions = container_subnode_jar_extension @* { container } (.subnode_jar_extension.name)
+    );
+}
+
+/**
+ * Returns container blockchains data.
+ */
+query get_container_blockchain(name) {
+    val container = require_container(name);
+    return container_blockchain @* { container } (
+        rid = .blockchain.rid,
+        name = .blockchain.name,
+        system = .blockchain.system,
+        state = .blockchain.state
+    );
+}
+
+/**
+ * Returns all containers.
+ */
+query get_containers(): list<(cluster:text, name:text, deployer:text)> {
+    return container @* {} (@sort cluster = .cluster.name, @sort name = .name, deployer = .deployer.name);
+}

@@ -150,8 +150,9 @@ Chromia MCP Server enables AI assistants to interact with Chromia blockchain dat
 
 **RAG Store Initialization:**
 - `RagStore` loads asynchronously at server startup to avoid blocking
-- Downloads `embeddings.json` from GitLab packages
-- If download fails, documentation search will not work (but server continues running)
+- Loads local `embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd) first
+- Falls back to the GitLab generic package if the local file is missing
+- If both fail, documentation search will not work (but server continues running)
 
 **Transport Modes:**
 - **SSE Mode:** Server runs as HTTP server, clients connect via HTTP/SSE
@@ -162,10 +163,10 @@ Chromia MCP Server enables AI assistants to interact with Chromia blockchain dat
 Chromia MCP Server is **stateless** - it does not maintain its own database or cache. All data is:
 - Retrieved on-demand from Chromia Explorer API (GraphQL queries)
 - Retrieved on-demand from blockchain nodes (PostchainClient queries)
-- Loaded from GitLab packages (embeddings for documentation search)
+- Loaded from a local `embeddings.json` when present, otherwise from GitLab packages (embeddings for documentation search)
 
 The only in-memory state is:
-- RAG store embeddings (loaded at startup from GitLab packages)
+- RAG store embeddings (loaded at startup from the local file or GitLab packages)
 - Server runtime state (tool registrations, active connections)
 
 ## External References and Resources

@@ -1,0 +1,44 @@
+fire: 0075
+when: 2026-08-30 11:30 Asia/Jerusalem
+work: leftover dapp-build leftover_dapp_build_help improved (query-only leftover chr query deep walk after leftover node: --help examples, GTX last_block_info, REST iid_0 alias); no INDEX encode
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream (restarted java chromia-mcp-server.jar --sse pid 2495201 from rebuilt shadowJar after leftover_query deep-walk improve; replaced 0074 pid 2488851)
+
+encoder_mid_write: no (no process writing *Help.kt)
+finder_buggy_candidates: 28-36 (false positives; alias INDEX pairs cover them)
+real_hole_count: 0 (docs+learn; cached live sitemaps 384/247)
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+suite: 312/0/0 (junit xml sum tests=312 failures=0 errors=0 skipped=0)
+
+dapp_node: leftover chr node start was already on :7740 (pid 2461772); waited leftover Node is initialized leftover; after leftover query walk the node process was ended (no leftover chr node stop on 0.33.2). :7740 not listening. :3001 not killed except to replace after Help.kt writes.
+
+chr_query_actual:
+- chr query hello_world → "Hello World!" exit 0 (needs no --blockchain-rid)
+- -f pretty / JSON "Hello World!"; XML <string>Hello World!</string>; raw Hello World! (no quotes); YAML/yaml --- Hello World! exit 0
+- chr query --help Usage: chr query [<options>] <queryname> [<args>]... Make a query towards a running node; groups Configuration Properties / dApp target options / Deployment / Options; official Examples primitive_args dict_arg map_arg struct_arg
+- other leftover queries on leftover hello_world: last_block_info (built-in StandardOpsGTXModule) dict blockRID/height/timestamp exit 0 (hex never recorded); tx_confirmation_time without required txRID → 500 Unknown error; get_version / ft4.get_version / get_api_version Unknown query (FT4 not mounted in main.rell) WRITE SKIP leftover FT4
+- ops WRITE SKIP: chr query set_name Unknown query; REST QUERY_NOT_FOUND
+- REST GET /query/iid_0?type=hello_world 200 "Hello World!" (iid_<chainIid> alias, no BRID needed); GET /sse leftover n/a on node; GET / 200 H1 Postchain REST API
+
+dapp_build: leftover_query_* deep walk on ChrCreateRellDappHelp.kt leftover_dapp_build_help
+- leftover_query_help_examples / leftover_query_help_groups / leftover_query_help_arg_types
+- leftover_query_positional_arg: hello_world 1 → query must be done with named parameters in a dict exit 1
+- leftover_query_unknown_option: --foo → Did you mean -f? exit 1
+- leftover_query_cid_not_integer: --cid hello_world → not a valid integer exit 1
+- leftover_query_dict_arg_unknown / leftover_query_output_format_long
+- leftover_query_ft4_absent HELP ONLY WRITE SKIP
+- leftover_query_gtx_metadata / leftover_query_last_block_info / leftover_query_last_block_info_formats / leftover_query_last_block_info_extra_arg (GTX ignores extra args; Rell hello_world does not)
+- leftover_query_tx_confirmation_time_requires_arg 500 Unknown error WRITE SKIP txs
+- leftover_query_rest_iid_alias / leftover_query_rest_missing_type / leftover_query_rest_post / leftover_query_rest_unknown_query / leftover_query_rest_unknown_iid / leftover_query_rest_query_gtv / leftover_query_rest_dquery_web_query
+- leftover_query_rest_height_state / leftover_query_rest_config_xml / leftover_query_rest_version / leftover_query_rest_debug_moved / leftover_query_rest_404s / leftover_query_rest_cors / leftover_query_rest_apidocs / leftover_query_rest_openapi_query_group (POSTCHAIN_REST_API_INDEX_TITLE already on disk)
+- leftover_query_no_node_stop / leftover_query_brid_never_pasted
+- leftover_ft4 stays HELP ONLY WRITE SKIP; leftover ops WRITE SKIP; official loop string unchanged
+- tests in DappBuildSchemaAndHelpTest.kt; no new test methods; no new tools; no new sitemap pages; notes no mnemonic / no adjacent chr keygen
+
+live_e2e: GET / 200 text/event-stream event: endpoint; JSON-RPC POST /?sessionId= 202 then SSE event: message; GET /sse 404; tools/list count 61; leftover_dapp_build_help leftover query HIT (leftover_query_hello_world leftover_query_rest_iid_alias last_block_info Hello World! /query/iid_0?type=hello_world leftover_query_help_examples primitive_args)
+
+memory_note: On 2026-08-30 fire 0075 leftover INDEX still 0 real holes (docs 384 / learn 247). Encoded leftover_query deep walk on leftover_dapp_build_help from real chr 0.33.2 after leftover node: chr query hello_world "Hello World!" exit 0; last_block_info is a second query-only query; REST /query/iid_0?type=hello_world 200 so a local REST query needs no BRID; no chr node stop; never paste a BRID. Suite 312/0/0, :3001 restarted healthy pid 2495201. Next leftover chr tx --help HELP ONLY WRITE SKIP (0074 leftover_next_step) or leftover REST cookbook GET /query/<BlockchainRID> vs iid_0.
+
+WakeParent: yes (dapp-build leftover_dapp_build_help improved + suite green)

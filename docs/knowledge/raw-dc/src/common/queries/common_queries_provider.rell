@@ -1,0 +1,141 @@
+struct provider_node_data {
+    pubkey;
+    active: boolean;
+    host: text;
+    port: integer;
+    api_url: text;
+    last_updated: timestamp;
+    territory: text?;
+}
+
+/**
+ * Returns nodes data by provider pubkey.
+ */
+query get_nodes_by_provider(pubkey) {
+    return node @* { provider @ { pubkey } } (
+        provider_node_data(
+            .pubkey,
+            .active,
+            .host,
+            .port,
+            .api_url,
+            .last_updated,
+            .territory
+        )
+    );
+}
+
+/**
+ * Returns actions rate limit points.
+ */
+query get_provider_points(pubkey): integer {
+    return provider_rl_state @ {provider @ { pubkey }} .points;
+}
+
+/**
+ * Returns clusters of a provider.
+ */
+query get_provider_clusters(pubkey) : list<text> {
+    return cluster_provider @* { provider @ {pubkey} }.cluster.name;
+}
+
+query get_provider_data (pubkey) {
+    return provider @ { pubkey } ($.to_struct());
+}
+
+/**
+ * Returns all providers.
+ */
+query get_all_providers(): list<struct<provider>> {
+    return provider @* {} ($.to_struct());
+}
+
+/**
+ * Returns providers by criteria.
+ */
+query get_providers(tier: provider_tier, system: boolean, require_active: boolean): list<struct<provider>> {
+    if (system) {
+        require(tier == provider_tier.NODE_PROVIDER, "System providers are always node providers");
+    }
+    return  provider @* { 
+        tier,
+        if (system) .system else true, 
+        if (require_active) .active else true 
+     } ($.to_struct());
+}
+
+/**
+ * Returns provider quotas.
+ */
+query get_provider_quotas(): list<struct<provider_quota>> {
+    return provider_quota @* {} ($.to_struct());
+}
+
+struct provider_auth_blockchain_data {
+    /** Controlling blockchain RID */
+    blockchain_rid: byte_array;
+    /** Type of authentication */
+    provider_auth_type;
+    /** Block height of latest transaction used from the controlling blockchain, or -1 if not used yet */
+    latest_height: integer;
+    /** Transaction index (within block) of latest transaction used from the controlling blockchain, or -1 if not used yet */
+    latest_tx_index: integer;
+}
+
+/**
+ * Returns provider blockchain auth information, or null if blockchain auth is not enabled for provider.
+ */
+query get_provider_auth_blockchain(pubkey): provider_auth_blockchain_data? {
+    val provider = require_provider(pubkey);
+    return provider_auth_blockchain @? { provider } (provider_auth_blockchain_data(
+        blockchain_rid = .blockchain.rid,
+        provider_auth_type = .provider_auth_type,
+        latest_height = .latest_height,
+        latest_tx_index = .latest_tx_index,
+    ));
+}
+
+/**
+ * Get keys for provider, their roles and threshold.
+ */
+query get_provider_keys(pubkey) {
+
+    val provider = require_provider(pubkey);
+
+    val provider_keys = list<provider_role_keys_data>();
+    for (threshold in provider_auth_threshold @* { .provider_pubkey == provider.pubkey }) {
+
+        val keys = provider_auth_key @* { .provider_pubkey == provider.pubkey, .provider_key_role == threshold.provider_key_role, .active } ( .pubkey );
+        provider_keys.add(provider_role_keys_data(threshold.provider_key_role, threshold.threshold, keys));
+    }
+
+    return provider_keys_data(provider.pubkey, provider_keys);
+}
+
+/**
+ * Get auth keys for provider and threshold.
+ *
+ * @param pubkey  provider identifier
+ * @return list of keys eligible to sign transaction and the threshold (minimum number of signatures needed)
+ */
+query get_provider_keys_and_threshold(pubkey): provider_keys_and_threshold {
+    val provider = require_provider(pubkey);
+
+    var keys = provider_auth_key @* { .provider_pubkey == provider.pubkey, provider_key_role.main, .active } ( .pubkey );
+    if (empty(keys)) keys = [ pubkey ];
+    var threshold = provider_auth_threshold @? { .provider_pubkey == provider.pubkey, provider_key_role.main } (.threshold) ?: keys.size();
+    if (threshold == consensus_threshold.majority) threshold = keys.size() / 2 + 1;
+    if (threshold == consensus_threshold.super_majority) threshold = keys.size() - (keys.size() - 1) / 3;
+
+    return provider_keys_and_threshold(keys, threshold);
+}
+
+/**
+ * Find provider by auth key and return provider identifier pubkey.
+ *
+ * @param pubkey A provider key used for auth.
+ * @return The provider identity pubkey.
+ */
+query get_provider_by_key(pubkey): pubkey? {
+    return get_provider_by_auth_key(pubkey);
+}

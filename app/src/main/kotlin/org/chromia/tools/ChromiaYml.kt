@@ -1,0 +1,490 @@
+package org.chromia.tools
+
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+/**
+ * Production-pin validator for chromia.yml.
+ * Official schema: https://docs.chromia.com/build/configuration/project-config
+ * Pins: Rell 0.16.7 (source; docs may still say 0.16.4 / show 0.14.9),
+ * merkle_hash_version 2, no FT4 admin / ras_open libs.
+ */
+object ChromiaYmlValidator {
+    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val MERKLE_HASH_VERSION = DappScaffold.MERKLE_HASH_VERSION
+
+    val forbiddenLibModules = DappScaffold.forbiddenModules
+    val leftoverOfficialBlockchainKeys = setOf("webStatic")
+    val projectConfigBlockchainKeys = setOf("module", "moduleArgs", "config", "test")
+
+    data class Result(
+        val ok: Boolean,
+        val errors: List<String>,
+        val warnings: List<String>
+    ) {
+        fun toJson() = buildJsonObject {
+            put("ok", ok)
+            put("errors", buildJsonArray { errors.forEach { add(JsonPrimitive(it)) } })
+            put("warnings", buildJsonArray { warnings.forEach { add(JsonPrimitive(it)) } })
+            put(
+                "pins",
+                buildJsonObject {
+                    put("rell", RELL_VERSION)
+                    put("merkle_hash_version", MERKLE_HASH_VERSION)
+                    put("ft4", DappScaffold.FT4_VERSION)
+                    put("ft4Api", DappScaffold.FT4_API)
+                    put("cli", DappScaffold.CLI_SERIES)
+                }
+            )
+        }
+    }
+
+    fun validate(yaml: String): Result {
+        val errors = mutableListOf<String>()
+        val warnings = mutableListOf<String>()
+        val trimmed = yaml.trim()
+        if (trimmed.isEmpty()) {
+            return Result(false, listOf("chromia.yml is empty"), emptyList())
+        }
+
+        val root = try {
+            SimpleYaml.parse(trimmed)
+        } catch (e: IllegalArgumentException) {
+            return Result(false, listOf("YAML parse error: ${e.message}"), emptyList())
+        }
+
+        val mapping = root as? YamlNode.Mapping
+        if (mapping == null) {
+            return Result(false, listOf("chromia.yml root must be a mapping"), emptyList())
+        }
+
+        val blockchains = mapping.mapping("blockchains")
+        if (blockchains == null || blockchains.entries.isEmpty()) {
+            errors += "blockchains is required and must list at least one chain"
+        } else {
+            blockchains.entries.forEach { (name, node) ->
+                if (name.contains('-')) {
+                    errors += "blockchains.$name: chain names cannot contain hyphens (CLI 0.20.14+ / directory-chain)"
+                }
+                val chain = node as? YamlNode.Mapping
+                if (chain == null) {
+                    errors += "blockchains.$name must be a mapping with module"
+                    return@forEach
+                }
+                val module = chain.scalar("module")
+                if (module.isNullOrBlank()) {
+                    errors += "blockchains.$name.module is required (module name, not a file path)"
+                } else if (
+                    module.contains('/') ||
+                    module.contains('\\') ||
+                    module.contains(' ') ||
+                    module.endsWith(".rell")
+                ) {
+                    errors += "blockchains.$name.module must be a module name (e.g. main), never a file path"
+                }
+                val webStatic = chain.entries["webStatic"]
+                if (webStatic != null && webStatic !is YamlNode.Scalar) {
+                    warnings += "blockchains.$name.webStatic leftover official deploy-frontend-dapp prints a directory path (out)"
+                }
+            }
+        }
+
+        val compile = mapping.mapping("compile")
+        val rellVersion = compile?.scalar("rellVersion")
+        if (rellVersion.isNullOrBlank()) {
+            errors += "compile.rellVersion is required (production pin $RELL_VERSION; source wins over docs 0.16.4 / examples 0.14.9)"
+        } else if (!RELL_VERSION_FORMAT.matches(rellVersion)) {
+            errors += "compile.rellVersion must be a semver string N.N.N (found $rellVersion); production pin $RELL_VERSION"
+        } else if (rellVersion != RELL_VERSION) {
+            warnings += "compile.rellVersion is $rellVersion; production source pin is $RELL_VERSION (docs may still say 0.16.4)"
+        }
+
+        val merkleHits = mutableListOf<Pair<String, String>>()
+        collectKeys(mapping, "") { path, key, node ->
+            if (key.equals("require_mandatory_flags", ignoreCase = true)) {
+                errors += "$path: require_mandatory_flags is not a chromia.yml / moduleArgs key; it belongs only on the main auth descriptor"
+            }
+            if (key.equals("max_auth_descriptor_rules", ignoreCase = true)) {
+                warnings += "$path: leftover official /build/ft4/configuration-values sibling key; source binds auth_descriptor.max_rules (default 8)"
+            }
+            if (key == "merkle_hash_version") {
+                val value = when (node) {
+                    is YamlNode.Scalar -> node.raw
+                    else -> node.toString()
+                }
+                merkleHits += path to value
+            }
+        }
+        if (merkleHits.isEmpty()) {
+            errors += "merkle_hash_version must be $MERKLE_HASH_VERSION under blockchains.<name>.config.features (do not ship version 1)"
+        } else {
+            merkleHits.forEach { (path, value) ->
+                val n = value.toIntOrNull()
+                if (n != MERKLE_HASH_VERSION) {
+                    errors += "$path: merkle_hash_version must be $MERKLE_HASH_VERSION (found $value)"
+                }
+            }
+        }
+
+        val libs = mapping.mapping("libs")
+        if (libs != null) {
+            libs.entries.forEach { (libName, node) ->
+                forbiddenHit(libName)?.let { hit ->
+                    errors += "libs.$libName: forbidden FT4 production module $hit"
+                }
+                val libMap = node as? YamlNode.Mapping
+                val path = libMap?.scalar("path").orEmpty()
+                forbiddenHit(path)?.let { hit ->
+                    errors += "libs.$libName.path: forbidden FT4 production module $hit"
+                }
+                val insecure = libMap?.scalar("insecure")
+                if (insecure.equals("true", ignoreCase = true)) {
+                    warnings += "libs.$libName.insecure: true skips rid check; not recommended for production"
+                }
+            }
+        }
+
+        // moduleArgs live under each chain; admin / ras_open must not ship in production.
+        if (blockchains != null) {
+            blockchains.entries.forEach { (name, node) ->
+                val chain = node as? YamlNode.Mapping ?: return@forEach
+                val moduleArgs = chain.mapping("moduleArgs") ?: return@forEach
+                moduleArgs.entries.keys.forEach { key ->
+                    forbiddenHit(key)?.let { hit ->
+                        errors += "blockchains.$name.moduleArgs.$key: forbidden FT4 production module $hit"
+                    }
+                }
+            }
+        }
+
+        val driver = mapping.mapping("database")?.scalar("driver")
+        if (!driver.isNullOrBlank() && driver != "org.postgresql.Driver") {
+            warnings += "database.driver must be org.postgresql.Driver (found $driver)"
+        }
+
+        if (blockchains != null) {
+            blockchains.entries.forEach { (name, node) ->
+                val chain = node as? YamlNode.Mapping ?: return@forEach
+                val merkle = chain.mapping("config")?.mapping("features")?.scalar("merkle_hash_version")
+                if (merkle.isNullOrBlank()) {
+                    warnings += "blockchains.$name.config.features.merkle_hash_version is missing (must be $MERKLE_HASH_VERSION)"
+                }
+            }
+        }
+
+        val deployments = mapping.mapping("deployments")
+        if (deployments != null) {
+            val chainNames = blockchains?.entries?.keys.orEmpty()
+            deployments.entries.forEach { (net, node) ->
+                val dep = node as? YamlNode.Mapping
+                if (dep == null) {
+                    errors += "deployments.$net must be a mapping with url / brid / container / chains"
+                    return@forEach
+                }
+                val reserved = net in RESERVED_DEPLOYMENT_NAMES
+                val brid = dep.scalar("brid")
+                val hasUrl = mappingHasUrl(dep)
+                val container = dep.scalar("container")
+                if (!reserved && (brid.isNullOrBlank() || !hasUrl)) {
+                    errors += "deployments.$net: custom names require brid and url (only reserved names mainnet / testnet auto-fill Directory brid + url)"
+                }
+                if (!brid.isNullOrBlank()) {
+                    val hex = normalizeDirectoryBrid(brid)
+                    if (hex == null || hex.length != DIRECTORY_BRID_HEX_LENGTH) {
+                        val found = hex?.length ?: 0
+                        errors += "deployments.$net.brid must be a $DIRECTORY_BRID_HEX_LENGTH-hex Directory Chain RID (x\"..\"); found length $found"
+                    } else if (reserved) {
+                        val official = officialDirectoryBrid(net)
+                        if (official != null && hex != official) {
+                            errors += "deployments.$net.brid must be the official $net Directory Chain RID $official (found $hex)"
+                        }
+                    }
+                }
+                if (container.isNullOrBlank()) {
+                    warnings += "deployments.$net.container is missing (Vault / PMC lease id required for chr deployment create)"
+                }
+                val chains = dep.mapping("chains")
+                if (chains != null && chainNames.isNotEmpty()) {
+                    chains.entries.keys.forEach { chainName ->
+                        if (chainName !in chainNames) {
+                            warnings += "deployments.$net.chains.$chainName does not match a blockchains name"
+                        }
+                    }
+                }
+            }
+        }
+
+        return Result(errors.isEmpty(), errors, warnings)
+    }
+
+    internal const val DIRECTORY_BRID_HEX_LENGTH = WriteDeploymentConfig.DIRECTORY_BRID_HEX_LENGTH
+    internal val RESERVED_DEPLOYMENT_NAMES = setOf("mainnet", "testnet")
+    internal val RELL_VERSION_FORMAT = Regex("""^\d+\.\d+\.\d+$""")
+
+    internal fun officialDirectoryBrid(net: String): String? = when (net) {
+        "mainnet" -> WriteDeploymentConfig.MAINNET_DIRECTORY_BRID
+        "testnet" -> WriteDeploymentConfig.TESTNET_DIRECTORY_BRID
+        else -> null
+    }
+
+    internal fun mappingHasUrl(dep: YamlNode.Mapping): Boolean {
+        val node = dep.entries["url"] ?: return false
+        return when (node) {
+            is YamlNode.Scalar -> node.raw.isNotBlank()
+            is YamlNode.Sequence -> node.items.any { child ->
+                child is YamlNode.Scalar && child.raw.isNotBlank()
+            }
+            else -> false
+        }
+    }
+
+    internal fun normalizeDirectoryBrid(raw: String): String? {
+        var s = raw.trim()
+        if (s.length >= 3 && s.startsWith("x\"") && s.endsWith("\"")) {
+            s = s.substring(2, s.length - 1)
+        } else if (s.length >= 3 && s.startsWith("x'") && s.endsWith("'")) {
+            s = s.substring(2, s.length - 1)
+        } else if (s.length >= 2 && s.first() == '"' && s.last() == '"') {
+            s = s.substring(1, s.length - 1)
+        }
+        s = s.trim()
+        if (s.isEmpty()) return ""
+        if (!s.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return null
+        return s.uppercase()
+    }
+
+    private fun forbiddenHit(text: String): String? {
+        val lower = text.lowercase()
+        return forbiddenLibModules.firstOrNull { hit ->
+            lower == hit.lowercase() ||
+                lower.endsWith("/${hit.lowercase().substringAfterLast('.')}") ||
+                lower.contains(hit.lowercase())
+        }
+    }
+
+    private fun collectKeys(
+        node: YamlNode,
+        path: String,
+        visit: (path: String, key: String, value: YamlNode) -> Unit
+    ) {
+        when (node) {
+            is YamlNode.Mapping -> node.entries.forEach { (key, child) ->
+                val childPath = if (path.isEmpty()) key else "$path.$key"
+                visit(childPath, key, child)
+                collectKeys(child, childPath, visit)
+            }
+            is YamlNode.Sequence -> node.items.forEachIndexed { i, child ->
+                collectKeys(child, "$path[$i]", visit)
+            }
+            is YamlNode.Scalar -> Unit
+        }
+    }
+}
+
+internal sealed class YamlNode {
+    data class Scalar(val raw: String) : YamlNode()
+    data class Mapping(val entries: LinkedHashMap<String, YamlNode> = LinkedHashMap()) : YamlNode() {
+        fun mapping(key: String): Mapping? = entries[key] as? Mapping
+        fun scalar(key: String): String? = (entries[key] as? Scalar)?.raw
+    }
+    data class Sequence(val items: List<YamlNode>) : YamlNode()
+}
+
+/**
+ * Indent-based YAML subset used by chromia.yml (maps, lists, scalars, flow lists).
+ * Not a full YAML 1.1 engine: no aliases, no !include resolution, no multiline blocks.
+ */
+internal object SimpleYaml {
+    fun parse(text: String): YamlNode {
+        val lines = preprocess(text)
+        if (lines.isEmpty()) return YamlNode.Mapping()
+        val (node, next) = parseBlock(lines, 0, 0)
+        if (next < lines.size) {
+            throw IllegalArgumentException("unexpected content at line ${lines[next].number}")
+        }
+        return node
+    }
+
+    private data class Line(val number: Int, val indent: Int, val content: String)
+
+    private fun preprocess(text: String): List<Line> {
+        return text.replace("\t", "  ").lines().mapIndexedNotNull { index, raw ->
+            val noComment = stripComment(raw)
+            if (noComment.isBlank()) null
+            else {
+                val indent = noComment.takeWhile { it == ' ' }.length
+                Line(index + 1, indent, noComment.trim())
+            }
+        }
+    }
+
+    private fun stripComment(line: String): String {
+        var inSingle = false
+        var inDouble = false
+        line.forEachIndexed { i, c ->
+            when {
+                c == '\'' && !inDouble -> inSingle = !inSingle
+                c == '"' && !inSingle -> inDouble = !inDouble
+                c == '#' && !inSingle && !inDouble -> return line.substring(0, i)
+            }
+        }
+        return line
+    }
+
+    private fun parseBlock(lines: List<Line>, start: Int, minIndent: Int): Pair<YamlNode, Int> {
+        if (start >= lines.size) return YamlNode.Mapping() to start
+        val first = lines[start]
+        if (first.indent < minIndent) return YamlNode.Mapping() to start
+        return if (first.content.startsWith("- ") || first.content == "-") {
+            parseSequence(lines, start, first.indent)
+        } else {
+            parseMapping(lines, start, first.indent)
+        }
+    }
+
+    private fun parseMapping(lines: List<Line>, start: Int, indent: Int): Pair<YamlNode, Int> {
+        val entries = LinkedHashMap<String, YamlNode>()
+        var i = start
+        while (i < lines.size) {
+            val line = lines[i]
+            if (line.indent < indent) break
+            if (line.indent > indent) {
+                throw IllegalArgumentException("bad indent at line ${line.number}")
+            }
+            if (line.content.startsWith("-")) {
+                throw IllegalArgumentException("sequence item in mapping at line ${line.number}")
+            }
+            val colon = splitKeyValue(line.content)
+                ?: throw IllegalArgumentException("expected key: value at line ${line.number}")
+            val key = unquote(colon.first)
+            val rest = colon.second
+            if (rest.isEmpty()) {
+                val next = i + 1
+                if (next < lines.size && lines[next].indent > indent) {
+                    val (child, after) = parseBlock(lines, next, indent + 1)
+                    entries[key] = child
+                    i = after
+                } else {
+                    entries[key] = YamlNode.Mapping()
+                    i++
+                }
+            } else {
+                entries[key] = parseScalarOrFlow(rest)
+                i++
+            }
+        }
+        return YamlNode.Mapping(entries) to i
+    }
+
+    private fun parseSequence(lines: List<Line>, start: Int, indent: Int): Pair<YamlNode, Int> {
+        val items = mutableListOf<YamlNode>()
+        var i = start
+        while (i < lines.size) {
+            val line = lines[i]
+            if (line.indent < indent) break
+            if (line.indent > indent) {
+                throw IllegalArgumentException("bad indent at line ${line.number}")
+            }
+            if (!(line.content.startsWith("- ") || line.content == "-")) {
+                throw IllegalArgumentException("expected sequence item at line ${line.number}")
+            }
+            val rest = if (line.content == "-") "" else line.content.removePrefix("- ").trim()
+            if (rest.isEmpty()) {
+                val next = i + 1
+                if (next < lines.size && lines[next].indent > indent) {
+                    val (child, after) = parseBlock(lines, next, indent + 1)
+                    items += child
+                    i = after
+                } else {
+                    items += YamlNode.Scalar("")
+                    i++
+                }
+            } else if (rest.contains(':') && !rest.startsWith("[") && !isQuoted(rest)) {
+                val colon = splitKeyValue(rest)
+                if (colon != null && colon.second.isEmpty()) {
+                    val next = i + 1
+                    if (next < lines.size && lines[next].indent > indent) {
+                        val (nested, afterNested) = parseBlock(lines, next, indent + 1)
+                        items += YamlNode.Mapping(linkedMapOf(unquote(colon.first) to nested))
+                        i = afterNested
+                    } else {
+                        items += YamlNode.Mapping(linkedMapOf(unquote(colon.first) to YamlNode.Mapping()))
+                        i++
+                    }
+                } else if (colon != null) {
+                    items += YamlNode.Mapping(linkedMapOf(unquote(colon.first) to parseScalarOrFlow(colon.second)))
+                    i++
+                } else {
+                    items += parseScalarOrFlow(rest)
+                    i++
+                }
+            } else {
+                items += parseScalarOrFlow(rest)
+                i++
+            }
+        }
+        return YamlNode.Sequence(items) to i
+    }
+
+    private fun parseScalarOrFlow(raw: String): YamlNode {
+        val value = raw.trim()
+        if (value.startsWith("[") && value.endsWith("]")) {
+            val inner = value.substring(1, value.length - 1).trim()
+            if (inner.isEmpty()) return YamlNode.Sequence(emptyList())
+            val items = splitFlow(inner).map { parseScalarOrFlow(it) }
+            return YamlNode.Sequence(items)
+        }
+        return YamlNode.Scalar(unquote(value))
+    }
+
+    private fun splitFlow(inner: String): List<String> {
+        val out = mutableListOf<String>()
+        val buf = StringBuilder()
+        var inSingle = false
+        var inDouble = false
+        inner.forEach { c ->
+            when {
+                c == '\'' && !inDouble -> inSingle = !inSingle
+                c == '"' && !inSingle -> inDouble = !inDouble
+                c == ',' && !inSingle && !inDouble -> {
+                    out += buf.toString().trim()
+                    buf.clear()
+                }
+                else -> buf.append(c)
+            }
+        }
+        if (buf.isNotBlank()) out += buf.toString().trim()
+        return out
+    }
+
+    private fun splitKeyValue(content: String): Pair<String, String>? {
+        var inSingle = false
+        var inDouble = false
+        content.forEachIndexed { i, c ->
+            when {
+                c == '\'' && !inDouble -> inSingle = !inSingle
+                c == '"' && !inSingle -> inDouble = !inDouble
+                c == ':' && !inSingle && !inDouble -> {
+                    val key = content.substring(0, i).trim()
+                    val value = content.substring(i + 1).trim()
+                    if (key.isEmpty()) return null
+                    return key to value
+                }
+            }
+        }
+        return null
+    }
+
+    private fun isQuoted(value: String): Boolean {
+        val v = value.trim()
+        return (v.length >= 2 && v.first() == '"' && v.last() == '"') ||
+            (v.length >= 2 && v.first() == '\'' && v.last() == '\'')
+    }
+
+    private fun unquote(value: String): String {
+        val v = value.trim()
+        return if (isQuoted(v)) v.substring(1, v.length - 1) else v
+    }
+}

@@ -1,0 +1,13 @@
+fire: 0068
+when: 2026-08-30 09:49 Asia/Jerusalem
+work: watch only (no INDEX encode, no dapp-build change)
+query_help_only: yes
+origin: parked
+live_mcp: local :3001 healthy GET / 200 text/event-stream event: endpoint (pid java chromia-mcp-server.jar --sse)
+
+finder_buggy_candidates: 28 (false positives; alias INDEX pairs cover them)
+real_hole_count: 0
+incomplete_remaining: 1 (ChromiaRellLanguageHelp.kt MODULES_INDEX_URL only; covered by RELL_LANGUAGE_MODULES_INDEX_* — not a leftover hole)
+last_INDEX_batch: 0066 (8 incomplete triples completed; suite 312/0/0)
+dapp_build: no change (leftover_dapp_build_help already walks create-rell-dapp → chromia.yml → node → query hello_world)
+WakeParent: no (nothing new; INDEX 0; stay quiet)

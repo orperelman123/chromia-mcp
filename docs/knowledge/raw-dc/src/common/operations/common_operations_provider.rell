@@ -1,0 +1,136 @@
+/**
+ * SP can register NP, DP; NP can register DP; DP can register DP.
+ * 
+ * Permission: SP > [NP, DP], NP > [DP], DP > [DP]
+ * 
+ * Rate limit: actions
+ * 
+ * @param my_pubkey pubkey of provider
+ * @param provider_tier provider tiers
+ */
+operation register_provider(my_pubkey: pubkey, pubkey, provider_tier) {
+    val me = require_is_provider_with_rate_limit(my_pubkey);
+    require_node_access(me);
+    require_pubkey(pubkey);
+    require(empty(provider @* { pubkey }), "Provider already exists: " + pubkey);
+
+    register_and_enable_provider(
+        provider_info(pubkey),
+        provider_tier,
+        cluster = null,
+        voter_set = null,
+        enabled_by_default = not(_is_node_provider(provider_tier))
+    );
+    if (_is_node_provider(provider_tier)) {
+        require(roles.has_system_access(me), "Must be system provider to add a node provider");
+        val provider = provider @ { pubkey };
+        enroll.node(provider);
+        after_provider_updated(provider);
+    }
+}
+
+/**
+ * Promote a Dapp Provider to Node Provider, only a System Provider can do this.
+ * 
+ * Permission: system provider
+ * 
+ * Rate limit: actions
+ * 
+ * @param my_pubkey pubkey of provider
+ */
+operation promote_node_provider(my_pubkey: pubkey, provider_pubkey: pubkey) { // TODO: Should be able to demote
+    val me = require_is_provider_with_rate_limit(my_pubkey);
+    require_is_system_provider(my_pubkey);
+    val p = require_provider(provider_pubkey);
+    require(p.tier != provider_tier.NODE_PROVIDER, "Provider already has this role");
+    p.active = false;
+    enroll.node(p);
+    after_provider_updated(p);
+}
+
+/**
+ * Transfer action points from one provider to another.
+ * 
+ * Permission: any to any
+ * 
+ * Rate limit: actions
+ */
+operation transfer_action_points(my_pubkey: pubkey, to: pubkey, amount: integer) {
+    val _from = require_is_provider_with_rate_limit(my_pubkey);
+    val _to = require_provider(to);
+    require(provider_rl_state @ { _from } .points >= amount, "Not enough action points to transfer from.");
+    require(amount > 0, "Amount must be greater than 0");
+    update provider_rl_state @ { _from } ( .points -= amount );
+    update provider_rl_state @ { _to } ( .points += amount );
+}
+
+/**
+ * Update name and/or url of provider.
+ * 
+ * Permission: self
+ * 
+ * Rate limit: actions
+ * 
+ * @param my_pubkey  pubkey of provider
+ * @param name  updated name, or null to not update
+ * @param url  updated url, or null to not update
+ */
+operation update_provider(my_pubkey: pubkey, name?, url: text?) {
+    val me = require_is_provider_with_rate_limit(my_pubkey);
+    if (exists(name)) {
+        validate_metadata_text("name", name);
+        me.name = name;
+    }
+    if (exists(url)) {
+        validate_url(url);
+        me.url = url;
+    }
+}
+
+/**
+ * Add a key with role for a provider.
+ *
+ * @param my_pubkey Provider pubkey for which the key is added.
+ * @param role They role of this key.
+ * @param pubkey The new key to add. Must sign the transaction.
+ */
+operation add_provider_key(my_pubkey: pubkey, role: provider_key_role, pubkey) {
+    val provider = require_is_provider_with_rate_limit(my_pubkey);
+
+    require_is_signer(pubkey);
+
+    val key_owner = get_provider_by_auth_key(pubkey);
+    require(key_owner == null or key_owner == provider.pubkey,
+        "Key is already in use by provider %s".format(key_owner));
+
+    _add_provider_key(provider.pubkey, pubkey, role);
+}
+
+/**
+ * Revoke a key with role for a provider.
+ *
+ * @param my_pubkey Provider pubkey for which the key is revoked.
+ * @param role They role of this key.
+ * @param pubkey The key to remove.
+ */
+operation revoke_provider_key(my_pubkey: pubkey, role: provider_key_role, pubkey) {
+    val provider = require_is_provider_with_rate_limit(my_pubkey);
+    require(get_provider_by_auth_key(pubkey) == provider.pubkey,
+        "Operation not signed by key owner");
+
+    _revoke_provider_key(provider.pubkey, pubkey, role);
+}
+
+/**
+ * Set the key threshold a key role for a provider. The threshold
+ * controls the number of keys required to authenticate the provider.
+ *
+ * @param my_pubkey Provider pubkey for which the key threshold is set.
+ * @param role They role of this key.
+ * @param threshold Can either be -1 for majority, 0 for super-majority or the number of keys required.
+ */
+operation set_provider_key_threshold(my_pubkey: pubkey, role: provider_key_role, threshold: integer) {
+    val provider = require_is_provider_with_rate_limit(my_pubkey);
+
+    _set_provider_key_threshold(provider.pubkey, role, threshold);
+}
