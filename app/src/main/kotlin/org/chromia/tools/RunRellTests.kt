@@ -22,8 +22,27 @@ import java.nio.file.Path
 object RunRellTests {
 
     const val DATABASE_URL_ENV = "CHROMIA_TEST_DATABASE_URL"
+    const val EXECUTION_TIMEOUT_SECONDS = 90L
 
-    private val TEST_MODULE_REGEX = Regex("""^\s*@test\s+module\b""", RegexOption.MULTILINE)
+    // Daemon threads so a runaway test (infinite loop) can never block JVM shutdown.
+    private val runnerExecutor = java.util.concurrent.Executors.newCachedThreadPool { r ->
+        Thread(r, "rell-test-runner").apply { isDaemon = true }
+    }
+
+    private val TEST_MODULE_REGEX = Regex("""(^|\n)\s*@test\s+module\b""")
+
+    /**
+     * Rell module name for a source path: path separators become dots, and a file
+     * named module.rell belongs to its DIRECTORY module (tests/module.rell -> tests),
+     * per the Rell module rules. Root module.rell maps to "" (rejected by run()).
+     */
+    internal fun moduleNameForPath(path: String): String {
+        val segments = path.replace('\\', '/').removeSuffix(".rell")
+            .split('/')
+            .filter { it.isNotEmpty() && it != "." }
+        val effective = if (segments.isNotEmpty() && segments.last() == "module") segments.dropLast(1) else segments
+        return effective.joinToString(".")
+    }
 
     data class CaseResult(val name: String, val ok: Boolean, val error: String?)
 
@@ -43,10 +62,17 @@ object RunRellTests {
             require(relPath.endsWith(".rell")) { "Only .rell files are supported: $relPath" }
         }
 
-        val testModules = files.filterValues { TEST_MODULE_REGEX.containsMatchIn(it) }
-            .keys.map { it.removeSuffix(".rell").replace('/', '.').replace('\\', '.') }
+        // Detect @test on comment/string-masked source: `@test // note` + newline +
+        // `module;` is a valid header, and "@test module" inside a comment or string
+        // must not classify a file as a test module.
+        val testModules = files
+            .filterValues { TEST_MODULE_REGEX.containsMatchIn(maskRellSource(it, maskStrings = true)) }
+            .keys.map { moduleNameForPath(it) }
         require(testModules.isNotEmpty()) {
             "No @test modules found. Mark test files with `@test module;` and name test functions test_*."
+        }
+        require(testModules.none { it.isEmpty() }) {
+            "A root-level module.rell test module has no name - put test files in a subdirectory (e.g. tests/module.rell) or name the file after the module."
         }
 
         val tempDir = Files.createTempDirectory("rell-tests")
@@ -64,8 +90,12 @@ object RunRellTests {
     }
 
     private fun execute(sourceDir: Path, testModules: List<String>, databaseUrl: String?): Result {
-        val quietEnv = PrinterRellCliEnv({ }, { })
-        val collected = mutableListOf<UnitTestCaseResult>()
+        // Capture compiler/runner messages so a test-compile failure reports
+        // file/line diagnostics instead of a bare "Compilation failed".
+        val messages = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val quietEnv = PrinterRellCliEnv({ messages.add(it) }, { messages.add(it) })
+        // Written by the runner thread, read by the caller thread on timeout.
+        val collected = java.util.concurrent.CopyOnWriteArrayList<UnitTestCaseResult>()
         val config = RellApiRunTests.Config.Builder()
             .compileConfig(
                 RellApiCompile.Config.Builder()
@@ -79,7 +109,38 @@ object RunRellTests {
             .onTestCaseFinished { collected.add(it) }
             .build()
 
-        RellApiRunTests.runTests(config, sourceDir.toFile(), null, testModules)
+        // User test code executes in-process; bound it so an infinite loop in a
+        // test returns a clear failure instead of hanging the tool call forever.
+        val future = runnerExecutor.submit {
+            RellApiRunTests.runTests(config, sourceDir.toFile(), null, testModules)
+        }
+        try {
+            future.get(EXECUTION_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            future.cancel(true)
+            val finished = collected.size
+            return Result(
+                ok = false,
+                total = finished,
+                passed = collected.count { it.res.error == null },
+                failed = finished - collected.count { it.res.error == null },
+                cases = collected.map { r ->
+                    val error = r.res.error
+                    CaseResult(r.case.name, error == null, error?.message)
+                },
+                notes = "Test execution exceeded ${EXECUTION_TIMEOUT_SECONDS}s and was abandoned - " +
+                    "check for an infinite loop or unbounded work in a test. $finished case(s) finished before the timeout."
+            )
+        } catch (e: java.util.concurrent.ExecutionException) {
+            val cause = e.cause
+            if (cause is net.postchain.rell.api.base.RellCliException) {
+                val diagnostics = messages.filter { it.isNotBlank() }.joinToString("\n")
+                throw IllegalArgumentException(
+                    "Rell test sources do not compile:\n$diagnostics".trimEnd()
+                )
+            }
+            throw cause ?: e
+        }
 
         val cases = collected.map { r ->
             val error = r.res.error

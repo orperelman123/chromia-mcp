@@ -12,7 +12,10 @@ COPY . .
 # Central download fails the whole deploy (seen live: tika jar "Read timed out").
 # Generous HTTP timeouts + retries with backoff make the build survive blips.
 # Tests run in the SAME build as the jar - a deploy can never ship untested code.
-RUN gradle :app:test :app:shadowJar --no-daemon --console=plain \
+# Explicit gradle heap + a hard timeout: a hung/thrashing suite must FAIL the
+# build loudly (one unbounded build sat 12h+ "in progress"), never wedge it.
+ENV GRADLE_OPTS="-Xmx2g -XX:MaxMetaspaceSize=512m"
+RUN timeout -k 60 2100 gradle :app:test :app:shadowJar --no-daemon --console=plain \
     -Dorg.gradle.internal.http.connectionTimeout=60000 \
     -Dorg.gradle.internal.http.socketTimeout=180000 \
     -Dorg.gradle.internal.repository.max.retries=6 \

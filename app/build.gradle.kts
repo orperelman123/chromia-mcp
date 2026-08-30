@@ -1,3 +1,4 @@
+import java.time.Duration
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 val mcpVersion = "0.7.7"
@@ -126,6 +127,10 @@ java {
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
+    // Explicit bounds so constrained build containers fail fast instead of
+    // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).
+    maxHeapSize = "1280m"
+    timeout.set(Duration.ofMinutes(25))
 }
 
 val compileKotlin: KotlinCompile by tasks
