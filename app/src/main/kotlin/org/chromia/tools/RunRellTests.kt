@@ -44,7 +44,16 @@ object RunRellTests {
         return effective.joinToString(".")
     }
 
-    data class CaseResult(val name: String, val ok: Boolean, val error: String?)
+    data class CaseResult(
+        val name: String,
+        val ok: Boolean,
+        val error: String?,
+        /** Failure is environmental (no PostgreSQL configured), not a logic failure. */
+        val dbRequired: Boolean = false
+    )
+
+    private fun isDbRequiredError(error: String?): Boolean =
+        error != null && (error.contains("No database connection") || error.contains("database features require a database URL"))
 
     data class Result(
         val ok: Boolean,
@@ -144,12 +153,16 @@ object RunRellTests {
 
         val cases = collected.map { r ->
             val error = r.res.error
-            CaseResult(r.case.name, error == null, error?.message ?: error?.let { it::class.simpleName })
+            val message = error?.message ?: error?.let { it::class.simpleName }
+            CaseResult(r.case.name, error == null, message, dbRequired = isDbRequiredError(message))
         }
         val failed = cases.count { !it.ok }
+        val dbLimited = cases.count { it.dbRequired }
         val notes = buildString {
             append("Ran ${cases.size} test(s) in ${testModules.size} test module(s): ${cases.size - failed} passed, $failed failed.")
-            if (databaseUrl == null) {
+            if (dbLimited > 0) {
+                append(" $dbLimited failure(s) are environmental (dbRequired=true): the test touches entities/objects and needs PostgreSQL via $DATABASE_URL_ENV.")
+            } else if (databaseUrl == null) {
                 append(" No $DATABASE_URL_ENV set - tests touching entities/database fail without PostgreSQL; pure-logic tests are unaffected.")
             }
         }
@@ -170,6 +183,7 @@ object RunRellTests {
                             put("name", c.name)
                             put("ok", c.ok)
                             c.error?.let { put("error", it) }
+                            if (c.dbRequired) put("dbRequired", true)
                         }
                     )
                 }

@@ -159,7 +159,7 @@ object DappScaffold {
         import main;
 
         function test_hello_world() {
-            assert_equals(hello_world(), "Hello World!");
+            assert_equals(main.hello_world(), "Hello World!");
         }
     """.trimIndent() + "\n"
 

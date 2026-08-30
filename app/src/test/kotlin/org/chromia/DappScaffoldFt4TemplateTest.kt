@@ -53,6 +53,24 @@ class DappScaffoldFt4TemplateTest {
     }
 
     @Test
+    fun helloScaffoldPassesItsOwnToolchain() {
+        // The product promise end-to-end: what scaffold_dapp emits must compile
+        // (rell_check) and pass its own test (run_rell_tests) with no edits.
+        val rell = DappScaffold.files("journey")
+            .filterKeys { it.endsWith(".rell") }
+            .mapKeys { (path, _) -> path.removePrefix("src/") }
+        val compile = org.chromia.tools.RellCheck.check(rell, null)
+        assertTrue(compile.ok, "scaffold must compile: ${compile.errors}")
+        // The hello template's `object` is database-backed state, so without
+        // PostgreSQL its test may only fail with dbRequired - never a logic error.
+        val tests = org.chromia.tools.RunRellTests.run(rell, databaseUrl = System.getenv(org.chromia.tools.RunRellTests.DATABASE_URL_ENV))
+        assertTrue(
+            tests.cases.isNotEmpty() && tests.cases.all { it.ok || it.dbRequired },
+            "scaffold tests must pass or be db-limited: ${tests.notes} ${tests.cases}"
+        )
+    }
+
+    @Test
     fun toJsonCarriesTemplateField() {
         val json = DappScaffold.toJson("notes", template = "ft4")
         assertEquals("ft4", json.getValue("template").toString().trim('"'))
