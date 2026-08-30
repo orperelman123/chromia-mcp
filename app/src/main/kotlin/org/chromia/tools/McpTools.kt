@@ -1553,6 +1553,63 @@ object McpTools {
         )
     )
 
+    fun rellCheckTool() = Tool(
+        name = "rell_check",
+        description = """
+            Compile Rell source code with the real Rell compiler (same one the Chromia CLI embeds)
+            and get structured diagnostics back - no chr installation needed.
+            This is the write -> compile -> fix loop for building on Chromia:
+            1. Write or edit Rell code
+            2. Call rell_check with the code
+            3. Fix the first reported error (file, line, column, message) and repeat until ok=true
+            Pass a single module as `source` (compiled as main.rell), or a whole project as `files`
+            ({"main.rell": "...", "lib/util.rell": "..."}). Module args declared in the code are
+            not required for the check. Compilation runs in-process on temp files; nothing is
+            deployed and no network is used.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Rell source for a single-file check; compiled as main.rell. Ignored when `files` is given.")
+                        )
+                    ),
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects, e.g. {\"main.rell\": \"module; ...\"}.")
+                        )
+                    ),
+                    "modules" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Optional list of app module names to compile. Omit to compile all modules found.")
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Compile-check Rell code",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "modules" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "errors" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "warnings" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("ok", "modules", "errors", "warnings", "notes")
+        )
+    )
+
     fun writeDeploymentConfigTool() = Tool(
         name = "write_deployment_config",
         description = """
@@ -2594,6 +2651,7 @@ object McpTools {
         validateChromiaYmlTool(),
         checkDappProjectTool(),
         checkFt4ImportsTool(),
+        rellCheckTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),

@@ -52,6 +52,8 @@ repositories {
     maven("https://gitlab.com/api/v4/projects/50818999/packages/maven")
     maven("https://gitlab.com/api/v4/projects/32294340/packages/maven")
     maven("https://gitlab.com/api/v4/projects/46288950/packages/maven")
+    // chromaway rell registry (rell-api-base / rell-base for the rell_check tool)
+    maven("https://gitlab.com/api/v4/projects/32802097/packages/maven")
 }
 
 dependencies {
@@ -68,6 +70,8 @@ dependencies {
     implementation("net.postchain.client:chromia-client:$postchainClientVersion")
     implementation("com.google.code.gson:gson:2.13.2")
     implementation("dev.langchain4j:langchain4j-easy-rag:1.8.0-beta15")
+    // In-process Rell compiler for the rell_check tool (agents' write→compile→fix loop)
+    implementation("net.postchain.rell:rell-api-base:0.16.7")
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
     implementation("org.apache.logging.log4j:log4j-core:2.25.1")
     

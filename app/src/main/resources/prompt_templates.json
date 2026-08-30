@@ -394,6 +394,15 @@
             }
         },
         {
+            "title": "Compile-check Rell code",
+            "description": "Compile Rell in-process with the embedded Rell compiler and return structured diagnostics (file, line, column, message). The write -> compile -> fix loop; no chr install, nothing deployed.",
+            "tool": "mcp_chromia-mcp_rell_check",
+            "prompt": "Compile-check this Rell code and report every error and warning with file, line, and column, then fix the first error: {source}",
+            "parameters": {
+                "source": "{source}"
+            }
+        },
+        {
             "title": "FT4 module_args",
             "description": "Return FT4 v1.1.0r API 1 module_args / libs. require_mandatory_flags main-only. DEFAULT_LOGIN_CONFIG_NAME default. Never emits admin / ras_open.",
             "tool": "mcp_chromia-mcp_ft4_module_args",
