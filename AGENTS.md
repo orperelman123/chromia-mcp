@@ -74,6 +74,7 @@ Treat these as the current production contract unless GitLab source on the match
 - Runtime loads local `embeddings.json` first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar` from the repo root finds the Gradle file). First persist with no env prefers `app/build/embeddings.json` when cwd is the repo root and `app/build/` exists. Then the GitLab package. Generation is a separate path (`RagStore(loadFromRegistry = false)`): `./gradlew :app:generateEmbeddings` (persist + upload) or `:app:generateEmbeddingsNoUpload` (persist only to `app/build/embeddings.json`).
 - `get_prompts` includes category `chromia_stack` → title `Chromia stack expert`.
 - Java 21, Gradle wrapper, tests via `./gradlew test`. Fat JAR: `./gradlew :app:shadowJar`.
+- **Never skip tests.** No `-x test`, ever — including quick debug builds. The Dockerfile deliberately runs `:app:test` in the same step as the jar so deploys cannot ship untested code; keep it that way. Environment-dependent tests skip themselves via JUnit assumptions, never via exclusion.
 - Do **not** `git config`. Do **not** push unless the human explicitly asks.
 
 ## Coding rules for Chromia dApps (when advising)

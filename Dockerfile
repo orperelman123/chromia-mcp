@@ -11,7 +11,8 @@ COPY . .
 # Every image build resolves all dependencies from scratch, so one flaky Maven
 # Central download fails the whole deploy (seen live: tika jar "Read timed out").
 # Generous HTTP timeouts + retries with backoff make the build survive blips.
-RUN gradle :app:shadowJar --no-daemon --console=plain \
+# Tests run in the SAME build as the jar - a deploy can never ship untested code.
+RUN gradle :app:test :app:shadowJar --no-daemon --console=plain \
     -Dorg.gradle.internal.http.connectionTimeout=60000 \
     -Dorg.gradle.internal.http.socketTimeout=180000 \
     -Dorg.gradle.internal.repository.max.retries=6 \
