@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 val mcpVersion = "0.7.7"
 val ktorVersion = "3.2.3"
-val postchainClientVersion = "3.36.0"
+val postchainClientVersion = "3.39.1"
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -49,10 +49,31 @@ kotlin {
 
 // rell-api-gtx's postchain dependencies pull kotlin-stdlib 2.4.0, whose metadata
 // our Kotlin 2.2 compiler rejects. Pin the stdlib to the project Kotlin version.
+// postchain 3.49 (via rell-api-gtx) also constrains http4k to 6.53.x, which breaks
+// postchain-client 3.36's runtime ABI (ClientFilters.AcceptGZip signature) - pin the
+// whole http4k group to the version postchain-client is compiled against.
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
         force("org.jetbrains.kotlin:kotlin-reflect:2.2.0")
+        // postchain-client (3.36 and 3.39 alike) is built against http4k 6.0.1.0.
+        eachDependency {
+            if (requested.group == "org.http4k") {
+                useVersion("6.0.1.0")
+                because("postchain-client runtime ABI; 6.53 also carries Kotlin 2.4 metadata")
+            }
+        }
+        force(
+            "org.http4k:http4k-core:6.0.1.0",
+            "org.http4k:http4k-client-apache:6.0.1.0",
+            "org.http4k:http4k-format-core:6.0.1.0",
+            "org.http4k:http4k-format-gson:6.0.1.0",
+            "org.http4k:http4k-realtime-core:6.0.1.0"
+        )
+        // postchain 3.49 also constrains httpclient5 to 5.6.x, whose automatic content
+        // decompression double-gunzips with http4k AcceptGZip ("Not in GZIP format" on
+        // every chromia_dapp_query). Pin to the version postchain-client targets.
+        force("org.apache.httpcomponents.client5:httpclient5:5.4.2")
     }
 }
 
@@ -82,11 +103,8 @@ dependencies {
     // In-process Rell compiler for the rell_check tool (agents' write→compile→fix loop)
     implementation("net.postchain.rell:rell-api-base:0.16.7")
     // In-process Rell test runner for the run_rell_tests tool.
-    // postchain's REST stack (http4k, Kotlin 2.4 metadata) breaks our Kotlin 2.2
-    // compile and is not needed for unit-test execution - exclude it.
-    implementation("net.postchain.rell:rell-api-gtx:0.16.7") {
-        exclude(group = "org.http4k")
-    }
+    // http4k version is pinned group-wide above (postchain-client ABI).
+    implementation("net.postchain.rell:rell-api-gtx:0.16.7")
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
     implementation("org.apache.logging.log4j:log4j-core:2.25.1")
     
