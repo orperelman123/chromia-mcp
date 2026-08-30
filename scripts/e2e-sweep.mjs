@@ -6,49 +6,81 @@
 //   node scripts/e2e-sweep.mjs https://chromia-mcp.onrender.com
 const BASE = process.argv[2] || 'https://chromia-mcp.onrender.com';
 console.log('TARGET:', BASE);
-const controller = new AbortController();
-const sseRes = await fetch(`${BASE}/`, { headers: { accept: 'text/event-stream' }, signal: controller.signal });
-const reader = sseRes.body.getReader();
-const decoder = new TextDecoder();
-let sseBuf = '', endpoint = null; const pending = new Map(); let nextId = 1;
-function handleChunk(chunk) {
-  sseBuf += chunk.replace(/\r\n/g, '\n');
-  let idx;
-  while ((idx = sseBuf.indexOf('\n\n')) >= 0) {
-    const block = sseBuf.slice(0, idx); sseBuf = sseBuf.slice(idx + 2);
-    const ev = /^event:\s*(.+)$/m.exec(block)?.[1]?.trim();
-    const data = [...block.matchAll(/^data:\s*(.*)$/gm)].map(m => m[1]).join('\n');
-    if (ev === 'endpoint') endpoint = data.trim();
-    else if (data) { try { const m = JSON.parse(data); if (m.id !== undefined && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } catch {} }
+
+// --- Reconnectable MCP-over-SSE session. A dropped stream (server hiccup,
+// flaky third-party hop) must cost at most one retried check, never cascade
+// timeouts through the rest of the sweep. ---
+let session = null;
+async function openSession() {
+  if (session) { try { session.controller.abort(); } catch {} }
+  const controller = new AbortController();
+  const s = { controller, pending: new Map(), msgUrl: null };
+  const sseRes = await fetch(`${BASE}/`, { headers: { accept: 'text/event-stream' }, signal: controller.signal });
+  const reader = sseRes.body.getReader();
+  const decoder = new TextDecoder();
+  let sseBuf = '', endpoint = null;
+  function handleChunk(chunk) {
+    sseBuf += chunk.replace(/\r\n/g, '\n');
+    let idx;
+    while ((idx = sseBuf.indexOf('\n\n')) >= 0) {
+      const block = sseBuf.slice(0, idx); sseBuf = sseBuf.slice(idx + 2);
+      const ev = /^event:\s*(.+)$/m.exec(block)?.[1]?.trim();
+      const data = [...block.matchAll(/^data:\s*(.*)$/gm)].map(m => m[1]).join('\n');
+      if (ev === 'endpoint') endpoint = data.trim();
+      else if (data) { try { const m = JSON.parse(data); if (m.id !== undefined && s.pending.has(m.id)) { s.pending.get(m.id)(m); s.pending.delete(m.id); } } catch {} }
+    }
   }
+  (async () => { try { while (true) { const { done, value } = await reader.read(); if (done) break; handleChunk(decoder.decode(value, { stream: true })); } } catch {} })();
+  await new Promise((res, rej) => { const t0 = Date.now(); const iv = setInterval(() => { if (endpoint) { clearInterval(iv); res(); } else if (Date.now() - t0 > 20000) { clearInterval(iv); rej(new Error('no endpoint event')); } }, 100); });
+  s.msgUrl = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('?') ? `${BASE}/${endpoint}` : BASE + endpoint);
+  session = s;
+  await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'e2e-sweep', version: '1' } });
+  await fetch(s.msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) });
 }
-(async () => { try { while (true) { const { done, value } = await reader.read(); if (done) break; handleChunk(decoder.decode(value, { stream: true })); } } catch {} })();
-await new Promise((res, rej) => { const t0 = Date.now(); const iv = setInterval(() => { if (endpoint) { clearInterval(iv); res(); } else if (Date.now() - t0 > 20000) { clearInterval(iv); rej(new Error('no endpoint')); } }, 100); });
-const msgUrl = endpoint.startsWith('http') ? endpoint : (endpoint.startsWith('?') ? `${BASE}/${endpoint}` : BASE + endpoint);
+
+let nextId = 1;
 async function rpc(method, params, t = 90000) {
+  const s = session;
   const id = nextId++;
-  const p = new Promise((res, rej) => { const h = setTimeout(() => { pending.delete(id); rej(new Error('timeout')); }, t); pending.set(id, m => { clearTimeout(h); res(m); }); });
+  const p = new Promise((res, rej) => { const h = setTimeout(() => { s.pending.delete(id); rej(new Error('timeout')); }, t); s.pending.set(id, m => { clearTimeout(h); res(m); }); });
   p.catch(() => {}); // avoid unhandled rejection if the timeout fires while the POST below is in flight
-  await fetch(msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
+  await fetch(s.msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
   return p;
 }
 const call = (name, args, t) => rpc('tools/call', { name, arguments: args }, t);
 const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?.result ?? m);
 
 const results = [];
+const RETRYABLE = /timeout|fetch failed|no endpoint event|ECONNRESET|socket/i;
 async function check(label, fn, requiresTool) {
   if (requiresTool && toolNames.length && !toolNames.includes(requiresTool)) {
     results.push([label, true, 'SKIP (tool disabled on this deployment)']);
     console.log(`SKIP ${label} (tool ${requiresTool} disabled on this deployment)`);
     return;
   }
-  try { const detail = await fn(); results.push([label, true, detail]); console.log(`PASS ${label} ${detail ?? ''}`); }
-  catch (e) { results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message}`); }
+  try {
+    const detail = await fn();
+    results.push([label, true, detail]); console.log(`PASS ${label} ${detail ?? ''}`);
+    return;
+  } catch (e) {
+    if (!RETRYABLE.test(e.message ?? '')) {
+      results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message}`);
+      return;
+    }
+    console.log(`RETRY ${label} after transport error (${e.message}) - reconnecting session`);
+  }
+  try {
+    await openSession();
+    const detail = await fn();
+    results.push([label, true, `${detail ?? ''} (after retry)`.trim()]); console.log(`PASS ${label} ${detail ?? ''} (after retry)`);
+  } catch (e) {
+    results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message} (after retry)`);
+    try { await openSession(); } catch { /* next check will surface it */ }
+  }
 }
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 
-await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'prod-sweep', version: '1' } });
-await fetch(msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) });
+await openSession();
 
 let toolNames = [];
 await check('tools/list', async () => {
@@ -192,5 +224,5 @@ await check('missing required param message', async () => {
 const failed = results.filter(r => !r[1]);
 console.log(`\n=== PRODUCTION SWEEP: ${results.length - failed.length}/${results.length} PASS ===`);
 failed.forEach(f => console.log('FAILED:', f[0], '-', f[2]));
-controller.abort();
+try { session.controller.abort(); } catch {}
 process.exit(failed.length ? 1 : 0);
