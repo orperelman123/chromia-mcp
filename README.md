@@ -40,6 +40,18 @@ can verify Rell code is 100% compilable *before* suggesting it — with no `chr`
 - Module args declared in the code are not required for the check; nothing is deployed and no
   network is used — sources are compiled in-process in a temp directory and deleted afterwards
 
+## Rell Test Runner (`run_rell_tests`)
+
+Executes `@test module;` Rell tests in-process with the embedded runner (the same engine
+`chr test` wraps) and returns per-case pass/fail with error messages. The complete agent loop:
+
+1. `rell_check` — it compiles
+2. `rell_security_check` — it's secure
+3. `run_rell_tests` — it behaves correctly
+
+Pure-logic tests run with no setup. Tests that touch entities/database need PostgreSQL —
+set `CHROMIA_TEST_DATABASE_URL` (jdbc url) on the server.
+
 ## Rell Security Check (`rell_security_check`)
 
 Static security review of compiled Rell (compiles first via the embedded compiler):
@@ -72,6 +84,22 @@ node scripts/install.mjs
 Downloads the latest released `chromia-mcp-server.jar` to `~/.chromia-mcp/` and registers it as
 the `chromia` MCP server in Claude Code (user scope, compact tools). Releases are produced by
 `.github/workflows/release.yml` on any `v*` tag.
+
+An npm launcher lives in `packages/npm` (`npx chromia-mcp` → one-time jar download, then stdio).
+Publishing it needs an npm account: `cd packages/npm && npm publish` (make the repo/release
+public first, or users must set `CHROMIA_MCP_JAR`).
+
+## Using from ChatGPT
+
+The hosted server works as a ChatGPT connector (Settings → Connectors → Add custom connector,
+or Deep Research MCP):
+
+- **URL**: `https://chromia-mcp.onrender.com/sse` (no authentication)
+- ChatGPT's connector contract requires `search` and `fetch` tools — this server ships both
+  natively: `search` returns `{results: [{id, title, url}]}` over the Chromia docs RAG store and
+  `fetch` returns `{id, title, text, url}` for a result id.
+- In full MCP clients (developer mode), all tools are available — analytics, `chromia_help`,
+  `rell_check`, `rell_security_check`, `run_rell_tests`, `scaffold_dapp`, and the rest.
 
 ## Hosted SSE Deployment
 

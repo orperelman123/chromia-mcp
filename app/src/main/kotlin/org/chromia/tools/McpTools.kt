@@ -1425,6 +1425,9 @@ object McpTools {
         description = """
             Return a production-correct new Chromia dapp skeleton (chromia.yml, src/main.rell, test).
             Pins: Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1, Chromia CLI 0.33.x.
+            Templates: 'hello' (default, query-only quickstart) or 'ft4' - the golden FT4 template:
+            accounts + auth handler, an authenticated & require()-validated operation, module_args,
+            libs block, and a TypeScript client example. FT4 imports compile after `chr install`.
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
@@ -1437,6 +1440,13 @@ object McpTools {
                             "description" to JsonPrimitive(
                                 "Optional dapp / chain name (lowercase [a-z][a-z0-9_]{0,31}). Default: hello"
                             )
+                        )
+                    ),
+                    "template" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "enum" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("hello"), JsonPrimitive("ft4"))),
+                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default) or 'ft4' (accounts, authenticated operation, TS client).")
                         )
                     )
                 )
@@ -1651,6 +1661,51 @@ object McpTools {
                 )
             ),
             required = listOf("ok", "modules", "errors", "warnings", "notes")
+        )
+    )
+
+    fun runRellTestsTool() = Tool(
+        name = "run_rell_tests",
+        description = """
+            Execute Rell tests in-process with the embedded Rell test runner (same engine the
+            Chromia CLI wraps) and return per-case pass/fail results - no chr installation needed.
+            This completes the agent verification loop:
+            1. rell_check - the code compiles
+            2. rell_security_check - the code is secure
+            3. run_rell_tests - the code behaves correctly
+            Pass `files` including at least one file starting with `@test module;` whose test
+            functions are named test_*. Tests that touch entities/database need PostgreSQL via the
+            CHROMIA_TEST_DATABASE_URL env var on the server; pure-logic tests run without it.
+            Nothing is deployed; sources run in a temp directory and are deleted afterwards.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Map of relative .rell paths to contents: app modules plus at least one @test module, e.g. {\"main.rell\": \"module; ...\", \"main_test.rell\": \"@test module; import main; function test_x() { ... }\"}.")
+                        )
+                    )
+                )
+            ),
+            required = listOf("files")
+        ),
+        title = "Run Rell tests",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "total" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "passed" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "failed" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "cases" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("ok", "total", "passed", "failed", "cases", "notes")
         )
     )
 
@@ -2763,6 +2818,7 @@ object McpTools {
         checkFt4ImportsTool(),
         rellCheckTool(),
         rellSecurityCheckTool(),
+        runRellTestsTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),

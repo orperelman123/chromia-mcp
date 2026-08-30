@@ -421,6 +421,15 @@
             }
         },
         {
+            "title": "Run Rell tests",
+            "description": "Execute @test module Rell tests in-process with the embedded runner; per-case pass/fail with errors. DB-backed tests need CHROMIA_TEST_DATABASE_URL. Completes rell_check + rell_security_check.",
+            "tool": "mcp_chromia-mcp_run_rell_tests",
+            "prompt": "Run these Rell tests and report each case with its error if it failed: {files}",
+            "parameters": {
+                "files": "{files}"
+            }
+        },
+        {
             "title": "FT4 module_args",
             "description": "Return FT4 v1.1.0r API 1 module_args / libs. require_mandatory_flags main-only. DEFAULT_LOGIN_CONFIG_NAME default. Never emits admin / ras_open.",
             "tool": "mcp_chromia-mcp_ft4_module_args",

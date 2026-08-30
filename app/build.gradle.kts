@@ -47,6 +47,15 @@ kotlin {
     sourceSets.getByName("main").kotlin.srcDir(generateBuildInfo)
 }
 
+// rell-api-gtx's postchain dependencies pull kotlin-stdlib 2.4.0, whose metadata
+// our Kotlin 2.2 compiler rejects. Pin the stdlib to the project Kotlin version.
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
+        force("org.jetbrains.kotlin:kotlin-reflect:2.2.0")
+    }
+}
+
 repositories {
     mavenCentral()
     maven("https://gitlab.com/api/v4/projects/50818999/packages/maven")
@@ -72,6 +81,12 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-easy-rag:1.8.0-beta15")
     // In-process Rell compiler for the rell_check tool (agents' write→compile→fix loop)
     implementation("net.postchain.rell:rell-api-base:0.16.7")
+    // In-process Rell test runner for the run_rell_tests tool.
+    // postchain's REST stack (http4k, Kotlin 2.4 metadata) breaks our Kotlin 2.2
+    // compile and is not needed for unit-test execution - exclude it.
+    implementation("net.postchain.rell:rell-api-gtx:0.16.7") {
+        exclude(group = "org.http4k")
+    }
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
     implementation("org.apache.logging.log4j:log4j-core:2.25.1")
     
@@ -99,6 +114,8 @@ val compileKotlin: KotlinCompile by tasks
 compileKotlin.dependsOn(generateBuildInfo)
 
 tasks.shadowJar {
+    // rell-api-gtx pushes the fat jar past 65535 entries.
+    isZip64 = true
     archiveBaseName.set("chromia-mcp-server")
     archiveClassifier.set("")
     // Docs, jib.yaml, and local java -jar examples use chromia-mcp-server.jar.

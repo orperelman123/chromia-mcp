@@ -100,15 +100,29 @@ class ToolExecutor(
         "check_dapp_project" to CheckDappProjectStrategy(),
         "check_ft4_imports" to CheckFt4ImportsStrategy(),
         "rell_check" to RellCheckStrategy(),
-        "rell_security_check" to RellSecurityCheckStrategy()
+        "rell_security_check" to RellSecurityCheckStrategy(),
+        "run_rell_tests" to RunRellTestsStrategy()
     )
 
-    suspend fun executeTool(request: CallToolRequest): CallToolResult = runCatching {
-        val strategy = strategies[request.name]
-            ?: return toolErrorResult("Unknown tool: ${request.name}")
-        strategy.execute(request, repository)
-    }.getOrElse { e ->
-        toolErrorResult("Tool execution failed: ${e.message}")
+    suspend fun executeTool(request: CallToolRequest): CallToolResult {
+        val startedAt = System.nanoTime()
+        val result = runCatching {
+            val strategy = strategies[request.name]
+                ?: return toolErrorResult("Unknown tool: ${request.name}")
+                    .also { logToolCall(request.name, startedAt, ok = false) }
+            strategy.execute(request, repository)
+        }.getOrElse { e ->
+            toolErrorResult("Tool execution failed: ${e.message}")
+        }
+        // Usage telemetry: one structured stderr/file log line per call so hosted
+        // deployments can see which tools agents actually use and how long they take.
+        logToolCall(request.name, startedAt, ok = result.isError != true)
+        return result
+    }
+
+    private fun logToolCall(name: String, startedAt: Long, ok: Boolean) {
+        val ms = (System.nanoTime() - startedAt) / 1_000_000
+        org.chromia.App.logger.info("tool-call name={} ms={} ok={}", name, ms, ok)
     }
 
     internal fun registeredToolNames(): Set<String> = strategies.keys
@@ -791,7 +805,8 @@ class ScaffoldDappStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val name = extractString(args, "name")
-        val payload = DappScaffold.toJson(name)
+        val template = extractString(args, "template") ?: "hello"
+        val payload = DappScaffold.toJson(name, template)
         return toolSuccessResult(payload)
     }
 }
@@ -911,6 +926,34 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
             toolSuccessResult(with(RellSecurityCheck) { analyze(files).toJson() })
         }.getOrElse { e ->
             toolErrorResult("rell_security_check failed: ${e.message}")
+        }
+    }
+}
+
+class RunRellTestsStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val filesArg = args["files"]
+        val files = linkedMapOf<String, String>()
+        if (filesArg is JsonObject) {
+            filesArg.forEach { (path, content) ->
+                if (content is JsonPrimitive && content.isString) {
+                    files[path] = content.content
+                }
+            }
+        }
+        if (files.isEmpty()) {
+            return toolErrorResult(
+                "run_rell_tests needs a `files` map including at least one `@test module;` file, e.g. {\"main.rell\": \"module; ...\", \"tests/main_test.rell\": \"@test module; ...\"}"
+            )
+        }
+        return runCatching {
+            val result = withContext(Dispatchers.IO) {
+                with(RunRellTests) { run(files).toJson() }
+            }
+            toolSuccessResult(result)
+        }.getOrElse { e ->
+            toolErrorResult("run_rell_tests failed: ${e.message}")
         }
     }
 }
