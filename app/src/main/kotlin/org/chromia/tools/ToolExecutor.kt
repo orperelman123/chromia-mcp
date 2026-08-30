@@ -31,7 +31,44 @@ class ToolExecutor(
             (ragStoreFactory ?: { RagStore() })()
         }
 
-    private val strategies = mapOf(
+    // Static help/INDEX tools, also reachable through the chromia_help(topic) gateway
+    // so compact-tool deployments spend one schema instead of ~30 on agent context.
+    private val helpStrategies = mapOf(
+        "chr_build_help" to ChrBuildHelpStrategy(),
+        "chr_repl_help" to ChrReplHelpStrategy(),
+        "chr_tools_help" to ChrToolsHelpStrategy(),
+        "chr_seeder_help" to ChrSeederHelpStrategy(),
+        "blockchain_properties_help" to BlockchainPropertiesHelpStrategy(),
+        "chr_eif_help" to ChrEifHelpStrategy(),
+        "chromia_yml_definitions_help" to ChromiaYmlDefinitionsHelpStrategy(),
+        "chr_completion_help" to ChrCompletionHelpStrategy(),
+        "chromia_project_structure_help" to ChromiaProjectStructureHelpStrategy(),
+        "chr_multi_signature_help" to ChrMultiSignatureHelpStrategy(),
+        "chr_deploy_help" to ChrDeployHelpStrategy(),
+        "chr_node_help" to ChrNodeHelpStrategy(),
+        "chr_query_help" to ChrQueryHelpStrategy(),
+        "vault_lease_help" to VaultLeaseHelpStrategy(),
+        "chr_generate_client_help" to ChrGenerateClientHelpStrategy(),
+        "chromia_docs_yml_help" to ChromiaDocsYmlHelpStrategy(),
+        "chromia_cookbook_help" to ChromiaCookbookHelpStrategy(),
+        "chr_key_id_help" to ChrKeyIdHelpStrategy(),
+        "chromia_language_clients_help" to ChromiaLanguageClientsHelpStrategy(),
+        "chromia_rell_language_help" to ChromiaRellLanguageHelpStrategy(),
+        "chromia_rell_types_help" to ChromiaRellTypesHelpStrategy(),
+        "chromia_rell_expressions_help" to ChromiaRellExpressionsHelpStrategy(),
+        "chromia_rell_statements_help" to ChromiaRellStatementsHelpStrategy(),
+        "chromia_rell_database_help" to ChromiaRellDatabaseHelpStrategy(),
+        "chromia_rell_systemlib_help" to ChromiaRellSystemlibHelpStrategy(),
+        "chromia_rell_practices_help" to ChromiaRellPracticesHelpStrategy(),
+        "chromia_ft4_queries_help" to ChromiaFt4QueriesHelpStrategy(),
+        "chromia_integrations_help" to ChromiaIntegrationsHelpStrategy(),
+        "chromia_vector_search_help" to ChromiaVectorSearchHelpStrategy(),
+        "chr_library_help" to ChrLibraryHelpStrategy(),
+        "chr_create_rell_dapp_help" to ChrCreateRellDappHelpStrategy()
+    )
+
+    private val strategies = helpStrategies + mapOf(
+        "chromia_help" to ChromiaHelpStrategy(helpStrategies),
         "get_prompts" to PromptsToolStrategy(promptManager),
         "get_blockchains_transactions" to BlockchainsTransactionsStrategy(),
         "get_transactions_by_cluster" to TransactionsByClusterStrategy(),
@@ -59,38 +96,7 @@ class ToolExecutor(
         "scaffold_dapp" to ScaffoldDappStrategy(),
         "validate_chromia_yml" to ValidateChromiaYmlStrategy(),
         "ft4_module_args" to Ft4ModuleArgsStrategy(),
-        "chr_build_help" to ChrBuildHelpStrategy(),
-        "chr_repl_help" to ChrReplHelpStrategy(),
-        "chr_tools_help" to ChrToolsHelpStrategy(),
-        "chr_seeder_help" to ChrSeederHelpStrategy(),
-        "blockchain_properties_help" to BlockchainPropertiesHelpStrategy(),
-        "chr_eif_help" to ChrEifHelpStrategy(),
-        "chromia_yml_definitions_help" to ChromiaYmlDefinitionsHelpStrategy(),
-        "chr_completion_help" to ChrCompletionHelpStrategy(),
-        "chromia_project_structure_help" to ChromiaProjectStructureHelpStrategy(),
-        "chr_multi_signature_help" to ChrMultiSignatureHelpStrategy(),
         "write_deployment_config" to WriteDeploymentConfigStrategy(),
-        "chr_deploy_help" to ChrDeployHelpStrategy(),
-        "chr_node_help" to ChrNodeHelpStrategy(),
-        "chr_query_help" to ChrQueryHelpStrategy(),
-        "vault_lease_help" to VaultLeaseHelpStrategy(),
-        "chr_generate_client_help" to ChrGenerateClientHelpStrategy(),
-        "chromia_docs_yml_help" to ChromiaDocsYmlHelpStrategy(),
-        "chromia_cookbook_help" to ChromiaCookbookHelpStrategy(),
-        "chr_key_id_help" to ChrKeyIdHelpStrategy(),
-        "chromia_language_clients_help" to ChromiaLanguageClientsHelpStrategy(),
-        "chromia_rell_language_help" to ChromiaRellLanguageHelpStrategy(),
-        "chromia_rell_types_help" to ChromiaRellTypesHelpStrategy(),
-        "chromia_rell_expressions_help" to ChromiaRellExpressionsHelpStrategy(),
-        "chromia_rell_statements_help" to ChromiaRellStatementsHelpStrategy(),
-        "chromia_rell_database_help" to ChromiaRellDatabaseHelpStrategy(),
-        "chromia_rell_systemlib_help" to ChromiaRellSystemlibHelpStrategy(),
-        "chromia_rell_practices_help" to ChromiaRellPracticesHelpStrategy(),
-        "chromia_ft4_queries_help" to ChromiaFt4QueriesHelpStrategy(),
-        "chromia_integrations_help" to ChromiaIntegrationsHelpStrategy(),
-        "chromia_vector_search_help" to ChromiaVectorSearchHelpStrategy(),
-        "chr_library_help" to ChrLibraryHelpStrategy(),
-        "chr_create_rell_dapp_help" to ChrCreateRellDappHelpStrategy(),
         "check_dapp_project" to CheckDappProjectStrategy(),
         "check_ft4_imports" to CheckFt4ImportsStrategy(),
         "rell_check" to RellCheckStrategy(),
@@ -797,6 +803,35 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
         return toolSuccessResult(ChromiaYmlValidator.validate(yaml).toJson())
+    }
+}
+
+/**
+ * Gateway over the static help/INDEX strategies: one `chromia_help(topic)` schema
+ * instead of ~30 individual tool schemas in the agent's context. With no or an
+ * unknown topic it returns the topic index; otherwise it delegates to the matching
+ * help strategy and returns that tool's exact payload.
+ */
+class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>) : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val rawTopic = extractString(args, "topic")?.trim()?.lowercase()
+        // Accept both "chr_build" and "chr_build_help" spellings.
+        val topic = rawTopic?.let { if (it in helpStrategies) it else "${it}_help".takeIf { t -> t in helpStrategies } }
+
+        if (topic == null) {
+            val index = buildJsonObject {
+                put("topics", buildJsonArray { helpStrategies.keys.sorted().forEach { add(JsonPrimitive(it)) } })
+                put(
+                    "notes",
+                    (if (rawTopic == null) "Pass one of these topics to get that help payload. "
+                    else "Unknown topic '$rawTopic'. ") +
+                        "Topic names map 1:1 to the full help catalog (CLI commands, chromia.yml, Rell language, FT4, deploy, integrations)."
+                )
+            }
+            return toolSuccessResult(index)
+        }
+        return helpStrategies.getValue(topic).execute(request, repository)
     }
 }
 

@@ -54,6 +54,39 @@ Findings are line-anchored with a concrete fix each. `ok=true` = no CRITICAL/HIG
 Heuristic static analysis — it does not replace a security audit. The agent loop is:
 `rell_check` until it compiles → `rell_security_check` until clean → present the code.
 
+## Compact Tool Mode & `chromia_help`
+
+61+ tool schemas cost an agent a lot of context before any work starts. Set
+`CHROMIA_MCP_COMPACT_TOOLS=true` and the server advertises one `chromia_help(topic)` gateway
+instead of the ~31 individual `*_help` tools (same content, one schema — call it with no topic
+for the topic index). Default is the full catalog for backward compatibility.
+
+## Install (one command)
+
+With `gh` and `claude` CLIs available:
+
+```bash
+node scripts/install.mjs
+```
+
+Downloads the latest released `chromia-mcp-server.jar` to `~/.chromia-mcp/` and registers it as
+the `chromia` MCP server in Claude Code (user scope, compact tools). Releases are produced by
+`.github/workflows/release.yml` on any `v*` tag.
+
+## Hosted SSE Deployment
+
+`Dockerfile` (multi-stage, runs `--sse` on `$PORT`, `/health` endpoint) plus `render.yaml`
+Blueprint for a one-click Render deploy. Needs ~1.5GB RAM (embedding model + RAG store), so use
+at least the starter plan — the free tier will OOM. Teammates then connect with
+`claude mcp add chromia --transport sse <url>/sse`.
+
+## Upstreaming
+
+[docs/UPSTREAM.md](docs/UPSTREAM.md) lists the seven bugs found here that also affect the
+official `chromaway/core-tools/chromia-mcp` (silent list-filter corruption, two live explorer
+schema drifts, swallowed tool errors, stdout log corruption, context-bomb docs, dead sorting) —
+patch-ready notes for a merge request from the company account.
+
 ## Continuous Integration
 
 - `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21); the jar is

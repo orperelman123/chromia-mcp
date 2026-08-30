@@ -1553,6 +1553,50 @@ object McpTools {
         )
     )
 
+    /** Names of the static help tools that the chromia_help gateway covers. */
+    val HELP_TOOL_NAMES: Set<String> = setOf(
+        "chr_build_help", "chr_repl_help", "chr_tools_help", "chr_seeder_help",
+        "blockchain_properties_help", "chr_eif_help", "chromia_yml_definitions_help",
+        "chr_completion_help", "chromia_project_structure_help", "chr_multi_signature_help",
+        "chr_deploy_help", "chr_node_help", "chr_query_help", "vault_lease_help",
+        "chr_generate_client_help", "chromia_docs_yml_help", "chromia_cookbook_help",
+        "chr_key_id_help", "chromia_language_clients_help", "chromia_rell_language_help",
+        "chromia_rell_types_help", "chromia_rell_expressions_help", "chromia_rell_statements_help",
+        "chromia_rell_database_help", "chromia_rell_systemlib_help", "chromia_rell_practices_help",
+        "chromia_ft4_queries_help", "chromia_integrations_help", "chromia_vector_search_help",
+        "chr_library_help", "chr_create_rell_dapp_help"
+    )
+
+    fun chromiaHelpTool() = Tool(
+        name = "chromia_help",
+        description = """
+            One gateway to the full static Chromia help catalog: CLI commands (build, deploy, node,
+            query, repl, keys, library, completion, seeder, eif, multisig, client generation,
+            create-rell-dapp), chromia.yml definitions and docs config, project structure, vault
+            leases, the Rell language (types, expressions, statements, database ops, system library,
+            best practices), FT4 queries, integrations, vector search, and the cookbook.
+            Call with no arguments to list all topics; call with a topic to get that payload.
+            The same content as the individual *_help tools, through one schema.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "topic" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Help topic, e.g. 'chr_deploy_help' (or 'chr_deploy'). Omit to get the full topic list."),
+                            "enum" to kotlinx.serialization.json.JsonArray(HELP_TOOL_NAMES.sorted().map { JsonPrimitive(it) })
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Chromia help catalog",
+        annotations = null,
+        outputSchema = null
+    )
+
     fun rellCheckTool() = Tool(
         name = "rell_check",
         description = """
@@ -2696,7 +2740,22 @@ object McpTools {
         )
     )
 
-    fun allTools() = listOf(
+    /**
+     * All advertised tools. `compact = true` (env `CHROMIA_MCP_COMPACT_TOOLS=true` via
+     * [compactToolsMode]) drops the individual *_help schemas - their content stays
+     * reachable through the chromia_help gateway - so agents spend ~30 fewer schemas
+     * of context. Default (full) keeps every tool for backward compatibility.
+     */
+    fun compactToolsMode(env: Map<String, String> = System.getenv()): Boolean =
+        env["CHROMIA_MCP_COMPACT_TOOLS"]?.equals("true", ignoreCase = true) == true
+
+    fun allTools(compact: Boolean = false): List<Tool> {
+        val all = fullToolList()
+        return if (compact) all.filter { it.name !in HELP_TOOL_NAMES } else all
+    }
+
+    private fun fullToolList() = listOf(
+        chromiaHelpTool(),
         getPromptsTool(),
         scaffoldDappTool(),
         validateChromiaYmlTool(),

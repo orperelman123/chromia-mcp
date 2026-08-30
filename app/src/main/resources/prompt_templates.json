@@ -394,6 +394,15 @@
             }
         },
         {
+            "title": "Chromia help catalog",
+            "description": "One gateway to the full static help catalog: CLI, chromia.yml, Rell language, FT4, deploy, vault leases, integrations, cookbook. No topic returns the topic list; a topic returns that payload.",
+            "tool": "mcp_chromia-mcp_chromia_help",
+            "prompt": "Show the Chromia help for topic {topic} (call chromia_help without a topic first to list the topics).",
+            "parameters": {
+                "topic": "{topic}"
+            }
+        },
+        {
             "title": "Compile-check Rell code",
             "description": "Compile Rell in-process with the embedded Rell compiler and return structured diagnostics (file, line, column, message). The write -> compile -> fix loop; no chr install, nothing deployed.",
             "tool": "mcp_chromia-mcp_rell_check",

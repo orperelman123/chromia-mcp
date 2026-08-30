@@ -86,7 +86,7 @@ class App(
     }
 
     private fun Server.registerTools() {
-        val tools = McpTools.allTools()
+        val tools = McpTools.allTools(compact = McpTools.compactToolsMode())
 
         val registeredTools = tools.map { tool ->
             RegisteredTool(tool) { request ->
