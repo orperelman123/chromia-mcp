@@ -104,9 +104,17 @@ or Deep Research MCP):
 ## Hosted SSE Deployment
 
 `Dockerfile` (multi-stage, runs `--sse` on `$PORT`, `/health` endpoint) plus `render.yaml`
-Blueprint for a one-click Render deploy. Needs ~1.5GB RAM (embedding model + RAG store), so use
-at least the starter plan — the free tier will OOM. Teammates then connect with
-`claude mcp add chromia --transport sse <url>/sse`.
+Blueprint for a one-click Render deploy.
+
+**Memory sizing (measured in production):** docs + analytics + RAG fit in a 512MB instance, but
+the in-process Rell compiler tools (`rell_check`, `rell_security_check`, `run_rell_tests`) push
+the process past 512MB and get the container OOM-killed. Either:
+
+- run a **2GB instance** for the full toolset, or
+- on small instances set `CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests`
+  — the hosted server stays a rock-solid docs/analytics endpoint (ChatGPT `search`/`fetch`
+  included) and developers run the compiler loop through the local jar/stdio install, which has
+  no such limit.
 
 ## Upstreaming
 

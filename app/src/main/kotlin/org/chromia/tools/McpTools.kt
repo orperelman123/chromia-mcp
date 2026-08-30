@@ -2804,9 +2804,19 @@ object McpTools {
     fun compactToolsMode(env: Map<String, String> = System.getenv()): Boolean =
         env["CHROMIA_MCP_COMPACT_TOOLS"]?.equals("true", ignoreCase = true) == true
 
-    fun allTools(compact: Boolean = false): List<Tool> {
+    /**
+     * Comma-separated tool names to drop from advertisement, e.g. for memory-constrained
+     * hosted deployments where the in-process Rell compiler tools do not fit:
+     * CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests
+     */
+    fun disabledTools(env: Map<String, String> = System.getenv()): Set<String> =
+        env["CHROMIA_MCP_DISABLE_TOOLS"]?.split(',')
+            ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+
+    fun allTools(compact: Boolean = false, disabled: Set<String> = emptySet()): List<Tool> {
         val all = fullToolList()
-        return if (compact) all.filter { it.name !in HELP_TOOL_NAMES } else all
+        val afterCompact = if (compact) all.filter { it.name !in HELP_TOOL_NAMES } else all
+        return if (disabled.isEmpty()) afterCompact else afterCompact.filter { it.name !in disabled }
     }
 
     private fun fullToolList() = listOf(

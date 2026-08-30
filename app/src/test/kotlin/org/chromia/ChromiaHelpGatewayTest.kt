@@ -70,4 +70,18 @@ class ChromiaHelpGatewayTest {
         assertFalse(McpTools.compactToolsMode(mapOf("CHROMIA_MCP_COMPACT_TOOLS" to "false")))
         assertFalse(McpTools.compactToolsMode(emptyMap()))
     }
+
+    @Test
+    fun disabledToolsEnvDropsAdvertisement() {
+        assertEquals(
+            setOf("rell_check", "run_rell_tests"),
+            McpTools.disabledTools(mapOf("CHROMIA_MCP_DISABLE_TOOLS" to "rell_check, run_rell_tests,"))
+        )
+        assertEquals(emptySet<String>(), McpTools.disabledTools(emptyMap()))
+        val names = McpTools.allTools(compact = true, disabled = setOf("rell_check", "run_rell_tests")).map { it.name }
+        assertFalse("rell_check" in names)
+        assertFalse("run_rell_tests" in names)
+        assertTrue("rell_security_check" in names)
+        assertTrue("chromia_help" in names)
+    }
 }
