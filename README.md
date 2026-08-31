@@ -150,7 +150,11 @@ Every push runs the full pyramid — none of these can be skipped:
    session, upstream explorer latency classified separately from real failures.
 3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — 17 checks over the transport
    Claude Code uses, run against the jar and through the npm launcher.
-4. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
+4. **Nightly deep fuzz** (`scripts/fuzz-marathon.mjs <url> [iterations]`) — random-seeded
+   programs fired at the live compiler tools; `.github/workflows/nightly-fuzz.yml` runs 600
+   iterations every night and opens an issue with a reproducible seed on any crash, hang, or
+   leaked exception.
+5. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
    using only tool outputs: discovery → doc search → scaffold → plant a bug → locate it purely
    from compiler diagnostics → repair → security gate → behavior gate → validated deploy config.
    If any tool output lacks what an agent needs to act, this fails.

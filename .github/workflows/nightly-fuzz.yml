@@ -1,0 +1,62 @@
+name: Nightly deep fuzz
+
+# Random-seeded fuzzing of the compiler tools against a real server, far beyond
+# the per-push suite's time budget. Fresh seeds every night find what fixed
+# seeds cannot; any crash/hang/leaked exception fails the run and opens an issue.
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # 03:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Fuzz iterations'
+        required: false
+        default: '600'
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build server
+        run: ./gradlew :app:test :app:shadowJar --console=plain
+
+      - name: Deep fuzz against a live server
+        env:
+          ITERATIONS: ${{ github.event.inputs.iterations || '600' }}
+        run: |
+          java -XX:MaxRAMPercentage=60 -jar app/build/libs/chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
+          SERVER_PID=$!
+          for i in $(seq 1 90); do curl -sf http://127.0.0.1:3001/health >/dev/null && break; sleep 2; done
+          node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 "$ITERATIONS"
+          STATUS=$?
+          kill $SERVER_PID || true
+          exit $STATUS
+
+      - name: Open an issue when the fuzzer finds something
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Nightly fuzz found a defect ($(date -u +%Y-%m-%d))" \
+            --body "The nightly deep fuzz run failed. Reproduce locally with the printed seed:
+          \`\`\`
+          node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 600
+          \`\`\`
+          Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label bug || true
