@@ -15,7 +15,7 @@ import kotlinx.serialization.json.put
  */
 object ChromiaRellSystemlibHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
-    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val RELL_VERSION = DappScaffold.RELL_SOURCE_TAG
     const val TOOL_NAME = "chromia_rell_systemlib_help"
     const val INDEX_URL = "https://docs.chromia.com/rell/language-features/systemlib/"
     const val GLOBAL_URL = "https://docs.chromia.com/rell/language-features/systemlib/global-functions"

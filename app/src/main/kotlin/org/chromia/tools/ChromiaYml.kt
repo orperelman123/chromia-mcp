@@ -8,7 +8,9 @@ import kotlinx.serialization.json.put
 /**
  * Production-pin validator for chromia.yml.
  * Official schema: https://docs.chromia.com/build/configuration/project-config
- * Pins: Rell 0.16.7 (source; docs may still say 0.16.4 / show 0.14.9),
+ * Pins: Rell 0.16.1 for compile.rellVersion (the newest version the CLI 0.33.x
+ * bundle accepts; the Rell source tag is 0.16.7 but the bundled compiler's
+ * SUPPORTED_VERSIONS list stops at 0.16.1 — docs may still say 0.16.4 / show 0.14.9),
  * merkle_hash_version 2, no FT4 admin / ras_open libs.
  */
 object ChromiaYmlValidator {
@@ -94,11 +96,20 @@ object ChromiaYmlValidator {
         val compile = mapping.mapping("compile")
         val rellVersion = compile?.scalar("rellVersion")
         if (rellVersion.isNullOrBlank()) {
-            errors += "compile.rellVersion is required (production pin $RELL_VERSION; source wins over docs 0.16.4 / examples 0.14.9)"
+            errors += "compile.rellVersion is required (production pin $RELL_VERSION; the newest Rell the installed CLI ${DappScaffold.CLI_SERIES} accepts)"
         } else if (!RELL_VERSION_FORMAT.matches(rellVersion)) {
             errors += "compile.rellVersion must be a semver string N.N.N (found $rellVersion); production pin $RELL_VERSION"
-        } else if (rellVersion != RELL_VERSION) {
-            warnings += "compile.rellVersion is $rellVersion; production source pin is $RELL_VERSION (docs may still say 0.16.4)"
+        } else {
+            val cmp = compareRellVersions(rellVersion, RELL_VERSION)
+            when {
+                cmp == null ->
+                    warnings += "compile.rellVersion $rellVersion has components that could not be parsed as numbers; cannot compare against CLI-bundled Rell $RELL_VERSION"
+                cmp > 0 ->
+                    errors += "compile.rellVersion $rellVersion is newer than Rell $RELL_VERSION bundled with the installed Chromia CLI ${DappScaffold.CLI_SERIES}; " +
+                        "the bundled compiler's SUPPORTED_VERSIONS list stops at $RELL_VERSION, so `chr build` will reject this project with an \"Unknown version\" error — pin $RELL_VERSION"
+                cmp < 0 ->
+                    warnings += "compile.rellVersion is $rellVersion; production pin is $RELL_VERSION (the Rell bundled with CLI ${DappScaffold.CLI_SERIES})"
+            }
         }
 
         val merkleHits = mutableListOf<Pair<String, String>>()
@@ -222,6 +233,38 @@ object ChromiaYmlValidator {
     internal const val DIRECTORY_BRID_HEX_LENGTH = WriteDeploymentConfig.DIRECTORY_BRID_HEX_LENGTH
     internal val RESERVED_DEPLOYMENT_NAMES = setOf("mainnet", "testnet")
     internal val RELL_VERSION_FORMAT = Regex("""^\d+\.\d+\.\d+$""")
+
+    /**
+     * Compares two dotted numeric version strings component by component, so
+     * "0.16.10" > "0.16.9" (plain string comparison would get this wrong) and
+     * "1.0" == "1.0.0" (missing components count as 0). Returns a negative /
+     * zero / positive Int like compareTo, or null when either version has a
+     * non-numeric or empty component (malformed input never throws).
+     */
+    internal fun compareRellVersions(a: String, b: String): Int? {
+        val left = parseVersionComponents(a) ?: return null
+        val right = parseVersionComponents(b) ?: return null
+        val size = maxOf(left.size, right.size)
+        for (i in 0 until size) {
+            val l = left.getOrElse(i) { 0 }
+            val r = right.getOrElse(i) { 0 }
+            if (l != r) return l.compareTo(r)
+        }
+        return 0
+    }
+
+    private fun parseVersionComponents(version: String): List<Int>? {
+        val trimmed = version.trim()
+        if (trimmed.isEmpty()) return null
+        val parts = trimmed.split('.')
+        val out = ArrayList<Int>(parts.size)
+        for (part in parts) {
+            val n = part.toIntOrNull() ?: return null
+            if (n < 0) return null
+            out += n
+        }
+        return out
+    }
 
     internal fun officialDirectoryBrid(net: String): String? = when (net) {
         "mainnet" -> WriteDeploymentConfig.MAINNET_DIRECTORY_BRID

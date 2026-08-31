@@ -129,7 +129,7 @@ class DappBuildToolsTest {
                   features:
                     merkle_hash_version: 1
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
         """.trimIndent()
         val result = ChromiaYmlValidator.validate(yaml)
         assertFalse(result.ok)
@@ -146,7 +146,7 @@ class DappBuildToolsTest {
               hello:
                 module: main
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
         """.trimIndent()
         val result = ChromiaYmlValidator.validate(yaml)
         assertFalse(result.ok)
@@ -163,7 +163,7 @@ class DappBuildToolsTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
             libs:
               lib.ft4.admin:
                 registry: https://gitlab.com/chromaway/ft4-lib.git
@@ -188,7 +188,7 @@ class DappBuildToolsTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
         """.trimIndent()
         val result = ValidateChromiaYmlStrategy().execute(
             CallToolRequest(
@@ -217,7 +217,7 @@ class DappBuildToolsTest {
         val result = ChromiaYmlValidator.validate(yaml)
         assertFalse(result.ok)
         assertTrue(result.errors.any { it.contains("module") }, result.errors.toString())
-        assertTrue(result.warnings.any { it.contains("0.14.9") && it.contains("0.16.7") }, result.warnings.toString())
+        assertTrue(result.warnings.any { it.contains("0.14.9") && it.contains("0.16.1") }, result.warnings.toString())
     }
 
     @Test
@@ -272,7 +272,7 @@ class DappBuildToolsTest {
         assertTrue(payload["yaml"]!!.jsonPrimitive.content.contains("gtx:"))
         assertTrue(payload["yaml"]!!.jsonPrimitive.content.contains("com.chromia.iccf"))
         assertTrue(payload["yaml"]!!.jsonPrimitive.content.contains("merkle_hash_version: 2"))
-        assertTrue(payload["yaml"]!!.jsonPrimitive.content.contains("rellVersion: 0.16.7"))
+        assertTrue(payload["yaml"]!!.jsonPrimitive.content.contains("rellVersion: 0.16.1"))
         val validated = ChromiaYmlValidator.validate(payload["yaml"]!!.jsonPrimitive.content)
         assertTrue(validated.ok, validated.errors.toString())
         assertTrue(payload["notes"]!!.jsonPrimitive.content.contains("IccfGTXModule"))
@@ -314,7 +314,7 @@ class DappBuildToolsTest {
         assertFalse(noIccf["yaml"]!!.jsonPrimitive.content.contains("IccfGTXModule"))
         assertFalse(noIccf["yaml"]!!.jsonPrimitive.content.contains("com.chromia.iccf"))
         assertTrue(noIccf["yaml"]!!.jsonPrimitive.content.contains("merkle_hash_version: 2"))
-        assertTrue(noIccf["yaml"]!!.jsonPrimitive.content.contains("rellVersion: 0.16.7"))
+        assertTrue(noIccf["yaml"]!!.jsonPrimitive.content.contains("rellVersion: 0.16.1"))
         val validated = ChromiaYmlValidator.validate(noIccf["yaml"]!!.jsonPrimitive.content)
         assertTrue(validated.ok, validated.errors.toString())
         forbidden.forEach { module ->
@@ -355,7 +355,7 @@ class DappBuildToolsTest {
         assertTrue(buildFlags["format"]!!.jsonPrimitive.content.contains("GTV"))
         assertTrue(buildFlags["format"]!!.jsonPrimitive.content.contains("XML"))
         val compileKeys = payload["compile_keys"]!!.jsonObject
-        assertTrue(compileKeys["rellVersion"]!!.jsonPrimitive.content.contains("0.16.7"))
+        assertTrue(compileKeys["rellVersion"]!!.jsonPrimitive.content.contains("0.16.1"))
         assertTrue(compileKeys["source"]!!.jsonPrimitive.content.contains("src"))
         assertTrue(compileKeys["target"]!!.jsonPrimitive.content.contains("build"))
         assertTrue(compileKeys["strictGtvConversion"]!!.jsonPrimitive.content.contains("true"))
@@ -373,7 +373,7 @@ class DappBuildToolsTest {
         assertTrue(install["windows"]!!.jsonPrimitive.content.contains("scoop-chromia.git"))
         val shape = payload["chromia_yml_shape"]!!.jsonPrimitive.content
         assertTrue(shape.contains("merkle_hash_version: 2"))
-        assertTrue(shape.contains("rellVersion: 0.16.7"))
+        assertTrue(shape.contains("rellVersion: 0.16.1"))
         assertTrue(shape.contains("v1.1.0r"))
         val notes = payload["notes"]!!.jsonPrimitive.content
         assertTrue(notes.contains("no top-level `chr compile`") || notes.contains("no top-level"))
@@ -1142,7 +1142,7 @@ class DappBuildToolsTest {
         assertTrue(yaml.contains("wallet:"))
         assertTrue(yaml.contains("container: <containerIID>"))
         assertTrue(full.contains("merkle_hash_version: 2"))
-        assertTrue(full.contains("rellVersion: 0.16.7"))
+        assertTrue(full.contains("rellVersion: 0.16.1"))
         assertTrue(notes.contains("chr deployment create"))
         assertTrue(notes.contains("writes"))
         assertTrue(notes.contains("does not send signed", ignoreCase = true) || notes.contains("does not send signed"))
@@ -1238,7 +1238,7 @@ class DappBuildToolsTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
             deployments:
               testnet:
                 url: https://node0.testnet.chromia.com:7740
@@ -1258,7 +1258,7 @@ class DappBuildToolsTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
             deployments:
               testnet:
                 url: https://node0.testnet.chromia.com:7740
@@ -1279,7 +1279,7 @@ class DappBuildToolsTest {
               hello:
                 module: main
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
             deployments:
               testnet:
                 url: https://node0.testnet.chromia.com:7740

@@ -17,7 +17,7 @@ import kotlinx.serialization.json.put
  */
 object ChromiaRellLanguageHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
-    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val RELL_VERSION = DappScaffold.RELL_SOURCE_TAG
     const val TOOL_NAME = "chromia_rell_language_help"
     const val INTRO_URL = "https://docs.chromia.com/rell/rell-intro"
     const val CORE_CONCEPTS_URL = "https://docs.chromia.com/rell/core-concepts"

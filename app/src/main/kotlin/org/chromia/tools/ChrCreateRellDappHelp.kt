@@ -744,7 +744,7 @@ object ChrCreateRellDappHelp {
                 )
                 put(
                     "leftover_tools_validate_config_scaffold_dapp",
-                    "the in-memory scaffold_dapp chromia.yml (blockchains module main + config.features.merkle_hash_version 2, compile.rellVersion 0.16.7, libs.ft4 registry/path/tagOrBranch/rid/insecure false) validated clean: No issues found exit 0 - scaffold_dapp output passes the real 0.33.2 schema"
+                    "the in-memory scaffold_dapp chromia.yml (blockchains module main + config.features.merkle_hash_version 2, compile.rellVersion ${DappScaffold.RELL_VERSION}, libs.ft4 registry/path/tagOrBranch/rid/insecure false) validated clean: No issues found exit 0 - scaffold_dapp output passes the real 0.33.2 schema"
                 )
                 put(
                     "leftover_tools_lib_model_printed_shape",

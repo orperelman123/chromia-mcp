@@ -1427,7 +1427,7 @@ object McpTools {
         name = "scaffold_dapp",
         description = """
             Return a production-correct new Chromia dapp skeleton (chromia.yml, src/main.rell, test).
-            Pins: Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1, Chromia CLI 0.33.x.
+            Pins: Rell ${DappScaffold.RELL_VERSION}, merkle_hash_version 2, FT4 v1.1.0r API 1, Chromia CLI 0.33.x.
             Templates: 'hello' (default, query-only quickstart) or 'ft4' - the golden FT4 template:
             accounts + auth handler, an authenticated & require()-validated operation, module_args,
             libs block, and a TypeScript client example. FT4 imports compile after `chr install`.

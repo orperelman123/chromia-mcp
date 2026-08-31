@@ -49,7 +49,7 @@ class DappScaffoldTest {
 
         assertTrue(yml.contains("merkle_hash_version: 2"))
         assertFalse(yml.contains("merkle_hash_version: 1"))
-        assertTrue(yml.contains("rellVersion: 0.16.7"))
+        assertTrue(yml.contains("rellVersion: 0.16.1"))
         assertTrue(yml.contains("tagOrBranch: v1.1.0r"))
         assertTrue(yml.contains("demo_chain:"))
         assertTrue(yml.contains("module: main"))
@@ -101,12 +101,12 @@ class DappScaffoldTest {
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
         assertEquals("wallet", payload["name"]!!.jsonPrimitive.content)
-        assertEquals("0.16.7", payload["rellVersion"]!!.jsonPrimitive.content)
+        assertEquals("0.16.1", payload["rellVersion"]!!.jsonPrimitive.content)
         assertEquals("v1.1.0r", payload["ft4Version"]!!.jsonPrimitive.content)
         assertEquals("1", payload["ft4Api"]!!.jsonPrimitive.content)
         assertEquals(2, payload["merkleHashVersion"]!!.jsonPrimitive.content.toInt())
         val pins = payload["pins"]!!.jsonObject
-        assertEquals("0.16.7", pins["rell"]!!.jsonPrimitive.content)
+        assertEquals("0.16.1", pins["rell"]!!.jsonPrimitive.content)
         assertEquals(2, pins["merkle_hash_version"]!!.jsonPrimitive.content.toInt())
         val forbidden = payload["forbidden"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertTrue("lib.ft4.admin" in forbidden)
@@ -117,7 +117,7 @@ class DappScaffoldTest {
         val yml = files["chromia.yml"]!!.jsonPrimitive.content
         val main = files["src/main.rell"]!!.jsonPrimitive.content
         assertTrue(yml.contains("merkle_hash_version: 2"))
-        assertTrue(yml.contains("rellVersion: 0.16.7"))
+        assertTrue(yml.contains("rellVersion: 0.16.1"))
         assertTrue(yml.contains("v1.1.0r"))
         assertTrue(yml.contains("wallet:"))
         importForbidden.forEach { module ->
@@ -140,7 +140,7 @@ class DappScaffoldTest {
         val prompt = prompts.getPrompt("dapp_build", "Scaffold a new Chromia dapp")
         assertNotNull(prompt)
         val text = prompt!!["prompt"]!!.jsonPrimitive.content
-        assertTrue(text.contains("0.16.7"))
+        assertTrue(text.contains("0.16.1"))
         assertTrue(text.contains("merkle_hash_version 2"))
         assertTrue(text.contains("v1.1.0r"))
         assertTrue(text.contains("lib.ft4.admin"))

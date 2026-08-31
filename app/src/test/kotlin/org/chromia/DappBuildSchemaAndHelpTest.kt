@@ -115,7 +115,7 @@ class DappBuildSchemaAndHelpTest {
                       features:
                         merkle_hash_version: 1
                 compile:
-                  rellVersion: 0.16.7
+                  rellVersion: 0.16.1
                 """.trimIndent(),
                 "merkle_hash_version"
             ),
@@ -141,7 +141,7 @@ class DappBuildSchemaAndHelpTest {
                       features:
                         merkle_hash_version: 2
                 compile:
-                  rellVersion: 0.16.7
+                  rellVersion: 0.16.1
                 libs:
                   lib.ft4.admin:
                     registry: https://gitlab.com/chromaway/ft4-lib.git
@@ -221,7 +221,7 @@ class DappBuildSchemaAndHelpTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
         """.trimIndent()
         val result = ChromiaYmlValidator.validate(yaml)
         assertTrue(result.ok, result.errors.toString())
@@ -255,7 +255,7 @@ class DappBuildSchemaAndHelpTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
         """.trimIndent()
         val result = ChromiaYmlValidator.validate(yaml)
         assertFalse(result.ok)
@@ -719,7 +719,7 @@ class DappBuildSchemaAndHelpTest {
                   features:
                     merkle_hash_version: 2
             compile:
-              rellVersion: 0.16.7
+              rellVersion: 0.16.1
         """.trimIndent()
         val result = ChromiaYmlValidator.validate(yaml)
         assertFalse(result.ok)
@@ -806,7 +806,7 @@ class DappBuildSchemaAndHelpTest {
         assertTrue(layout.contains("data_test.rell"))
         val notes = payload["notes"]!!.jsonPrimitive.content
         val allText = listOf(notes, commands.toString(), flags.toString(), layout).joinToString("\n")
-        assertTrue(notes.contains("0.16.7"))
+        assertTrue(notes.contains("0.16.1"))
         assertTrue(notes.contains("merkle_hash_version"))
         assertTrue(notes.contains("no top-level `chr compile`") || notes.contains("no top-level"))
         assertTrue(notes.contains("does not generate a key"))

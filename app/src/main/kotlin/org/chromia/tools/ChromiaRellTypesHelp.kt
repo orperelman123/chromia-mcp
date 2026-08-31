@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
  */
 object ChromiaRellTypesHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
-    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val RELL_VERSION = DappScaffold.RELL_SOURCE_TAG
     const val TOOL_NAME = "chromia_rell_types_help"
     const val TYPES_URL = "https://docs.chromia.com/rell/language-features/types/"
     const val SIMPLE_URL = "https://docs.chromia.com/rell/language-features/types/simple-types"

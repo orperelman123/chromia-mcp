@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
  */
 object ChromiaRellStatementsHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
-    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val RELL_VERSION = DappScaffold.RELL_SOURCE_TAG
     const val TOOL_NAME = "chromia_rell_statements_help"
     const val INDEX_URL = "https://docs.chromia.com/rell/language-features/statements/"
     const val LOCAL_URL = "https://docs.chromia.com/rell/language-features/statements/local-variable"

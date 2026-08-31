@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
  */
 object ChromiaRellPracticesHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
-    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val RELL_VERSION = DappScaffold.RELL_SOURCE_TAG
     const val TOOL_NAME = "chromia_rell_practices_help"
     const val SECURITY_URL = "https://docs.chromia.com/rell/security"
     const val BEST_PRACTICES_URL = "https://docs.chromia.com/rell/rell-best-practices"

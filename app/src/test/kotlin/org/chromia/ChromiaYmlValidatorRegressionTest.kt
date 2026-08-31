@@ -25,7 +25,7 @@ class ChromiaYmlValidatorRegressionTest {
               features:
                 merkle_hash_version: 2
         compile:
-          rellVersion: 0.16.7
+          rellVersion: 0.16.1
     """.trimIndent() + (if (extra.isEmpty()) "" else "\n$extra")
 
     // A1: sequence items at the SAME indent as the parent key are legal YAML.

@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
  */
 object ChromiaRellDatabaseHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
-    const val RELL_VERSION = DappScaffold.RELL_VERSION
+    const val RELL_VERSION = DappScaffold.RELL_SOURCE_TAG
     const val TOOL_NAME = "chromia_rell_database_help"
     const val INDEX_URL = "https://docs.chromia.com/rell/language-features/database/"
     const val OVERVIEW_URL = "https://docs.chromia.com/rell/language-features/database/overview"

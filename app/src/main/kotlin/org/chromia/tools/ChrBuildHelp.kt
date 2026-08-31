@@ -149,7 +149,7 @@ object ChrBuildHelp {
         Official leftover 0.20.14: blockchain names cannot contain hyphens.
         Official leftover 0.21.0: Java 21 required.
         Official leftover 0.25.0: merkle hash calculator v2 (production pin merkle_hash_version ${DappScaffold.MERKLE_HASH_VERSION}).
-        Official leftover 0.30.0 also bumped docs-site Rell to 0.15.2 — stale vs source pin ${DappScaffold.RELL_VERSION}.
+        Official leftover 0.30.0 also bumped docs-site Rell to 0.15.2 — stale vs source pin ${DappScaffold.RELL_SOURCE_TAG}.
         Official install: https://docs.chromia.com/get-started/installation
         Verify: `chr --version` (docs) or `chr version` (prints CLI + rell + postchain + EIF + Java).
         `chr install` is an alias for `chr library install` (installs libs from chromia.yml).

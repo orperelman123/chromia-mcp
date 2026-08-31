@@ -377,18 +377,18 @@
     "dapp_build": [
         {
             "title": "Scaffold a new Chromia dapp",
-            "description": "Return a production-correct chromia.yml + Rell skeleton. Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1. Never ships lib.ft4.admin / ras_open. Not signed transactions.",
+            "description": "Return a production-correct chromia.yml + Rell skeleton. Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1. Never ships lib.ft4.admin / ras_open. Not signed transactions.",
             "tool": "mcp_chromia-mcp_scaffold_dapp",
-            "prompt": "Scaffold a new Chromia dapp named {name} with production pins (Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1). Never include lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.",
+            "prompt": "Scaffold a new Chromia dapp named {name} with production pins (Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1). Never include lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.",
             "parameters": {
                 "name": "{name}"
             }
         },
         {
             "title": "Validate chromia.yml",
-            "description": "Validate chromia.yml production pins: Rell 0.16.7, merkle_hash_version 2, no FT4 admin / ras_open. Not signed transactions.",
+            "description": "Validate chromia.yml production pins: Rell 0.16.1, merkle_hash_version 2, no FT4 admin / ras_open. Not signed transactions.",
             "tool": "mcp_chromia-mcp_validate_chromia_yml",
-            "prompt": "Validate this chromia.yml against production pins (Rell 0.16.7, merkle_hash_version 2, no lib.ft4.admin / ras_open): {yaml}",
+            "prompt": "Validate this chromia.yml against production pins (Rell 0.16.1, merkle_hash_version 2, no lib.ft4.admin / ras_open): {yaml}",
             "parameters": {
                 "yaml": "{yaml}"
             }

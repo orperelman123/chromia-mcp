@@ -8,12 +8,21 @@ import kotlinx.serialization.json.put
 
 /**
  * Production-correct new-dapp skeleton. Pins match AGENTS.md / official source:
- * Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1.
+ * Rell source tag 0.16.7, chromia.yml rellVersion 0.16.1, merkle_hash_version 2,
+ * FT4 v1.1.0r API 1.
  * Never ships lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
  * Does not send signed transactions.
  */
 object DappScaffold {
-    const val RELL_VERSION = "0.16.7"
+    // Git tag / source revision of the Rell language sources and docs we reference.
+    // NOT what goes into generated chromia.yml.
+    const val RELL_SOURCE_TAG = "0.16.7"
+    // Value written into generated chromia.yml `compile.rellVersion`.
+    // Chromia CLI 0.33.x bundles Rell 0.16.1, whose SUPPORTED_VERSIONS list stops at
+    // 0.16.1 - a project pinned to anything newer (e.g. the 0.16.7 source tag) fails
+    // `chr build` with an "Unknown version" error. Keep this at the newest version
+    // the installed CLI actually accepts.
+    const val RELL_VERSION = "0.16.1"
     const val FT4_VERSION = "v1.1.0r"
     const val FT4_API = "1"
     const val MERKLE_HASH_VERSION = 2
@@ -67,7 +76,9 @@ object DappScaffold {
             `chr node start` → `chr query hello_world` → `"Hello World!"`.
             There is no top-level `chr compile` in 0.33.x; use `chr build` or `chr code check`.
             merkle_hash_version must stay 2. Do not ship merkle_hash_version 1.
-            Rell source tag $RELL_VERSION (docs may still say 0.16.4 — source wins).
+            compile.rellVersion pin $RELL_VERSION — the newest Rell the CLI $CLI_SERIES bundle accepts
+            (SUPPORTED_VERSIONS stops at $RELL_VERSION; a newer pin fails `chr build` with "Unknown version").
+            Rell language source tag $RELL_SOURCE_TAG (docs may still say 0.16.4 — source wins for language docs).
             FT4 pin $FT4_VERSION API $FT4_API. Add FT4 by importing lib.ft4.accounts / lib.ft4.assets after reading fetch_docs; configure module_args from official FT4 setup.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
