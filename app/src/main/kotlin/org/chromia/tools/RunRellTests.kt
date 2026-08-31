@@ -31,6 +31,10 @@ object RunRellTests {
 
     private val TEST_MODULE_REGEX = Regex("""(^|\n)\s*@test\s+module\b""")
 
+    /** True when the (masked) source declares a `@test module`. */
+    internal fun isTestModuleSource(content: String): Boolean =
+        TEST_MODULE_REGEX.containsMatchIn(maskRellSource(content, maskStrings = true))
+
     /**
      * Rell module name for a source path: path separators become dots, and a file
      * named module.rell belongs to its DIRECTORY module (tests/module.rell -> tests),
@@ -75,7 +79,7 @@ object RunRellTests {
         // `module;` is a valid header, and "@test module" inside a comment or string
         // must not classify a file as a test module.
         val testModules = files
-            .filterValues { TEST_MODULE_REGEX.containsMatchIn(maskRellSource(it, maskStrings = true)) }
+            .filterValues { isTestModuleSource(it) }
             .keys.map { moduleNameForPath(it) }
         require(testModules.isNotEmpty()) {
             "No @test modules found. Mark test files with `@test module;` and name test functions test_*."
@@ -92,13 +96,21 @@ object RunRellTests {
                 Files.createDirectories(target.parent)
                 Files.writeString(target, content)
             }
-            execute(tempDir, testModules, databaseUrl)
+            // Vendored FT4 sources for `import lib.ft4.*` - see RellLibs. With the
+            // lib present, app modules must be scoped to the user's own files.
+            val appModules = if (RellLibs.needsFt4(files)) {
+                RellLibs.provisionFt4(tempDir)
+                RellLibs.userAppModules(files)
+            } else {
+                RellLibs.userAppModules(files).ifEmpty { null }
+            }
+            execute(tempDir, appModules, testModules, databaseUrl)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
         }
     }
 
-    private fun execute(sourceDir: Path, testModules: List<String>, databaseUrl: String?): Result {
+    private fun execute(sourceDir: Path, appModules: List<String>?, testModules: List<String>, databaseUrl: String?): Result {
         // Capture compiler/runner messages so a test-compile failure reports
         // file/line diagnostics instead of a bare "Compilation failed".
         val messages = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -121,7 +133,7 @@ object RunRellTests {
         // User test code executes in-process; bound it so an infinite loop in a
         // test returns a clear failure instead of hanging the tool call forever.
         val future = runnerExecutor.submit {
-            RellApiRunTests.runTests(config, sourceDir.toFile(), null, testModules)
+            RellApiRunTests.runTests(config, sourceDir.toFile(), appModules, testModules)
         }
         try {
             future.get(EXECUTION_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)

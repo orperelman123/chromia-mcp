@@ -37,6 +37,9 @@ can verify Rell code is 100% compilable *before* suggesting it — with no `chr`
 
 - Pass `source` (checked as `main.rell`) or `files` (`{"main.rell": "...", "lib/util.rell": "..."}`)
 - Returns structured diagnostics: `ok`, `errors[]`/`warnings[]` with `file`, `line`, `column`, `text`
+- **FT4 works out of the box**: the pinned FT4 v1.1.0r Rell sources are vendored into the server,
+  so `import lib.ft4.accounts;` / `lib.ft4.auth` etc. compile in-process — no `chr install`.
+  Applies to `rell_check`, `rell_security_check`, and `run_rell_tests` alike.
 - Module args declared in the code are not required for the check; nothing is deployed and no
   network is used — sources are compiled in-process in a temp directory and deleted afterwards
 
@@ -65,6 +68,15 @@ Static security review of compiled Rell (compiles first via the embedded compile
 Findings are line-anchored with a concrete fix each. `ok=true` = no CRITICAL/HIGH findings.
 Heuristic static analysis — it does not replace a security audit. The agent loop is:
 `rell_check` until it compiles → `rell_security_check` until clean → present the code.
+
+## Hosted Options
+
+- `CHROMIA_MCP_AUTH_TOKEN=<secret>` — require `Authorization: Bearer <secret>` on every request
+  except `/health`. Off by default (ChatGPT's no-auth connector needs the open mode).
+- The SSE server warms the RAG store and embedding model at startup, eliminating the ~15s
+  first-search latency measured on fresh instances.
+- `/health` and the MCP serverInfo report the real build version (git tag/commit), stamped by the
+  Docker, CI, and release builds.
 
 ## Compact Tool Mode & `chromia_help`
 

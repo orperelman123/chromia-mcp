@@ -53,6 +53,15 @@ class DappScaffoldFt4TemplateTest {
     }
 
     @Test
+    fun ft4TemplateCompilesWithVendoredLib() {
+        // The vendored FT4 v1.1.0r sources must let the golden template compile
+        // in-process - no chr install. This is the core agent loop for real dapps.
+        val main = DappScaffold.files("notes", template = "ft4").getValue("src/main.rell")
+        val compile = org.chromia.tools.RellCheck.check(mapOf("main.rell" to main), null)
+        assertTrue(compile.ok, "ft4 template must compile with vendored lib: ${compile.errors}")
+    }
+
+    @Test
     fun helloScaffoldPassesItsOwnToolchain() {
         // The product promise end-to-end: what scaffold_dapp emits must compile
         // (rell_check) and pass its own test (run_rell_tests) with no edits.

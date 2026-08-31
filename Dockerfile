@@ -15,7 +15,12 @@ COPY . .
 # Explicit gradle heap + a hard timeout: a hung/thrashing suite must FAIL the
 # build loudly (one unbounded build sat 12h+ "in progress"), never wedge it.
 ENV GRADLE_OPTS="-Xmx2g -XX:MaxMetaspaceSize=512m"
-RUN timeout -k 60 2100 gradle :app:test :app:shadowJar --no-daemon --console=plain \
+# Version truth: /health and MCP serverInfo report the real build, not the
+# gradle.properties placeholder. Render exposes RENDER_GIT_COMMIT at build time.
+ARG RENDER_GIT_COMMIT=""
+RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "${RENDER_GIT_COMMIT:-unknown}" | cut -c1-12); \
+    timeout -k 60 2100 gradle :app:test :app:shadowJar --no-daemon --console=plain \
+    -Pversion="${VERSION:-unknown}" \
     -Dorg.gradle.internal.http.connectionTimeout=60000 \
     -Dorg.gradle.internal.http.socketTimeout=180000 \
     -Dorg.gradle.internal.repository.max.retries=6 \

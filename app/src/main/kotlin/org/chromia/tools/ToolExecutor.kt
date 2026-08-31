@@ -126,6 +126,21 @@ class ToolExecutor(
     }
 
     internal fun registeredToolNames(): Set<String> = strategies.keys
+
+    /**
+     * Pre-loads the RAG store and embedding model so the first real `search`
+     * doesn't pay the ~15s cold-start observed in production telemetry.
+     * Failures are logged and swallowed - warmup must never break startup.
+     */
+    suspend fun warmUpDocs() {
+        runCatching {
+            val started = System.nanoTime()
+            ragStoreDeferred.await().query("warmup")
+            org.chromia.App.logger.info("docs warmup done in {} ms", (System.nanoTime() - started) / 1_000_000)
+        }.onFailure { e ->
+            org.chromia.App.logger.warn("docs warmup failed: ${e.message}")
+        }
+    }
 }
 
 /**

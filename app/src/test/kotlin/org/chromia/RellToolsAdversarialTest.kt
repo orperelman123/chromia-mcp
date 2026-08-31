@@ -63,6 +63,46 @@ class RellToolsAdversarialTest {
         assertEquals(0, r.operationsScanned)
     }
 
+    @Test
+    fun indirectAuthThroughHelperFunctionIsRecognized() {
+        val r = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity item { key k: text; }
+                    function require_user(): byte_array {
+                        require(op_context.is_signer(x"03"), "not authorized");
+                        return x"03";
+                    }
+                    function guarded_entry() { require_user(); }
+                    operation add_item(k: text) {
+                        guarded_entry();
+                        require(k.size() > 0, "empty");
+                        create item(k);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertFalse(r.findings.any { it.rule == "unauthenticated-mutation" }, r.findings.toString())
+    }
+
+    @Test
+    fun unrelatedHelperFunctionIsNotAuth() {
+        val r = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity item { key k: text; }
+                    function format_key(k: text): text = k.upper_case();
+                    operation add_item(k: text) {
+                        create item(format_key(k));
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(r.findings.any { it.rule == "unauthenticated-mutation" }, r.findings.toString())
+    }
+
     // --- RunRellTests: module naming and detection ---
 
     @Test

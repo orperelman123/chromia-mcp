@@ -13,6 +13,7 @@ import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.*
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
 import kotlinx.io.asSource
@@ -152,9 +153,33 @@ class App(
         }
     }
 
-    fun runSseMcpServer(host: String, port: Int, wait: Boolean = true): EmbeddedServer<*, *> {
+    suspend fun warmUpDocs() = toolExecutor.warmUpDocs()
+
+    fun runSseMcpServer(
+        host: String,
+        port: Int,
+        wait: Boolean = true,
+        authToken: String? = System.getenv("CHROMIA_MCP_AUTH_TOKEN")?.takeIf { it.isNotBlank() }
+    ): EmbeddedServer<*, *> {
         val server = embeddedServer(CIO, host = host, port = port) {
             installCors()
+            // Optional bearer auth for hosted deployments (CHROMIA_MCP_AUTH_TOKEN).
+            // /health stays open for load-balancer checks. Off by default so
+            // no-auth connectors (e.g. ChatGPT) keep working unless opted in.
+            if (authToken != null) {
+                intercept(io.ktor.server.application.ApplicationCallPipeline.Plugins) {
+                    if (call.request.local.uri != "/health" &&
+                        call.request.headers[io.ktor.http.HttpHeaders.Authorization] != "Bearer $authToken"
+                    ) {
+                        call.respondText(
+                            text = """{"error":"unauthorized"}""",
+                            contentType = ContentType.Application.Json,
+                            status = HttpStatusCode.Unauthorized
+                        )
+                        finish()
+                    }
+                }
+            }
             installHealthEndpoint()
             mcp {
                 return@mcp createMcpServer()
@@ -191,6 +216,9 @@ fun main(args: Array<String>): Unit = runBlocking {
         "--sse" -> {
             try {
                 val options = parseSseArgs(args.drop(1))
+                // Warm the RAG store/model in the background: production telemetry
+                // showed ~15s first-search latency per fresh instance without it.
+                launch { app.warmUpDocs() }
                 app.runSseMcpServer(options.host, options.port)
             } catch (e: IllegalArgumentException) {
                 logger.error("Failed to start SSE server --> ${e.message}")

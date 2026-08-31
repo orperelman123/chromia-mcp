@@ -30,7 +30,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Test and build
-        run: ./gradlew :app:test :app:shadowJar --console=plain
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="${TAG#v}"
 
       - name: Create release with jar
         env:

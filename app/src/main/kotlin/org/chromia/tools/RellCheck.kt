@@ -49,7 +49,16 @@ object RellCheck {
                 Files.createDirectories(target.parent)
                 Files.writeString(target, content)
             }
-            compile(tempDir, modules)
+            // Vendored FT4 sources let `import lib.ft4.*` compile without chr install.
+            // With a vendored lib present the module list must be explicit (the user's
+            // app modules) so library modules compile only when imported.
+            val effectiveModules = if (RellLibs.needsFt4(files)) {
+                RellLibs.provisionFt4(tempDir)
+                modules ?: RellLibs.userAppModules(files)
+            } else {
+                modules ?: RellLibs.userAppModules(files).ifEmpty { null }
+            }
+            compile(tempDir, effectiveModules)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
         }

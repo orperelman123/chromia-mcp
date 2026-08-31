@@ -22,7 +22,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Test and build fat jar
-        run: ./gradlew :app:test :app:shadowJar --console=plain
+        run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
 
       - name: Upload test report
         if: failure()
