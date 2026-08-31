@@ -52,13 +52,24 @@ object RellCheck {
             // Vendored FT4 sources let `import lib.ft4.*` compile without chr install.
             // With a vendored lib present the module list must be explicit (the user's
             // app modules) so library modules compile only when imported.
+            // CRITICAL (audit 2026-08-31): an EMPTY module list means "compile
+            // nothing" to the compiler, which reports ok=true with zero modules - a
+            // false green on broken code. A root module.rell resolves to the empty
+            // module name and is filtered out, so the FT4 branch hit exactly that.
+            // Fall back to null (= all modules) whenever the scoped list is empty.
             val effectiveModules = if (RellLibs.needsFt4(files)) {
                 RellLibs.provisionFt4(tempDir)
-                modules ?: RellLibs.userAppModules(files)
+                modules ?: RellLibs.userAppModules(files).ifEmpty { null }
             } else {
                 modules ?: RellLibs.userAppModules(files).ifEmpty { null }
             }
-            compile(tempDir, effectiveModules)
+            // Test modules are not app modules: without passing them explicitly a
+            // project of only @test files compiled nothing and reported ok=true.
+            val testModules = files.filterValues { RunRellTests.isTestModuleSource(it) }
+                .keys.map { RunRellTests.moduleNameForPath(it) }
+                .filter { it.isNotEmpty() }
+                .distinct()
+            compile(tempDir, effectiveModules, testModules)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
         }
@@ -88,7 +99,7 @@ object RellCheck {
         }
     }
 
-    private fun compile(sourceDir: Path, modules: List<String>?): Result {
+    private fun compile(sourceDir: Path, modules: List<String>?, testModules: List<String> = emptyList()): Result {
         val captured = mutableListOf<String>()
         val cliEnv = PrinterRellCliEnv({ captured.add(it) }, { captured.add(it) })
         val config = RellApiCompile.Config.Builder()
@@ -101,7 +112,7 @@ object RellCheck {
 
         val compiledModules = mutableListOf<String>()
         val failure = runCatching {
-            val app = RellApiCompile.compileApp(config, sourceDir.toFile(), modules)
+            val app = RellApiCompile.compileApp(config, sourceDir.toFile(), modules, testModules)
             app.modules
                 .filter { !it.test && !it.abstract && !it.external }
                 .forEach { compiledModules.add(it.name.toString()) }
