@@ -1070,6 +1070,9 @@ object McpTools {
     fun getNodeUnavailabilityTool() = Tool(
         name = "get_node_unavailability",
         description = """
+            - KNOWN LIMITATION (2026-08-31): the explorer currently requires a reCAPTCHA token
+              for this query, so programmatic calls fail with "reCAPTCHA verification failed" -
+              an upstream policy, not a server bug. Kept for when the requirement is lifted.
             - Get detailed information about node unavailability periods for a specific node
             - Returns comprehensive node downtime information including:
                 - Blockchain RID where the node was unavailable

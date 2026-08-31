@@ -47,7 +47,8 @@ async function rpc(method, params, t = 90000) {
   await fetch(s.msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
   return p;
 }
-const call = (name, args, t) => rpc('tools/call', { name, arguments: args }, t);
+const calledTools = new Set();
+const call = (name, args, t) => { calledTools.add(name); return rpc('tools/call', { name, arguments: args }, t); };
 const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?.result ?? m);
 
 const results = [];
@@ -219,6 +220,66 @@ await check('unknown tool errors cleanly', async () => {
 await check('missing required param message', async () => {
   const t = text(await call('get_blockchain_details', {}));
   expect(t.toLowerCase().includes('rid') || t.toLowerCase().includes('missing'), t.slice(0, 100)); return null;
+});
+
+// --- MCP protocol surfaces beyond tools ---
+await check('resources/list and read', async () => {
+  const l = await rpc('resources/list', {});
+  const resources = l.result?.resources || [];
+  expect(resources.length >= 3, `only ${resources.length} resources`);
+  const r = await rpc('resources/read', { uri: 'chromia://server/health' });
+  const body = r.result?.contents?.[0]?.text ?? '';
+  expect(body.includes('healthy'), body.slice(0, 80));
+  return `${resources.length} resources`;
+});
+
+await check('chromia_help: every topic answers', async () => {
+  const index = JSON.parse(text(await call('chromia_help', {})));
+  const topics = index.topics || [];
+  expect(topics.length >= 25, `only ${topics.length} topics`);
+  const empty = [];
+  for (const topic of topics) {
+    const t = text(await call('chromia_help', { topic }));
+    if (!t || t.length < 50 || t.includes('Unknown topic')) empty.push(topic);
+  }
+  expect(empty.length === 0, 'empty/unknown topics: ' + empty.join(','));
+  return `${topics.length} topics`;
+}, 'chromia_help');
+
+// --- Total coverage: every advertised tool must respond to a call ---
+const KNOWN_ARGS = {
+  get_monthly_active_accounts_per_chain: { brid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2' },
+  get_blockchain_analytics: { brid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2' },
+  get_asset_distribution: { assetId: '5F16D1545A0881F971B164F1601CBBF51C29EFD0633B2730DA18C403C3B428B5' },
+  get_asset_blockchains: { assetId: '5F16D1545A0881F971B164F1601CBBF51C29EFD0633B2730DA18C403C3B428B5' },
+  filter_assets: { searchQuery: 'CHR' },
+  get_account_blockchains: { accountId: '3008BC6FB654A749FC2F903772545B939A9B5D8047EA2437B8675952BDD6EFD0' },
+  get_signer_blockchains: { signer: '03A301697BDFCD704313BA48E51D567543F2A182031EFD6915DDC07BBCC4E16070' },
+  get_node_unavailability: { pubkey: '03A301697BDFCD704313BA48E51D567543F2A182031EFD6915DDC07BBCC4E16070', startTimestamp: '1690000000000' },
+  ft4_module_args: { name: 'sweep' },
+  rell_check: { source: 'module;\nquery ok() = 1;' },
+  rell_security_check: { source: 'module;\nquery ok() = 1;' },
+  run_rell_tests: { files: { 't.rell': '@test module;\nfunction test_x() { assert_equals(1, 1); }' } },
+  chromia_dapp_query: { blockchainRid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2', query: 'rell.get_app_structure' },
+};
+// Snapshot BEFORE the check so a session-reconnect retry re-verifies the same
+// target list instead of vacuously passing on an empty "uncalled" set.
+const coverageTargets = toolNames.filter(n => !calledTools.has(n));
+await check('coverage: every advertised tool responds', async () => {
+  const failures = [];
+  for (const name of coverageTargets) {
+    try {
+      const m = await call(name, KNOWN_ARGS[name] ?? {}, 240000);
+      const t = text(m);
+      // Clean refusals: our own validation guidance, or documented upstream
+      // limitations (explorer requires reCAPTCHA for node-unavailability).
+      const cleanRefusal = /Missing required parameter|needs|Provide|pass |No @test modules|reCAPTCHA/i.test(t);
+      if (!m?.result) failures.push(`${name}: no result`);
+      else if (m.result.isError === true && !cleanRefusal) failures.push(`${name}: ${t.slice(0, 100)}`);
+    } catch (e) { failures.push(`${name}: ${e.message}`); }
+  }
+  expect(failures.length === 0, failures.join(' | ').slice(0, 400));
+  return `${coverageTargets.length} additional tool(s) exercised; ${calledTools.size} total covered`;
 });
 
 const failed = results.filter(r => !r[1]);

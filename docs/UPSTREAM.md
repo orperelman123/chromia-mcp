@@ -50,6 +50,14 @@ Upstream returns the entire `llms-full.txt` resource in one tool result, which
 overflows an AI assistant's context. Fix: add `search` (matches with context)
 and `offset`/`maxChars` pagination to the tool schema and handler.
 
+## 7a. Explorer: `getNodeUnavailability` now requires reCAPTCHA
+
+Discovered 2026-08-31 by the e2e coverage sweep: programmatic calls to
+`getNodeUnavailability` on explorer.chromia.com fail with
+`GraphQL Error: reCAPTCHA verification failed: token is required`. Any
+API/MCP client of this query (including the official chromia-mcp) is
+silently broken until the explorer offers a non-browser API path.
+
 ## 7. `filter_assets` sorting declared but never bound
 
 The GraphQL query declares `$sortBy`/`$sortDirection` but nothing binds them -

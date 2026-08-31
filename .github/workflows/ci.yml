@@ -85,3 +85,10 @@ jobs:
           curl -sf http://127.0.0.1:3001/health
           node scripts/e2e-sweep.mjs http://127.0.0.1:3001
           kill $SERVER_PID || true
+
+      - name: Stdio transport smoke (the Claude Code surface + npm launcher)
+        env:
+          CHROMIA_MCP_JAR: chromia-mcp-server.jar
+        run: |
+          node scripts/stdio-smoke.mjs chromia-mcp-server.jar
+          node scripts/stdio-smoke.mjs --launcher

@@ -46,6 +46,8 @@ data class ChromiaConfig(
 )
 
 data class HttpTimeouts(
-    val requestTimeout: Duration = 30.seconds,
+    // Heavy explorer analytics (blockchainAnalytics, monthlyActiveAccountsPerChain)
+    // were observed exceeding 30s under load in the e2e coverage sweep.
+    val requestTimeout: Duration = 60.seconds,
     val connectTimeout: Duration = 10.seconds
 )
