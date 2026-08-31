@@ -74,6 +74,11 @@ object RunRellTests {
             require(!relPath.contains("..") && !Path.of(relPath).isAbsolute) { "Path must be relative without '..': $relPath" }
             require(relPath.endsWith(".rell")) { "Only .rell files are supported: $relPath" }
         }
+        // Same case-insensitive clobbering hazard as rell_check (QA finding).
+        val collisions = files.keys.groupBy { it.lowercase().replace('\\', '/') }.filterValues { it.size > 1 }
+        require(collisions.isEmpty()) {
+            "Case-insensitive path collision: ${collisions.values.first()} - most file systems treat these as the same file; rename one."
+        }
 
         // Detect @test on comment/string-masked source: `@test // note` + newline +
         // `module;` is a valid header, and "@test module" inside a comment or string
@@ -94,7 +99,7 @@ object RunRellTests {
                 val target = tempDir.resolve(relPath).normalize()
                 require(target.startsWith(tempDir)) { "Path escapes source root: $relPath" }
                 Files.createDirectories(target.parent)
-                Files.writeString(target, content)
+                Files.writeString(target, RellCheck.stripBom(content))
             }
             // Vendored FT4 sources for `import lib.ft4.*` - see RellLibs. With the
             // lib present, app modules must be scoped to the user's own files.

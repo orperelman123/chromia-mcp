@@ -84,6 +84,7 @@ jobs:
           done
           curl -sf http://127.0.0.1:3001/health
           node scripts/e2e-sweep.mjs http://127.0.0.1:3001
+          node scripts/synthetic-agent.mjs http://127.0.0.1:3001
           kill $SERVER_PID || true
 
       - name: Stdio transport smoke (the Claude Code surface + npm launcher)

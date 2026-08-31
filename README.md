@@ -137,6 +137,24 @@ official `chromaway/core-tools/chromia-mcp` (silent list-filter corruption, two 
 schema drifts, swallowed tool errors, stdout log corruption, context-bomb docs, dead sorting) —
 patch-ready notes for a merge request from the company account.
 
+## Testing Layers
+
+Every push runs the full pyramid — none of these can be skipped:
+
+1. **Unit + regression suite** (`./gradlew test`, 380+ tests) — includes `RellToolsFuzzTest`,
+   a seeded property-based fuzzer that throws generated/mutated Rell at the compiler tools and
+   asserts they always return structured results, never crash or hang (found a real crash on
+   its first run: unterminated `operation x() {` at EOF).
+2. **E2E sweep** (`scripts/e2e-sweep.mjs <url>`) — every advertised tool must respond (100%
+   coverage gate), MCP resources, all help topics, the agent journey, error paths; reconnecting
+   session, upstream explorer latency classified separately from real failures.
+3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — 17 checks over the transport
+   Claude Code uses, run against the jar and through the npm launcher.
+4. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
+   using only tool outputs: discovery → doc search → scaffold → plant a bug → locate it purely
+   from compiler diagnostics → repair → security gate → behavior gate → validated deploy config.
+   If any tool output lacks what an agent needs to act, this fails.
+
 ## Continuous Integration
 
 - `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21); the jar is

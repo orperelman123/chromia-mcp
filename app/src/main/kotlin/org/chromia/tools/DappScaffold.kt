@@ -79,10 +79,25 @@ object DappScaffold {
 
     fun toJson(name: String?, template: String = "hello"): JsonObject {
         val chain = normalizeName(name)
+        val effectiveTemplate = if (template == "ft4") "ft4" else "hello"
         val fileMap = files(chain, template)
+        // Never silently substitute what the agent asked for (QA finding):
+        // surface every fallback as an explicit warning.
+        val warnings = mutableListOf<String>()
+        val requested = name?.trim().orEmpty()
+        if (requested.isNotEmpty() && requested.lowercase() != chain) {
+            warnings.add(
+                "Requested name '$requested' is not a valid chain name (must match [a-z][a-z0-9_]{0,31}); " +
+                    "scaffolded as '$chain' instead - pass a valid name to use it."
+            )
+        }
+        if (template != effectiveTemplate) {
+            warnings.add("Unknown template '$template' (valid: hello, ft4); scaffolded the '$effectiveTemplate' template.")
+        }
         return buildJsonObject {
             put("name", chain)
-            put("template", if (template == "ft4") "ft4" else "hello")
+            put("template", effectiveTemplate)
+            put("warnings", buildJsonArray { warnings.forEach { add(JsonPrimitive(it)) } })
             put("rellVersion", RELL_VERSION)
             put("ft4Version", FT4_VERSION)
             put("ft4Api", FT4_API)

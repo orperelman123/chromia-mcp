@@ -47,7 +47,7 @@ object RellCheck {
                 val target = tempDir.resolve(relPath).normalize()
                 require(target.startsWith(tempDir)) { "Path escapes source root: $relPath" }
                 Files.createDirectories(target.parent)
-                Files.writeString(target, content)
+                Files.writeString(target, stripBom(content))
             }
             // Vendored FT4 sources let `import lib.ft4.*` compile without chr install.
             // With a vendored lib present the module list must be explicit (the user's
@@ -64,6 +64,13 @@ object RellCheck {
         }
     }
 
+    /**
+     * Windows editors (Notepad, some VS Code configs) prefix files with U+FEFF.
+     * The Rell lexer rejects it as an unexpected token, so a perfectly valid file
+     * fails with a cryptic syntax error (QA finding). Strip it before compiling.
+     */
+    internal fun stripBom(content: String): String = content.removePrefix("﻿")
+
     private fun validateFileMap(files: Map<String, String>) {
         require(files.isNotEmpty()) { "Provide `source` or a non-empty `files` map" }
         files.keys.forEach { relPath ->
@@ -71,6 +78,13 @@ object RellCheck {
             require(!relPath.contains("..")) { "Path must not contain '..': $relPath" }
             require(!Path.of(relPath).isAbsolute) { "Path must be relative: $relPath" }
             require(relPath.endsWith(".rell")) { "Only .rell files are compiled: $relPath" }
+        }
+        // Case-insensitive filesystems (Windows, default macOS) map a.rell and A.rell
+        // to ONE file - the second write silently clobbers the first and produces a
+        // misleading "module not found" (QA finding). Reject the collision explicitly.
+        val collisions = files.keys.groupBy { it.lowercase().replace('\\', '/') }.filterValues { it.size > 1 }
+        require(collisions.isEmpty()) {
+            "Case-insensitive path collision: ${collisions.values.first()} - most file systems treat these as the same file; rename one."
         }
     }
 

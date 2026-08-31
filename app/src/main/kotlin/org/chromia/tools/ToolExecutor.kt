@@ -194,6 +194,29 @@ abstract class BaseToolStrategy : ToolStrategy {
         }
     }
 
+    /**
+     * Pagination guard: negative/zero limits and negative offsets used to be
+     * forwarded to the explorer, which answers with an opaque
+     * "GraphQL Error: INTERNAL_ERROR for <uuid>" (QA finding). Fail locally
+     * with an actionable message instead.
+     */
+    protected fun extractPagination(arguments: Map<String, Any>): org.chromia.domain.PaginationParams {
+        val limit = extractInt(arguments, "limit")
+        val offset = extractInt(arguments, "offset")
+        require(limit == null || limit > 0) { "limit must be a positive integer (got $limit)" }
+        require(offset == null || offset >= 0) { "offset must be zero or a positive integer (got $offset)" }
+        return org.chromia.domain.PaginationParams(limit = limit, offset = offset)
+    }
+
+    /** Rejects an inverted time window before it reaches the explorer (QA finding). */
+    protected fun requireOrderedTimestamps(from: String?, to: String?) {
+        val f = from?.toLongOrNull()
+        val t = to?.toLongOrNull()
+        require(f == null || t == null || f <= t) {
+            "timestampFrom ($from) must not be later than timestampTo ($to)"
+        }
+    }
+
     protected fun extractStringList(arguments: Map<String, Any>, key: String): List<String>? {
         val raw = arguments[key] ?: return null
         if (raw is JsonNull) return null
@@ -394,6 +417,7 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
         val limit = extractInt(args, "limit")
+        require(limit == null || limit > 0) { "limit must be a positive integer (got $limit)" }
 
         val filters = org.chromia.domain.AssetFilters(
             brids = extractStringList(args, "brids"),
@@ -448,6 +472,7 @@ class AllTransactionsStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
 
+        requireOrderedTimestamps(extractString(args, "timestampFrom"), extractString(args, "timestampTo"))
         val filters = org.chromia.domain.TransactionFilters(
             rid = extractString(args, "rid"),
             blockId = extractString(args, "blockId"),
@@ -462,10 +487,7 @@ class AllTransactionsStrategy : BaseToolStrategy() {
             accounts = extractStringList(args, "accounts"),
             excludedAccounts = extractStringList(args, "excludedAccounts"),
             assets = extractStringList(args, "assets"),
-            pagination = PaginationParams(
-                limit = extractInt(args, "limit"),
-                offset = extractInt(args, "offset")
-            ),
+            pagination = extractPagination(args),
             sorting = SortingParams(
                 sortBy = extractString(args, "sortBy"),
                 sortDirection = extractString(args, "sortDirection")
@@ -496,10 +518,7 @@ class FilterAssetsStrategy : BaseToolStrategy() {
             brid = extractString(args, "brid"),
             searchQuery = extractString(args, "searchQuery"),
             type = extractString(args, "type"),
-            pagination = PaginationParams(
-                limit = extractInt(args, "limit"),
-                offset = extractInt(args, "offset")
-            ),
+            pagination = extractPagination(args),
             sorting = SortingParams(
                 sortBy = extractString(args, "sortBy"),
                 sortDirection = extractString(args, "sortDirection")
@@ -596,10 +615,7 @@ class FilterBlockchainsStrategy : BaseToolStrategy() {
             container = extractString(args, "container"),
             state = extractString(args, "state"),
             system = extractBoolean(args, "system"),
-            pagination = PaginationParams(
-                limit = extractInt(args, "limit"),
-                offset = extractInt(args, "offset")
-            ),
+            pagination = extractPagination(args),
             sorting = SortingParams(
                 sortBy = extractString(args, "sortBy"),
                 sortDirection = extractString(args, "sortDirection")

@@ -244,7 +244,10 @@ object RellSecurityCheck {
             val params = content.substring(parenStart + 1, parenEnd)
             val braceStart = content.indexOf('{', parenEnd)
             if (braceStart < 0) return@forEach
-            val braceEnd = matchDelimiter(content, braceStart, '{', '}') ?: content.length - 1
+            // Unterminated body (e.g. `operation x() {` at EOF): fall back to end-of-input,
+            // clamped so the substring can never invert (fuzzer-found crash).
+            val braceEnd = (matchDelimiter(content, braceStart, '{', '}') ?: content.length)
+                .coerceIn(braceStart + 1, content.length)
             val body = content.substring(braceStart + 1, braceEnd)
             blocks.add(OperationBlock(name, startLine, params, body))
         }
@@ -252,6 +255,7 @@ object RellSecurityCheck {
     }
 
     private fun matchDelimiter(content: String, start: Int, open: Char, close: Char): Int? {
+        if (start < 0 || start >= content.length || content[start] != open) return null
         var depth = 0
         for (i in start until content.length) {
             when (content[i]) {
@@ -259,6 +263,7 @@ object RellSecurityCheck {
                 close -> {
                     depth--
                     if (depth == 0) return i
+                    if (depth < 0) return null
                 }
             }
         }
