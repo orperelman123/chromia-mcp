@@ -978,9 +978,16 @@ class RunRellTestsStrategy : BaseToolStrategy() {
                 "run_rell_tests needs a `files` map including at least one `@test module;` file, e.g. {\"main.rell\": \"module; ...\", \"tests/main_test.rell\": \"@test module; ...\"}"
             )
         }
+        // module_args by module name, e.g. {"lib.ft4.core.accounts": {...}} - required
+        // to exercise real FT4 operations in tests.
+        val moduleArgsArg = args["moduleArgs"]
+        val moduleArgs = if (moduleArgsArg is JsonObject) {
+            moduleArgsArg.mapValues { (_, v) -> (v as? JsonObject)?.toMap() ?: emptyMap() }
+        } else emptyMap()
+
         return runCatching {
             val result = withContext(Dispatchers.IO) {
-                with(RunRellTests) { run(files).toJson() }
+                with(RunRellTests) { run(files, moduleArgs = moduleArgs).toJson() }
             }
             toolSuccessResult(result)
         }.getOrElse { e ->

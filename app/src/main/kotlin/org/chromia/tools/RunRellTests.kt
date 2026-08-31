@@ -68,7 +68,12 @@ object RunRellTests {
         val notes: String
     )
 
-    fun run(files: Map<String, String>, databaseUrl: String? = System.getenv(DATABASE_URL_ENV)): Result {
+    fun run(
+        files: Map<String, String>,
+        databaseUrl: String? = System.getenv(DATABASE_URL_ENV),
+        /** module name -> module_args, e.g. {"lib.ft4.core.accounts": {"rate_limit": {...}}}. */
+        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap()
+    ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
         files.keys.forEach { relPath ->
             require(!relPath.contains("..") && !Path.of(relPath).isAbsolute) { "Path must be relative without '..': $relPath" }
@@ -109,13 +114,40 @@ object RunRellTests {
             } else {
                 RellLibs.userAppModules(files).ifEmpty { null }
             }
-            execute(tempDir, appModules, testModules, databaseUrl)
+            execute(tempDir, appModules, testModules, databaseUrl, moduleArgs)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
         }
     }
 
-    private fun execute(sourceDir: Path, appModules: List<String>?, testModules: List<String>, databaseUrl: String?): Result {
+    /** Converts JSON module args to the Gtv map the Rell compiler expects. */
+    private fun toGtvArgs(
+        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>>
+    ): Map<String, Map<String, net.postchain.gtv.Gtv>> =
+        moduleArgs.mapValues { (_, args) -> args.mapValues { (_, v) -> jsonToGtv(v) } }
+
+    private fun jsonToGtv(element: kotlinx.serialization.json.JsonElement): net.postchain.gtv.Gtv = when (element) {
+        is kotlinx.serialization.json.JsonNull -> net.postchain.gtv.GtvNull
+        is kotlinx.serialization.json.JsonPrimitive ->
+            when {
+                element.isString -> net.postchain.gtv.GtvFactory.gtv(element.content)
+                element.content == "true" || element.content == "false" ->
+                    net.postchain.gtv.GtvFactory.gtv(element.content.toBoolean())
+                else -> element.content.toLongOrNull()?.let { net.postchain.gtv.GtvFactory.gtv(it) }
+                    ?: net.postchain.gtv.GtvFactory.gtv(element.content)
+            }
+        is kotlinx.serialization.json.JsonArray -> net.postchain.gtv.GtvFactory.gtv(element.map { jsonToGtv(it) })
+        is kotlinx.serialization.json.JsonObject ->
+            net.postchain.gtv.GtvFactory.gtv(element.mapValues { (_, v) -> jsonToGtv(v) })
+    }
+
+    private fun execute(
+        sourceDir: Path,
+        appModules: List<String>?,
+        testModules: List<String>,
+        databaseUrl: String?,
+        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap()
+    ): Result {
         // Capture compiler/runner messages so a test-compile failure reports
         // file/line diagnostics instead of a bare "Compilation failed".
         val messages = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -127,6 +159,9 @@ object RunRellTests {
                 RellApiCompile.Config.Builder()
                     .cliEnv(quietEnv)
                     .moduleArgsMissingError(false)
+                    // Real FT4 tests need module_args (lib.ft4.core.accounts etc.);
+                    // without them an authenticated operation cannot be exercised.
+                    .apply { if (moduleArgs.isNotEmpty()) moduleArgs(toGtvArgs(moduleArgs)) }
                     .build()
             )
             .cliEnv(quietEnv)

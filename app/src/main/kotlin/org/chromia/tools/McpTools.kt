@@ -1690,6 +1690,12 @@ object McpTools {
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell paths to contents: app modules plus at least one @test module, e.g. {\"main.rell\": \"module; ...\", \"main_test.rell\": \"@test module; import main; function test_x() { ... }\"}.")
                         )
+                    ),
+                    "moduleArgs" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml, e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests (use ft4_module_args to get production-correct values).")
+                        )
                     )
                 )
             ),
@@ -2710,9 +2716,12 @@ object McpTools {
     fun checkDappProjectTool() = Tool(
         name = "check_dapp_project",
         description = """
-            Read-only in-memory dapp project check. Takes a chromia.yml string plus one or more .rell file contents.
-            Runs validate_chromia_yml and check_ft4_imports and returns combined {ok, errors, warnings}.
-            Does not write files, run chr, generate keys, or send signed transactions.
+            One-call project gate. Takes a chromia.yml string plus one or more .rell file contents and runs
+            the FULL check: validate_chromia_yml + check_ft4_imports + rell_check (real compilation, FT4
+            imports included) + rell_security_check when it compiles. Returns combined {ok, errors, warnings};
+            ok=true means the project parses, compiles, and has no CRITICAL/HIGH security findings.
+            Use this as the single pre-deploy gate instead of calling the four tools separately.
+            Read-only: does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(
             properties = JsonObject(

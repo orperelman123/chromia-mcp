@@ -26,7 +26,12 @@ object CheckDappProject {
         }
     }
 
-    fun check(yaml: String, rellFiles: Map<String, String>): Result {
+    /**
+     * @param compile also compile the sources (rell_check) and run the security
+     * pass, so `ok:true` means "this project actually builds and is not obviously
+     * insecure" - not merely "the yml parses". Disable only for pure-text checks.
+     */
+    fun check(yaml: String, rellFiles: Map<String, String>, compile: Boolean = true): Result {
         val yml = ChromiaYmlValidator.validate(yaml)
         val errors = mutableListOf<String>()
         val warnings = yml.warnings.map { "$YAML_PATH: $it" }.toMutableList()
@@ -39,6 +44,35 @@ object CheckDappProject {
             val one = Ft4ImportCheck.scan(content)
             one.errors.forEach { err -> errors += "$label: $err" }
             one.warnings.forEach { warn -> warnings += "$label: $warn" }
+        }
+
+        if (compile && rellFiles.isNotEmpty()) {
+            // A project check that never compiles can report ok:true on code that
+            // does not parse. Compile, then security-scan when it builds.
+            val compilable = rellFiles.filterKeys { it.trim().endsWith(".rell") }
+                .mapKeys { (path, _) -> path.trim().removePrefix("./").removePrefix("src/") }
+            if (compilable.isNotEmpty()) {
+                runCatching { RellCheck.check(compilable, null) }.fold(
+                    onSuccess = { result ->
+                        result.errors.forEach { d ->
+                            val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
+                            errors += if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
+                        }
+                        result.warnings.forEach { d ->
+                            val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
+                            warnings += if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
+                        }
+                        if (result.ok) {
+                            val sec = RellSecurityCheck.analyze(compilable)
+                            sec.findings.forEach { f ->
+                                val line = "${f.file}:${f.line}: [${f.severity}] ${f.rule} - ${f.text}. Fix: ${f.fix}"
+                                if (f.severity == "CRITICAL" || f.severity == "HIGH") errors += line else warnings += line
+                            }
+                        }
+                    },
+                    onFailure = { e -> errors += "rell: compile check failed: ${e.message}" }
+                )
+            }
         }
         return Result(ok = errors.isEmpty(), errors = errors, warnings = warnings)
     }
