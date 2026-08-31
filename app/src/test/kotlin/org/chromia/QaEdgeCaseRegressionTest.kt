@@ -125,4 +125,78 @@ class QaEdgeCaseRegressionTest {
         val result = call(AllTransactionsStrategy(), buildJsonObject { put("limit", 5); put("offset", 0) })
         assertTrue(result.isError != true, (result.content.first() as TextContent).text)
     }
+
+    // 6. ISO time windows were never validated: requireOrderedTimestamps only
+    // tried toLongOrNull, so "ISO format" (the documented schema) was a no-op.
+    @Test
+    fun invertedIsoTimeRangeIsRejectedLocally() {
+        val result = callViaExecutor(
+            "get_all_transactions",
+            buildJsonObject { put("timestampFrom", "2025-06-01T00:00:00Z"); put("timestampTo", "2024-01-01T00:00:00Z") }
+        )
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("must not be later than"), text.take(200))
+    }
+
+    @Test
+    fun orderedIsoTimeRangePassesThrough() {
+        val result = call(
+            AllTransactionsStrategy(),
+            buildJsonObject { put("timestampFrom", "2024-01-01"); put("timestampTo", "2025-06-01T12:30:00Z") }
+        )
+        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+    }
+
+    @Test
+    fun malformedTimestampsDoNotThrowLocally() {
+        val result = call(
+            AllTransactionsStrategy(),
+            buildJsonObject { put("timestampFrom", "not-a-date"); put("timestampTo", "also-bad") }
+        )
+        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+    }
+
+    @Test
+    fun mixedEpochAndIsoTimestampsAreNotRejected() {
+        val result = call(
+            AllTransactionsStrategy(),
+            buildJsonObject { put("timestampFrom", "1700000000000"); put("timestampTo", "2020-01-01T00:00:00Z") }
+        )
+        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+    }
+
+    // 7. Malformed pagination used to be silently dropped by extractInt,
+    // hiding the agent's mistake behind unpaginated results.
+    @Test
+    fun nonNumericLimitIsRejectedWithClearError() {
+        val result = callViaExecutor("get_all_transactions", buildJsonObject { put("limit", "twenty") })
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("limit must be an integer"), text.take(200))
+    }
+
+    @Test
+    fun nonNumericOffsetIsRejectedWithClearError() {
+        val result = callViaExecutor("get_all_transactions", buildJsonObject { put("offset", "abc") })
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("offset must be an integer"), text.take(200))
+    }
+
+    @Test
+    fun outOfIntRangeLimitIsRejectedWithClearError() {
+        val result = callViaExecutor("get_all_transactions", buildJsonObject { put("limit", 99_999_999_999L) })
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("limit is out of range"), text.take(200))
+    }
+
+    @Test
+    fun absurdlyLargeLimitIsRejectedWithClearError() {
+        val result = callViaExecutor("get_all_transactions", buildJsonObject { put("limit", 1_000_000) })
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("limit must not exceed"), text.take(200))
+    }
 }

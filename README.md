@@ -73,6 +73,9 @@ Heuristic static analysis — it does not replace a security audit. The agent lo
 
 - `CHROMIA_MCP_AUTH_TOKEN=<secret>` — require `Authorization: Bearer <secret>` on every request
   except `/health`. Off by default (ChatGPT's no-auth connector needs the open mode).
+- `CHROMIA_MCP_ALLOWED_ORIGINS=<origins>` — comma-separated list of browser origins allowed by
+  CORS (e.g. `https://app.example.com,http://localhost:5173`). Unset or `*` allows any origin;
+  credentials are never allowed cross-origin.
 - The SSE server warms the RAG store and embedding model at startup, eliminating the ~15s
   first-search latency measured on fresh instances.
 - `/health` and the MCP serverInfo report the real build version (git tag/commit), stamped by the

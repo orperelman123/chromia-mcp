@@ -161,6 +161,13 @@ internal fun toolErrorResult(message: String): CallToolResult =
         isError = true
     )
 
+/**
+ * Sane ceiling for explorer pagination: the tool schemas default to 10-50
+ * per page, so an absurdly large limit is an agent mistake worth flagging
+ * rather than forwarding (QA finding).
+ */
+internal const val MAX_PAGINATION_LIMIT = 1000
+
 abstract class BaseToolStrategy : ToolStrategy {
     protected fun extractString(arguments: Map<String, Any>, key: String): String? {
         val value = arguments[key] ?: return null
@@ -198,23 +205,74 @@ abstract class BaseToolStrategy : ToolStrategy {
      * Pagination guard: negative/zero limits and negative offsets used to be
      * forwarded to the explorer, which answers with an opaque
      * "GraphQL Error: INTERNAL_ERROR for <uuid>" (QA finding). Fail locally
-     * with an actionable message instead.
+     * with an actionable message instead. Malformed values (non-numeric,
+     * out of range) used to be silently dropped by [extractInt], returning
+     * unpaginated results with no hint the argument was ignored (QA finding);
+     * a present-but-invalid value is now a validation error.
      */
     protected fun extractPagination(arguments: Map<String, Any>): org.chromia.domain.PaginationParams {
-        val limit = extractInt(arguments, "limit")
-        val offset = extractInt(arguments, "offset")
+        val limit = extractPaginationValue(arguments, "limit")
+        val offset = extractPaginationValue(arguments, "offset")
         require(limit == null || limit > 0) { "limit must be a positive integer (got $limit)" }
+        require(limit == null || limit <= MAX_PAGINATION_LIMIT) {
+            "limit must not exceed $MAX_PAGINATION_LIMIT (got $limit)"
+        }
         require(offset == null || offset >= 0) { "offset must be zero or a positive integer (got $offset)" }
-        return org.chromia.domain.PaginationParams(limit = limit, offset = offset)
+        return org.chromia.domain.PaginationParams(limit = limit?.toInt(), offset = offset?.toInt())
     }
 
-    /** Rejects an inverted time window before it reaches the explorer (QA finding). */
+    /**
+     * Absent and JSON-null values mean "not provided"; anything else must be
+     * an integer, and one that fits in an Int (the explorer takes GraphQL
+     * Int) - otherwise the caller gets a clear validation error instead of a
+     * silently ignored argument.
+     */
+    private fun extractPaginationValue(arguments: Map<String, Any>, key: String): Long? {
+        val value = arguments[key] ?: return null
+        if (value is JsonNull) return null
+        val raw = if (value is JsonPrimitive) value.content else value.toString()
+        val parsed = raw.trim().toLongOrNull()
+        require(parsed != null) { "$key must be an integer (got \"$raw\")" }
+        require(parsed in Int.MIN_VALUE..Int.MAX_VALUE) { "$key is out of range (got $parsed)" }
+        return parsed
+    }
+
+    /**
+     * Rejects an inverted time window before it reaches the explorer
+     * (QA finding). Understands the formats agents actually send: epoch
+     * numbers and ISO-8601 strings (the tool schema documents "ISO format" -
+     * previously ISO values were silently skipped because only
+     * [String.toLongOrNull] was tried, QA finding). Ordering is enforced only
+     * when both bounds parse as the same format; mixed or malformed values
+     * are passed through for the explorer to report - never thrown on.
+     */
     protected fun requireOrderedTimestamps(from: String?, to: String?) {
-        val f = from?.toLongOrNull()
-        val t = to?.toLongOrNull()
-        require(f == null || t == null || f <= t) {
+        if (from == null || to == null) return
+        val numericFrom = from.trim().toLongOrNull()
+        val numericTo = to.trim().toLongOrNull()
+        if (numericFrom != null && numericTo != null) {
+            require(numericFrom <= numericTo) {
+                "timestampFrom ($from) must not be later than timestampTo ($to)"
+            }
+            return
+        }
+        if (numericFrom != null || numericTo != null) return // mixed formats: let the explorer decide
+        val isoFrom = parseIsoTimestamp(from)
+        val isoTo = parseIsoTimestamp(to)
+        require(isoFrom == null || isoTo == null || isoFrom <= isoTo) {
             "timestampFrom ($from) must not be later than timestampTo ($to)"
         }
+    }
+
+    private fun parseIsoTimestamp(value: String): java.time.Instant? {
+        val v = value.trim()
+        val parsers = listOf<(String) -> java.time.Instant>(
+            { java.time.Instant.parse(it) },
+            { java.time.OffsetDateTime.parse(it).toInstant() },
+            { java.time.LocalDateTime.parse(it).toInstant(java.time.ZoneOffset.UTC) },
+            { java.time.LocalDate.parse(it).atStartOfDay(java.time.ZoneOffset.UTC).toInstant() },
+        )
+        return parsers.firstNotNullOfOrNull { parse -> runCatching { parse(v) }.getOrNull() }
     }
 
     protected fun extractStringList(arguments: Map<String, Any>, key: String): List<String>? {

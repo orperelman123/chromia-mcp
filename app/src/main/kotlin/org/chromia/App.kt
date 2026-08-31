@@ -12,12 +12,16 @@ import io.modelcontextprotocol.kotlin.sdk.ReadResourceResult
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.*
+import io.ktor.server.request.path
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.io.Sink
+import kotlinx.io.Source
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
+import kotlin.system.exitProcess
 import org.chromia.App.Companion.logger
 import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.domain.ChromiaRepository
@@ -126,29 +130,69 @@ class App(
         }
     }
 
-    private fun Application.installCors() {
+    /**
+     * CORS for browser-based MCP clients. Without any allowed host the ktor
+     * plugin rejects every cross-origin request with 403 (QA finding), so no
+     * browser client could ever connect. CHROMIA_MCP_ALLOWED_ORIGINS (comma
+     * separated, e.g. "https://app.example.com,http://localhost:5173") narrows
+     * access to specific origins; unset (or "*") allows any origin.
+     * Credentials are never allowed - the wildcard-origin-with-credentials
+     * combination is unsafe, and bearer auth uses the Authorization header,
+     * which browsers only send when explicitly set by the client code.
+     */
+    internal fun Application.installCors(allowedOrigins: String?) {
         install(CORS) {
             allowMethod(HttpMethod.Options)
             allowMethod(HttpMethod.Get)
             allowMethod(HttpMethod.Post)
             allowMethod(HttpMethod.Delete)
             allowNonSimpleContentTypes = true
+            allowHeader(HttpHeaders.Authorization)
+            val origins = allowedOrigins?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+            if (origins.isEmpty() || "*" in origins) {
+                anyHost()
+            } else {
+                origins.forEach { origin ->
+                    val parts = origin.removeSuffix("/").split("://", limit = 2)
+                    if (parts.size == 2) {
+                        allowHost(parts[1], schemes = listOf(parts[0]))
+                    } else {
+                        allowHost(parts[0], schemes = listOf("http", "https"))
+                    }
+                }
+            }
         }
     }
 
-    fun runStdioMcpServer() = runBlocking {
+    /**
+     * Runs the stdio transport and returns once the session ends. The SDK's
+     * `Server.onClose` only fires on an explicit `Server.close()`; when the
+     * client goes away and stdin reaches EOF only the *transport* closes, so
+     * waiting on the server callback alone parked the process forever - one
+     * zombie JVM per disconnected client (QA finding). Hooking the transport
+     * close signal makes EOF end this call; requests in flight during normal
+     * operation are unaffected because the transport only closes on EOF,
+     * read error, or explicit shutdown.
+     */
+    fun runStdioMcpServer(
+        inputStream: Source = System.`in`.asSource().buffered(),
+        outputStream: Sink = System.out.asSink().buffered(),
+    ) = runBlocking {
         val server = createMcpServer()
         val transport = StdioServerTransport(
-            inputStream = System.`in`.asSource().buffered(),
-            outputStream = System.out.asSink().buffered(),
+            inputStream = inputStream,
+            outputStream = outputStream,
         )
 
         runBlocking {
-            server.createSession(transport)
             val done = Job()
+            transport.onClose {
+                done.complete()
+            }
             server.onClose {
                 done.complete()
             }
+            server.createSession(transport)
             done.join()
         }
     }
@@ -159,16 +203,20 @@ class App(
         host: String,
         port: Int,
         wait: Boolean = true,
-        authToken: String? = System.getenv("CHROMIA_MCP_AUTH_TOKEN")?.takeIf { it.isNotBlank() }
+        authToken: String? = System.getenv("CHROMIA_MCP_AUTH_TOKEN")?.takeIf { it.isNotBlank() },
+        allowedOrigins: String? = System.getenv("CHROMIA_MCP_ALLOWED_ORIGINS")?.takeIf { it.isNotBlank() }
     ): EmbeddedServer<*, *> {
         val server = embeddedServer(CIO, host = host, port = port) {
-            installCors()
+            installCors(allowedOrigins)
             // Optional bearer auth for hosted deployments (CHROMIA_MCP_AUTH_TOKEN).
             // /health stays open for load-balancer checks. Off by default so
             // no-auth connectors (e.g. ChatGPT) keep working unless opted in.
+            // Match on the PATH, not the raw URI: "/health?x=1" is still the
+            // health endpoint, but the raw-URI comparison 401'd any query
+            // string (QA finding). /health is the only public endpoint.
             if (authToken != null) {
                 intercept(io.ktor.server.application.ApplicationCallPipeline.Plugins) {
-                    if (call.request.local.uri != "/health" &&
+                    if (call.request.path() != "/health" &&
                         call.request.headers[io.ktor.http.HttpHeaders.Authorization] != "Bearer $authToken"
                     ) {
                         call.respondText(
@@ -202,36 +250,64 @@ fun Application.installHealthEndpoint() {
     }
 }
 
-fun main(args: Array<String>): Unit = runBlocking {
+/**
+ * Exits with [runMain]'s code. The explicit [exitProcess] both surfaces
+ * startup failures to supervisors/CI (failures used to fall out of main and
+ * exit 0, QA finding) and guarantees the JVM dies after stdin EOF instead of
+ * being kept alive by lingering non-daemon worker threads (zombie JVM,
+ * QA finding).
+ */
+fun main(args: Array<String>): Unit = exitProcess(runMain(args))
+
+/**
+ * Argument dispatch, separated from [main] so tests can assert exit codes
+ * without killing the test JVM. Returns 0 on success, non-zero on any
+ * startup failure (bad arguments, unknown command, bind failure, ...).
+ */
+internal fun runMain(args: Array<String>, appFactory: () -> App = { App() }): Int = runBlocking {
     val arg = args.firstOrNull() ?: "--stdio"
     if (arg == "--generate-embeddings" || arg == "--generate-embeddings-no-upload") {
         val upload = arg == "--generate-embeddings"
         logger.info(if (upload) "Starting embeddings generation" else "Starting embeddings generation (no upload)")
         RagStore(loadFromRegistry = false).createAndUploadEmbeddings(upload = upload)
         logger.info("Embeddings generation finished")
-        return@runBlocking
+        return@runBlocking 0
     }
-    val app = App()
+    val app = appFactory()
     when (arg) {
         "--sse" -> {
-            try {
-                val options = parseSseArgs(args.drop(1))
-                // Warm the RAG store/model in the background: production telemetry
-                // showed ~15s first-search latency per fresh instance without it.
-                launch { app.warmUpDocs() }
-                app.runSseMcpServer(options.host, options.port)
+            val options = try {
+                parseSseArgs(args.drop(1))
             } catch (e: IllegalArgumentException) {
                 logger.error("Failed to start SSE server --> ${e.message}")
                 logger.error(USAGE_HELP)
+                return@runBlocking 1
+            }
+            // Warm the RAG store/model in the background: production telemetry
+            // showed ~15s first-search latency per fresh instance without it.
+            val warmup = launch { app.warmUpDocs() }
+            try {
+                app.runSseMcpServer(options.host, options.port)
+                0
+            } catch (e: Exception) {
+                // Bind/startup failures (port in use, bad address, ...) must
+                // exit non-zero so supervisors and CI notice (QA finding).
+                warmup.cancel()
+                logger.error("Failed to start SSE server --> ${e.message}")
+                1
             }
         }
-        "--stdio" -> app.runStdioMcpServer()
+        "--stdio" -> {
+            app.runStdioMcpServer()
+            0
+        }
         else -> {
             logger.error("""
                 Unknown command argument: $arg
-                
+
                 $USAGE_HELP
             """.trimMargin())
+            1
         }
     }
 }

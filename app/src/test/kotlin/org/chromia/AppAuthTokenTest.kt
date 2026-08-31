@@ -21,6 +21,13 @@ class AppAuthTokenTest {
             val http = HttpClient(CIO)
             http.use {
                 assertEquals(HttpStatusCode.OK, it.get("http://127.0.0.1:$port/health").status, "/health must stay open")
+                // Regression: the auth filter compared the raw URI (query string
+                // included) against "/health", so "/health?x=1" was 401'd.
+                assertEquals(
+                    HttpStatusCode.OK,
+                    it.get("http://127.0.0.1:$port/health?x=1").status,
+                    "/health with a query string must stay open"
+                )
                 assertEquals(HttpStatusCode.Unauthorized, it.get("http://127.0.0.1:$port/").status, "no token must be rejected")
                 assertEquals(
                     HttpStatusCode.Unauthorized,

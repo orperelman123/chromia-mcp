@@ -1,0 +1,41 @@
+# Keep the Docker build context lean: the image build only needs the Gradle
+# project (settings.gradle.kts, gradle.properties, gradle/, app/), the
+# Dockerfile itself, and .git.
+#
+# NOTE: .git is deliberately NOT excluded - the Dockerfile runs
+# `git describe --tags --always` to stamp the server version into /health
+# and the MCP serverInfo.
+
+# Regenerable build outputs and caches
+build/
+**/build/
+.gradle/
+.kotlin/
+out/
+bin/
+
+# Node artifacts (npm wrapper package; not used by the Gradle build)
+node_modules/
+jdeploy-bundle/
+
+# IDE / editor state
+.idea/
+.vscode/
+*.iml
+
+# QA scratch space and logs
+scratch-qa/
+*.log
+
+# Local RAG embeddings snapshots (the runtime downloads or generates them)
+embeddings.json
+
+# Secrets - never ship these into a build context
+.env
+.env.*
+*.pem
+*.key
+
+# OS junk
+.DS_Store
+Thumbs.db
