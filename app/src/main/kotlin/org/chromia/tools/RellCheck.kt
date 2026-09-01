@@ -73,7 +73,8 @@ object RellCheck {
             // mixed-version tree (audit F2). Compile exactly what was sent and
             // surface a note so errors are correctly attributed.
             val submittedFt4 = RellLibs.submittedFt4FileCount(sources)
-            if (submittedFt4 == 0 && RellLibs.needsFt4(sources)) RellLibs.provisionFt4(tempDir)
+            val provisionedFt4 = submittedFt4 == 0 && RellLibs.needsFt4(sources)
+            if (provisionedFt4) RellLibs.provisionFt4(tempDir)
             // Test modules are not app modules: without passing them explicitly a
             // project of only @test files compiled nothing and reported ok=true.
             val testModules = sources.filterValues { RunRellTests.isTestModuleSource(it) }
@@ -85,7 +86,7 @@ object RellCheck {
             val effectiveModules = modules
                 ?: (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
             val result = compile(tempDir, effectiveModules, testModules)
-            if (submittedFt4 > 0) {
+            val annotated = if (submittedFt4 > 0) {
                 result.copy(notes = result.notes + " " + RellLibs.submittedFt4Note(submittedFt4))
             } else {
                 // Warnings INSIDE the provisioned FT4 library are pinned-library
@@ -96,6 +97,7 @@ object RellCheck {
                 // dependency the library needs).
                 suppressVendoredFt4Warnings(result)
             }
+            appendFt4VersionMismatchHint(annotated, ft4Involved = provisionedFt4 || submittedFt4 > 0)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
         }
@@ -170,6 +172,30 @@ object RellCheck {
         require(collisions.isEmpty()) {
             "Case-insensitive path collision: ${collisions.values.first()} - most file systems treat these as the same file; rename one."
         }
+    }
+
+    /** "Module 'lib.ft4.<something>' not found" - the FT4-version-mismatch signature. */
+    private val FT4_MODULE_NOT_FOUND_REGEX = Regex("""Module '(lib\.ft4[^']*)' not found""")
+
+    /**
+     * When FT4 was involved (vendored tree provisioned, or the user submitted
+     * their own lib/ft4) and an error says a lib.ft4 module does not exist, the
+     * real cause is usually a version mismatch, not a typo: the server vendors
+     * FT4 [RellLibs.FT4_VERSION], and the user's project may pin an older or
+     * newer FT4 whose module set differs (real case: lib.ft4.test.utils existed
+     * before 1.1.0r and is gone in it). Without the hint the agent chases a
+     * nonexistent import bug in its own code.
+     */
+    internal fun appendFt4VersionMismatchHint(result: Result, ft4Involved: Boolean): Result {
+        if (!ft4Involved) return result
+        val missing = result.errors.firstNotNullOfOrNull { FT4_MODULE_NOT_FOUND_REGEX.find(it.text) }
+            ?: return result
+        return result.copy(
+            notes = result.notes +
+                " Note: this server vendors FT4 ${RellLibs.FT4_VERSION}; '${missing.groupValues[1]}' not being" +
+                " found can mean your project pins an older or newer FT4 whose module set differs" +
+                " (e.g. lib.ft4.test.utils existed before 1.1.0r). Check your FT4 tagOrBranch pin."
+        )
     }
 
     /** Drops warnings located in provisioned lib/ft4 files; says so in notes. */

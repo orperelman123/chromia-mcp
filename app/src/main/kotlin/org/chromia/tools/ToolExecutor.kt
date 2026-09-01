@@ -674,6 +674,7 @@ class ChrAggregatesStrategy : BaseToolStrategy() {
         val includeTotals = extractBoolean(args, "includeTotals") ?: true
         val includeGroupedDeposits = extractBoolean(args, "includeGroupedDeposits") ?: true
         val includeGroupedWithdrawals = extractBoolean(args, "includeGroupedWithdrawals") ?: true
+        val full = extractBoolean(args, "full") ?: false
 
         val result = repository.getChrAggregates(
             network,
@@ -681,8 +682,46 @@ class ChrAggregatesStrategy : BaseToolStrategy() {
             includeGroupedDeposits,
             includeGroupedWithdrawals
         )
-        return handleResult(result, "Failed to get CHR aggregates")
+        if (full) return handleResult(result, "Failed to get CHR aggregates")
+        return when (result) {
+            is NetworkResult.Success -> toolSuccessResult(summarizeChrAggregates(result.data))
+            is NetworkResult.Error -> toolErrorResult("Failed to get CHR aggregates: ${result.message}")
+        }
     }
+}
+
+/** Default array cap for the summarized get_chr_aggregates response. */
+internal const val CHR_AGGREGATES_ARRAY_CAP = 50
+
+/**
+ * Summarized get_chr_aggregates shape: totals and every scalar are kept
+ * verbatim, but any array (the per-address groupedDeposits/groupedWithdrawals
+ * breakdowns) is capped at its first [cap] entries. The uncapped mainnet
+ * response was observed at ~808KB (hosted probe 2026-09-01) - far past what an
+ * agent context can absorb by default. When anything was truncated a top-level
+ * `note` names each truncated array and points at full:true.
+ */
+internal fun summarizeChrAggregates(data: JsonObject, cap: Int = CHR_AGGREGATES_ARRAY_CAP): JsonObject {
+    val truncated = mutableListOf<String>()
+    fun capElement(element: JsonElement, path: String): JsonElement = when (element) {
+        is JsonObject -> JsonObject(
+            element.mapValues { (key, value) -> capElement(value, if (path.isEmpty()) key else "$path.$key") }
+        )
+        is JsonArray -> {
+            if (element.size > cap) truncated += "$path: first $cap of ${element.size} entries"
+            JsonArray(element.take(cap).map { capElement(it, path) })
+        }
+        else -> element
+    }
+    val capped = capElement(data, "") as JsonObject
+    if (truncated.isEmpty()) return capped
+    return JsonObject(
+        capped + mapOf(
+            "note" to JsonPrimitive(
+                "Summarized response - ${truncated.joinToString("; ")}. Pass full:true for the complete response."
+            )
+        )
+    )
 }
 
 class AssetBlockchainsStrategy : BaseToolStrategy() {
@@ -1060,9 +1099,24 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
  * help strategy and returns that tool's exact payload.
  */
 class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>) : BaseToolStrategy() {
+
+    private companion object {
+        /**
+         * What agents actually ask for vs what the topic is named: "security" and
+         * "best practices" both live in chromia_rell_practices_help (probe finding
+         * 2026-09-01 - those spellings fell through to the unknown-topic index).
+         */
+        val TOPIC_ALIASES = mapOf(
+            "security" to "chromia_rell_practices_help",
+            "best_practices" to "chromia_rell_practices_help",
+            "best-practices" to "chromia_rell_practices_help"
+        )
+    }
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val rawTopic = extractString(args, "topic")?.trim()?.lowercase()
+        val requested = extractString(args, "topic")?.trim()?.lowercase()
+        val rawTopic = requested?.let { TOPIC_ALIASES[it] ?: it }
         // Accept both "chr_build" and "chr_build_help" spellings.
         val topic = rawTopic?.let { if (it in helpStrategies) it else "${it}_help".takeIf { t -> t in helpStrategies } }
 
@@ -1120,6 +1174,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val source = extractString(args, "source")
         val filesArg = args["files"]
+        val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
 
         val (files, invalidKeys) = extractRellFilesMap(filesArg)
         if (invalidKeys.isNotEmpty()) {
@@ -1158,7 +1213,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
                     }
                 )
             }
-            toolSuccessResult(with(RellSecurityCheck) { analyze(files).toJson() })
+            toolSuccessResult(with(RellSecurityCheck) { analyze(files, allowAdminModules).toJson() })
         }.getOrElse { e ->
             toolErrorResult("rell_security_check failed: ${e.message}")
         }
@@ -1371,10 +1426,21 @@ class ChrCreateRellDappHelpStrategy : BaseToolStrategy() {
 class CheckDappProjectStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val yaml = requireParameter(args, "yaml")
+        // yaml is optional: agents often have only Rell code in hand. A blank or
+        // missing yaml falls back to a minimal default at the current pins and the
+        // result says so, instead of a "Missing required parameter" dead end.
+        val yaml = extractString(args, "yaml")?.takeIf { it.isNotBlank() }
         val rellFiles = extractStringMap(args, "rell")
             ?: throw IllegalArgumentException("Missing required parameter: rell")
-        return toolSuccessResult(CheckDappProject.check(yaml, rellFiles).toJson())
+        val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
+        return toolSuccessResult(
+            CheckDappProject.check(
+                yaml = yaml ?: DappScaffold.defaultChromiaYml(),
+                rellFiles = rellFiles,
+                allowAdminModules = allowAdminModules,
+                usedDefaultYaml = yaml == null
+            ).toJson()
+        )
     }
 }
 
@@ -1383,7 +1449,8 @@ class CheckFt4ImportsStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val rellFiles = extractStringMap(args, "rell")
             ?: throw IllegalArgumentException("Missing required parameter: rell")
-        return toolSuccessResult(Ft4ImportCheck.scanFiles(rellFiles).toJson())
+        val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
+        return toolSuccessResult(Ft4ImportCheck.scanFiles(rellFiles, allowAdminModules).toJson())
     }
 }
 

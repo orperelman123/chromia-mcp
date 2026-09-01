@@ -110,7 +110,13 @@ object Ft4ImportCheck {
         and does not send signed transactions.
     """.trimIndent()
 
-    fun scan(rell: String): Result {
+    /**
+     * @param allowAdminModules downgrade forbidden-module findings from errors
+     * to warnings (each tagged "(allowed by allowAdminModules)") - the escape
+     * hatch for deliberately building admin/ops tooling. Default behavior and
+     * the forbidden list itself are unchanged.
+     */
+    fun scan(rell: String, allowAdminModules: Boolean = false): Result {
         // Mask string literals as well as comments: imports never live inside
         // strings, and a banned name in a doc string ("never use lib.ft4.admin")
         // was flagged as a forbidden import - contradicting rell_security_check,
@@ -131,18 +137,27 @@ object Ft4ImportCheck {
             }
         }
         val unique = hits.distinctBy { it.module to it.line }
-        val errors = unique.map { hit ->
+        val findings = unique.map { hit ->
             "line ${hit.line}: forbidden FT4 production module ${hit.module}"
         }
-        return Result(
-            ok = errors.isEmpty(),
-            errors = errors,
-            warnings = warnings,
-            hits = unique
-        )
+        return if (allowAdminModules) {
+            Result(
+                ok = true,
+                errors = emptyList(),
+                warnings = findings.map { "$it (allowed by allowAdminModules)" } + warnings,
+                hits = unique
+            )
+        } else {
+            Result(
+                ok = findings.isEmpty(),
+                errors = findings,
+                warnings = warnings,
+                hits = unique
+            )
+        }
     }
 
-    fun scanFiles(rellFiles: Map<String, String>): Result {
+    fun scanFiles(rellFiles: Map<String, String>, allowAdminModules: Boolean = false): Result {
         if (rellFiles.isEmpty()) {
             return Result(
                 ok = false,
@@ -171,7 +186,7 @@ object Ft4ImportCheck {
                 warnings += RellLibs.modifiedFt4Note(path)
             }
             val label = path.trim().ifEmpty { "rell" }
-            val one = scan(content)
+            val one = scan(content, allowAdminModules)
             one.errors.forEach { err -> errors += "$label: $err" }
             one.warnings.forEach { warn -> warnings += "$label: $warn" }
             hits += one.hits

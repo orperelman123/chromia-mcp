@@ -40,12 +40,27 @@ object CheckDappProject {
      * @param compile also compile the sources (rell_check) and run the security
      * pass, so `ok:true` means "this project actually builds and is not obviously
      * insecure" - not merely "the yml parses". Disable only for pure-text checks.
+     * @param allowAdminModules downgrade banned admin-module/open-strategy
+     * findings from errors to warnings (admin/ops tooling escape hatch; the
+     * scaffold policy and default behavior are unchanged).
+     * @param usedDefaultYaml the caller omitted `yaml` and [DappScaffold.defaultChromiaYml]
+     * was substituted - said in notes so ok=true is never mistaken for a
+     * validation of the caller's own (absent) config.
      */
-    fun check(yaml: String, rellFiles: Map<String, String>, compile: Boolean = true): Result {
+    fun check(
+        yaml: String,
+        rellFiles: Map<String, String>,
+        compile: Boolean = true,
+        allowAdminModules: Boolean = false,
+        usedDefaultYaml: Boolean = false
+    ): Result {
         val yml = ChromiaYmlValidator.validate(yaml)
         val errors = mutableListOf<String>()
         val warnings = yml.warnings.map { "$YAML_PATH: $it" }.toMutableList()
         val notes = mutableListOf<String>()
+        if (usedDefaultYaml) {
+            notes += "No yaml provided - used a default chromia.yml (rellVersion ${DappScaffold.RELL_VERSION})."
+        }
         yml.errors.forEach { errors += "$YAML_PATH: $it" }
         if (rellFiles.isEmpty()) {
             errors += "missing .rell file contents"
@@ -70,7 +85,7 @@ object CheckDappProject {
             // and security findings below - FT4 findings used to say
             // "src/main.rell: line 3: ..." for the same file (audit 2026-09-01).
             val label = path.trim().removePrefix("./").removePrefix("src/").ifEmpty { "rell" }
-            val one = Ft4ImportCheck.scan(content)
+            val one = Ft4ImportCheck.scan(content, allowAdminModules)
             one.errors.forEach { err -> errors += locate(label, err) }
             one.warnings.forEach { warn -> warnings += locate(label, warn) }
         }
@@ -113,7 +128,7 @@ object CheckDappProject {
                             warnings += if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
                         }
                         if (result.ok) {
-                            val sec = RellSecurityCheck.analyze(compilable)
+                            val sec = RellSecurityCheck.analyze(compilable, allowAdminModules)
                             sec.findings.forEach { f ->
                                 val line = "${f.file}:${f.line}: [${f.severity}] ${f.rule} - ${f.text}. Fix: ${f.fix}"
                                 if (f.severity == "CRITICAL" || f.severity == "HIGH") errors += line else warnings += line

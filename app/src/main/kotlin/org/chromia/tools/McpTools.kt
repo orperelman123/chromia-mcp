@@ -892,6 +892,10 @@ object McpTools {
                 - Grouped deposits by address and network ID with totals
                 - Grouped withdrawals by address and network ID with totals
                 - Overall totals for deposits and withdrawals
+            - RESPONSE SIZE: by default the response is summarized - the grouped
+              deposit/withdrawal arrays are capped at the first 50 entries each, with a
+              `note` field saying how many entries were omitted. Pass full:true for the
+              complete, uncapped response (can be hundreds of KB).
             - Supports flexible data inclusion options:
                 - Include/exclude total summaries (depositsTotal, withdrawalsTotal)
                 - Include/exclude grouped deposit details by address and network
@@ -930,6 +934,16 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
                             "description" to JsonPrimitive("Whether to include grouped withdrawals by address and network (default: true)")
+                        )
+                    ),
+                    "full" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "false (default): summarized response - grouped arrays capped at the first 50 entries " +
+                                    "each plus a `note` about what was omitted. true: the complete uncapped response " +
+                                    "(observed at several hundred KB on mainnet)."
+                            )
                         )
                     )
                 )
@@ -1597,7 +1611,7 @@ object McpTools {
                     "topic" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Help topic, e.g. 'chr_deploy_help' (or 'chr_deploy'). Omit to get the full topic list."),
+                            "description" to JsonPrimitive("Help topic, e.g. 'chr_deploy_help' (or 'chr_deploy'). Aliases: 'security', 'best_practices' and 'best-practices' map to chromia_rell_practices_help. Omit to get the full topic list."),
                             "enum" to kotlinx.serialization.json.JsonArray(HELP_TOOL_NAMES.sorted().map { JsonPrimitive(it) })
                         )
                     )
@@ -1736,6 +1750,11 @@ object McpTools {
               (ft4 auth.authenticate, op_context.is_signer, signer require)
             - HIGH: hardcoded 64+ char hex literals that look like key material
             - MEDIUM: operations with parameters but no require(...) input validation
+            HIGH findings in test-only code (@test modules, files under test/ or tests/, and
+            modules imported only from @test modules) are reported as MEDIUM with a
+            "-test-surface" rule suffix; CRITICAL findings never downgrade.
+            allowAdminModules:true (default false) downgrades banned-module findings from
+            CRITICAL to MEDIUM - for admin/ops tooling only, never for production dApps.
             Returns line-anchored findings with a concrete fix per finding. ok=true means no
             CRITICAL/HIGH findings. Heuristic static analysis - it does not replace an audit.
             Use with rell_check as the loop: compile clean, then security clean, then present.
@@ -1754,6 +1773,16 @@ object McpTools {
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects.")
+                        )
+                    ),
+                    "allowAdminModules" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default false. true downgrades banned admin-module/open-strategy findings from " +
+                                    "CRITICAL to MEDIUM (non-blocking). For admin/ops tooling builds only - never " +
+                                    "enable for a production dApp."
+                            )
                         )
                     )
                 )
@@ -2726,6 +2755,10 @@ object McpTools {
             the FULL check: validate_chromia_yml + check_ft4_imports + rell_check (real compilation, FT4
             imports included) + rell_security_check when it compiles. Returns combined {ok, errors, warnings, notes};
             ok=true means the project parses, compiles, and has no CRITICAL/HIGH security findings.
+            `yaml` is optional: when omitted, a minimal default chromia.yml at the current pins
+            (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted in the output.
+            allowAdminModules:true (default false) downgrades banned admin-module findings from errors
+            to warnings - for admin/ops tooling only, never for production dApps.
             Submitted lib/ft4/ files identical to the vendored FT4 sources compile but are exempt from the
             import/security scanners (FT4's own sources legitimately contain e.g. ras_open); notes says so.
             A lib/ft4/ file whose content differs from the vendored copy is scanned like app code and noted.
@@ -2738,7 +2771,10 @@ object McpTools {
                     "yaml" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Full chromia.yml contents as a string")
+                            "description" to JsonPrimitive(
+                                "Full chromia.yml contents as a string. Optional: when omitted, a minimal default " +
+                                    "chromia.yml at the current pins (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted."
+                            )
                         )
                     ),
                     "rell" to JsonObject(
@@ -2747,10 +2783,20 @@ object McpTools {
                                 "One .rell source string, or an object of path -> source (e.g. src/main.rell)"
                             )
                         )
+                    ),
+                    "allowAdminModules" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default false. true downgrades banned admin-module/open-strategy findings " +
+                                    "(lib.ft4.admin, ras_open, ...) from errors to warnings. For admin/ops tooling " +
+                                    "builds only - never enable for a production dApp."
+                            )
+                        )
                     )
                 )
             ),
-            required = listOf("yaml", "rell")
+            required = listOf("rell")
         ),
         title = "Check dapp project",
         annotations = null,
@@ -2784,6 +2830,8 @@ object McpTools {
             (lib.ft4.admin, admin.crosschain, ras_open, ras_transfer_open, and the rest of DappScaffold.forbiddenModules).
             Official /build/ft4/setup/imports (200): public vs core; list label cross-chain is import lib.ft4.crosschain.
             Returns {ok, errors, warnings, hits, forbidden}. Used by check_dapp_project.
+            allowAdminModules:true (default false) downgrades forbidden-module findings from errors
+            to warnings - for admin/ops tooling only, never for production dApps.
             Does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -2793,6 +2841,16 @@ object McpTools {
                         mapOf(
                             "description" to JsonPrimitive(
                                 "One .rell source string, or an object of path -> source (e.g. src/main.rell)"
+                            )
+                        )
+                    ),
+                    "allowAdminModules" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default false. true downgrades forbidden FT4 production module findings from " +
+                                    "errors to warnings. For admin/ops tooling builds only - never enable for a " +
+                                    "production dApp."
                             )
                         )
                     )
@@ -2890,6 +2948,41 @@ object McpTools {
     fun disabledTools(env: Map<String, String> = System.getenv()): Set<String> =
         env["CHROMIA_MCP_DISABLE_TOOLS"]?.split(',')
             ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+
+    /** Every tool name this server implements, whether or not it is advertised. */
+    val ALL_TOOL_NAMES: Set<String> by lazy { fullToolList().map { it.name }.toSet() }
+
+    private const val CHECK_DAPP_PROJECT_ALTERNATIVE =
+        "use check_dapp_project on this server instead - it performs compilation and security scanning"
+
+    /** Working alternatives on the same deployment for commonly disabled tools. */
+    private val DISABLED_TOOL_ALTERNATIVES: Map<String, String> = mapOf(
+        "rell_check" to CHECK_DAPP_PROJECT_ALTERNATIVE,
+        "rell_security_check" to CHECK_DAPP_PROJECT_ALTERNATIVE,
+        "run_rell_tests" to CHECK_DAPP_PROJECT_ALTERNATIVE,
+        "chromia_dapp_query" to "use the explorer analytics tools on this server " +
+            "(filter_blockchains, get_blockchain_details, get_all_transactions, ...) for on-chain data"
+    )
+
+    /**
+     * Actionable refusal for a call to a real-but-disabled tool, or null when the
+     * name is not a disabled tool of this server. A disabled tool used to answer
+     * with the SDK's bare "Tool X not found" - indistinguishable from a tool that
+     * never existed, with no alternative offered (hosted probe 2026-09-01). The
+     * refusal names the deployment gate, a working alternative on the same server
+     * (never one that is itself disabled), and the local-run escape hatch.
+     */
+    fun disabledToolRefusal(name: String, disabled: Set<String>): String? {
+        if (name !in disabled || name !in ALL_TOOL_NAMES) return null
+        val alternative = DISABLED_TOOL_ALTERNATIVES[name]?.takeIf {
+            !(it.contains("check_dapp_project") && "check_dapp_project" in disabled)
+        }
+        return buildString {
+            append("Tool '$name' is disabled on this deployment (CHROMIA_MCP_DISABLE_TOOLS).")
+            if (alternative != null) append(" As an alternative, $alternative.")
+            append(" Run chromia-mcp locally for the full toolset.")
+        }
+    }
 
     /**
      * The RAG-backed docs tools - the only tools that touch the embeddings

@@ -7,6 +7,7 @@ import io.ktor.server.engine.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.server.sse.sse
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.ReadResourceResult
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
@@ -74,7 +75,10 @@ class App(
                     """.trimIndent()
     }
 
-    internal fun createMcpServer(): Server {
+    internal fun createMcpServer(
+        compact: Boolean = McpTools.compactToolsMode(),
+        disabled: Set<String> = McpTools.disabledTools()
+    ): Server {
         return Server(
             serverInfo = Implementation(
                 name = SERVER_NAME,
@@ -84,16 +88,13 @@ class App(
                 capabilities = SERVER_CAPABILITIES
             )
         ).apply {
-            registerTools()
+            registerTools(compact, disabled)
             registerResources()
         }
     }
 
-    private fun Server.registerTools() {
-        val tools = McpTools.allTools(
-            compact = McpTools.compactToolsMode(),
-            disabled = McpTools.disabledTools()
-        )
+    private fun Server.registerTools(compact: Boolean, disabled: Set<String>) {
+        val tools = McpTools.allTools(compact = compact, disabled = disabled)
 
         val registeredTools = tools.map { tool ->
             RegisteredTool(tool) { request ->
@@ -106,6 +107,61 @@ class App(
         }
 
         addTools(registeredTools)
+    }
+
+    /**
+     * Connects [server] to [transport] and replaces the session's tools/call
+     * handler with a deployment-aware one. The SDK keeps ONE registry that feeds
+     * both tools/list and tools/call, so a registered stub for a disabled tool
+     * would also be advertised - defeating the point of disabling it. Overriding
+     * the per-session call handler keeps tools/list exactly the registered set
+     * while a call to a disabled-but-real tool gets an actionable refusal
+     * ([McpTools.disabledToolRefusal]) instead of the SDK's bare
+     * "Tool X not found" (hosted probe 2026-09-01). Compact-hidden help tools
+     * intentionally get NO such refusal - chromia_help covers their content and
+     * they are hidden for schema savings, not disabled.
+     */
+    internal suspend fun createGatedSession(
+        server: Server,
+        transport: io.modelcontextprotocol.kotlin.sdk.shared.Transport,
+        disabled: Set<String>
+    ): ServerSession {
+        val session = server.createSession(transport)
+        session.setRequestHandler<io.modelcontextprotocol.kotlin.sdk.CallToolRequest>(
+            io.modelcontextprotocol.kotlin.sdk.Method.Defined.ToolsCall
+        ) { request, _ ->
+            callToolGated(server, request, disabled)
+        }
+        return session
+    }
+
+    internal suspend fun callToolGated(
+        server: Server,
+        request: io.modelcontextprotocol.kotlin.sdk.CallToolRequest,
+        disabled: Set<String>
+    ): io.modelcontextprotocol.kotlin.sdk.CallToolResult {
+        val registered = server.tools[request.name]
+            ?: return McpTools.disabledToolRefusal(request.name, disabled)
+                ?.let { org.chromia.tools.toolErrorResult(it) }
+            // Same shape and text as the SDK's unknown-tool answer.
+            ?: io.modelcontextprotocol.kotlin.sdk.CallToolResult(
+                content = listOf(io.modelcontextprotocol.kotlin.sdk.TextContent("Tool ${request.name} not found")),
+                isError = true
+            )
+        return try {
+            registered.handler(request)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Mirrors the SDK's handleCallTool error wrapping.
+            logger.error("Error executing tool ${request.name}", e)
+            io.modelcontextprotocol.kotlin.sdk.CallToolResult(
+                content = listOf(
+                    io.modelcontextprotocol.kotlin.sdk.TextContent("Error executing tool ${request.name}: ${e.message}")
+                ),
+                isError = true
+            )
+        }
     }
 
     private fun Server.registerResources() {
@@ -176,8 +232,10 @@ class App(
     fun runStdioMcpServer(
         inputStream: Source = System.`in`.asSource().buffered(),
         outputStream: Sink = System.out.asSink().buffered(),
+        compact: Boolean = McpTools.compactToolsMode(),
+        disabled: Set<String> = McpTools.disabledTools(),
     ) = runBlocking {
-        val server = createMcpServer()
+        val server = createMcpServer(compact, disabled)
         val transport = StdioServerTransport(
             inputStream = inputStream,
             outputStream = outputStream,
@@ -191,7 +249,7 @@ class App(
             server.onClose {
                 done.complete()
             }
-            server.createSession(transport)
+            createGatedSession(server, transport, disabled)
             done.join()
         }
     }
@@ -217,7 +275,9 @@ class App(
         port: Int,
         wait: Boolean = true,
         authToken: String? = System.getenv("CHROMIA_MCP_AUTH_TOKEN")?.takeIf { it.isNotBlank() },
-        allowedOrigins: String? = System.getenv("CHROMIA_MCP_ALLOWED_ORIGINS")?.takeIf { it.isNotBlank() }
+        allowedOrigins: String? = System.getenv("CHROMIA_MCP_ALLOWED_ORIGINS")?.takeIf { it.isNotBlank() },
+        compact: Boolean = McpTools.compactToolsMode(),
+        disabled: Set<String> = McpTools.disabledTools()
     ): EmbeddedServer<*, *> {
         val server = embeddedServer(CIO, host = host, port = port) {
             installCors(allowedOrigins)
@@ -246,11 +306,46 @@ class App(
                 }
             }
             installHealthEndpoint()
-            mcp {
-                return@mcp createMcpServer()
-            }
+            installMcpSse(compact, disabled)
         }.start(wait = wait)
         return server
+    }
+
+    /**
+     * SSE transport wiring, functionally identical to the SDK's
+     * `Application.mcp {}` plugin (same root SSE + POST endpoints, same status
+     * codes) except each session is connected through [createGatedSession] so
+     * disabled-but-real tools refuse with guidance. The SDK plugin never exposes
+     * the session it creates, and the SDK's tools/list and tools/call share one
+     * registry, so this is the only way to gate calls without also advertising
+     * stubs in tools/list.
+     */
+    internal fun Application.installMcpSse(compact: Boolean, disabled: Set<String>) {
+        install(io.ktor.server.sse.SSE)
+        val transports = java.util.concurrent.ConcurrentHashMap<String, SseServerTransport>()
+        routing {
+            sse {
+                val transport = SseServerTransport("", this)
+                transports[transport.sessionId] = transport
+                val server = createMcpServer(compact, disabled)
+                server.onClose { transports.remove(transport.sessionId) }
+                createGatedSession(server, transport, disabled)
+                kotlinx.coroutines.awaitCancellation()
+            }
+            post {
+                val sessionId = call.request.queryParameters["sessionId"]
+                if (sessionId == null) {
+                    call.respond(HttpStatusCode.BadRequest, "sessionId query parameter is not provided")
+                    return@post
+                }
+                val transport = transports[sessionId]
+                if (transport == null) {
+                    call.respond(HttpStatusCode.NotFound, "Session not found")
+                    return@post
+                }
+                transport.handlePostMessage(call)
+            }
+        }
     }
 
 }

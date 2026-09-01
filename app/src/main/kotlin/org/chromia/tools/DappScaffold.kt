@@ -68,6 +68,12 @@ object DappScaffold {
         return normalized
     }
 
+    /**
+     * Minimal chromia.yml at the current pins, used by check_dapp_project when
+     * the caller omits `yaml` - same content the hello scaffold ships.
+     */
+    fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
+
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
         return if (template == "ft4") {

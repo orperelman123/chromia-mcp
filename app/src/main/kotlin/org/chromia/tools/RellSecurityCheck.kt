@@ -252,7 +252,75 @@ object RellSecurityCheck {
         return closeOverCalls(functions, seed)
     }
 
-    fun analyze(files: Map<String, String>): Result {
+    /** `import name;` / `import alias: name;` - captures the dotted module path. */
+    private val IMPORT_REGEX = Regex("""\bimport\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*:\s*)?([A-Za-z_][A-Za-z0-9_.]*)""")
+
+    /** True when any parent directory of the (source-root-normalized) path is test/ or tests/. */
+    private fun isTestDirPath(normalizedPath: String): Boolean =
+        normalizedPath.split('/').dropLast(1).any { it == "test" || it == "tests" }
+
+    /**
+     * Original-path keys of files whose findings sit on the TEST surface: the
+     * file is a `@test module`, lives under a test/ or tests/ directory, or
+     * belongs to a module reachable from such test modules via imports but NOT
+     * from any app root (a non-test module nothing imports). Code only tests can
+     * reach never ships in the dApp, so a HIGH there is advisory, not blocking -
+     * a test fixture's helper mutation used to fail the gate exactly like
+     * production code (probe finding 2026-09-01). Reuses the module-name and
+     * @test detection the compile tools already use.
+     */
+    internal fun testSurfaceFiles(files: Map<String, String>): Set<String> {
+        data class FileInfo(val path: String, val module: String, val isTestFile: Boolean)
+        val infos = files.map { (path, content) ->
+            val normalized = RellCheck.normalizeSourceRoot(path)
+            FileInfo(
+                path,
+                RunRellTests.moduleNameForPath(normalized, content),
+                RunRellTests.isTestModuleSource(content) || isTestDirPath(normalized)
+            )
+        }
+        val allModules = infos.mapTo(mutableSetOf()) { it.module }
+        val testModules = infos.filter { it.isTestFile }.mapTo(mutableSetOf()) { it.module }
+        // module -> submitted modules it imports
+        val imports = mutableMapOf<String, MutableSet<String>>()
+        infos.forEach { info ->
+            val masked = maskRellSource(files.getValue(info.path), maskStrings = true)
+            IMPORT_REGEX.findAll(masked).forEach { m ->
+                val target = m.groupValues[1].trimEnd('.')
+                if (target in allModules && target != info.module) {
+                    imports.getOrPut(info.module) { mutableSetOf() }.add(target)
+                }
+            }
+        }
+        val importedBy = mutableMapOf<String, MutableSet<String>>()
+        imports.forEach { (from, tos) -> tos.forEach { importedBy.getOrPut(it) { mutableSetOf() }.add(from) } }
+        fun reachableFrom(seeds: Collection<String>): Set<String> {
+            val seen = mutableSetOf<String>()
+            val queue = ArrayDeque(seeds)
+            while (queue.isNotEmpty()) {
+                val module = queue.removeFirst()
+                if (!seen.add(module)) continue
+                imports[module]?.forEach { queue.addLast(it) }
+            }
+            return seen
+        }
+        // App roots: non-test modules nothing imports. A module reachable from an
+        // app root stays app surface even when tests also import it; a module
+        // reachable ONLY from test modules is test surface. A module reachable
+        // from neither (e.g. an app-module import cycle no test touches) is not
+        // in testReachable and conservatively stays app surface.
+        val appReachable = reachableFrom(allModules.filter { it !in testModules && importedBy[it].isNullOrEmpty() })
+        val testOnlyModules = reachableFrom(testModules) - appReachable
+        return infos.filter { it.isTestFile || it.module in testOnlyModules }.mapTo(mutableSetOf()) { it.path }
+    }
+
+    /**
+     * @param allowAdminModules downgrade the banned-module/open-strategy rules
+     * from CRITICAL to MEDIUM, each tagged "(allowed by allowAdminModules)" -
+     * the escape hatch for deliberately building admin/ops tooling. Everything
+     * else (rules, texts, the default) is unchanged.
+     */
+    fun analyze(files: Map<String, String>, allowAdminModules: Boolean = false): Result {
         val findings = mutableListOf<Finding>()
         var operationsScanned = 0
 
@@ -288,7 +356,7 @@ object RellSecurityCheck {
             val masked = fullyMasked.getValue(path)
             // Banned-module/strategy rules run on fully masked text: a banned name
             // inside a string literal (e.g. a require() message) is not an import.
-            findings += bannedModuleFindings(path, masked)
+            findings += bannedModuleFindings(path, masked, allowAdminModules)
             findings += hardcodedSecretFindings(path, commentMasked)
             val authMarkers = authMarkersFor(masked)
             val ops = scanOperations(path, masked)
@@ -298,7 +366,20 @@ object RellSecurityCheck {
             }
         }
 
-        val blocking = findings.any { it.severity == "CRITICAL" || it.severity == "HIGH" }
+        // HIGH findings on the test surface downgrade to MEDIUM with a rule
+        // suffix; CRITICALs (banned modules, open strategies) never downgrade
+        // this way - shipping-forbidden code is forbidden wherever it sits.
+        val testSurface = testSurfaceFiles(files)
+        val adjusted = findings.map { finding ->
+            if (finding.severity == "HIGH" && finding.file in testSurface) {
+                finding.copy(severity = "MEDIUM", rule = finding.rule + "-test-surface")
+            } else {
+                finding
+            }
+        }
+        val downgraded = adjusted.count { it.rule.endsWith("-test-surface") }
+
+        val blocking = adjusted.any { it.severity == "CRITICAL" || it.severity == "HIGH" }
         val notes = buildString {
             append("Scanned ${files.size - exemptedLibFiles} file(s), $operationsScanned operation(s). ")
             if (exemptedLibFiles > 0) {
@@ -306,15 +387,24 @@ object RellSecurityCheck {
             }
             modifiedLibNotes.forEach { append("$it ") }
             append(
-                if (findings.isEmpty()) "No findings from the static rules. "
-                else "${findings.size} finding(s); fix CRITICAL/HIGH before deploying. "
+                if (adjusted.isEmpty()) "No findings from the static rules. "
+                else "${adjusted.size} finding(s); fix CRITICAL/HIGH before deploying. "
             )
+            if (downgraded > 0) {
+                append(
+                    "$downgraded HIGH finding(s) in test-only code reported as MEDIUM " +
+                        "with a -test-surface rule suffix. "
+                )
+            }
+            if (allowAdminModules) {
+                append("allowAdminModules=true: banned-module findings reported as MEDIUM, not CRITICAL. ")
+            }
             append(
                 "Heuristic static checks only (auth, require() validation, banned FT4 admin modules, " +
                     "hardcoded secrets) - a clean report does not replace a security audit."
             )
         }
-        return Result(!blocking, findings.sortedWith(compareBy({ severityRank(it.severity) }, { it.file }, { it.line })), operationsScanned, notes)
+        return Result(!blocking, adjusted.sortedWith(compareBy({ severityRank(it.severity) }, { it.file }, { it.line })), operationsScanned, notes)
     }
 
     private fun severityRank(s: String) = when (s) {
@@ -323,7 +413,9 @@ object RellSecurityCheck {
         else -> 2
     }
 
-    private fun bannedModuleFindings(path: String, content: String): List<Finding> {
+    private fun bannedModuleFindings(path: String, content: String, allowAdminModules: Boolean = false): List<Finding> {
+        val severity = if (allowAdminModules) "MEDIUM" else "CRITICAL"
+        val allowedTag = if (allowAdminModules) " (allowed by allowAdminModules)" else ""
         val findings = mutableListOf<Finding>()
         content.lineSequence().forEachIndexed { idx, line ->
             val trimmed = line.trim()
@@ -334,7 +426,7 @@ object RellSecurityCheck {
                 if (Ft4ImportCheck.containsModule(trimmed, banned)) {
                     findings.add(
                         Finding(
-                            "CRITICAL", "banned-module", path, idx + 1, trimmed,
+                            severity, "banned-module", path, idx + 1, trimmed + allowedTag,
                             "Remove $banned - admin modules must never ship in a production dApp."
                         )
                     )
@@ -344,7 +436,7 @@ object RellSecurityCheck {
                 if (Regex("""\b$rule\b""").containsMatchIn(trimmed)) {
                     findings.add(
                         Finding(
-                            "CRITICAL", "open-registration-strategy", path, idx + 1, trimmed,
+                            severity, "open-registration-strategy", path, idx + 1, trimmed + allowedTag,
                             "Remove $rule - open registration/transfer strategies allow anyone to register or move assets."
                         )
                     )
