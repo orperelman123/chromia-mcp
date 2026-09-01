@@ -18,6 +18,20 @@ object RellLibs {
         // Masked source: a `lib.ft4` mention in a comment or string is not an import.
         files.values.any { FT4_IMPORT_REGEX.containsMatchIn(maskRellSource(it, maskStrings = true)) }
 
+    /**
+     * Files the user submitted under lib/ft4/ (source-root-normalized paths).
+     * When ANY are present the vendored zip must NOT be provisioned: it used to
+     * truncate-overwrite the user's files, so an agent submitting its own
+     * chr-installed FT4 got results computed against a silently substituted
+     * mixed-version tree (audit F2). Compile with exactly what was sent instead
+     * and say so via [submittedFt4Note].
+     */
+    fun submittedFt4FileCount(files: Map<String, String>): Int =
+        files.keys.count { it.replace('\\', '/').startsWith("lib/ft4/") }
+
+    fun submittedFt4Note(count: Int): String =
+        "Using your submitted lib/ft4 sources ($count file(s)) instead of the vendored FT4 $FT4_VERSION."
+
     /** Unpacks the vendored FT4 sources (entries under lib/ft4/...) into [root]. */
     fun provisionFt4(root: Path) {
         val stream = javaClass.classLoader.getResourceAsStream(FT4_RESOURCE)

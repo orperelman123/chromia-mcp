@@ -62,7 +62,12 @@ object RellCheck {
             // false green on broken code. A root module.rell resolves to the empty
             // module name and is filtered out, so the FT4 branch hit exactly that.
             // Fall back to null (= all modules) whenever the scoped list is empty.
-            if (RellLibs.needsFt4(sources)) RellLibs.provisionFt4(tempDir)
+            // ...unless the user submitted their OWN lib/ft4 tree: provisioning
+            // used to truncate-overwrite those files, silently substituting a
+            // mixed-version tree (audit F2). Compile exactly what was sent and
+            // surface a note so errors are correctly attributed.
+            val submittedFt4 = RellLibs.submittedFt4FileCount(sources)
+            if (submittedFt4 == 0 && RellLibs.needsFt4(sources)) RellLibs.provisionFt4(tempDir)
             // Test modules are not app modules: without passing them explicitly a
             // project of only @test files compiled nothing and reported ok=true.
             val testModules = sources.filterValues { RunRellTests.isTestModuleSource(it) }
@@ -73,7 +78,12 @@ object RellCheck {
             // module's name - subtract so it is never passed as an app module.
             val effectiveModules = modules
                 ?: (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
-            compile(tempDir, effectiveModules, testModules)
+            val result = compile(tempDir, effectiveModules, testModules)
+            if (submittedFt4 > 0) {
+                result.copy(notes = result.notes + " " + RellLibs.submittedFt4Note(submittedFt4))
+            } else {
+                result
+            }
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
         }

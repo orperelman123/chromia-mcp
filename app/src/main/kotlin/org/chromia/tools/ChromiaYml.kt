@@ -520,7 +520,44 @@ internal object SimpleYaml {
             val items = splitFlow(inner).map { parseScalarOrFlow(it) }
             return YamlNode.Sequence(items)
         }
+        // Flow mapping `{ features: { merkle_hash_version: 2 } }` used to fall
+        // through to a Scalar, so the keys inside vanished: the merkle rule then
+        // hard-errored on a CLI-valid config, and flow-style moduleArgs dodged the
+        // forbidden-module scan (audit F3). Parse it into the same Mapping shape
+        // the block parser produces.
+        if (value.startsWith("{") && value.endsWith("}")) {
+            val inner = value.substring(1, value.length - 1).trim()
+            if (inner.isEmpty()) return YamlNode.Mapping()
+            val entries = LinkedHashMap<String, YamlNode>()
+            for (part in splitFlow(inner)) {
+                val colon = splitFlowKeyValue(part)
+                    // A brace blob we cannot split (`{not yaml}`) stays an opaque
+                    // scalar, like before - never a wrong hard error.
+                    ?: return YamlNode.Scalar(unquote(value))
+                entries[unquote(colon.first)] = parseScalarOrFlow(colon.second)
+            }
+            return YamlNode.Mapping(entries)
+        }
         return YamlNode.Scalar(unquote(value))
+    }
+
+    /**
+     * Splits one flow-mapping entry at its key colon. [splitKeyValue] requires
+     * a space after ':' (so plain scalars like https://host:7740 survive), which
+     * also covers block-style flow content; JSON-style `"key":value` without the
+     * space is additionally accepted when the key is quoted.
+     */
+    private fun splitFlowKeyValue(part: String): Pair<String, String>? {
+        splitKeyValue(part)?.let { return it }
+        val trimmed = part.trim()
+        val quote = trimmed.firstOrNull()
+        if (quote == '"' || quote == '\'') {
+            val end = trimmed.indexOf(quote, 1)
+            if (end > 0 && trimmed.getOrNull(end + 1) == ':') {
+                return trimmed.substring(0, end + 1) to trimmed.substring(end + 2).trim()
+            }
+        }
+        return null
     }
 
     private fun splitFlow(inner: String): List<String> {
@@ -528,11 +565,17 @@ internal object SimpleYaml {
         val buf = StringBuilder()
         var inSingle = false
         var inDouble = false
+        // Nested flow nodes ([a, b] / {k: v}) must not be split at their inner
+        // commas - only depth-0 commas separate entries (audit F3).
+        var depth = 0
         inner.forEach { c ->
             when {
-                c == '\'' && !inDouble -> inSingle = !inSingle
-                c == '"' && !inSingle -> inDouble = !inDouble
-                c == ',' && !inSingle && !inDouble -> {
+                c == '\'' && !inDouble -> { inSingle = !inSingle; buf.append(c) }
+                c == '"' && !inSingle -> { inDouble = !inDouble; buf.append(c) }
+                inSingle || inDouble -> buf.append(c)
+                c == '[' || c == '{' -> { depth++; buf.append(c) }
+                c == ']' || c == '}' -> { depth--; buf.append(c) }
+                c == ',' && depth == 0 -> {
                     out += buf.toString().trim()
                     buf.clear()
                 }

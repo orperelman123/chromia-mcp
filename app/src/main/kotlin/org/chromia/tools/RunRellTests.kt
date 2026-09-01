@@ -240,15 +240,26 @@ object RunRellTests {
             // lib present, app modules must be scoped to the user's own files.
             // A header-less sibling of a @test module.rell resolves to the test
             // module's name - subtract so it is never passed as an app module.
-            val appModules = if (RellLibs.needsFt4(sources)) {
-                RellLibs.provisionFt4(tempDir)
-                RellLibs.userAppModules(sources) - testModules.toSet()
-            } else {
-                (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
+            // A submission with its OWN lib/ft4 tree runs against exactly what
+            // was sent - provisioning used to truncate-overwrite those files,
+            // silently substituting a mixed-version tree (audit F2).
+            val submittedFt4 = RellLibs.submittedFt4FileCount(sources)
+            val appModules = when {
+                submittedFt4 > 0 ->
+                    (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
+                RellLibs.needsFt4(sources) -> {
+                    RellLibs.provisionFt4(tempDir)
+                    RellLibs.userAppModules(sources) - testModules.toSet()
+                }
+                else -> (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
             }
             val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
             cleanupDeferred = outcome.cleanupDeferred
-            outcome.result
+            if (submittedFt4 > 0) {
+                outcome.result.copy(notes = outcome.result.notes + " " + RellLibs.submittedFt4Note(submittedFt4))
+            } else {
+                outcome.result
+            }
         } catch (e: RunAbandonedOnInterruptException) {
             cleanupDeferred = true // temp deletion is queued behind the abandoned runner
             throw e
@@ -267,14 +278,19 @@ object RunRellTests {
     ): Map<String, Map<String, net.postchain.gtv.Gtv>> =
         moduleArgs.mapValues { (_, args) -> args.mapValues { (_, v) -> jsonToGtv(v) } }
 
-    private fun jsonToGtv(element: kotlinx.serialization.json.JsonElement): net.postchain.gtv.Gtv = when (element) {
+    /** Internal for tests (audit F4: past-Long integers must become GtvBigInteger). */
+    internal fun jsonToGtv(element: kotlinx.serialization.json.JsonElement): net.postchain.gtv.Gtv = when (element) {
         is kotlinx.serialization.json.JsonNull -> net.postchain.gtv.GtvNull
         is kotlinx.serialization.json.JsonPrimitive ->
             when {
                 element.isString -> net.postchain.gtv.GtvFactory.gtv(element.content)
                 element.content == "true" || element.content == "false" ->
                     net.postchain.gtv.GtvFactory.gtv(element.content.toBoolean())
+                // An integer past Long.MAX_VALUE used to fall through to GtvString,
+                // giving a confusing Rell binding error for big_integer module args
+                // (audit F4). Decimals/exponents still fall through unchanged.
                 else -> element.content.toLongOrNull()?.let { net.postchain.gtv.GtvFactory.gtv(it) }
+                    ?: element.content.toBigIntegerOrNull()?.let { net.postchain.gtv.GtvFactory.gtv(it) }
                     ?: net.postchain.gtv.GtvFactory.gtv(element.content)
             }
         is kotlinx.serialization.json.JsonArray -> net.postchain.gtv.GtvFactory.gtv(element.map { jsonToGtv(it) })

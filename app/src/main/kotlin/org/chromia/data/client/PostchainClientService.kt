@@ -129,7 +129,15 @@ class PostchainClientService(
         val queryResult = queryClient?.query(blockchainRid, query, gtvArgs)
             ?: queryClientFor(urls, blockchainRid).query(query, gtvArgs)
 
-        val gsonJsonElement = make_gtv_gson().toJsonTree(queryResult)
+        // makeStrictGtvGson, not make_gtv_gson: the plain variant's BIGINTEGER
+        // serialize branch throws "big_integer cannot be serialized as JSON", so
+        // every FT4 balance/total_supply/amount query reported an error although
+        // the chain succeeded (audit F1). Strict differs only in that branch -
+        // big_integer becomes a JSON string; Long, string, null, byte_array hex,
+        // dict and array serialization are bit-identical (verified against the
+        // GtvAdapter in postchain-gtv 3.49.18, the version that wins on the
+        // runtime classpath).
+        val gsonJsonElement = makeStrictGtvGson().toJsonTree(queryResult)
 
         val kotlinxJsonElement = gsonJsonElement.toKotlinxJson()
 

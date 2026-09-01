@@ -177,4 +177,74 @@ class ChromiaYmlValidatorRegressionTest {
         val result = ChromiaYmlValidator.validate(yaml)
         assertFalse(result.warnings.any { it.contains("webStatic") }, result.warnings.toString())
     }
+
+    // Audit F3: a {...} flow mapping fell through to an opaque scalar, so a
+    // CLI-valid `config: { features: { merkle_hash_version: 2 } }` lost the key
+    // and hard-errored with "merkle_hash_version must be 2".
+    @Test
+    fun flowMappingMerkleConfigValidatesClean() {
+        val yaml = """
+            blockchains:
+              hello:
+                module: main
+                config: { features: { merkle_hash_version: 2 } }
+            compile:
+              rellVersion: 0.16.1
+        """.trimIndent()
+        val result = ChromiaYmlValidator.validate(yaml)
+        assertTrue(result.ok, result.errors.toString())
+        assertFalse(
+            result.errors.any { it.contains("merkle_hash_version") },
+            result.errors.toString()
+        )
+    }
+
+    // Audit F3: a WRONG flow merkle value must still be flagged (the keys inside
+    // the flow mapping are actually seen, not just no-longer-erroring).
+    @Test
+    fun flowMappingWrongMerkleValueIsStillFlagged() {
+        val yaml = """
+            blockchains:
+              hello:
+                module: main
+                config: { features: { merkle_hash_version: 1 } }
+            compile:
+              rellVersion: 0.16.1
+        """.trimIndent()
+        val result = ChromiaYmlValidator.validate(yaml)
+        assertTrue(
+            result.errors.any { it.contains("merkle_hash_version must be 2") },
+            result.errors.toString()
+        )
+    }
+
+    // Audit F3: flow-style moduleArgs no longer dodge the forbidden-module scan.
+    @Test
+    fun flowMappingModuleArgsForbiddenModuleIsCaught() {
+        val yaml = baseYml().replace(
+            "module: main",
+            "module: main\n    moduleArgs: { ras_open: { a: 1 } }"
+        )
+        val result = ChromiaYmlValidator.validate(yaml)
+        assertTrue(
+            result.errors.any { it.contains("forbidden FT4 production module") },
+            result.errors.toString()
+        )
+    }
+
+    // Audit F3: flow mappings parse into the same node shape as block mappings,
+    // nested flow nodes are not split at inner commas, and an unsplittable brace
+    // blob degrades to a scalar instead of a wrong hard error.
+    @Test
+    fun flowMappingParsesLikeBlockMapping() {
+        val root = SimpleYaml.parse("a: { x: 1, y: [1, 2], z: { w: v } }\nb: {}") as YamlNode.Mapping
+        val a = root.entries["a"] as YamlNode.Mapping
+        assertEquals("1", a.scalar("x"))
+        val y = a.entries["y"] as YamlNode.Sequence
+        assertEquals(listOf(YamlNode.Scalar("1"), YamlNode.Scalar("2")), y.items)
+        assertEquals("v", a.mapping("z")?.scalar("w"))
+        assertEquals(YamlNode.Mapping(), root.entries["b"])
+        val opaque = SimpleYaml.parse("a: {not yaml}") as YamlNode.Mapping
+        assertTrue(opaque.entries["a"] is YamlNode.Scalar, opaque.entries["a"].toString())
+    }
 }
