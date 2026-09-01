@@ -1,13 +1,14 @@
 # Render Blueprint: hosted SSE endpoint for the team.
 # Deploy: connect this repo in the Render dashboard (New + -> Blueprint), or
 # https://dashboard.render.com/select-repo?type=blueprint
-# NOTE: the server needs ~1.5GB RAM (embedding model + RAG store), so the
-# starter plan is the minimum that fits; free tier will OOM.
+# NOTE: the server needs ~1.5GB RAM (embedding model + RAG store). The
+# 512MB starter plan idles at ~98% memory (measured live 2026-09-01) and
+# OOMs under real load - standard (2GB) is the minimum that actually fits.
 services:
   - type: web
     name: chromia-mcp
     runtime: docker
-    plan: starter
+    plan: standard
     region: frankfurt
     healthCheckPath: /health
     envVars:

@@ -215,9 +215,13 @@ class App(
             // health endpoint, but the raw-URI comparison 401'd any query
             // string (QA finding). /health is the only public endpoint.
             if (authToken != null) {
+                // Constant-time compare: a plain != leaks match-length timing.
+                val expectedAuth = "Bearer $authToken".toByteArray()
                 intercept(io.ktor.server.application.ApplicationCallPipeline.Plugins) {
+                    val presented = call.request.headers[io.ktor.http.HttpHeaders.Authorization]
+                        ?.toByteArray() ?: ByteArray(0)
                     if (call.request.path() != "/health" &&
-                        call.request.headers[io.ktor.http.HttpHeaders.Authorization] != "Bearer $authToken"
+                        !java.security.MessageDigest.isEqual(expectedAuth, presented)
                     ) {
                         call.respondText(
                             text = """{"error":"unauthorized"}""",
