@@ -86,7 +86,7 @@ object ChrGenerateClientHelp {
     const val PYTHON_ENV_RID = "BLOCKCHAIN_TEST_RID"
     const val PYTHON_QUERY_REVIEWS = "get_all_reviews_for_book"
     const val KOTLIN_STANDARD_CLIENT = "StandardChromiaClient"
-    val leftoverOfficialKotlinMavenRepos = listOf(
+    val officialKotlinMavenRepos = listOf(
         "https://gitlab.com/api/v4/projects/50818999/packages/maven",
         "https://gitlab.com/api/v4/projects/32294340/packages/maven",
         "https://gitlab.com/api/v4/projects/46288950/packages/maven"
@@ -107,16 +107,16 @@ object ChrGenerateClientHelp {
     )
     const val DIRECTORY_CHAIN_IID = 0
     const val SOURCE_BRID_SETTING = "blockchainRid"
-    const val LEFTOVER_OFFICIAL_PROSE_BRID = "blockchainRID"
+    const val OFFICIAL_PROSE_BRID = "blockchainRID"
     const val FAILOVER_DEFAULT_STRATEGY = "Abort On Error"
     const val FAILOVER_DEFAULT_ATTEMPTS = 3
     const val FAILOVER_DEFAULT_INTERVAL_MS = 5000
     const val FAILOVER_DEFAULT_UNREACHABLE_MS = 30000
     const val FAILOVER_DEFAULT_STATUS_POLL_COUNT = 1
     const val SOURCE_FAILOVER_ABORT = "abortOnError"
-    const val LEFTOVER_OFFICIAL_STRATEGY_TYPO = "startegy"
-    const val LEFTOVER_OFFICIAL_ABORT_TYPO = "abortOnErrror"
-    val leftoverOfficialFailoverStrategies = listOf(
+    const val OFFICIAL_STRATEGY_TYPO = "startegy"
+    const val OFFICIAL_ABORT_TYPO = "abortOnErrror"
+    val officialFailoverStrategies = listOf(
         "Abort on error",
         "Try next on error",
         "Single endpoint",
@@ -192,18 +192,18 @@ object ChrGenerateClientHelp {
         result = await client.query("hello_world")
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialStandardChromiaClient(): String =
+    fun officialStandardChromiaClient(): String =
         "val chromiaClient = StandardChromiaClient(\"http://127.0.0.1:7740\")" + "\n"
 
-    fun leftoverOfficialPythonReviewsQuery(): String =
+    fun officialPythonReviewsQuery(): String =
         "reviews = await client.query(\"get_all_reviews_for_book\", {\"isbn\": \"ISBN123\"})" + "\n"
 
-    fun leftoverOfficialPythonEnv(): String = """
+    fun officialPythonEnv(): String = """
         POSTCHAIN_TEST_NODE=http://localhost:7740
         BLOCKCHAIN_TEST_RID=your_blockchain_rid
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialStickyQueryClient(): String = """
+    fun officialStickyQueryClient(): String = """
         const client = createClient({
           useStickyNode: true,
           directoryNodeUrlPool: ["http://localhost:7740"],
@@ -240,7 +240,7 @@ object ChrGenerateClientHelp {
         Official JS/TS setting name is blockchainRid. See packages, create_client_settings, local_create_client,
         testnet_create_client, mainnet_create_client, ft4_local_connection, kotlin_query, python_query.
         Official BUILD hello-world-quickstart (200): $JS_QUICKSTART_URL. Official Node.js 18+. Official query-only object my_name query hello_world() Hello %s!.format(my_name.name). client.query("hello_world"). default Hello World!. run-dapp-cli (200): $RUN_DAPP_CLI_URL. REAL bug: page still prints DEV-ONLY sample keys and signAndSendUniqueTransaction set_name; query-only wins. run-dapp-cli still prints chromia. yml (space); chromia.yml wins. Skip printed sample keys set_name tx keygen signAndSendUniqueTransaction.
-        Official BUILD JS/TS reference (200): $JS_REFERENCE_URL. page still says We are currently updating this documentation some details may be outdated. Directory Chain Iid $DIRECTORY_CHAIN_IID. useStickyNode page still prints succefull. nodeUrlPool described as array example string http://localhost:7740 source NetworkSettings string or string[] example string wins. failover defaults $FAILOVER_DEFAULT_STRATEGY attemptsPerEndpoint $FAILOVER_DEFAULT_ATTEMPTS attemptInterval $FAILOVER_DEFAULT_INTERVAL_MS unreachableDuration $FAILOVER_DEFAULT_UNREACHABLE_MS statusPollCount $FAILOVER_DEFAULT_STATUS_POLL_COUNT sticky useStickyNode directoryNodeUrlPool http://localhost:7740 prose $LEFTOVER_OFFICIAL_PROSE_BRID parameter $SOURCE_BRID_SETTING source $SOURCE_BRID_SETTING wins. REAL bug: page still prints sample 64-hex blockchainRid from echo A blockchain example sha256sum $LEFTOVER_OFFICIAL_STRATEGY_TYPO $LEFTOVER_OFFICIAL_ABORT_TYPO three failover strategies lists four source $SOURCE_FAILOVER_ABORT wins typed query get_fobar get_foobar wins; BlockchainRID placeholder wins. Skip dummy Buffer.alloc keys secp256k1 newSignatureProvider printed sample 64-hex signAndSend.
+        Official BUILD JS/TS reference (200): $JS_REFERENCE_URL. page still says We are currently updating this documentation some details may be outdated. Directory Chain Iid $DIRECTORY_CHAIN_IID. useStickyNode page still prints succefull. nodeUrlPool described as array example string http://localhost:7740 source NetworkSettings string or string[] example string wins. failover defaults $FAILOVER_DEFAULT_STRATEGY attemptsPerEndpoint $FAILOVER_DEFAULT_ATTEMPTS attemptInterval $FAILOVER_DEFAULT_INTERVAL_MS unreachableDuration $FAILOVER_DEFAULT_UNREACHABLE_MS statusPollCount $FAILOVER_DEFAULT_STATUS_POLL_COUNT sticky useStickyNode directoryNodeUrlPool http://localhost:7740 prose $OFFICIAL_PROSE_BRID parameter $SOURCE_BRID_SETTING source $SOURCE_BRID_SETTING wins. REAL bug: page still prints sample 64-hex blockchainRid from echo A blockchain example sha256sum $OFFICIAL_STRATEGY_TYPO $OFFICIAL_ABORT_TYPO three failover strategies lists four source $SOURCE_FAILOVER_ABORT wins typed query get_fobar get_foobar wins; BlockchainRID placeholder wins. Skip dummy Buffer.alloc keys secp256k1 newSignatureProvider printed sample 64-hex signAndSend.
         Official BUILD kotlin-client (200): $KOTLIN_CLIENT_URL outdated banner GitLab maven EndpointPool.singleUrl $KOTLIN_LOCAL_ENDPOINT query hello_world StandardChromiaClient without sample hex $OUTDATED_BANNER. REAL bug: Chromia client Gradle still prints $MAVEN_POSTCHAIN Maven $MAVEN_CHROMIA wins. Skip printed sample keys set_name awaitAnchoredTx sample 64-hex FT4 printed keys.
         Official BUILD python-client (200): $PYTHON_CLIENT_URL outdated banner Python $PYTHON_MIN pip $PIP_POSTCHAIN aiohttp query get_collections get_all_books get_all_reviews_for_book POSTCHAIN_TEST_NODE BLOCKCHAIN_TEST_RID NetworkSettings node_url_pool blockchain_rid YOUR_BLOCKCHAIN_RID rest_client.close source BlockchainRID placeholder wins. Skip PRIV_KEY coincurve sign_transaction send_transaction generate private key.
         Official BUILD FT4 client-setup (200 with trailing slash): $FT4_CLIENT_SETUP_URL_SLASH $FT4_CLIENT_SETUP_URL 307 createConnection getAllAssets empty $FT4_EMPTY_ASSETS blockchainIid 0 http://localhost:7740 @chromia/ft4 postchain-client. Skip signed txs key generation.
@@ -321,7 +321,7 @@ object ChrGenerateClientHelp {
         put("js_reference", JS_REFERENCE_URL)
         put("js_reference_directory_iid", DIRECTORY_CHAIN_IID)
         put("js_reference_brid_setting", SOURCE_BRID_SETTING)
-        put("js_reference_leftover_official_prose_brid", LEFTOVER_OFFICIAL_PROSE_BRID)
+        put("js_reference_official_prose_brid", OFFICIAL_PROSE_BRID)
         put(
             "js_reference_failover_defaults",
             buildJsonObject {
@@ -334,14 +334,14 @@ object ChrGenerateClientHelp {
         )
         put(
             "js_reference_failover_strategies",
-            buildJsonArray { leftoverOfficialFailoverStrategies.forEach { add(JsonPrimitive(it)) } }
+            buildJsonArray { officialFailoverStrategies.forEach { add(JsonPrimitive(it)) } }
         )
-        put("js_reference_sticky_create_client", leftoverOfficialStickyQueryClient())
-        put("js_reference_leftover_official_strategy_typo", LEFTOVER_OFFICIAL_STRATEGY_TYPO)
-        put("js_reference_leftover_official_abort_typo", LEFTOVER_OFFICIAL_ABORT_TYPO)
+        put("js_reference_sticky_create_client", officialStickyQueryClient())
+        put("js_reference_official_strategy_typo", OFFICIAL_STRATEGY_TYPO)
+        put("js_reference_official_abort_typo", OFFICIAL_ABORT_TYPO)
         put("js_reference_source_failover_abort", SOURCE_FAILOVER_ABORT)
         put("js_reference_query_foobar", "chromiaClient.query(\"get_foobar\", { foo: 1, bar: 2 })")
-        put("js_reference_leftover_official_query_typo", "get_fobar")
+        put("js_reference_official_query_typo", "get_fobar")
         put("ft4_client_setup", FT4_CLIENT_SETUP_URL)
         put("ft4_client_setup_slash", FT4_CLIENT_SETUP_URL_SLASH)
         put("ft4_empty_assets", FT4_EMPTY_ASSETS)
@@ -371,20 +371,20 @@ object ChrGenerateClientHelp {
         put("python_min", PYTHON_MIN)
         put("kotlin_local_endpoint", KOTLIN_LOCAL_ENDPOINT)
         put("kotlin_chromia_maven", MAVEN_CHROMIA)
-        put("kotlin_leftover_official_chromia_gradle", MAVEN_POSTCHAIN)
+        put("kotlin_official_chromia_gradle", MAVEN_POSTCHAIN)
         put("python_query_collections", "await client.query(\"get_collections\")")
         put("python_query_books", "await client.query(\"get_all_books\")")
-        put("python_query_reviews", leftoverOfficialPythonReviewsQuery())
+        put("python_query_reviews", officialPythonReviewsQuery())
         put("python_close", "await client.rest_client.close()")
         put("python_async", "aiohttp")
-        put("leftover_official_outdated_banner", OUTDATED_BANNER)
+        put("official_outdated_banner", OUTDATED_BANNER)
         put("python_env_node", PYTHON_ENV_NODE)
         put("python_env_rid", PYTHON_ENV_RID)
-        put("python_env", leftoverOfficialPythonEnv())
-        put("kotlin_standard_chromia_client", leftoverOfficialStandardChromiaClient())
+        put("python_env", officialPythonEnv())
+        put("kotlin_standard_chromia_client", officialStandardChromiaClient())
         put(
             "kotlin_maven_repos",
-            buildJsonArray { leftoverOfficialKotlinMavenRepos.forEach { add(JsonPrimitive(it)) } }
+            buildJsonArray { officialKotlinMavenRepos.forEach { add(JsonPrimitive(it)) } }
         )
         put("key_id_help", ChrKeyIdHelp.TOOL_NAME)
         put("cookbook_help", "chromia_cookbook_help")

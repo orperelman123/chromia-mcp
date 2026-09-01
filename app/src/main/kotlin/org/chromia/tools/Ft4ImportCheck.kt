@@ -18,7 +18,7 @@ object Ft4ImportCheck {
     const val RELEASES_404_URL = "https://docs.chromia.com/build/ft4/releases"
     const val CROSSCHAIN_IMPORT = "lib.ft4.crosschain"
     const val CROSSCHAIN_LIST_LABEL = "cross-chain"
-    val leftoverOfficialModules = listOf(
+    val officialModules = listOf(
         "accounts",
         "admin  # list; NEVER import in production",
         "admin.crosschain  # list; NEVER import in production",
@@ -29,7 +29,7 @@ object Ft4ImportCheck {
         "test  # tests only; exposes no external functions",
         "utils  # pagination; exposes no external functions"
     )
-    val leftoverOfficialImports = listOf(
+    val officialImports = listOf(
         "import lib.ft4.<module_name>  # public import (entities + mounted ops/queries)",
         "import lib.ft4.core.<module_name>  # core import (no externals)",
         "import lib.ft4.assets",
@@ -77,12 +77,12 @@ object Ft4ImportCheck {
             put("releases_404", RELEASES_404_URL)
             put("crosschain_import", CROSSCHAIN_IMPORT)
             put(
-                "leftover_official_modules",
-                buildJsonArray { leftoverOfficialModules.forEach { add(JsonPrimitive(it)) } }
+                "official_modules",
+                buildJsonArray { officialModules.forEach { add(JsonPrimitive(it)) } }
             )
             put(
-                "leftover_official_imports",
-                buildJsonArray { leftoverOfficialImports.forEach { add(JsonPrimitive(it)) } }
+                "official_imports",
+                buildJsonArray { officialImports.forEach { add(JsonPrimitive(it)) } }
             )
             put(
                 "notes",

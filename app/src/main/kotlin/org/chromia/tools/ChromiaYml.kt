@@ -18,7 +18,7 @@ object ChromiaYmlValidator {
     const val MERKLE_HASH_VERSION = DappScaffold.MERKLE_HASH_VERSION
 
     val forbiddenLibModules = DappScaffold.forbiddenModules
-    val leftoverOfficialBlockchainKeys = setOf("webStatic")
+    val officialBlockchainKeys = setOf("webStatic")
     val projectConfigBlockchainKeys = setOf("module", "moduleArgs", "config", "test")
 
     data class Result(

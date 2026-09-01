@@ -263,7 +263,7 @@ object ChromiaCookbookHelp {
     const val LEARN_TAGS_DEFI_INDEX_URL = "https://learn.chromia.com/tags/DeFi"
     const val LEARN_TAGS_DEFI_INDEX_URL_SLASH = "https://learn.chromia.com/tags/DeFi/"
     const val LEARN_TAGS_DEFI_INDEX_TITLE = "Courses tagged with: DeFi"  // official H1
-    val leftoverOfficialTxStatuses = listOf("Unknown", "Waiting", "Confirmed", "Rejected")
+    val officialTxStatuses = listOf("Unknown", "Waiting", "Confirmed", "Rejected")
     const val QUERY_COMMAND_URL = ChrQueryHelp.QUERY_DOCS_URL
     const val TEST_COMMAND_URL = "https://docs.chromia.com/build/cli/commands/test"
     const val JS_CLIENT_URL =
@@ -747,7 +747,7 @@ object ChromiaCookbookHelp {
         put("crosschain_transfer_index_title", CROSSCHAIN_TRANSFER_INDEX_TITLE)
         put(
             "tx_statuses",
-            buildJsonArray { leftoverOfficialTxStatuses.forEach { add(JsonPrimitive(it)) } }
+            buildJsonArray { officialTxStatuses.forEach { add(JsonPrimitive(it)) } }
         )
         put("hello_world_query", "hello_world")
         put("hello_world_result", "Hello World!")

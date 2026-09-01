@@ -204,7 +204,7 @@ object ChromiaIntegrationsHelp {
         "Account creation blockchains  # official: blockchain RIDs allowed to create accounts"
     )
 
-    val leftoverFees = listOf(
+    val fees = listOf(
         "100 CHR token proposal  # printed listing fee; verify with get_token_chain_constants",
         "100 CHR bridge proposal  # printed listing fee; verify with get_token_chain_constants",
         "25% burn / 25% Foundation / 50% project pool  # default split; burn enabled in a future release",
@@ -409,7 +409,7 @@ object ChromiaIntegrationsHelp {
         )
         put("query_shapes", buildJsonArray { tokenChainQueryShapes().forEach { add(JsonPrimitive(it)) } })
         put("proposal_fields", buildJsonArray { proposalFields.forEach { add(JsonPrimitive(it)) } })
-        put("leftover_fees", buildJsonArray { leftoverFees.forEach { add(JsonPrimitive(it)) } })
+        put("fees", buildJsonArray { fees.forEach { add(JsonPrimitive(it)) } })
         put("bridge_configuration", bridgeConfigurationStruct())
         put("skipped_write_or_invented", buildJsonArray { skipped.forEach { add(JsonPrimitive(it)) } })
         put("ft4_queries_help", ChromiaFt4QueriesHelp.TOOL_NAME)

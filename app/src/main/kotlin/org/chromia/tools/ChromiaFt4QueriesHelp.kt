@@ -389,7 +389,7 @@ object ChromiaFt4QueriesHelp {
         If multiple accounts, official page assigns priority from the first valid account.
     """.trimIndent()
 
-    val leftoverTerms = listOf(
+    val terms = listOf(
         "Account  # /build/ft4/terms: on-chain entity; auth descriptors + assets; not tied to one key pair",
         "User account  # only type users control; auth descriptor by default",
         "Lock account  # associated with a user account; assets not directly user-accessible",
@@ -411,7 +411,7 @@ object ChromiaFt4QueriesHelp {
         "Expiration  # terms: authorizations count / block number / last-block timestamp"
     )
 
-    val leftoverIntro = listOf(
+    val intro = listOf(
         "Use FT4 when the dapp needs accounts, fungible assets, multi-sig/roles, transfers, cross-chain, or rate limits",
         "Simple read-only dapps may skip FT4 and use Rell directly",
         "Account ID = hash(public_key)  # native; official intro",
@@ -778,8 +778,8 @@ object ChromiaFt4QueriesHelp {
         put("priority_extend_example", priorityExtendExample())
         put("pagination", paginationNote())
         put("prioritization", prioritizationNote())
-        put("leftover_terms", buildJsonArray { leftoverTerms.forEach { add(JsonPrimitive(it)) } })
-        put("leftover_intro", buildJsonArray { leftoverIntro.forEach { add(JsonPrimitive(it)) } })
+        put("terms", buildJsonArray { terms.forEach { add(JsonPrimitive(it)) } })
+        put("intro", buildJsonArray { intro.forEach { add(JsonPrimitive(it)) } })
         put("skipped_write", buildJsonArray { skipped.forEach { add(JsonPrimitive(it)) } })
         put("generate_client_help", "chr_generate_client_help")
         put("ecosystem_gov_user_types_index_url_slash", ECOSYSTEM_GOV_USER_TYPES_INDEX_URL_SLASH)

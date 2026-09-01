@@ -214,7 +214,7 @@ object ChrQueryHelp {
         put("tx_index_title", TX_INDEX_TITLE)
         put("tx_help_only", true)
         put(
-            "leftover_official_tx_flags",
+            "official_tx_flags",
             buildJsonObject {
                 put("await", "-a, --await / --no-await")
                 put("ft_auth", "--ft-auth")

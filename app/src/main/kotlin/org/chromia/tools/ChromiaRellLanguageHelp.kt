@@ -302,7 +302,7 @@ object ChromiaRellLanguageHelp {
         "@author name"
     )
 
-    val leftoverReleases = listOf(
+    val releases = listOf(
         "docs-site latest listed 0.16.4 (2026-08-02); language source tag 0.16.7",
         "0.16.7  source notes 2026-08-14 (not on docs-site): smaller dependency footprint; LSP honours compile.rellVersion; rell/setSettingsFiles; more constructs version-restricted",
         "0.16.6  source notes 2026-08-07 (not on docs-site): convert expression/block body; lambdas/value-blocks/jumps now require language version 0.16.1",
@@ -515,7 +515,7 @@ object ChromiaRellLanguageHelp {
         put("special_ops_example", specialOpsExample())
         put("rell_doc_example", rellDocExample())
         put("rell_doc_tags", buildJsonArray { rellDocTags.forEach { add(JsonPrimitive(it)) } })
-        put("leftover_releases", buildJsonArray { leftoverReleases.forEach { add(JsonPrimitive(it)) } })
+        put("releases", buildJsonArray { releases.forEach { add(JsonPrimitive(it)) } })
         put(
             "skipped_404",
             buildJsonArray {

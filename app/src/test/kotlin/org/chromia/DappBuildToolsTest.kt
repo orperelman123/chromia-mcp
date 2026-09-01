@@ -90,7 +90,7 @@ class DappBuildToolsTest {
     }
 
     @Test
-    fun leftoverOfficialWebStaticIsAccepted() {
+    fun officialWebStaticIsAccepted() {
         val yaml = goodYml().replace(
             "module: main",
             "module: main\n    webStatic: out"
@@ -98,7 +98,7 @@ class DappBuildToolsTest {
         val result = ChromiaYmlValidator.validate(yaml)
         assertTrue(result.errors.isEmpty(), result.errors.toString())
         assertTrue(result.ok)
-        assertTrue("webStatic" in ChromiaYmlValidator.leftoverOfficialBlockchainKeys)
+        assertTrue("webStatic" in ChromiaYmlValidator.officialBlockchainKeys)
         assertFalse(result.warnings.any { it.contains("webStatic") && it.contains("unknown") }, result.warnings.toString())
     }
 
@@ -1804,9 +1804,9 @@ class DappBuildToolsTest {
         )
         assertEquals("tx", payload["tx_index_title"]!!.jsonPrimitive.content)
         assertEquals("true", payload["tx_help_only"]!!.jsonPrimitive.content)
-        val leftoverTx = payload["leftover_official_tx_flags"]!!.jsonObject
-        assertTrue(leftoverTx["await"]!!.jsonPrimitive.content.contains("--await"))
-        assertTrue(leftoverTx["ft_auth"]!!.jsonPrimitive.content.contains("--ft-auth"))
+        val officialTx = payload["official_tx_flags"]!!.jsonObject
+        assertTrue(officialTx["await"]!!.jsonPrimitive.content.contains("--await"))
+        assertTrue(officialTx["ft_auth"]!!.jsonPrimitive.content.contains("--ft-auth"))
         assertTrue(notes.contains("HELP ONLY"))
         assertTrue(notes.contains("commands/tx"))
         assertFalse(notes.contains("execute_transaction"))

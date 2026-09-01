@@ -75,7 +75,7 @@ object ChromiaDocsYmlHelp {
     )
 
     val notOfficialKeys = listOf("theme", "nav", "logo")
-    val leftoverOfficialDocsKeysNotInProjectConfig = listOf("additionalModules")
+    val officialDocsKeysNotInProjectConfig = listOf("additionalModules")
 
     val lineSuffixes = linkedMapOf(
         "github" to "#L",
@@ -155,11 +155,11 @@ object ChromiaDocsYmlHelp {
         )
         put(
             "not_official_keys",
-            buildJsonArray { (notOfficialKeys + leftoverOfficialDocsKeysNotInProjectConfig).forEach { add(JsonPrimitive(it)) } }
+            buildJsonArray { (notOfficialKeys + officialDocsKeysNotInProjectConfig).forEach { add(JsonPrimitive(it)) } }
         )
         put(
-            "leftover_official_docs_keys_not_in_project_config",
-            buildJsonArray { leftoverOfficialDocsKeysNotInProjectConfig.forEach { add(JsonPrimitive(it)) } }
+            "official_docs_keys_not_in_project_config",
+            buildJsonArray { officialDocsKeysNotInProjectConfig.forEach { add(JsonPrimitive(it)) } }
         )
         put("additional_modules_discrepancy", "generating-doc-site (200) prints additionalModules; project-config (200) does not list it")
         put(

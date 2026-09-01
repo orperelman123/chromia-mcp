@@ -119,7 +119,7 @@ object ChrKeyIdHelp {
         put("keygen_index_title", KEYGEN_INDEX_TITLE)
         put("keygen_help_only", true)
         put(
-            "leftover_official_keygen_flags",
+            "official_keygen_flags",
             buildJsonObject {
                 put(
                     "key_id",

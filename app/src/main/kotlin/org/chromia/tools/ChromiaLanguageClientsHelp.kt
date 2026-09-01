@@ -209,41 +209,41 @@ object ChromiaLanguageClientsHelp {
     const val MCP_LOCAL_SSE = "http://127.0.0.1:3001"
     const val MCP_LOCAL_GRADLE = "./gradlew :app:runSse"
     const val MCP_REPO = "https://gitlab.com/chromaway/core-tools/chromia-mcp.git"
-    const val MCP_LEFTOVER_OFFICIAL_PROD_SSE = "https://mcp.chromia.dev/sse"
-    const val MCP_LEFTOVER_OFFICIAL_LOCAL_SSE = "http://127.0.0.1:3001/sse"
+    const val MCP_OFFICIAL_PROD_SSE = "https://mcp.chromia.dev/sse"
+    const val MCP_OFFICIAL_LOCAL_SSE = "http://127.0.0.1:3001/sse"
     const val MCP_LIVE_SSE_PATH = "/"
-    const val MCP_LEFTOVER_OFFICIAL_SSE_PATH = "/sse"
+    const val MCP_OFFICIAL_SSE_PATH = "/sse"
     const val MCP_HEALTH_PATH = "/health"
     const val MCP_HEALTH_STATUS = "healthy"
     const val MCP_HEALTH_VERSION = "0.2.2"
-    const val MCP_LEFTOVER_OFFICIAL_HOST_STATUS = "502"
+    const val MCP_OFFICIAL_HOST_STATUS = "502"
     const val FILEHUB_GATEWAY_HOST = "filehub-gw.chromia.com"
     const val GO_MODULE = "gitlab.com/chromaway/ft4-go-client"
-    const val GO_LEFTOVER_OFFICIAL_NODE = "https://node1.example.com"
+    const val GO_OFFICIAL_NODE = "https://node1.example.com"
     const val RUST_CRATE = "postchain-client"
     const val RUST_CRATE_VERSION = "0.0.3"
-    const val RUST_LEFTOVER_OFFICIAL_DECIMAL_TYPO = "BigDecima"
+    const val RUST_OFFICIAL_DECIMAL_TYPO = "BigDecima"
     const val RUST_SOURCE_DECIMAL = "BigDecimal"
-    const val RUST_LEFTOVER_OFFICIAL_ERROR_ARM = "Error(error: RestError)"
+    const val RUST_OFFICIAL_ERROR_ARM = "Error(error: RestError)"
     const val RUST_SOURCE_ERR_ARM = "Err(error: RestError)"
-    const val RUST_LEFTOVER_OFFICIAL_ERR_INCOMPLETE = "Err(error: )"
-    const val RUST_LEFTOVER_OFFICIAL_ERR_IDENT = "err"
+    const val RUST_OFFICIAL_ERR_INCOMPLETE = "Err(error: )"
+    const val RUST_OFFICIAL_ERR_IDENT = "err"
     const val RUST_SOURCE_ERR_IDENT = "error"
-    const val RUST_LEFTOVER_OFFICIAL_QUERY_ARGS_REF = "query_arguments_ref"
+    const val RUST_OFFICIAL_QUERY_ARGS_REF = "query_arguments_ref"
     const val RUST_SOURCE_QUERY_ARGS = "query_arguments"
-    const val RUST_LEFTOVER_OFFICIAL_BYTEARRAY = "Params:: ByteArray"
+    const val RUST_OFFICIAL_BYTEARRAY = "Params:: ByteArray"
     const val RUST_SOURCE_BYTEARRAY = "Params::ByteArray"
-    const val RUST_LEFTOVER_OFFICIAL_DECIMAL_SERDE = "serialize_bigint"
+    const val RUST_OFFICIAL_DECIMAL_SERDE = "serialize_bigint"
     const val RUST_SOURCE_DECIMAL_SERDE = "serialize_bigdecimal"
-    const val RUST_LEFTOVER_OFFICIAL_RESTCLIENT_LIFETIME = "RestClient<'_>"
-    const val RUST_LEFTOVER_OFFICIAL_RESTCLIENT_HTML_ENTITY = "RestClient&lt;'_>"
+    const val RUST_OFFICIAL_RESTCLIENT_LIFETIME = "RestClient<'_>"
+    const val RUST_OFFICIAL_RESTCLIENT_HTML_ENTITY = "RestClient&lt;'_>"
     const val REST_URL_SLASH = "https://docs.chromia.com/build/clients/postchain-rest-api/"
     const val REST_TITLE = "Postchain Rest API"
     const val POSTCHAIN_REST_API_INDEX_URL = REST_URL
     const val POSTCHAIN_REST_API_INDEX_URL_SLASH = REST_URL_SLASH
     const val POSTCHAIN_REST_API_INDEX_TITLE = REST_TITLE
     const val REACT_NPM = "@chromia/react"
-    const val REACT_LEFTOVER_OFFICIAL_POOL = "BLOCKCHAIN_URL"
+    const val REACT_OFFICIAL_POOL = "BLOCKCHAIN_URL"
 
     fun csharpQuery(): String = """
         var client = await ChromiaClient.Create("http://localhost:7740", blockchainRID);
@@ -253,62 +253,62 @@ object ChromiaLanguageClientsHelp {
     fun csharpCreateFromIid(): String =
         """var client = await ChromiaClient.Create("http://localhost:7740", 0);""" + "\n"
 
-    fun leftoverOfficialCsharpCreateFromDirectory(): String =
+    fun officialCsharpCreateFromDirectory(): String =
         """var client = await ChromiaClient.CreateFromDirectory("http://localhost:7750", blockchainRID);""" + "\n"
 
-    fun leftoverOfficialPostchainClientsIntro(): String = """
+    fun officialPostchainClientsIntro(): String = """
         Postchain clients offer libraries for interacting with a blockchain using JavaScript/TypeScript, Kotlin, C#, Rust, or Python. These libraries enable easy transaction sending and data retrieval from Rell blockchain nodes, simplifying the development of decentralized applications.
 
         Additionally, Chromia exposes REST endpoints directly in the browser, enabling developers to test functionality, query the blockchain, and submit transactions.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialReactKitIntro(): String = """
+    fun officialReactKitIntro(): String = """
         The Chromia React Kit streamlines the integration of React-based front-end applications with the Chromia blockchain. It offers a suite of tools and react custom hooks that enable developers to build decentralized applications effortlessly (dapps), simplifying and managing blockchain interactions.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialFilehubClientIntro(): String = """
+    fun officialFilehubClientIntro(): String = """
         TypeScript. Persisting and reading files on the Chromia blockchain. Filehub utilises @chromia/ft4 and postchain-client as peer dependency.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialBridgeClientIntro(): String = """
+    fun officialBridgeClientIntro(): String = """
         TypeScript library with utilities for interacting with the Chromia token bridge
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialOverviewIntro(): String = """
+    fun officialOverviewIntro(): String = """
         The Clients section highlights tools and libraries that enable integration of applications with the Chromia blockchain.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialMcpServerIntro(): String = """
+    fun officialMcpServerIntro(): String = """
         A Model Context Protocol (MCP) server that provides access to Chromia blockchain infrastructure and deployed dApps through the Chromia Explorer.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialJsTsIndexIntro(): String = """
+    fun officialJsTsIndexIntro(): String = """
         The JavaScript/TypeScript client library provides a comprehensive set of functions and utilities for interacting with Chromia blockchain. It allows you to send transactions, retrieve information from blockchain nodes running Rell, and build decentralized applications with ease.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialPythonIndexIntro(): String = """
+    fun officialPythonIndexIntro(): String = """
         A Python client library for interacting with Postchain nodes on Chromia blockchain networks. This library provides an interface for creating, signing, and sending transactions, as well as querying the blockchain, with full async support.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialKotlinIndexIntro(): String = """
+    fun officialKotlinIndexIntro(): String = """
         The Kotlin client library, postchain-client, provides the capability for interacting with a blockchain from a client app written in Kotlin or Java. With this library, you can easily send transactions and retrieve queries from a Rell blockchain node.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialCsharpIndexIntro(): String = """
+    fun officialCsharpIndexIntro(): String = """
         The C# client provides functionality for interacting with a blockchain using C#. It allows you to send transactions and retrieve information from a blockchain node running Rell. It can be integrated into your C# projects through the NuGet package or directly referencing the DLL files. Additionally, specific instructions apply if you're working with Unity or Unity WebGL.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialRustIndexIntro(): String = """
+    fun officialRustIndexIntro(): String = """
         The Rust client is used for interacting with the Chromia blockchain deployed to a Postchain single node (manual mode) or multi-nodes managed by the Directory Chain (managed mode).
 
         This library provides functionality for executing queries, creating and signing transactions, and managing blockchain operations.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialFt4ClientIndexIntro(): String = """
+    fun officialFt4ClientIndexIntro(): String = """
         The FT4 client is written in TypeScript. It is made for easier access to the backend operations and queries and ready to be used on the frontend (or a js backend).
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialGoIndexIntro(): String = """
+    fun officialGoIndexIntro(): String = """
         The Go client offers a range of built-in functions and utilities designed to simplify interaction with decentralized applications (dApps) created using the Postchain blockchain framework, commonly referred to as Chromia.
 
         The Go client library provides tools for interacting with the Chromia blockchain platform. It includes functionality for:
@@ -319,14 +319,14 @@ object ChromiaLanguageClientsHelp {
         - Communicating with Postchain nodes via REST API.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialPostchainRestApiIndexIntro(): String = """
+    fun officialPostchainRestApiIndexIntro(): String = """
         The Postchain Rest API, enables users to perform HTTP-based interactions with the blockchain to access vital information. This includes querying transaction records, inspecting block data, reviewing the blockchain’s current state, fetching configuration settings, and other related details.
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialCsharpDirectoryCreate(): String =
+    fun officialCsharpDirectoryCreate(): String =
         """var client3 = await ChromiaClient.Create(new() {"http://localhost:7750", "http://localhost:7751"}, 0);""" + "\n"
 
-    fun leftoverOfficialCsharpQueryParams(): String = """
+    fun officialCsharpQueryParams(): String = """
         struct QueryParams : IGtvSerializable
         {
             [JsonProperty("zip")]
@@ -363,10 +363,10 @@ object ChromiaLanguageClientsHelp {
         ).await?;
     """.trimIndent() + "\n"
 
-    fun leftoverOfficialRustStatus(): String =
+    fun officialRustStatus(): String =
         """let status = client.get_transaction_status("<blockchain RID>", &tx_rid).await?;""" + "\n"
 
-    fun leftoverOfficialRustQueryError(): String = """
+    fun officialRustQueryError(): String = """
         let result = client.query(/* ... */).await;
         match result {
             Ok(resp: RestResponse) => {
@@ -516,22 +516,22 @@ object ChromiaLanguageClientsHelp {
         Official BUILD kotlin-client (200): ${ChrGenerateClientHelp.KOTLIN_CLIENT_URL} EndpointPool.singleUrl ${ChrGenerateClientHelp.KOTLIN_LOCAL_ENDPOINT} query hello_world StandardChromiaClient without sample hex ${ChrGenerateClientHelp.OUTDATED_BANNER}. REAL bug: Chromia client Gradle still prints ${ChrGenerateClientHelp.MAVEN_POSTCHAIN} Maven ${ChrGenerateClientHelp.MAVEN_CHROMIA} wins. Skip printed sample keys set_name awaitAnchoredTx sample 64-hex.
         Official BUILD python-client (200): ${ChrGenerateClientHelp.PYTHON_CLIENT_URL} Python ${ChrGenerateClientHelp.PYTHON_MIN} pip ${ChrGenerateClientHelp.PIP_POSTCHAIN} query get_collections get_all_books get_all_reviews_for_book POSTCHAIN_TEST_NODE BLOCKCHAIN_TEST_RID YOUR_BLOCKCHAIN_RID BlockchainRID placeholder wins. Skip PRIV_KEY coincurve sign_transaction send_transaction.
         Official BUILD clients postchain-clients javascript-typescript hello-world-quickstart ($JS_QUICKSTART_INDEX_URL 307 $JS_QUICKSTART_INDEX_URL_SLASH 200 $JS_QUICKSTART_INDEX_TITLE): intro This quickstart guide Node.js 18+ object my_name query hello_world() Hello %s!.format(my_name.name) client.query("hello_world") default Hello World! run-dapp-cli $RUN_DAPP_CLI_URL chromia. yml space chromia.yml wins REAL bug page still prints DEV-ONLY sample keys and signAndSendUniqueTransaction set_name query-only wins Query-only skip printed sample keys set_name tx keygen signAndSendUniqueTransaction sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
-        Official BUILD JS/TS reference (200): $JS_REFERENCE_URL Directory Chain Iid ${ChrGenerateClientHelp.DIRECTORY_CHAIN_IID} succefull failover defaults ${ChrGenerateClientHelp.FAILOVER_DEFAULT_STRATEGY} attemptsPerEndpoint ${ChrGenerateClientHelp.FAILOVER_DEFAULT_ATTEMPTS} attemptInterval ${ChrGenerateClientHelp.FAILOVER_DEFAULT_INTERVAL_MS} unreachableDuration ${ChrGenerateClientHelp.FAILOVER_DEFAULT_UNREACHABLE_MS} sticky useStickyNode prose ${ChrGenerateClientHelp.LEFTOVER_OFFICIAL_PROSE_BRID} source ${ChrGenerateClientHelp.SOURCE_BRID_SETTING} wins. REAL bug: ${ChrGenerateClientHelp.LEFTOVER_OFFICIAL_STRATEGY_TYPO} ${ChrGenerateClientHelp.LEFTOVER_OFFICIAL_ABORT_TYPO} three failover strategies lists four source ${ChrGenerateClientHelp.SOURCE_FAILOVER_ABORT} wins BlockchainRID placeholder wins. Skip dummy Buffer.alloc secp256k1 newSignatureProvider sample 64-hex signAndSend.
-        Official BUILD clients postchain-clients javascript-typescript reference ($JS_REFERENCE_INDEX_URL 307 $JS_REFERENCE_INDEX_URL_SLASH 200 $JS_REFERENCE_INDEX_TITLE): Directory Chain Iid ${ChrGenerateClientHelp.DIRECTORY_CHAIN_IID} succefull failover defaults ${ChrGenerateClientHelp.FAILOVER_DEFAULT_STRATEGY} attemptsPerEndpoint ${ChrGenerateClientHelp.FAILOVER_DEFAULT_ATTEMPTS} attemptInterval ${ChrGenerateClientHelp.FAILOVER_DEFAULT_INTERVAL_MS} unreachableDuration ${ChrGenerateClientHelp.FAILOVER_DEFAULT_UNREACHABLE_MS} sticky useStickyNode prose ${ChrGenerateClientHelp.LEFTOVER_OFFICIAL_PROSE_BRID} source ${ChrGenerateClientHelp.SOURCE_BRID_SETTING} wins REAL bug ${ChrGenerateClientHelp.LEFTOVER_OFFICIAL_STRATEGY_TYPO} ${ChrGenerateClientHelp.LEFTOVER_OFFICIAL_ABORT_TYPO} three failover strategies lists four source ${ChrGenerateClientHelp.SOURCE_FAILOVER_ABORT} wins BlockchainRID placeholder wins Query-only skip dummy Buffer.alloc secp256k1 newSignatureProvider signAndSend signed txs sample admin pubkey keygen no sample keys no invented 64-hex <BlockchainRID>.
+        Official BUILD JS/TS reference (200): $JS_REFERENCE_URL Directory Chain Iid ${ChrGenerateClientHelp.DIRECTORY_CHAIN_IID} succefull failover defaults ${ChrGenerateClientHelp.FAILOVER_DEFAULT_STRATEGY} attemptsPerEndpoint ${ChrGenerateClientHelp.FAILOVER_DEFAULT_ATTEMPTS} attemptInterval ${ChrGenerateClientHelp.FAILOVER_DEFAULT_INTERVAL_MS} unreachableDuration ${ChrGenerateClientHelp.FAILOVER_DEFAULT_UNREACHABLE_MS} sticky useStickyNode prose ${ChrGenerateClientHelp.OFFICIAL_PROSE_BRID} source ${ChrGenerateClientHelp.SOURCE_BRID_SETTING} wins. REAL bug: ${ChrGenerateClientHelp.OFFICIAL_STRATEGY_TYPO} ${ChrGenerateClientHelp.OFFICIAL_ABORT_TYPO} three failover strategies lists four source ${ChrGenerateClientHelp.SOURCE_FAILOVER_ABORT} wins BlockchainRID placeholder wins. Skip dummy Buffer.alloc secp256k1 newSignatureProvider sample 64-hex signAndSend.
+        Official BUILD clients postchain-clients javascript-typescript reference ($JS_REFERENCE_INDEX_URL 307 $JS_REFERENCE_INDEX_URL_SLASH 200 $JS_REFERENCE_INDEX_TITLE): Directory Chain Iid ${ChrGenerateClientHelp.DIRECTORY_CHAIN_IID} succefull failover defaults ${ChrGenerateClientHelp.FAILOVER_DEFAULT_STRATEGY} attemptsPerEndpoint ${ChrGenerateClientHelp.FAILOVER_DEFAULT_ATTEMPTS} attemptInterval ${ChrGenerateClientHelp.FAILOVER_DEFAULT_INTERVAL_MS} unreachableDuration ${ChrGenerateClientHelp.FAILOVER_DEFAULT_UNREACHABLE_MS} sticky useStickyNode prose ${ChrGenerateClientHelp.OFFICIAL_PROSE_BRID} source ${ChrGenerateClientHelp.SOURCE_BRID_SETTING} wins REAL bug ${ChrGenerateClientHelp.OFFICIAL_STRATEGY_TYPO} ${ChrGenerateClientHelp.OFFICIAL_ABORT_TYPO} three failover strategies lists four source ${ChrGenerateClientHelp.SOURCE_FAILOVER_ABORT} wins BlockchainRID placeholder wins Query-only skip dummy Buffer.alloc secp256k1 newSignatureProvider signAndSend signed txs sample admin pubkey keygen no sample keys no invented 64-hex <BlockchainRID>.
         C# ($CSHARP_URL): ChromiaClient.Create(url, blockchainRID) or Create(url, iid). Query:
         client.Query<string>("get_city", ("zip", 22222)) IGtvSerializable JsonProperty QueryParams Zip 22222.
         Official page says NuGet package or DLL / Unity Plugins; it does not print a package id.
         Directory discovery: ChromiaClient.CreateFromDirectory(systemUrl, rid|iid). Official local
         Directory example host is http://localhost:7750 $CSHARP_DIRECTORY_HOST ${ChrGenerateClientHelp.OUTDATED_BANNER}. REAL bug: directory pool still prints Create not CreateFromDirectory BlockchainRID placeholder wins. Skip sample 64-hex SignatureProvider SendTransaction SendUniqueTransaction.
-        Go ($GO_URL): go get $GO_MODULE NewClient $GO_LEFTOVER_OFFICIAL_NODE http://localhost:7740 wins GetBlockchainRID 123. postchain.NewClient([]*url.URL{nodeURL}).
+        Go ($GO_URL): go get $GO_MODULE NewClient $GO_OFFICIAL_NODE http://localhost:7740 wins GetBlockchainRID 123. postchain.NewClient([]*url.URL{nodeURL}).
         Query: client.Query(blockchainRID, name, gtv.DictValue). Also GetBlockchainRID(iid),
         GetFeatures, DetectMerkleHashVersion (use merkle HashVersion2; version 1 has a hash-collision bug).
         Read-only retrieve: GetTransaction, GetTransactionInfo, GetConfirmationProof, BlockAtHeight, BlockByRID.
         Rust ($RUST_URL): crate $RUST_CRATE = "$RUST_CRATE_VERSION". RestClient { node_url, request_time_out: 30,
         poll_attemps: 5, poll_attemp_interval_time: 5 }. client.query(brid, None, query_type, None, args).
-        Official rust page prints $RUST_LEFTOVER_OFFICIAL_RESTCLIENT_LIFETIME (HTML entity $RUST_LEFTOVER_OFFICIAL_RESTCLIENT_HTML_ENTITY).
-        Official field names poll_attemps / poll_attemp_interval_time are as printed get_transaction_status read-only. REAL bug: Params table still prints $RUST_LEFTOVER_OFFICIAL_DECIMAL_TYPO $RUST_SOURCE_DECIMAL wins query match still prints $RUST_LEFTOVER_OFFICIAL_ERROR_ARM $RUST_SOURCE_ERR_ARM wins $RUST_LEFTOVER_OFFICIAL_ERR_INCOMPLETE $RUST_LEFTOVER_OFFICIAL_ERR_IDENT $RUST_SOURCE_ERR_IDENT wins $RUST_LEFTOVER_OFFICIAL_QUERY_ARGS_REF $RUST_SOURCE_QUERY_ARGS wins $RUST_LEFTOVER_OFFICIAL_BYTEARRAY $RUST_SOURCE_BYTEARRAY wins decimal serde still prints $RUST_LEFTOVER_OFFICIAL_DECIMAL_SERDE $RUST_SOURCE_DECIMAL_SERDE wins. Skip printed sample keys Transaction::new sign send_transaction.
-        React Kit ($REACT_URL): $REACT_NPM ${ChrGenerateClientHelp.OUTDATED_BANNER} $REACT_LEFTOVER_OFFICIAL_POOL http://localhost:7740 wins SWR QueryOrOperationType. createChromiaHooks returns useChromiaQuery,
+        Official rust page prints $RUST_OFFICIAL_RESTCLIENT_LIFETIME (HTML entity $RUST_OFFICIAL_RESTCLIENT_HTML_ENTITY).
+        Official field names poll_attemps / poll_attemp_interval_time are as printed get_transaction_status read-only. REAL bug: Params table still prints $RUST_OFFICIAL_DECIMAL_TYPO $RUST_SOURCE_DECIMAL wins query match still prints $RUST_OFFICIAL_ERROR_ARM $RUST_SOURCE_ERR_ARM wins $RUST_OFFICIAL_ERR_INCOMPLETE $RUST_OFFICIAL_ERR_IDENT $RUST_SOURCE_ERR_IDENT wins $RUST_OFFICIAL_QUERY_ARGS_REF $RUST_SOURCE_QUERY_ARGS wins $RUST_OFFICIAL_BYTEARRAY $RUST_SOURCE_BYTEARRAY wins decimal serde still prints $RUST_OFFICIAL_DECIMAL_SERDE $RUST_SOURCE_DECIMAL_SERDE wins. Skip printed sample keys Transaction::new sign send_transaction.
+        React Kit ($REACT_URL): $REACT_NPM ${ChrGenerateClientHelp.OUTDATED_BANNER} $REACT_OFFICIAL_POOL http://localhost:7740 wins SWR QueryOrOperationType. createChromiaHooks returns useChromiaQuery,
         useChromiaImmutableQuery, useChromiaInfiniteQuery. Official FailoverStrategy.AbortOnError.
         useFtQuery({ queryName, queryParams, accountId }) is a read hook; skip FtProvider EVM keystore.
         Official BUILD clients react-kit ($REACT_URL 307 $REACT_URL_SLASH 200 $REACT_TITLE): intro The Chromia React Kit streamlines $REACT_NPM SWR createChromiaHooks useChromiaQuery useChromiaImmutableQuery useChromiaInfiniteQuery useFtQuery skip FtProvider EVM keystore useFileHubImage signed txs no sample keys no invented 64-hex <BlockchainRID>.
@@ -556,8 +556,8 @@ object ChromiaLanguageClientsHelp {
         Docs print IccfGtxModule; source pin is net.postchain.d1.iccf.IccfGTXModule plus library-chain com.chromia.iccf 1.90.1;
         official-but-stale FT4-setup git directory-chain tag is 1.87.0. See ft4_module_args. Skip iccf_proof writes.
         Official Filehub configure page prints package id filehub from configure AND work.
-        Official BUILD MCP server (200): $MCP_SERVER_URL. Official page key $MCP_OFFICIAL_PAGE_KEY vs fat JAR $MCP_FAT_JAR_NAME. Official prod $MCP_PROD_URL $MCP_LEFTOVER_OFFICIAL_PROD_SSE local README $MCP_LEFTOVER_OFFICIAL_LOCAL_SSE this-tree live GET / is the SSE endpoint GET /sse 404 /health {status:healthy, server:$MCP_FAT_JAR_NAME, version:$MCP_HEALTH_VERSION} host currently $MCP_LEFTOVER_OFFICIAL_HOST_STATUS. Official local SSE $MCP_LOCAL_SSE via $MCP_LOCAL_GRADLE from $MCP_REPO. Official LSP $LSP_MCP_NPM with optional Rell $LSP_MCP_RELL; config key lsp-mcp. Official ChatGPT auth: No authentication. Skip explorer-dump sample BRIDs.
-        Official BUILD clients mcp-server ($MCP_SERVER_INDEX_URL 307 $MCP_SERVER_INDEX_URL_SLASH 200 $MCP_SERVER_INDEX_TITLE): intro A Model Context Protocol (MCP) server that provides access to Chromia blockchain infrastructure and deployed dApps through the Chromia Explorer Overview Documentation Tools Setup Claude Rell LSP Integration Usage Examples Networks Query-only skip signed txs explorer-dump sample BRIDs no sample keys no invented 64-hex sample admin pubkey do not invent a hosted URL host currently $MCP_LEFTOVER_OFFICIAL_HOST_STATUS.
+        Official BUILD MCP server (200): $MCP_SERVER_URL. Official page key $MCP_OFFICIAL_PAGE_KEY vs fat JAR $MCP_FAT_JAR_NAME. Official prod $MCP_PROD_URL $MCP_OFFICIAL_PROD_SSE local README $MCP_OFFICIAL_LOCAL_SSE this-tree live GET / is the SSE endpoint GET /sse 404 /health {status:healthy, server:$MCP_FAT_JAR_NAME, version:$MCP_HEALTH_VERSION} host currently $MCP_OFFICIAL_HOST_STATUS. Official local SSE $MCP_LOCAL_SSE via $MCP_LOCAL_GRADLE from $MCP_REPO. Official LSP $LSP_MCP_NPM with optional Rell $LSP_MCP_RELL; config key lsp-mcp. Official ChatGPT auth: No authentication. Skip explorer-dump sample BRIDs.
+        Official BUILD clients mcp-server ($MCP_SERVER_INDEX_URL 307 $MCP_SERVER_INDEX_URL_SLASH 200 $MCP_SERVER_INDEX_TITLE): intro A Model Context Protocol (MCP) server that provides access to Chromia blockchain infrastructure and deployed dApps through the Chromia Explorer Overview Documentation Tools Setup Claude Rell LSP Integration Usage Examples Networks Query-only skip signed txs explorer-dump sample BRIDs no sample keys no invented 64-hex sample admin pubkey do not invent a hosted URL host currently $MCP_OFFICIAL_HOST_STATUS.
         Official BUILD clients postchain-clients javascript-typescript ($JS_TS_INDEX_URL 307 $JS_TS_INDEX_URL_SLASH 200 $JS_TS_INDEX_TITLE): intro The JavaScript/TypeScript client library provides a comprehensive set of functions Getting started Hello World Quickstart $JS_QUICKSTART_URL Installation postchain-client Query Execution Multiple Node Support TypeScript Support Automatic Discovery Client Reference $JS_REFERENCE_URL Chromia React Kit Client libraries overview Cookbook examples React/Rell Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official BUILD clients postchain-clients python-client ($PYTHON_INDEX_URL 307 $PYTHON_INDEX_URL_SLASH 200 $PYTHON_INDEX_TITLE): intro A Python client library for interacting with Postchain nodes Features aiohttp Prerequisites Python ${ChrGenerateClientHelp.PYTHON_MIN} Installation pip ${ChrGenerateClientHelp.PIP_POSTCHAIN} Configuration ${ChrGenerateClientHelp.PYTHON_ENV_NODE} ${ChrGenerateClientHelp.PYTHON_ENV_RID} Quick Start BlockchainClient NetworkSettings get_collections Queries get_all_books get_all_reviews_for_book Development Running Tests Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official BUILD clients/postchain-clients/python-client ($PYTHON_CLIENT_INDEX_URL 307 $PYTHON_CLIENT_INDEX_URL_SLASH 200 $PYTHON_CLIENT_INDEX_TITLE): Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
@@ -567,8 +567,8 @@ object ChromiaLanguageClientsHelp {
         Official BUILD clients/postchain-clients/c-sharp-client ($CSHARP_CLIENT_INDEX_URL 307 $CSHARP_CLIENT_INDEX_URL_SLASH 200 $CSHARP_CLIENT_INDEX_TITLE): Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official BUILD clients/postchain-clients/go-client ($GO_CLIENT_INDEX_URL 307 $GO_CLIENT_INDEX_URL_SLASH 200 $GO_CLIENT_INDEX_TITLE): Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official BUILD clients/postchain-clients/rust-client ($RUST_CLIENT_INDEX_URL 307 $RUST_CLIENT_INDEX_URL_SLASH 200 $RUST_CLIENT_INDEX_TITLE): Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
-        Official BUILD clients postchain-clients rust-client ($RUST_INDEX_URL 307 $RUST_INDEX_URL_SLASH 200 $RUST_INDEX_TITLE): intro The Rust client is used for interacting Installation Cargo.toml $RUST_CRATE $RUST_CRATE_VERSION tokio serde serde_json Initializing the client RestClient Queries client.query Params Error handling RestResponse RestError $RUST_LEFTOVER_OFFICIAL_ERROR_ARM $RUST_SOURCE_ERR_ARM wins $RUST_LEFTOVER_OFFICIAL_ERR_INCOMPLETE $RUST_LEFTOVER_OFFICIAL_ERR_IDENT $RUST_SOURCE_ERR_IDENT wins $RUST_LEFTOVER_OFFICIAL_QUERY_ARGS_REF $RUST_SOURCE_QUERY_ARGS wins Using serde for serialization $RUST_LEFTOVER_OFFICIAL_DECIMAL_SERDE $RUST_SOURCE_DECIMAL_SERDE wins Logging tracing Parameter types $RUST_LEFTOVER_OFFICIAL_DECIMAL_TYPO $RUST_SOURCE_DECIMAL wins $RUST_LEFTOVER_OFFICIAL_BYTEARRAY $RUST_SOURCE_BYTEARRAY wins $RUST_LEFTOVER_OFFICIAL_RESTCLIENT_LIFETIME $RUST_LEFTOVER_OFFICIAL_RESTCLIENT_HTML_ENTITY Examples book-review ${ChrGenerateClientHelp.OUTDATED_BANNER} Params table still prints $RUST_LEFTOVER_OFFICIAL_DECIMAL_TYPO $RUST_SOURCE_DECIMAL wins Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
-        Official BUILD clients postchain-clients go-client ($GO_INDEX_URL 307 $GO_INDEX_URL_SLASH 200 $GO_INDEX_TITLE): intro The Go client offers a range of built-in functions Installation go get $GO_MODULE Generic Transfer Value GTV Null ByteArray String Integer Dict Array BigInteger Merkle HashVersion2 version 1 hash-collision bug Postchain Client NewClient $GO_LEFTOVER_OFFICIAL_NODE http://localhost:7740 wins GetBlockchainRID 123 GetFeatures DetectMerkleHashVersion Queries get_account_balance Retrieving Transactions and Blocks GetTransaction GetTransactionInfo GetConfirmationProof BlockAtHeight BlockByRID API Reference Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
+        Official BUILD clients postchain-clients rust-client ($RUST_INDEX_URL 307 $RUST_INDEX_URL_SLASH 200 $RUST_INDEX_TITLE): intro The Rust client is used for interacting Installation Cargo.toml $RUST_CRATE $RUST_CRATE_VERSION tokio serde serde_json Initializing the client RestClient Queries client.query Params Error handling RestResponse RestError $RUST_OFFICIAL_ERROR_ARM $RUST_SOURCE_ERR_ARM wins $RUST_OFFICIAL_ERR_INCOMPLETE $RUST_OFFICIAL_ERR_IDENT $RUST_SOURCE_ERR_IDENT wins $RUST_OFFICIAL_QUERY_ARGS_REF $RUST_SOURCE_QUERY_ARGS wins Using serde for serialization $RUST_OFFICIAL_DECIMAL_SERDE $RUST_SOURCE_DECIMAL_SERDE wins Logging tracing Parameter types $RUST_OFFICIAL_DECIMAL_TYPO $RUST_SOURCE_DECIMAL wins $RUST_OFFICIAL_BYTEARRAY $RUST_SOURCE_BYTEARRAY wins $RUST_OFFICIAL_RESTCLIENT_LIFETIME $RUST_OFFICIAL_RESTCLIENT_HTML_ENTITY Examples book-review ${ChrGenerateClientHelp.OUTDATED_BANNER} Params table still prints $RUST_OFFICIAL_DECIMAL_TYPO $RUST_SOURCE_DECIMAL wins Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
+        Official BUILD clients postchain-clients go-client ($GO_INDEX_URL 307 $GO_INDEX_URL_SLASH 200 $GO_INDEX_TITLE): intro The Go client offers a range of built-in functions Installation go get $GO_MODULE Generic Transfer Value GTV Null ByteArray String Integer Dict Array BigInteger Merkle HashVersion2 version 1 hash-collision bug Postchain Client NewClient $GO_OFFICIAL_NODE http://localhost:7740 wins GetBlockchainRID 123 GetFeatures DetectMerkleHashVersion Queries get_account_balance Retrieving Transactions and Blocks GetTransaction GetTransactionInfo GetConfirmationProof BlockAtHeight BlockByRID API Reference Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official get-started/about/dapp ($GET_STARTED_DAPP_INDEX_URL 307 $GET_STARTED_DAPP_INDEX_URL_SLASH 200 $GET_STARTED_DAPP_INDEX_TITLE): Query-only HELP ONLY skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official get-started/about/chromia-vs-evm ($GET_STARTED_CHROMIA_VS_EVM_INDEX_URL 307 $GET_STARTED_CHROMIA_VS_EVM_INDEX_URL_SLASH 200 $GET_STARTED_CHROMIA_VS_EVM_INDEX_TITLE): Query-only HELP ONLY skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official get-started/about/protocols/gtx ($GET_STARTED_GTX_INDEX_URL 307 $GET_STARTED_GTX_INDEX_URL_SLASH 200 $GET_STARTED_GTX_INDEX_TITLE): Query-only HELP ONLY skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
@@ -598,7 +598,7 @@ object ChromiaLanguageClientsHelp {
         put("overview_index_docs", OVERVIEW_INDEX_URL)
         put("overview_index_url_slash", OVERVIEW_INDEX_URL_SLASH)
         put("overview_index_title", OVERVIEW_INDEX_TITLE)
-        put("overview_index_intro", leftoverOfficialOverviewIntro())
+        put("overview_index_intro", officialOverviewIntro())
         put("overview_index_card_rest", OVERVIEW_INDEX_CARD_REST)
         put("overview_index_card_react", OVERVIEW_INDEX_CARD_REACT)
         put("overview_index_card_postchain", OVERVIEW_INDEX_CARD_POSTCHAIN)
@@ -606,7 +606,7 @@ object ChromiaLanguageClientsHelp {
         put("overview_index_card_ft4", OVERVIEW_INDEX_CARD_FT4)
         put("overview_index_card_filehub", OVERVIEW_INDEX_CARD_FILEHUB)
         put("overview_index_card_mcp", OVERVIEW_INDEX_CARD_MCP)
-        put("overview_intro", leftoverOfficialOverviewIntro())
+        put("overview_intro", officialOverviewIntro())
         put("web_static_local_url", WEB_STATIC_LOCAL_URL)
         put(
             "pages",
@@ -660,37 +660,37 @@ object ChromiaLanguageClientsHelp {
         )
         put("csharp_query", csharpQuery())
         put("csharp_create_iid", csharpCreateFromIid())
-        put("csharp_create_directory", leftoverOfficialCsharpCreateFromDirectory())
-        put("csharp_leftover_official_directory_create", leftoverOfficialCsharpDirectoryCreate())
+        put("csharp_create_directory", officialCsharpCreateFromDirectory())
+        put("csharp_official_directory_create", officialCsharpDirectoryCreate())
         put("csharp_directory_host", CSHARP_DIRECTORY_HOST)
-        put("csharp_query_params", leftoverOfficialCsharpQueryParams())
+        put("csharp_query_params", officialCsharpQueryParams())
         put("go_query", goQuery())
-        put("go_leftover_official_node", GO_LEFTOVER_OFFICIAL_NODE)
+        put("go_official_node", GO_OFFICIAL_NODE)
         put("rust_client", rustClient())
         put("rust_query", rustQuery())
-        put("rust_status", leftoverOfficialRustStatus())
-        put("rust_query_error", leftoverOfficialRustQueryError())
-        put("rust_leftover_official_decimal_typo", RUST_LEFTOVER_OFFICIAL_DECIMAL_TYPO)
+        put("rust_status", officialRustStatus())
+        put("rust_query_error", officialRustQueryError())
+        put("rust_official_decimal_typo", RUST_OFFICIAL_DECIMAL_TYPO)
         put("rust_source_decimal", RUST_SOURCE_DECIMAL)
-        put("rust_leftover_official_error_arm", RUST_LEFTOVER_OFFICIAL_ERROR_ARM)
+        put("rust_official_error_arm", RUST_OFFICIAL_ERROR_ARM)
         put("rust_source_err_arm", RUST_SOURCE_ERR_ARM)
-        put("rust_leftover_official_err_incomplete", RUST_LEFTOVER_OFFICIAL_ERR_INCOMPLETE)
-        put("rust_leftover_official_err_ident", RUST_LEFTOVER_OFFICIAL_ERR_IDENT)
+        put("rust_official_err_incomplete", RUST_OFFICIAL_ERR_INCOMPLETE)
+        put("rust_official_err_ident", RUST_OFFICIAL_ERR_IDENT)
         put("rust_source_err_ident", RUST_SOURCE_ERR_IDENT)
-        put("rust_leftover_official_query_args_ref", RUST_LEFTOVER_OFFICIAL_QUERY_ARGS_REF)
+        put("rust_official_query_args_ref", RUST_OFFICIAL_QUERY_ARGS_REF)
         put("rust_source_query_args", RUST_SOURCE_QUERY_ARGS)
-        put("rust_leftover_official_bytearray", RUST_LEFTOVER_OFFICIAL_BYTEARRAY)
+        put("rust_official_bytearray", RUST_OFFICIAL_BYTEARRAY)
         put("rust_source_bytearray", RUST_SOURCE_BYTEARRAY)
-        put("rust_leftover_official_decimal_serde", RUST_LEFTOVER_OFFICIAL_DECIMAL_SERDE)
+        put("rust_official_decimal_serde", RUST_OFFICIAL_DECIMAL_SERDE)
         put("rust_source_decimal_serde", RUST_SOURCE_DECIMAL_SERDE)
-        put("rust_leftover_official_restclient_lifetime", RUST_LEFTOVER_OFFICIAL_RESTCLIENT_LIFETIME)
-        put("rust_leftover_official_restclient_html_entity", RUST_LEFTOVER_OFFICIAL_RESTCLIENT_HTML_ENTITY)
+        put("rust_official_restclient_lifetime", RUST_OFFICIAL_RESTCLIENT_LIFETIME)
+        put("rust_official_restclient_html_entity", RUST_OFFICIAL_RESTCLIENT_HTML_ENTITY)
         put("rest_url_slash", REST_URL_SLASH)
         put("rest_title", REST_TITLE)
         put("postchain_rest_api_index_docs", POSTCHAIN_REST_API_INDEX_URL)
         put("postchain_rest_api_index_url_slash", POSTCHAIN_REST_API_INDEX_URL_SLASH)
         put("postchain_rest_api_index_title", POSTCHAIN_REST_API_INDEX_TITLE)
-        put("postchain_rest_api_index_intro", leftoverOfficialPostchainRestApiIndexIntro())
+        put("postchain_rest_api_index_intro", officialPostchainRestApiIndexIntro())
         put("ft4_client_url", FT4_CLIENT_URL)
         put("ft4_client_url_slash", FT4_CLIENT_URL_SLASH)
         put("ft4_client_title", FT4_CLIENT_TITLE)
@@ -698,7 +698,7 @@ object ChromiaLanguageClientsHelp {
         put("ft4_client_index_docs", FT4_CLIENT_INDEX_URL)
         put("ft4_client_index_url_slash", FT4_CLIENT_INDEX_URL_SLASH)
         put("ft4_client_index_title", FT4_CLIENT_INDEX_TITLE)
-        put("ft4_client_index_intro", leftoverOfficialFt4ClientIndexIntro())
+        put("ft4_client_index_intro", officialFt4ClientIndexIntro())
         put("postchain_clients_url", POSTCHAIN_CLIENTS_URL)
         put("postchain_clients_url_slash", POSTCHAIN_CLIENTS_URL_SLASH)
         put("postchain_clients_title", POSTCHAIN_CLIENTS_TITLE)
@@ -706,7 +706,7 @@ object ChromiaLanguageClientsHelp {
         put("postchain_clients_index_url_slash", POSTCHAIN_CLIENTS_INDEX_URL_SLASH)
         put("postchain_clients_index_title", POSTCHAIN_CLIENTS_INDEX_TITLE)
         put("postchain_clients_intro_langs", POSTCHAIN_CLIENTS_INTRO_LANGS)
-        put("postchain_clients_intro", leftoverOfficialPostchainClientsIntro())
+        put("postchain_clients_intro", officialPostchainClientsIntro())
         put("postchain_clients_card_js", POSTCHAIN_CLIENTS_CARD_JS)
         put("postchain_clients_card_kotlin", POSTCHAIN_CLIENTS_CARD_KOTLIN)
         put("postchain_clients_card_csharp", POSTCHAIN_CLIENTS_CARD_CSHARP)
@@ -728,13 +728,13 @@ object ChromiaLanguageClientsHelp {
         put("react_url", REACT_URL)
         put("react_url_slash", REACT_URL_SLASH)
         put("react_title", REACT_TITLE)
-        put("react_intro", leftoverOfficialReactKitIntro())
+        put("react_intro", officialReactKitIntro())
         put("react_hooks", reactHooks())
-        put("react_leftover_official_pool", REACT_LEFTOVER_OFFICIAL_POOL)
+        put("react_official_pool", REACT_OFFICIAL_POOL)
         put("react_kit_index_docs", REACT_KIT_INDEX_URL)
         put("react_kit_index_url_slash", REACT_KIT_INDEX_URL_SLASH)
         put("react_kit_index_title", REACT_KIT_INDEX_TITLE)
-        put("react_kit_index_intro", leftoverOfficialReactKitIntro())
+        put("react_kit_index_intro", officialReactKitIntro())
         put(
             "rest_read_paths",
             buildJsonArray { restGetPaths.forEach { add(JsonPrimitive(it)) } }
@@ -746,11 +746,11 @@ object ChromiaLanguageClientsHelp {
         put("filehub_client_url", FILEHUB_CLIENT_URL_NO_SLASH)
         put("filehub_client_url_slash", FILEHUB_CLIENT_URL)
         put("filehub_client_title", FILEHUB_CLIENT_TITLE)
-        put("filehub_client_intro", leftoverOfficialFilehubClientIntro())
+        put("filehub_client_intro", officialFilehubClientIntro())
         put("filehub_client_index_docs", FILEHUB_CLIENT_INDEX_URL)
         put("filehub_client_index_url_slash", FILEHUB_CLIENT_INDEX_URL_SLASH)
         put("filehub_client_index_title", FILEHUB_CLIENT_INDEX_TITLE)
-        put("filehub_client_index_intro", leftoverOfficialFilehubClientIntro())
+        put("filehub_client_index_intro", officialFilehubClientIntro())
         put(
             "filehub_get_file", filehubGetFile())
         put("filehub_construct", filehubConstruct())
@@ -759,11 +759,11 @@ object ChromiaLanguageClientsHelp {
         put("bridge_client_url", BRIDGE_CLIENT_URL_NO_SLASH)
         put("bridge_client_url_slash", BRIDGE_CLIENT_URL)
         put("bridge_client_title", BRIDGE_CLIENT_TITLE)
-        put("bridge_client_intro", leftoverOfficialBridgeClientIntro())
+        put("bridge_client_intro", officialBridgeClientIntro())
         put("bridge_client_index_docs", BRIDGE_CLIENT_INDEX_URL)
         put("bridge_client_index_url_slash", BRIDGE_CLIENT_INDEX_URL_SLASH)
         put("bridge_client_index_title", BRIDGE_CLIENT_INDEX_TITLE)
-        put("bridge_client_index_intro", leftoverOfficialBridgeClientIntro())
+        put("bridge_client_index_intro", officialBridgeClientIntro())
         put("bridge_check_allowance", bridgeCheckAllowance())
         put("bridge_client_init", bridgeClientInit())
         put("mcp_official_page_key", MCP_OFFICIAL_PAGE_KEY)
@@ -772,25 +772,25 @@ object ChromiaLanguageClientsHelp {
         put("mcp_local_sse", MCP_LOCAL_SSE)
         put("mcp_local_gradle", MCP_LOCAL_GRADLE)
         put("mcp_repo", MCP_REPO)
-        put("mcp_leftover_official_prod_sse", MCP_LEFTOVER_OFFICIAL_PROD_SSE)
-        put("mcp_leftover_official_local_sse", MCP_LEFTOVER_OFFICIAL_LOCAL_SSE)
+        put("mcp_official_prod_sse", MCP_OFFICIAL_PROD_SSE)
+        put("mcp_official_local_sse", MCP_OFFICIAL_LOCAL_SSE)
         put("mcp_live_sse_path", MCP_LIVE_SSE_PATH)
-        put("mcp_leftover_official_sse_path", MCP_LEFTOVER_OFFICIAL_SSE_PATH)
+        put("mcp_official_sse_path", MCP_OFFICIAL_SSE_PATH)
         put("mcp_health_path", MCP_HEALTH_PATH)
         put("mcp_health_status", MCP_HEALTH_STATUS)
         put("mcp_health_version", MCP_HEALTH_VERSION)
-        put("mcp_leftover_official_host_status", MCP_LEFTOVER_OFFICIAL_HOST_STATUS)
+        put("mcp_official_host_status", MCP_OFFICIAL_HOST_STATUS)
         put("mcp_prod_config", mcpProdConfig())
         put("mcp_local_config", mcpLocalConfig())
         put("mcp_lsp_config", mcpLspConfig())
         put("mcp_server_index_docs", MCP_SERVER_INDEX_URL)
         put("mcp_server_index_url_slash", MCP_SERVER_INDEX_URL_SLASH)
         put("mcp_server_index_title", MCP_SERVER_INDEX_TITLE)
-        put("mcp_server_index_intro", leftoverOfficialMcpServerIntro())
+        put("mcp_server_index_intro", officialMcpServerIntro())
         put("js_ts_index_docs", JS_TS_INDEX_URL)
         put("js_ts_index_url_slash", JS_TS_INDEX_URL_SLASH)
         put("js_ts_index_title", JS_TS_INDEX_TITLE)
-        put("js_ts_index_intro", leftoverOfficialJsTsIndexIntro())
+        put("js_ts_index_intro", officialJsTsIndexIntro())
         put("js_quickstart_index_docs", JS_QUICKSTART_INDEX_URL)
         put("js_quickstart_index_url_slash", JS_QUICKSTART_INDEX_URL_SLASH)
         put("js_quickstart_index_title", JS_QUICKSTART_INDEX_TITLE)
@@ -800,14 +800,14 @@ object ChromiaLanguageClientsHelp {
         put("python_index_docs", PYTHON_INDEX_URL)
         put("python_index_url_slash", PYTHON_INDEX_URL_SLASH)
         put("python_index_title", PYTHON_INDEX_TITLE)
-        put("python_index_intro", leftoverOfficialPythonIndexIntro())
+        put("python_index_intro", officialPythonIndexIntro())
         put("python_client_index_docs", PYTHON_CLIENT_INDEX_URL)
         put("python_client_index_url_slash", PYTHON_CLIENT_INDEX_URL_SLASH)
         put("python_client_index_title", PYTHON_CLIENT_INDEX_TITLE)
         put("kotlin_index_docs", KOTLIN_INDEX_URL)
         put("kotlin_index_url_slash", KOTLIN_INDEX_URL_SLASH)
         put("kotlin_index_title", KOTLIN_INDEX_TITLE)
-        put("kotlin_index_intro", leftoverOfficialKotlinIndexIntro())
+        put("kotlin_index_intro", officialKotlinIndexIntro())
         put("kotlin_client_index_docs", KOTLIN_CLIENT_INDEX_URL)
         put("kotlin_client_index_url_slash", KOTLIN_CLIENT_INDEX_URL_SLASH)
         put("kotlin_client_index_title", KOTLIN_CLIENT_INDEX_TITLE)
@@ -838,18 +838,18 @@ object ChromiaLanguageClientsHelp {
         put("get_started_iccf_protocol_index_docs", GET_STARTED_ICCF_PROTOCOL_INDEX_URL)
         put("get_started_iccf_protocol_index_url_slash", GET_STARTED_ICCF_PROTOCOL_INDEX_URL_SLASH)
         put("get_started_iccf_protocol_index_title", GET_STARTED_ICCF_PROTOCOL_INDEX_TITLE)
-        put("csharp_index_intro", leftoverOfficialCsharpIndexIntro())
+        put("csharp_index_intro", officialCsharpIndexIntro())
         put("rust_index_docs", RUST_INDEX_URL)
         put("rust_index_url_slash", RUST_INDEX_URL_SLASH)
         put("rust_index_title", RUST_INDEX_TITLE)
         put("rust_client_index_docs", RUST_CLIENT_INDEX_URL)
         put("rust_client_index_url_slash", RUST_CLIENT_INDEX_URL_SLASH)
         put("rust_client_index_title", RUST_CLIENT_INDEX_TITLE)
-        put("rust_index_intro", leftoverOfficialRustIndexIntro())
+        put("rust_index_intro", officialRustIndexIntro())
         put("go_index_docs", GO_INDEX_URL)
         put("go_index_url_slash", GO_INDEX_URL_SLASH)
         put("go_index_title", GO_INDEX_TITLE)
-        put("go_index_intro", leftoverOfficialGoIndexIntro())
+        put("go_index_intro", officialGoIndexIntro())
         put(
             "skipped_sign_or_key",
             buildJsonArray { skipped.forEach { add(JsonPrimitive(it)) } }
@@ -858,17 +858,17 @@ object ChromiaLanguageClientsHelp {
         put("hello_world_result", "Hello World!")
         put("js_reference_directory_iid", ChrGenerateClientHelp.DIRECTORY_CHAIN_IID)
         put("js_reference_brid_setting", ChrGenerateClientHelp.SOURCE_BRID_SETTING)
-        put("js_reference_leftover_official_prose_brid", ChrGenerateClientHelp.LEFTOVER_OFFICIAL_PROSE_BRID)
-        put("js_reference_sticky_create_client", ChrGenerateClientHelp.leftoverOfficialStickyQueryClient())
-        put("js_reference_leftover_official_strategy_typo", ChrGenerateClientHelp.LEFTOVER_OFFICIAL_STRATEGY_TYPO)
-        put("js_reference_leftover_official_abort_typo", ChrGenerateClientHelp.LEFTOVER_OFFICIAL_ABORT_TYPO)
+        put("js_reference_official_prose_brid", ChrGenerateClientHelp.OFFICIAL_PROSE_BRID)
+        put("js_reference_sticky_create_client", ChrGenerateClientHelp.officialStickyQueryClient())
+        put("js_reference_official_strategy_typo", ChrGenerateClientHelp.OFFICIAL_STRATEGY_TYPO)
+        put("js_reference_official_abort_typo", ChrGenerateClientHelp.OFFICIAL_ABORT_TYPO)
         put("js_reference_source_failover_abort", ChrGenerateClientHelp.SOURCE_FAILOVER_ABORT)
-        put("leftover_official_outdated_banner", ChrGenerateClientHelp.OUTDATED_BANNER)
+        put("official_outdated_banner", ChrGenerateClientHelp.OUTDATED_BANNER)
         put("python_env_node", ChrGenerateClientHelp.PYTHON_ENV_NODE)
         put("python_env_rid", ChrGenerateClientHelp.PYTHON_ENV_RID)
-        put("python_query_reviews", ChrGenerateClientHelp.leftoverOfficialPythonReviewsQuery())
-        put("python_env", ChrGenerateClientHelp.leftoverOfficialPythonEnv())
-        put("kotlin_standard_chromia_client", ChrGenerateClientHelp.leftoverOfficialStandardChromiaClient())
+        put("python_query_reviews", ChrGenerateClientHelp.officialPythonReviewsQuery())
+        put("python_env", ChrGenerateClientHelp.officialPythonEnv())
+        put("kotlin_standard_chromia_client", ChrGenerateClientHelp.officialStandardChromiaClient())
         put("generate_client_help", ChrGenerateClientHelp.DOCS_URL.let { "chr_generate_client_help" })
         put("cookbook_help", "chromia_cookbook_help")
         put("ecosystem_gov_user_proposal_flows_index_url_slash", ECOSYSTEM_GOV_USER_PROPOSAL_FLOWS_INDEX_URL_SLASH)
