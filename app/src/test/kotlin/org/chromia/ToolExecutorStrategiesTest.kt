@@ -825,7 +825,10 @@ class ToolExecutorStrategiesTest {
     }
 
     @Test
-    fun chromiaDappQueryJsonNullArgumentIsOmitted() = runBlocking {
+    fun chromiaDappQueryJsonNullArgumentIsPreservedAsNull() = runBlocking {
+        // Explicit JSON null must reach the chain as GtvNull, not be dropped -
+        // a Rell parameter with a default would silently use the default
+        // instead of null (audit round 4 F2).
         val repo = RecordingRepository()
         DappInteractionStrategy().execute(
             CallToolRequest(
@@ -847,9 +850,10 @@ class ToolExecutorStrategiesTest {
         val args = repo.lastDapp!!.arguments
         assertEquals("CHR", args["name"])
         assertTrue(
-            "page_size" !in args,
-            "JSON null dapp argument must be omitted, not the string null"
+            "page_size" in args,
+            "explicit JSON null dapp argument must be kept, not dropped"
         )
+        assertNull(args["page_size"], "JSON null must map to Kotlin null (GtvNull), not the string null")
     }
 
     @Test

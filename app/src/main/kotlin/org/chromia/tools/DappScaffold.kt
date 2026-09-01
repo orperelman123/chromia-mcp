@@ -49,6 +49,25 @@ object DappScaffold {
         return if (namePattern.matches(trimmed)) trimmed else DEFAULT_NAME
     }
 
+    /**
+     * Like [normalizeName] for absent names (default), but a PRESENT invalid
+     * name is a validation error instead of a silent '$DEFAULT_NAME' fallback.
+     * write_deployment_config must never key a deployments block under a name
+     * the caller did not ask for (audit round 4 minor); scaffold_dapp keeps the
+     * warning+fallback behavior in [toJson].
+     */
+    fun requireValidName(raw: String?): String {
+        val requested = raw?.trim().orEmpty()
+        if (requested.isEmpty()) return DEFAULT_NAME
+        val normalized = requested.lowercase()
+        require(namePattern.matches(normalized)) {
+            "'$requested' is not a valid chain name: it must start with a lowercase letter and " +
+                "contain only lowercase letters, digits, or underscores, at most 32 characters " +
+                "([a-z][a-z0-9_]{0,31})."
+        }
+        return normalized
+    }
+
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
         return if (template == "ft4") {

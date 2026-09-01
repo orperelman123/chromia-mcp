@@ -180,16 +180,38 @@ object RellSecurityCheck {
      * (require_user()-style helpers).
      */
     internal fun authFunctionNames(maskedFiles: Map<String, String>): Set<String> {
-        val functions = mutableMapOf<String, String>()
-        val seed = mutableSetOf<String>()
+        // Same-named functions across files used to clobber a single name-keyed
+        // map, and any auth definition made the NAME auth - so a non-auth helper
+        // sharing a name with an auth helper suppressed findings (audit round 4
+        // minor). Conservative for security: a name counts as auth-establishing
+        // only if EVERY definition of it establishes auth.
+        data class Def(val name: String, val calls: Set<String>, val hasMarker: Boolean)
+        val defs = mutableListOf<Def>()
         maskedFiles.forEach { (_, masked) ->
             val markers = authMarkersFor(masked)
             functionBodies(masked).forEach { (name, body) ->
-                functions[name] = body
-                if (containsAuthMarker(body, markers)) seed.add(name)
+                defs.add(Def(name, calledNames(body), containsAuthMarker(body, markers)))
             }
         }
-        return closeOverCalls(functions, seed)
+        val byName = defs.groupBy { it.name }
+        val authDefs = defs.filterTo(mutableSetOf()) { it.hasMarker }
+        val authNames = mutableSetOf<String>()
+        fun refresh(name: String) {
+            if (byName.getValue(name).all { it in authDefs }) authNames.add(name)
+        }
+        byName.keys.forEach { refresh(it) }
+        var changed = true
+        while (changed) {
+            changed = false
+            defs.forEach { def ->
+                if (def !in authDefs && def.calls.any { it in authNames }) {
+                    authDefs.add(def)
+                    refresh(def.name)
+                    changed = true
+                }
+            }
+        }
+        return authNames
     }
 
     /**
@@ -198,8 +220,18 @@ object RellSecurityCheck {
      * must still get an unauthenticated-mutation finding (audit 2026-09-01).
      */
     internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> {
-        val functions = mutableMapOf<String, String>()
-        maskedFiles.forEach { (_, masked) -> functions.putAll(functionBodies(masked)) }
+        // Same-named functions across files used to clobber the map (last file
+        // won), hiding a mutating definition behind a later benign one (audit
+        // round 4 minor). Conservative for security: a name is mutating if ANY
+        // definition mutates - concatenating all bodies per name gives exactly
+        // that ("any body matches" / "any body calls").
+        val bodies = mutableMapOf<String, StringBuilder>()
+        maskedFiles.forEach { (_, masked) ->
+            functionBodies(masked).forEach { (name, body) ->
+                bodies.getOrPut(name) { StringBuilder() }.append(body).append('\n')
+            }
+        }
+        val functions = bodies.mapValues { (_, sb) -> sb.toString() }
         val seed = functions.filterValues { MUTATION_REGEX.containsMatchIn(it) }.keys.toSet()
         return closeOverCalls(functions, seed)
     }

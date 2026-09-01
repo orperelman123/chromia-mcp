@@ -13,7 +13,7 @@ class ChromiaRepositoryImpl(
     private val postchainClientService: PostchainClientService = PostchainClientService(config)
 ) : ChromiaRepository {
 
-    override suspend fun executeCustomQuery(network: String?, blockchainRid: BlockchainRid, queryName: String?, arguments: Map<String, Any>): JsonResult {
+    override suspend fun executeCustomQuery(network: String?, blockchainRid: BlockchainRid, queryName: String?, arguments: Map<String, Any?>): JsonResult {
         return postchainClientService.executeBlockchainQuery(network, blockchainRid, queryName, arguments)
     }
 

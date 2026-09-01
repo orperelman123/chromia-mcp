@@ -38,7 +38,7 @@ class RecordingRepository : ChromiaRepository {
         val network: String?,
         val brid: String,
         val query: String?,
-        val arguments: Map<String, Any>
+        val arguments: Map<String, Any?>
     )
 
     override suspend fun filterBlockchains(network: String?, filters: BlockchainFilters): JsonResult {
@@ -65,7 +65,7 @@ class RecordingRepository : ChromiaRepository {
         network: String?,
         blockchainRid: BlockchainRid,
         queryName: String?,
-        arguments: Map<String, Any>
+        arguments: Map<String, Any?>
     ): JsonResult {
         lastCall = "executeCustomQuery"
         lastDapp = DappCall(network, blockchainRid.toHex(), queryName, arguments)

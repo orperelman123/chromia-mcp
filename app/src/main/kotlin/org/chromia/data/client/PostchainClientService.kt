@@ -35,7 +35,24 @@ class PostchainClientService(
 
     companion object {
         internal const val MAX_CACHED_CLIENTS = 32
+
+        /**
+         * Eviction used to close the evictee immediately, so with >32 live keys a
+         * concurrent query on the evicted client failed spuriously (audit round 4
+         * F4). There is no per-call refcount; instead the close is deferred long
+         * enough for any in-flight query to finish. The evictee is out of the map
+         * at once - new calls build a fresh client.
+         */
+        internal const val EVICTION_CLOSE_GRACE_MS = 30_000L
+
+        private val evictionCloser =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+                Thread(r, "postchain-client-eviction-closer").apply { isDaemon = true }
+            }
     }
+
+    /** Test seam; production keeps [EVICTION_CLOSE_GRACE_MS]. */
+    internal var evictionCloseGraceMs: Long = EVICTION_CLOSE_GRACE_MS
 
     // Every chromia_dapp_query used to build a fresh StandardChromiaClient (whose
     // constructor eagerly creates a directory-chain PostchainClientImpl with its
@@ -55,7 +72,14 @@ class PostchainClientService(
                 eldest: MutableMap.MutableEntry<String, CachedQueryClient>
             ): Boolean {
                 if (size <= MAX_CACHED_CLIENTS) return false
-                runCatching { eldest.value.close() }
+                // Deferred: a query may still be in flight on the evictee (audit
+                // round 4 F4). See EVICTION_CLOSE_GRACE_MS.
+                val evicted = eldest.value
+                evictionCloser.schedule(
+                    { runCatching { evicted.close() } },
+                    evictionCloseGraceMs,
+                    java.util.concurrent.TimeUnit.MILLISECONDS
+                )
                 return true
             }
         }
@@ -93,7 +117,7 @@ class PostchainClientService(
         network: String?,
         blockchainRid: BlockchainRid,
         queryName: String?,
-        arguments: Map<String, Any>
+        arguments: Map<String, Any?>
     ): JsonResult = runCatching {
         val query = queryName ?: "rell.get_app_structure"
         val networkName = network ?: config.defaultNetwork

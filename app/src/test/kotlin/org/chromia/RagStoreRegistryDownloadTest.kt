@@ -69,7 +69,10 @@ class RagStoreRegistryDownloadTest {
             ChromiaRepositoryImpl()
         )
         assertEquals(true, fetch.isError)
-        assertTrue((fetch.content.first() as TextContent).text!!.contains("Documentation not found"))
+        // An unloaded index must not masquerade as "not found" (audit round 4 F3).
+        val fetchText = (fetch.content.first() as TextContent).text!!
+        assertTrue(fetchText.contains("index is unavailable"), fetchText)
+        assertFalse(fetchText.contains("Documentation not found"), fetchText)
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
             CallToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "FT4 tokens") }),

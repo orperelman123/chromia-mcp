@@ -711,7 +711,9 @@ class SearchFetchToolsTest {
         val fetchText = (fetch.content.first() as TextContent).text!!
         val fetchPayload = Json.parseToJsonElement(fetchText).jsonObject
         assertEquals("https://docs.chromia.com/intro", fetchPayload["id"]!!.jsonPrimitive.content)
-        assertTrue(fetchPayload["error"]!!.jsonPrimitive.content.contains("Documentation not found"))
+        // An unloaded index must not masquerade as "not found" (audit round 4 F3).
+        assertTrue(fetchPayload["error"]!!.jsonPrimitive.content.contains("index is unavailable"))
+        assertFalse(fetchPayload["error"]!!.jsonPrimitive.content.contains("Documentation not found"))
         assertTrue("title" !in fetchPayload)
         assertTrue("text" !in fetchPayload)
         assertTrue("url" !in fetchPayload)

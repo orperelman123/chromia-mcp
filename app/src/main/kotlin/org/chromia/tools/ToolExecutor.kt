@@ -208,15 +208,24 @@ abstract class BaseToolStrategy : ToolStrategy {
         }
     }
 
+    /**
+     * Absent and JSON-null mean "not provided". A present value of any other
+     * JSON type used to be silently ignored, so `system: "yes"` returned the
+     * unfiltered result as success (audit round 4 F1) - it is now a validation
+     * error, consistent with [extractPagination].
+     */
     protected fun extractBoolean(arguments: Map<String, Any>, key: String): Boolean? {
         val value = arguments[key] ?: return null
-        return when (value) {
-            is JsonNull -> null
+        if (value is JsonNull) return null
+        val parsed = when (value) {
             is Boolean -> value
             is JsonPrimitive -> value.booleanOrNull
             is String -> value.toBooleanStrictOrNull()
-            else -> value.toString().toBooleanStrictOrNull()
+            else -> null
         }
+        return parsed ?: throw IllegalArgumentException(
+            "$key must be a boolean (true or false); got ${describeJsonValue(value)}"
+        )
     }
 
     /**
@@ -293,6 +302,13 @@ abstract class BaseToolStrategy : ToolStrategy {
         return parsers.firstNotNullOfOrNull { parse -> runCatching { parse(v) }.getOrNull() }
     }
 
+    /**
+     * Absent and JSON-null mean "not provided" (no filter). A present value of
+     * any non-array JSON type used to be silently ignored, so `brids: "XYZ"`
+     * dropped the filter and returned network-wide data as success (audit
+     * round 4 F1) - it is now a validation error, consistent with
+     * [extractPagination] and [extractStringMap].
+     */
     protected fun extractStringList(arguments: Map<String, Any>, key: String): List<String>? {
         val raw = arguments[key] ?: return null
         if (raw is JsonNull) return null
@@ -312,9 +328,27 @@ abstract class BaseToolStrategy : ToolStrategy {
                     else -> element.toString()
                 }?.trim()?.takeIf { it.isNotEmpty() }
             }
-            else -> return null
+            else -> throw IllegalArgumentException(
+                "$key must be an array of strings; got ${describeJsonValue(raw)}"
+            )
         }
         return items.takeIf { it.isNotEmpty() }
+    }
+
+    /** Human-readable JSON type of a wrong-typed argument, for validation errors. */
+    protected fun describeJsonValue(value: Any): String = when (value) {
+        is JsonNull -> "null"
+        is JsonPrimitive -> when {
+            value.isString -> "a string (\"${value.content.take(40)}\")"
+            value.booleanOrNull != null -> "a boolean (${value.content})"
+            else -> "a number (${value.content})"
+        }
+        is JsonArray, is List<*> -> "an array"
+        is JsonObject, is Map<*, *> -> "an object"
+        is String -> "a string (\"${value.take(40)}\")"
+        is Boolean -> "a boolean ($value)"
+        is Number -> "a number ($value)"
+        else -> value::class.simpleName ?: "an unsupported value"
     }
 
     protected fun extractStringMap(arguments: Map<String, Any>, key: String): Map<String, String>? {
@@ -736,15 +770,22 @@ class DappInteractionStrategy : BaseToolStrategy() {
         return handleResult(result, "Failed to execute dapp query $queryName --> $arguments")
     }
 
-    private fun extractArgumentsMap(arguments: Map<String, Any>, key: String): Map<String, Any> {
+    /**
+     * Explicit JSON nulls are preserved as Kotlin null everywhere (top-level
+     * keys, array elements, object members) so they reach the chain as GtvNull.
+     * They used to be silently dropped, which made a Rell parameter with a
+     * default (`filter: text? = "active"`) use the default instead of null,
+     * and shortened arrays ([1,null,2] -> [1,2]) (audit round 4 F2).
+     */
+    private fun extractArgumentsMap(arguments: Map<String, Any>, key: String): Map<String, Any?> {
         val raw = arguments[key] ?: return emptyMap()
         if (raw is JsonNull) return emptyMap()
         return when (raw) {
             is Map<*, *> -> {
-                val stringMap = mutableMapOf<String, Any>()
+                val stringMap = mutableMapOf<String, Any?>()
                 raw.forEach { (k, v) ->
-                    if (k == null || v == null) return@forEach
-                    extractPrimitiveValue(v)?.let { stringMap[k.toString()] = it }
+                    if (k == null) return@forEach
+                    stringMap[k.toString()] = extractPrimitiveValue(v)
                 }
                 stringMap
             }
@@ -752,9 +793,9 @@ class DappInteractionStrategy : BaseToolStrategy() {
         }
     }
 
-    private fun extractPrimitiveValue(value: Any): Any? {
+    private fun extractPrimitiveValue(value: Any?): Any? {
         return when (value) {
-            is JsonNull -> null
+            null, is JsonNull -> null
             is JsonPrimitive -> {
                 when {
                     value.isString -> value.content
@@ -765,11 +806,11 @@ class DappInteractionStrategy : BaseToolStrategy() {
                     else -> value.content
                 }
             }
-            is JsonArray -> value.mapNotNull { extractPrimitiveValue(it) }
+            is JsonArray -> value.map { extractPrimitiveValue(it) }
             is JsonObject -> {
-                val map = mutableMapOf<String, Any>()
+                val map = mutableMapOf<String, Any?>()
                 value.forEach { (k, v) ->
-                    extractPrimitiveValue(v)?.let { map[k] = it }
+                    map[k] = extractPrimitiveValue(v)
                 }
                 map
             }
@@ -879,6 +920,18 @@ class FetchDocumentStrategy(private val ragStoreDeferred: Deferred<RagStore>) : 
         return runCatching {
             val ragStore = ragStoreDeferred.await()
             val segment = ragStore.fetchById(id)
+            if (segment == null && ragStore.isIndexUnavailable()) {
+                // Index never loaded: a miss is not "unknown id" (audit round 4 F3).
+                val payload = buildJsonObject {
+                    put("id", id)
+                    put("error", DOCS_INDEX_UNAVAILABLE_MESSAGE)
+                }
+                return CallToolResult(
+                    content = listOf(TextContent(Json.encodeToString(payload))),
+                    structuredContent = payload,
+                    isError = true
+                )
+            }
             val payload = if (segment != null) {
                 buildJsonObject {
                     put("id", id)
@@ -916,13 +969,15 @@ class FetchDocumentStrategy(private val ragStoreDeferred: Deferred<RagStore>) : 
  * failed at startup). RagStore retries the load with a cooldown (audit F5);
  * until then the tools must say so instead of a misleading "not found".
  */
-internal fun docsIndexUnavailableResult(emptyArrayField: String): CallToolResult {
-    val message = "Documentation index is unavailable (embeddings could not be loaded); " +
+internal const val DOCS_INDEX_UNAVAILABLE_MESSAGE =
+    "Documentation index is unavailable (embeddings could not be loaded); " +
         "the server retries loading periodically - try again shortly."
+
+internal fun docsIndexUnavailableResult(emptyArrayField: String): CallToolResult {
     return CallToolResult(
-        content = listOf(TextContent(message)),
+        content = listOf(TextContent(DOCS_INDEX_UNAVAILABLE_MESSAGE)),
         structuredContent = buildJsonObject {
-            put("text", message)
+            put("text", DOCS_INDEX_UNAVAILABLE_MESSAGE)
             put(emptyArrayField, buildJsonArray {})
         },
         isError = true

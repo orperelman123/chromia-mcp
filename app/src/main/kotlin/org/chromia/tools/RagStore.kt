@@ -138,8 +138,9 @@ open class RagStore(
      * that produced the store. Without this fallback a default-constructed
      * RagStore answered every search with "not found".
      */
-    private val resolvedEmbeddingModel: EmbeddingModel? by lazy {
-        embeddingModel ?: runCatching {
+    /** Test seam for the SPI fallback below; production uses the ServiceLoader. */
+    internal var embeddingModelSpiLoader: () -> EmbeddingModel? = {
+        runCatching {
             java.util.ServiceLoader.load(
                 dev.langchain4j.spi.model.embedding.EmbeddingModelFactory::class.java
             ).firstOrNull()?.create()
@@ -148,12 +149,18 @@ open class RagStore(
         }.getOrNull()
     }
 
+    private val resolvedEmbeddingModel: EmbeddingModel? by lazy {
+        embeddingModel ?: embeddingModelSpiLoader()
+    }
+
     open fun query(query: String): List<TextSegment>? {
         val store = storeOrRetry() ?: return null
         val model = resolvedEmbeddingModel
         if (model == null) {
-            logger.info("Skipping embedding search for '$query'; no embedding model is configured")
-            return emptyList()
+            // Null = "index unavailable", same as a missing store - an empty
+            // success here showed "no results" for every search (audit round 4 F6).
+            logger.warn("Embedding search for '$query' is unavailable; no embedding model could be loaded")
+            return null
         }
         val retriever: ContentRetriever = EmbeddingStoreContentRetriever.builder()
             .embeddingStore(store)
@@ -181,6 +188,16 @@ open class RagStore(
         storeOrRetry() // repopulates the id index if the initial load failed
         return segmentsById[normalizeSegmentId(id)]
     }
+
+    /**
+     * True when embeddings should have loaded (a loader is configured) but the
+     * index is still missing. `fetch` must then answer "index unavailable" like
+     * search/fetch_docs do - a miss here is not proof the id is unknown (audit
+     * round 4 F3, residual of the round 1 F5 fix). Call after [fetchById] so a
+     * successful cooldown retry is reflected. Fixture stores constructed with
+     * loadFromRegistry=false have no loader and count as available.
+     */
+    open fun isIndexUnavailable(): Boolean = embeddingStore == null && storeLoader != null
 
     private fun rebuildSegmentIndex(store: InMemoryEmbeddingStore<TextSegment>?) {
         segmentsById.clear()

@@ -8,7 +8,7 @@ interface ChromiaRepository {
         network: String?,
         blockchainRid: BlockchainRid,
         queryName: String?,
-        arguments: Map<String, Any> = emptyMap()
+        arguments: Map<String, Any?> = emptyMap()
     ): JsonResult
     suspend fun getBlockchainsTransactions(network: String?): JsonResult
     suspend fun getTransactionsByCluster(network: String?): JsonResult

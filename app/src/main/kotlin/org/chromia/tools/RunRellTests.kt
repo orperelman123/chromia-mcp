@@ -35,7 +35,7 @@ object RunRellTests {
     internal const val MAX_LEAKED_RUNNERS = 4
 
     /** Thread-safe print()/log() sink, bounded so a print loop cannot grow the heap. */
-    private class BoundedPrinter(private val maxChars: Int) : net.postchain.rell.base.runtime.Rt_Printer {
+    internal class BoundedPrinter(private val maxChars: Int) : net.postchain.rell.base.runtime.Rt_Printer {
         private val buffer = StringBuilder()
         var truncated = false
             private set
@@ -44,11 +44,14 @@ object RunRellTests {
         override fun print(str: String) {
             if (truncated) return
             val remaining = maxChars - buffer.length
-            if (str.length >= remaining) {
+            if (str.length > remaining) {
+                // Only now was output actually dropped; an exact fit used to be
+                // reported as truncated too (audit round 4 minor).
                 buffer.append(str, 0, remaining.coerceAtLeast(0))
                 truncated = true
             } else {
-                buffer.append(str).append('\n')
+                buffer.append(str)
+                if (str.length < remaining) buffer.append('\n')
             }
         }
 
@@ -69,7 +72,17 @@ object RunRellTests {
     // 2026-09-01). Serialize them; fair so queued calls run in arrival order.
     // Released only after the runner task truly ends - on timeout the release
     // is queued behind the runaway task on its own executor (see execute).
-    private val dbRunPermit = java.util.concurrent.Semaphore(1, true)
+    internal val dbRunPermit = java.util.concurrent.Semaphore(1, true)
+
+    /**
+     * The caller thread was interrupted while the runner may still own the shared
+     * test database and temp dir; both are released behind the runner (audit
+     * round 4 F5). [run] must NOT delete the temp dir on this exception.
+     */
+    internal class RunAbandonedOnInterruptException(message: String) : InterruptedException(message)
+
+    /** Test seam: replaces RellApiRunTests.runTests on the runner thread when set. */
+    internal var runnerOverrideForTests: (() -> Unit)? = null
 
     private fun newRunnerExecutor() =
         // One dedicated thread per call: an unstoppable runaway runner must not
@@ -236,6 +249,9 @@ object RunRellTests {
             val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
             cleanupDeferred = outcome.cleanupDeferred
             outcome.result
+        } catch (e: RunAbandonedOnInterruptException) {
+            cleanupDeferred = true // temp deletion is queued behind the abandoned runner
+            throw e
         } finally {
             // On timeout the abandoned runner may still be reading the temp dir;
             // its deletion is queued behind the runaway task instead (see execute).
@@ -322,13 +338,32 @@ object RunRellTests {
         // test returns a clear failure instead of hanging the tool call forever.
         val executor = newRunnerExecutor()
         val future = executor.submit {
-            RellApiRunTests.runTests(config, sourceDir.toFile(), appModules, testModules)
+            runnerOverrideForTests?.invoke()
+                ?: RellApiRunTests.runTests(config, sourceDir.toFile(), appModules, testModules)
         }
-        var timedOut = false
+        var runnerAbandoned = false
         try {
             future.get(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            // Interruption of the CALLER is not proof the runner stopped: releasing
+            // the DB permit here resurrected the schema-collision e9c41ea fixed
+            // (audit round 4 F5). Same deferred-release path as a timeout.
+            runnerAbandoned = true
+            future.cancel(true)
+            leakedRunners.incrementAndGet()
+            executor.submit {
+                leakedRunners.decrementAndGet()
+                runCatching { sourceDir.toFile().deleteRecursively() }
+                if (usesDb) dbRunPermit.release()
+            }
+            executor.shutdown()
+            Thread.currentThread().interrupt()
+            throw RunAbandonedOnInterruptException(
+                "run_rell_tests was interrupted; the runner may still be executing - " +
+                    "its database permit and temp files are released when it finishes."
+            )
         } catch (e: java.util.concurrent.TimeoutException) {
-            timedOut = true
+            runnerAbandoned = true
             future.cancel(true)
             leakedRunners.incrementAndGet()
             // Single-thread executor: this runs only after the runaway task ends
@@ -376,7 +411,7 @@ object RunRellTests {
             }
             throw cause ?: e
         } finally {
-            if (!timedOut) {
+            if (!runnerAbandoned) {
                 executor.shutdownNow()
                 if (usesDb) dbRunPermit.release()
             }

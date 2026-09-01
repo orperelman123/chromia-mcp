@@ -112,7 +112,9 @@ object WriteDeploymentConfig {
     fun toJson(network: String?, name: String?): kotlinx.serialization.json.JsonObject {
         val spec = resolveNetwork(network)
             ?: throw IllegalArgumentException(unknownNetworkMessage(network))
-        val chain = DappScaffold.normalizeName(name)
+        // A present-but-invalid name used to silently become 'hello', writing a
+        // wrong-keyed deployments block (audit round 4 minor).
+        val chain = DappScaffold.requireValidName(name)
         val yaml = deploymentsYaml(spec, chain)
         val full = chromiaYml(spec, chain)
         return buildJsonObject {

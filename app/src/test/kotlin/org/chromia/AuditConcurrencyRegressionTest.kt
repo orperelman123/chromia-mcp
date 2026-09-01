@@ -144,6 +144,7 @@ class AuditConcurrencyRegressionTest {
         val created = AtomicInteger()
         val closed = java.util.concurrent.CopyOnWriteArrayList<String>()
         val service = countingService(created, closed)
+        service.evictionCloseGraceMs = 0 // close promptly; production defers 30s
         val total = PostchainClientService.MAX_CACHED_CLIENTS + 1
         (1..total).forEach { n ->
             val result = service.executeBlockchainQuery("mainnet", rid(n), "q", emptyMap())
@@ -151,7 +152,10 @@ class AuditConcurrencyRegressionTest {
         }
         assertEquals(total, created.get())
         assertEquals(PostchainClientService.MAX_CACHED_CLIENTS, service.cachedClientCount())
-        // LRU: the oldest entry (rid 1) was evicted and must have been closed.
+        // LRU: the oldest entry (rid 1) was evicted and is eventually closed -
+        // deferred behind the grace window so in-flight queries survive (round 4 F4).
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
+        while (closed.isEmpty() && System.nanoTime() < deadline) Thread.sleep(10)
         assertEquals(listOf(rid(1).toHex()), closed)
     }
 
