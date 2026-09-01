@@ -102,7 +102,9 @@ class ToolExecutor(
         "rell_check" to RellCheckStrategy(),
         "rell_security_check" to RellSecurityCheckStrategy(),
         "run_rell_tests" to RunRellTestsStrategy(),
-        "translate_error" to TranslateErrorStrategy()
+        "translate_error" to TranslateErrorStrategy(),
+        "onboarding_next_step" to OnboardingNextStepStrategy(),
+        "verify_deployment" to VerifyDeploymentStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest): CallToolResult {
@@ -412,6 +414,79 @@ abstract class BaseToolStrategy : ToolStrategy {
     protected fun requireParameter(arguments: Map<String, Any>, key: String): String {
         return extractString(arguments, key)?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("Missing required parameter: $key")
+    }
+
+    /**
+     * Explicit JSON nulls are preserved as Kotlin null everywhere (top-level
+     * keys, array elements, object members) so they reach the chain as GtvNull.
+     * They used to be silently dropped, which made a Rell parameter with a
+     * default (`filter: text? = "active"`) use the default instead of null,
+     * and shortened arrays ([1,null,2] -> [1,2]) (audit round 4 F2).
+     *
+     * A wrong-typed `arguments` value (a JSON-encoded STRING of the object -
+     * the classic agent mistake - or an array) used to map to emptyMap()
+     * silently, running the query with NO arguments: wrong-but-plausible
+     * results whenever the Rell query has parameter defaults. It is now a
+     * validation error, consistent with the sibling extract helpers.
+     *
+     * Lives on the base class because [DappInteractionStrategy] and
+     * [VerifyDeploymentStrategy] take the same `arguments` shape.
+     */
+    protected fun extractArgumentsMap(arguments: Map<String, Any>, key: String): Map<String, Any?> {
+        val raw = arguments[key] ?: return emptyMap()
+        if (raw is JsonNull) return emptyMap()
+        return when (raw) {
+            is Map<*, *> -> {
+                val stringMap = mutableMapOf<String, Any?>()
+                raw.forEach { (k, v) ->
+                    if (k == null) return@forEach
+                    stringMap[k.toString()] = extractPrimitiveValue(v)
+                }
+                stringMap
+            }
+            else -> {
+                val hint =
+                    if (raw is String || (raw is JsonPrimitive && raw.isString)) " - do not JSON-encode it" else ""
+                throw IllegalArgumentException(
+                    "$key must be an object mapping parameter names to values; got ${describeJsonValue(raw)}$hint"
+                )
+            }
+        }
+    }
+
+    private fun extractPrimitiveValue(value: Any?): Any? {
+        return when (value) {
+            null, is JsonNull -> null
+            is JsonPrimitive -> {
+                when {
+                    value.isString -> value.content
+                    value.booleanOrNull != null -> value.boolean
+                    value.intOrNull != null -> value.int
+                    value.longOrNull != null -> value.long
+                    // GTV has no float type: a bare decimal or an integer past
+                    // Long range used to be forwarded as a Double and die in
+                    // postchain with the opaque "Cannot convert object of type
+                    // Double to GTV". Fail locally with an actionable message.
+                    value.doubleOrNull != null -> throw IllegalArgumentException(
+                        if (value.content.contains('.') || value.content.contains('e', ignoreCase = true)) {
+                            "numeric argument ${value.content} is not an integer; send decimals as strings (e.g. \"${value.content}\")"
+                        } else {
+                            "numeric argument ${value.content} does not fit a 64-bit integer; send it as a string"
+                        }
+                    )
+                    else -> value.content
+                }
+            }
+            is JsonArray -> value.map { extractPrimitiveValue(it) }
+            is JsonObject -> {
+                val map = mutableMapOf<String, Any?>()
+                value.forEach { (k, v) ->
+                    map[k] = extractPrimitiveValue(v)
+                }
+                map
+            }
+            else -> value
+        }
     }
 }
 
@@ -821,75 +896,6 @@ class DappInteractionStrategy : BaseToolStrategy() {
         return handleResult(result, "Failed to execute dapp query $queryName --> $arguments")
     }
 
-    /**
-     * Explicit JSON nulls are preserved as Kotlin null everywhere (top-level
-     * keys, array elements, object members) so they reach the chain as GtvNull.
-     * They used to be silently dropped, which made a Rell parameter with a
-     * default (`filter: text? = "active"`) use the default instead of null,
-     * and shortened arrays ([1,null,2] -> [1,2]) (audit round 4 F2).
-     *
-     * A wrong-typed `arguments` value (a JSON-encoded STRING of the object -
-     * the classic agent mistake - or an array) used to map to emptyMap()
-     * silently, running the query with NO arguments: wrong-but-plausible
-     * results whenever the Rell query has parameter defaults. It is now a
-     * validation error, consistent with the sibling extract helpers.
-     */
-    private fun extractArgumentsMap(arguments: Map<String, Any>, key: String): Map<String, Any?> {
-        val raw = arguments[key] ?: return emptyMap()
-        if (raw is JsonNull) return emptyMap()
-        return when (raw) {
-            is Map<*, *> -> {
-                val stringMap = mutableMapOf<String, Any?>()
-                raw.forEach { (k, v) ->
-                    if (k == null) return@forEach
-                    stringMap[k.toString()] = extractPrimitiveValue(v)
-                }
-                stringMap
-            }
-            else -> {
-                val hint =
-                    if (raw is String || (raw is JsonPrimitive && raw.isString)) " - do not JSON-encode it" else ""
-                throw IllegalArgumentException(
-                    "$key must be an object mapping parameter names to values; got ${describeJsonValue(raw)}$hint"
-                )
-            }
-        }
-    }
-
-    private fun extractPrimitiveValue(value: Any?): Any? {
-        return when (value) {
-            null, is JsonNull -> null
-            is JsonPrimitive -> {
-                when {
-                    value.isString -> value.content
-                    value.booleanOrNull != null -> value.boolean
-                    value.intOrNull != null -> value.int
-                    value.longOrNull != null -> value.long
-                    // GTV has no float type: a bare decimal or an integer past
-                    // Long range used to be forwarded as a Double and die in
-                    // postchain with the opaque "Cannot convert object of type
-                    // Double to GTV". Fail locally with an actionable message.
-                    value.doubleOrNull != null -> throw IllegalArgumentException(
-                        if (value.content.contains('.') || value.content.contains('e', ignoreCase = true)) {
-                            "numeric argument ${value.content} is not an integer; send decimals as strings (e.g. \"${value.content}\")"
-                        } else {
-                            "numeric argument ${value.content} does not fit a 64-bit integer; send it as a string"
-                        }
-                    )
-                    else -> value.content
-                }
-            }
-            is JsonArray -> value.map { extractPrimitiveValue(it) }
-            is JsonObject -> {
-                val map = mutableMapOf<String, Any?>()
-                value.forEach { (k, v) ->
-                    map[k] = extractPrimitiveValue(v)
-                }
-                map
-            }
-            else -> value
-        }
-    }
 }
 
 class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : BaseToolStrategy() {
@@ -1434,17 +1440,32 @@ class CheckDappProjectStrategy : BaseToolStrategy() {
         // missing yaml falls back to a minimal default at the current pins and the
         // result says so, instead of a "Missing required parameter" dead end.
         val yaml = extractString(args, "yaml")?.takeIf { it.isNotBlank() }
-        val rellFiles = extractStringMap(args, "rell")
-            ?: throw IllegalArgumentException("Missing required parameter: rell")
+        // `files` is accepted as an alias for `rell`: rell_check and
+        // run_rell_tests take `files`, so agents porting a call kept sending it
+        // here and hit "Missing required parameter: rell" (live probe
+        // 2026-09-02). `rell` wins when both are present; the alias is noted.
+        val rellParam = extractStringMap(args, "rell")
+        val filesAlias = if (rellParam == null) extractStringMap(args, "files") else null
+        val rellFiles = rellParam ?: filesAlias
+            ?: throw IllegalArgumentException(
+                "Missing required parameter: rell - a map of path -> source " +
+                    "(e.g. {\"src/main.rell\": \"module; ...\"}) or a single source string " +
+                    "(`files` is accepted as an alias)"
+            )
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
-        return toolSuccessResult(
-            CheckDappProject.check(
-                yaml = yaml ?: DappScaffold.defaultChromiaYml(),
-                rellFiles = rellFiles,
-                allowAdminModules = allowAdminModules,
-                usedDefaultYaml = yaml == null
-            ).toJson()
+        var result = CheckDappProject.check(
+            yaml = yaml ?: DappScaffold.defaultChromiaYml(),
+            rellFiles = rellFiles,
+            allowAdminModules = allowAdminModules,
+            usedDefaultYaml = yaml == null
         )
+        if (filesAlias != null) {
+            result = result.copy(
+                notes = result.notes +
+                    "`files` was accepted as an alias for the `rell` parameter - prefer `rell` in future calls."
+            )
+        }
+        return toolSuccessResult(result.toJson())
     }
 }
 
@@ -1524,5 +1545,112 @@ class ChromiaRellSystemlibHelpStrategy : BaseToolStrategy() {
 class ChromiaRellPracticesHelpStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellPracticesHelp.toJson())
+    }
+}
+
+class OnboardingNextStepStrategy(
+    /**
+     * Runtime tool registry, checked dynamically so the local-chain step names
+     * `local_chain_up` only once that tool actually lands in [McpTools]. A
+     * provider (not a snapshot) because [McpTools.ALL_TOOL_NAMES] is lazy.
+     */
+    private val registeredTools: () -> Set<String> = { McpTools.ALL_TOOL_NAMES }
+) : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val state = OnboardingNextStep.State(
+            hasProject = extractBoolean(args, "hasProject") ?: false,
+            compiles = extractBoolean(args, "compiles") ?: false,
+            securityClean = extractBoolean(args, "securityClean") ?: false,
+            testsPass = extractBoolean(args, "testsPass") ?: false,
+            hasLocalChain = extractBoolean(args, "hasLocalChain") ?: false,
+            hasTestnetContainer = extractBoolean(args, "hasTestnetContainer") ?: false,
+            hasTestnetKey = extractBoolean(args, "hasTestnetKey") ?: false,
+            hasDeploymentConfig = extractBoolean(args, "hasDeploymentConfig") ?: false,
+            deployedTo = extractString(args, "deployedTo")?.takeIf { it.isNotBlank() } ?: "none",
+            goal = extractString(args, "goal")?.takeIf { it.isNotBlank() } ?: "testnet"
+        )
+        return toolSuccessResult(OnboardingNextStep.plan(state, registeredTools()).toJson())
+    }
+}
+
+class VerifyDeploymentStrategy(
+    /** Test seam so the height-progression wait costs no suite time. */
+    private val delayFn: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) }
+) : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val brid = VerifyDeployment.parseBrid(requireParameter(args, "brid"))
+        val network = extractString(args, "network")?.takeIf { it.isNotBlank() } ?: "testnet"
+        val waitMs = VerifyDeployment.clampWaitMs(extractWaitMs(args))
+        val queryName = extractString(args, "query")?.takeIf { it.isNotBlank() }
+        val queryArgs = extractArgumentsMap(args, "arguments")
+        val rid = BlockchainRid.buildFromHex(brid)
+
+        val notes = mutableListOf<String>()
+        val first = repository.getBlockchainHeight(network, rid)
+        if (first is NetworkResult.Error) {
+            notes += "Height probe failed: ${VerifyDeployment.failureHint(first.message, network)}"
+            notes += "Node error: ${first.message}"
+            return toolSuccessResult(
+                buildJsonObject {
+                    put("live", false)
+                    put("brid", brid)
+                    put("heightProgressing", false)
+                    put("notes", notes.joinToString(" "))
+                }
+            )
+        }
+        val firstHeight = (first as NetworkResult.Success).data
+
+        delayFn(waitMs)
+        val second = repository.getBlockchainHeight(network, rid)
+        val secondHeight = (second as? NetworkResult.Success)?.data ?: firstHeight
+        if (second is NetworkResult.Error) {
+            notes += "Second height probe failed (${second.message}) - reporting the first reading."
+        }
+        val progressing = secondHeight > firstHeight
+        if (!progressing) {
+            notes += "Block height did not advance within ${waitMs}ms - an idle dapp chain produces " +
+                "no blocks without transactions, so this alone is not a failure; the chain is known " +
+                "and answering."
+        }
+
+        var queryResult: kotlinx.serialization.json.JsonObject? = null
+        if (queryName != null) {
+            when (val q = repository.executeCustomQuery(network, rid, queryName, queryArgs)) {
+                is NetworkResult.Success -> queryResult = q.data
+                is NetworkResult.Error -> notes +=
+                    "Smoke query '$queryName' failed: ${q.message} " +
+                        "(the chain itself is live; check the query name/arguments with " +
+                        "rell.get_app_structure via chromia_dapp_query)."
+            }
+        }
+
+        return toolSuccessResult(
+            buildJsonObject {
+                put("live", true)
+                put("brid", brid)
+                put("blockHeight", secondHeight)
+                put("heightProgressing", progressing)
+                queryResult?.let { put("queryResult", it) }
+                put(
+                    "notes",
+                    (notes + "Chain $brid is known on \"$network\" at height $secondHeight.")
+                        .joinToString(" ")
+                )
+            }
+        )
+    }
+
+    /** Optional small wait override; a non-integer value is a validation error. */
+    private fun extractWaitMs(arguments: Map<String, Any>): Long? {
+        val value = arguments["waitMs"] ?: return null
+        if (value is JsonNull) return null
+        val raw = if (value is JsonPrimitive) value.content else value.toString()
+        return raw.trim().toLongOrNull()
+            ?: throw IllegalArgumentException(
+                "waitMs must be an integer number of milliseconds (0-${VerifyDeployment.MAX_WAIT_MS}); got \"$raw\""
+            )
     }
 }

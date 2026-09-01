@@ -720,5 +720,28 @@
                 "query": "{query}"
             }
         }
+    ],
+    "onboarding": [
+        {
+            "title": "Onboarding Next Step",
+            "description": "Ask the state machine what to do next on the journey from nothing to a deployed dapp. Absent fields mean not done; human-only steps come back with who=human and a URL.",
+            "tool": "mcp_chromia-mcp_onboarding_next_step",
+            "prompt": "What is the next step to get my dapp deployed to {goal}?",
+            "parameters": {
+                "goal": "{goal}",
+                "hasProject": "{hasProject}",
+                "compiles": "{compiles}"
+            }
+        },
+        {
+            "title": "Verify Deployment",
+            "description": "Prove a deployed dapp is live without keys: chain known on the network, block height (progressing or idle), optional read-only smoke query. This is not signed transaction sending.",
+            "tool": "mcp_chromia-mcp_verify_deployment",
+            "prompt": "Verify the deployment {brid} on {network} is live",
+            "parameters": {
+                "brid": "{brid}",
+                "network": "{network}"
+            }
+        }
     ]
 }

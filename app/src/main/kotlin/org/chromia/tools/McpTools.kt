@@ -2807,6 +2807,14 @@ object McpTools {
                             )
                         )
                     ),
+                    "files" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive(
+                                "Alias for `rell` (same shape) - accepted because rell_check and " +
+                                    "run_rell_tests name this parameter `files`. When both are present, `rell` wins."
+                            )
+                        )
+                    ),
                     "allowAdminModules" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
@@ -2957,6 +2965,196 @@ object McpTools {
         )
     )
 
+    fun onboardingNextStepTool() = Tool(
+        name = "onboarding_next_step",
+        description = """
+            State machine for the journey from nothing to a deployed Chromia dapp: report what is
+            honestly done so far and get exactly ONE next action - which MCP tool to call with which
+            args, or the exact human step with its URL - plus the remaining steps and human-only
+            blockers. Grounded in live-verified facts: the tCHR faucet is web+captcha only
+            (1000 tCHR / 7 days), the testnet container lease is a Vault web step (~35 tCHR per
+            SCU-week, 1-12 weeks), `chr deployment create/update` is headless and signed by the
+            container key (POSTCHAIN_CLIENT_PUBKEY/POSTCHAIN_CLIENT_PRIVKEY env vars, Chromia's
+            documented CI pattern; the key holds no funds), and mainnet needs a Vault deposit of at
+            least 10 CHR plus a lease first. Absent fields mean "not done". This tool never
+            generates keys or emits key material - key creation is a human `chr keygen` step.
+            Read-only: does not write files, run chr, generate keys, or send signed transactions.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "hasProject" to boolProp("A dapp project (chromia.yml + Rell sources) exists"),
+                    "compiles" to boolProp("check_dapp_project / rell_check reports ok:true"),
+                    "securityClean" to boolProp("No CRITICAL/HIGH security findings remain"),
+                    "testsPass" to boolProp("run_rell_tests reports every case passed"),
+                    "hasLocalChain" to boolProp("A local node is running the dapp"),
+                    "hasTestnetContainer" to boolProp(
+                        "A container lease exists on the goal network's Vault (testnet lease for goal " +
+                            "\"testnet\", mainnet lease for goal \"mainnet\")"
+                    ),
+                    "hasTestnetKey" to boolProp(
+                        "A deployment keypair exists (created by a human with `chr keygen`; " +
+                            "never paste the private key)"
+                    ),
+                    "hasDeploymentConfig" to boolProp(
+                        "chromia.yml has a deployments.<network> section (write_deployment_config)"
+                    ),
+                    "deployedTo" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "enum" to JsonArray(OnboardingNextStep.DEPLOYED_TO.map { JsonPrimitive(it) }),
+                            "description" to JsonPrimitive(
+                                "Where the dapp is currently deployed (default \"none\")"
+                            )
+                        )
+                    ),
+                    "goal" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "enum" to JsonArray(OnboardingNextStep.GOALS.map { JsonPrimitive(it) }),
+                            "description" to JsonPrimitive(
+                                "Target of the journey (default \"testnet\"); \"local\" ends at a " +
+                                    "running local chain with no keys, tokens, or Vault steps"
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Onboarding next step",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "stage" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "nextAction" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "properties" to JsonObject(
+                                mapOf(
+                                    "what" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                    "who" to JsonObject(
+                                        mapOf(
+                                            "type" to JsonPrimitive("string"),
+                                            "enum" to JsonArray(
+                                                listOf(JsonPrimitive("agent"), JsonPrimitive("human"))
+                                            )
+                                        )
+                                    ),
+                                    "how" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                    "verify" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                )
+                            )
+                        )
+                    ),
+                    "remainingSteps" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                        )
+                    ),
+                    "blockers" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                        )
+                    ),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("stage", "nextAction", "remainingSteps", "blockers", "notes")
+        )
+    )
+
+    private fun boolProp(description: String) = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("boolean"),
+            "description" to JsonPrimitive("$description. Absent means not done.")
+        )
+    )
+
+    fun verifyDeploymentTool() = Tool(
+        name = "verify_deployment",
+        description = """
+            Prove a deployment actually works - read-only, no keys. Given a BRID and network
+            (predefined name like "testnet"/"mainnet", or a direct node URL), checks that the chain
+            is known and live on that network, reads the block height twice (bounded wait, default
+            2s, max 10s) to see whether it is progressing, and optionally smoke-tests one dapp query.
+            Failure text is actionable: an unknown BRID means the chain is not on that network; an
+            unreachable node names the network/URL as the thing to check. An idle chain that produces
+            no blocks is reported live with heightProgressing:false and an explanatory note.
+            Does not write files, run chr, generate keys, or send signed transactions.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "brid" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "The blockchain RID: 64 hex chars, bare or 0x-prefixed or x\"...\" form " +
+                                    "(written into chromia.yml by `chr deployment create`)"
+                            )
+                        )
+                    ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "\"testnet\" (default), \"mainnet\", another predefined network, or a " +
+                                    "direct node URL (http/https) for custom nodes"
+                            )
+                        )
+                    ),
+                    "query" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Optional dapp query name to smoke-test (e.g. from rell.get_app_structure)"
+                            )
+                        )
+                    ),
+                    "arguments" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive(
+                                "Optional arguments for the smoke-test query (same shape as chromia_dapp_query)"
+                            ),
+                            "properties" to JsonObject(emptyMap()),
+                            "additionalProperties" to JsonPrimitive(true)
+                        )
+                    ),
+                    "waitMs" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive(
+                                "Milliseconds between the two height reads (default " +
+                                    "${VerifyDeployment.DEFAULT_WAIT_MS}, clamped to 0-${VerifyDeployment.MAX_WAIT_MS})"
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf("brid")
+        ),
+        title = "Verify deployment",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "live" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "brid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "blockHeight" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "heightProgressing" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "queryResult" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("live", "brid", "heightProgressing", "notes")
+        )
+    )
+
     /**
      * All advertised tools. `compact = true` (env `CHROMIA_MCP_COMPACT_TOOLS=true` via
      * [compactToolsMode]) drops the individual *_help schemas - their content stays
@@ -2978,8 +3176,13 @@ object McpTools {
     /** Every tool name this server implements, whether or not it is advertised. */
     val ALL_TOOL_NAMES: Set<String> by lazy { fullToolList().map { it.name }.toSet() }
 
+    // Names the argument shape too: an agent porting a rell_check call sent
+    // {files:{...}} and hit "Missing required parameter: rell" (live probe
+    // 2026-09-02) - the refusal must hand over a working call, not just a name.
     private const val CHECK_DAPP_PROJECT_ALTERNATIVE =
-        "use check_dapp_project on this server instead - it performs compilation and security scanning"
+        "use check_dapp_project on this server instead - it performs compilation and security scanning " +
+            "(pass your sources as `rell`, a map of path -> source or a single source string; " +
+            "a `files` map is accepted as an alias)"
 
     /** Working alternatives on the same deployment for commonly disabled tools. */
     private val DISABLED_TOOL_ALTERNATIVES: Map<String, String> = mapOf(
@@ -3045,6 +3248,8 @@ object McpTools {
         rellSecurityCheckTool(),
         runRellTestsTool(),
         translateErrorTool(),
+        onboardingNextStepTool(),
+        verifyDeploymentTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),

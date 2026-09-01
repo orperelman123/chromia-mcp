@@ -17,6 +17,10 @@ class ChromiaRepositoryImpl(
         return postchainClientService.executeBlockchainQuery(network, blockchainRid, queryName, arguments)
     }
 
+    override suspend fun getBlockchainHeight(network: String?, blockchainRid: BlockchainRid): NetworkResult<Long> {
+        return postchainClientService.currentBlockHeight(network, blockchainRid)
+    }
+
     override suspend fun getBlockchainsTransactions(network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(NetworkQueries.getBlockchainsTransactions(), network)
 

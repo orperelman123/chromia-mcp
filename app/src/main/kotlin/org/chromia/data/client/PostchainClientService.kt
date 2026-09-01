@@ -19,10 +19,17 @@ fun interface BlockchainQueryClient {
     fun query(blockchainRid: BlockchainRid, queryName: String, arguments: Gtv): Gtv
 }
 
+/** Test seam for verify_deployment's height probe (no keys, read-only). */
+fun interface BlockchainHeightClient {
+    fun currentBlockHeight(urls: List<String>, blockchainRid: BlockchainRid): Long
+}
+
 class PostchainClientService(
     private val config: ChromiaConfig,
     /** Test seam for the client cache; production uses [createRealClient]. */
     private val clientFactory: ((List<String>, BlockchainRid) -> CachedQueryClient)? = null,
+    /** Test seam for [currentBlockHeight]; production reads via the cached client. */
+    private val heightClient: BlockchainHeightClient? = null,
     // Last so existing trailing-lambda test callers keep SAM-converting to it.
     private val queryClient: BlockchainQueryClient? = null
 ) {
@@ -113,6 +120,49 @@ class PostchainClientService(
         return CachedQueryClient(client) { client.close() }
     }
 
+    /**
+     * A network name from [ChromiaConfig.predefinedNetworks], or a direct node
+     * URL (http/https) for custom nodes - verify_deployment accepts both, and
+     * chromia_dapp_query inherits the URL form for free.
+     */
+    internal fun resolveUrls(networkName: String): List<String> =
+        config.predefinedNetworks[networkName]
+            ?: if (networkName.startsWith("http://") || networkName.startsWith("https://")) {
+                listOf(networkName.trimEnd('/'))
+            } else {
+                throw NetworkConfigurationException(networkName, config.predefinedNetworks.keys)
+            }
+
+    /**
+     * Current block height of [blockchainRid] on [network] (predefined name or
+     * node URL). Read-only, keyless; reuses the same cached per-chain client as
+     * [executeBlockchainQuery]. Errors carry the raw client message for
+     * [org.chromia.tools.VerifyDeployment.failureHint] to classify.
+     */
+    fun currentBlockHeight(network: String?, blockchainRid: BlockchainRid): NetworkResult<Long> =
+        runCatching {
+            val networkName = network ?: config.defaultNetwork
+            val urls = resolveUrls(networkName)
+            heightClient?.currentBlockHeight(urls, blockchainRid)
+                ?: run {
+                    val client = queryClientFor(urls, blockchainRid)
+                    (client as? net.postchain.client.core.PostchainReadClient)?.currentBlockHeight()
+                        ?: throw IllegalStateException(
+                            "postchain client does not expose block height"
+                        )
+                }
+        }.fold(
+            onSuccess = { NetworkResult.Success(it) },
+            onFailure = { e ->
+                val error = PostchainClientException(
+                    e.message ?: "Unknown error",
+                    blockchainRid.toHex(),
+                    e
+                )
+                NetworkResult.Error(error.message!!, error)
+            }
+        )
+
     fun executeBlockchainQuery(
         network: String?,
         blockchainRid: BlockchainRid,
@@ -122,8 +172,7 @@ class PostchainClientService(
         val query = queryName ?: "rell.get_app_structure"
         val networkName = network ?: config.defaultNetwork
 
-        val urls = config.predefinedNetworks[networkName]
-            ?: throw NetworkConfigurationException(networkName, config.predefinedNetworks.keys)
+        val urls = resolveUrls(networkName)
 
         val gtvArgs = listMapAndPrimitivesToGtv(arguments)
         val queryResult = queryClient?.query(blockchainRid, query, gtvArgs)

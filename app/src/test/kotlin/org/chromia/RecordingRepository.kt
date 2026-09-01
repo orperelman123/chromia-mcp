@@ -34,12 +34,31 @@ class RecordingRepository : ChromiaRepository {
     var lastIncludeGroupedWithdrawals: Boolean? = null
     var lastDapp: DappCall? = null
 
+    // verify_deployment probes the height twice; queue consecutive answers here.
+    // Empty queue falls back to `nextHeight` for single-answer tests.
+    var nextHeight: NetworkResult<Long> = NetworkResult.Success(0L)
+    val heightQueue: ArrayDeque<NetworkResult<Long>> = ArrayDeque()
+    var heightCalls: Int = 0
+    var lastHeightNetwork: String? = null
+    var lastHeightBrid: String? = null
+
     data class DappCall(
         val network: String?,
         val brid: String,
         val query: String?,
         val arguments: Map<String, Any?>
     )
+
+    override suspend fun getBlockchainHeight(
+        network: String?,
+        blockchainRid: BlockchainRid
+    ): NetworkResult<Long> {
+        lastCall = "getBlockchainHeight"
+        heightCalls++
+        lastHeightNetwork = network
+        lastHeightBrid = blockchainRid.toHex()
+        return heightQueue.removeFirstOrNull() ?: nextHeight
+    }
 
     override suspend fun filterBlockchains(network: String?, filters: BlockchainFilters): JsonResult {
         lastCall = "filterBlockchains"

@@ -10,6 +10,12 @@ interface ChromiaRepository {
         queryName: String?,
         arguments: Map<String, Any?> = emptyMap()
     ): JsonResult
+
+    /** Current block height of a chain - read-only, keyless (verify_deployment). */
+    suspend fun getBlockchainHeight(
+        network: String?,
+        blockchainRid: BlockchainRid
+    ): NetworkResult<Long>
     suspend fun getBlockchainsTransactions(network: String?): JsonResult
     suspend fun getTransactionsByCluster(network: String?): JsonResult
     suspend fun getAllAssets(network: String?): JsonResult

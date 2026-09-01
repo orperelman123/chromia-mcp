@@ -157,7 +157,9 @@ class PromptTemplatesTest {
                     "chromia_integrations_help",
                     "chromia_vector_search_help",
                     "check_dapp_project",
-                    "check_ft4_imports"
+                    "check_ft4_imports",
+                    "onboarding_next_step",
+                    "verify_deployment"
                 )
             )
         )
