@@ -2726,8 +2726,9 @@ object McpTools {
             the FULL check: validate_chromia_yml + check_ft4_imports + rell_check (real compilation, FT4
             imports included) + rell_security_check when it compiles. Returns combined {ok, errors, warnings, notes};
             ok=true means the project parses, compiles, and has no CRITICAL/HIGH security findings.
-            Submitted vendored-library files under lib/ft4/ compile but are exempt from the
+            Submitted lib/ft4/ files identical to the vendored FT4 sources compile but are exempt from the
             import/security scanners (FT4's own sources legitimately contain e.g. ras_open); notes says so.
+            A lib/ft4/ file whose content differs from the vendored copy is scanned like app code and noted.
             Use this as the single pre-deploy gate instead of calling the four tools separately.
             Read-only: does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),

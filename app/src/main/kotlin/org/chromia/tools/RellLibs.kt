@@ -34,9 +34,63 @@ object RellLibs {
      * itself contains `operation ras_open(` and `import lib.ft4.admin;`, so a
      * chr-installed tree submitted whole tripped CRITICALs against the library
      * (audit F2 follow-up). The user's app files stay fully scanned.
+     *
+     * The path alone is NOT enough to skip scanning - the scanners also require
+     * [matchesVendoredFt4]: a lib/ft4 file whose content differs from the
+     * vendored copy could be a foreign fork, a patched library, or planted code
+     * hiding under the exempt path, so it is scanned like app code (security
+     * enhancement, agent-experience round). Provisioning-skip decisions still
+     * use the path alone: whatever the user submitted under lib/ft4/ is the
+     * compile truth, matching or not.
      */
     fun isSubmittedFt4Path(path: String): Boolean =
-        path.trim().replace('\\', '/').removePrefix("./").removePrefix("src/").startsWith("lib/ft4/")
+        normalizeFt4Path(path).startsWith("lib/ft4/")
+
+    private fun normalizeFt4Path(path: String): String =
+        path.trim().replace('\\', '/').removePrefix("./").removePrefix("src/")
+
+    /**
+     * The vendored FT4 sources by zip-entry path (lib/ft4/...), line endings
+     * normalized to LF. ~0.5 MB, loaded once on first content comparison.
+     */
+    private val vendoredFt4Contents: Map<String, String> by lazy {
+        val stream = javaClass.classLoader.getResourceAsStream(FT4_RESOURCE)
+            ?: error("Vendored FT4 sources missing from classpath: $FT4_RESOURCE")
+        buildMap {
+            java.util.zip.ZipInputStream(stream).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    put(
+                        entry.name.replace('\\', '/'),
+                        normalizeLineEndings(zip.readBytes().toString(Charsets.UTF_8))
+                    )
+                }
+            }
+        }
+    }
+
+    /** CRLF/CR vs LF must never defeat a content match. */
+    private fun normalizeLineEndings(s: String): String =
+        s.replace("\r\n", "\n").replace('\r', '\n')
+
+    /** Exposed for tests that need a genuine vendored tree to submit. */
+    internal fun vendoredFt4Files(): Map<String, String> = vendoredFt4Contents
+
+    /**
+     * True when the submitted lib/ft4 file is identical (modulo line endings)
+     * to the vendored FT4 [FT4_VERSION] file at the same source-root-relative
+     * path. Only such files earn the scanning exemption; a path with no
+     * vendored counterpart, or with different content, does not.
+     */
+    fun matchesVendoredFt4(path: String, content: String): Boolean {
+        val vendored = vendoredFt4Contents[normalizeFt4Path(path)] ?: return false
+        return vendored == normalizeLineEndings(content)
+    }
+
+    /** Why a submitted lib/ft4 file is being scanned like app code. */
+    fun modifiedFt4Note(path: String): String =
+        "${normalizeFt4Path(path)} differs from vendored FT4 $FT4_VERSION - scanned as user code."
 
     fun submittedFt4FileCount(files: Map<String, String>): Int =
         files.keys.count { isSubmittedFt4Path(it) }

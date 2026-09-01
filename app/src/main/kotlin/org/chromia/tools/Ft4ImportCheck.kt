@@ -160,9 +160,15 @@ object Ft4ImportCheck {
             // and `import lib.ft4.admin;` - scanning a submitted lib/ft4 tree
             // reported forbidden-module errors pointing INTO the library (audit
             // F2 follow-up). Skip vendored-library files; app files stay scanned.
+            // Content-gated: only a file bit-identical (modulo line endings) to
+            // the vendored FT4 copy is trusted - a differing lib/ft4 file could
+            // be planted code and is scanned like app code, with a warning why.
             if (RellLibs.isSubmittedFt4Path(path)) {
-                exempted++
-                return@forEach
+                if (RellLibs.matchesVendoredFt4(path, content)) {
+                    exempted++
+                    return@forEach
+                }
+                warnings += RellLibs.modifiedFt4Note(path)
             }
             val label = path.trim().ifEmpty { "rell" }
             val one = scan(content)

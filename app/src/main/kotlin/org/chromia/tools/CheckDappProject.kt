@@ -56,9 +56,15 @@ object CheckDappProject {
             // `import lib.ft4.admin;` - scanning a submitted lib/ft4 tree
             // reported forbidden-module errors pointing INTO the library (audit
             // F2 follow-up). Skip vendored-library files; app files stay scanned.
+            // Content-gated: only a file bit-identical (modulo line endings) to
+            // the vendored FT4 copy is trusted - a differing lib/ft4 file could
+            // be planted code and is scanned like app code, with a note why.
             if (RellLibs.isSubmittedFt4Path(path)) {
-                exemptedLibFiles++
-                return@forEach
+                if (RellLibs.matchesVendoredFt4(path, content)) {
+                    exemptedLibFiles++
+                    return@forEach
+                }
+                notes += RellLibs.modifiedFt4Note(path)
             }
             // Same normalized path and "<path>:<line>: ..." shape as the compile
             // and security findings below - FT4 findings used to say

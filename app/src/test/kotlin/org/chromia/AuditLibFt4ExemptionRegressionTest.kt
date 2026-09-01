@@ -35,19 +35,43 @@ import org.junit.jupiter.api.Test
  * F1 - the security check's compile gate and check_dapp_project dropped
  *      compile.notes, losing the "Using your submitted lib/ft4 sources" note
  *      and misattributing errors to the vendored tree.
+ *
+ * Hash gate (agent-experience round security enhancement): the F2 exemption is
+ * no longer granted on the path alone - a submitted lib/ft4 file is exempt
+ * ONLY if its content matches the vendored FT4 v1.1.0r copy at the same
+ * relative path (line endings normalized). A differing file (foreign fork,
+ * patched, or planted) is scanned like app code, with a note saying why.
  */
 class AuditLibFt4ExemptionRegressionTest {
 
     private val repo = RecordingRepository()
 
-    /** Minimal compilable stand-in for a chr-installed FT4 tree, mirroring the
-     *  two v1.1.0r files that legitimately contain forbidden names. */
-    private val libTree = mapOf(
-        "src/lib/ft4/admin/module.rell" to "module;\n",
-        "src/lib/ft4/core/accounts/strategies/open/module.rell" to
-            "module;\noperation ras_open(main_ad: text) { require(main_ad != \"\"); }\n",
-        "src/lib/ft4/test/core/assets.rell" to "module;\nimport lib.ft4.admin;\n"
-    )
+    /** The genuine vendored FT4 v1.1.0r tree, keyed the way a chr-installed
+     *  project submits it (src/lib/ft4/...). Bit-identical content is what
+     *  earns the scanning exemption under the hash gate. */
+    private val libTree: Map<String, String> =
+        RellLibs.vendoredFt4Files().mapKeys { (path, _) -> "src/$path" }
+
+    /** The crosschain modules import lib.iccf - a separate library that is not
+     *  vendored - so compiling them (and their dependents) standalone fails for
+     *  reasons unrelated to the exemption under test. Compile-gated tests use
+     *  the tree without that closure; scanner-only tests use the full tree. */
+    private val compilableLibTree: Map<String, String> = libTree.filterKeys { path ->
+        !path.startsWith("src/lib/ft4/external/crosschain/") &&
+            !path.startsWith("src/lib/ft4/crosschain/") &&
+            !path.startsWith("src/lib/ft4/external/admin/crosschain/") &&
+            !path.startsWith("src/lib/ft4/admin/crosschain/") &&
+            path != "src/lib/ft4/test/core/assets.rell" &&
+            path != "src/lib/ft4/test/core/module.rell"
+    }
+
+    private val vendoredVersion = RellLibs.vendoredFt4Files().getValue("lib/ft4/version.rell")
+
+    /** A vendored file with a planted unauthenticated mutation appended -
+     *  compiles, but must be scanned and flagged, never exempted. */
+    private val plantedVersion = vendoredVersion +
+        "\nentity backdoor_log { name; }\n" +
+        "operation ras_backdoor(dest: text) { create backdoor_log(name = dest); }\n"
 
     private val cleanApp = "module;\nquery greet() = \"hi\";\n"
 
@@ -57,7 +81,7 @@ class AuditLibFt4ExemptionRegressionTest {
 
     @Test
     fun submittedFt4TreeIsNotFlaggedByCheckDappProject() {
-        val result = CheckDappProject.check(yaml, libTree + ("src/main.rell" to cleanApp))
+        val result = CheckDappProject.check(yaml, compilableLibTree + ("src/main.rell" to cleanApp))
         assertTrue(result.ok, result.errors.toString())
         assertTrue(
             result.notes.any { it.contains("vendored-library") },
@@ -74,7 +98,7 @@ class AuditLibFt4ExemptionRegressionTest {
     fun appFileImportingAdminIsStillFlaggedByCheckDappProject() {
         val result = CheckDappProject.check(
             yaml,
-            libTree + ("src/main.rell" to "module;\nimport lib.ft4.admin;\n")
+            compilableLibTree + ("src/main.rell" to "module;\nimport lib.ft4.admin;\n")
         )
         assertFalse(result.ok)
         assertTrue(
@@ -98,7 +122,7 @@ class AuditLibFt4ExemptionRegressionTest {
                     put(
                         "rell",
                         buildJsonObject {
-                            libTree.forEach { (path, content) -> put(path, content) }
+                            compilableLibTree.forEach { (path, content) -> put(path, content) }
                             put("src/main.rell", cleanApp)
                         }
                     )
@@ -146,7 +170,7 @@ class AuditLibFt4ExemptionRegressionTest {
                     put(
                         "files",
                         buildJsonObject {
-                            libTree.forEach { (path, content) -> put(path, content) }
+                            compilableLibTree.forEach { (path, content) -> put(path, content) }
                             put("src/main.rell", cleanApp)
                         }
                     )
@@ -167,7 +191,7 @@ class AuditLibFt4ExemptionRegressionTest {
     fun ft4ImportScanExemptsLibTreeAndNotesIt() {
         val result = Ft4ImportCheck.scanFiles(libTree + ("src/main.rell" to cleanApp))
         assertTrue(result.ok, result.errors.toString())
-        assertEquals(3, result.exemptedLibFiles)
+        assertEquals(libTree.size, result.exemptedLibFiles)
 
         val bad = Ft4ImportCheck.scanFiles(
             libTree + ("src/main.rell" to "module;\nimport lib.ft4.admin;\n")
@@ -197,6 +221,109 @@ class AuditLibFt4ExemptionRegressionTest {
         val structured = result.structuredContent!!
         assertEquals(true, structured.getValue("ok").jsonPrimitive.content.toBoolean(), structured.toString())
         assertTrue(structured.getValue("notes").jsonPrimitive.content.contains("vendored-library"), structured.toString())
+    }
+
+    // ---- Hash gate: exemption requires bit-identical vendored content ------
+
+    @Test
+    fun crlfVendoredFileStillExempt() {
+        // CRLF vs LF must never defeat the content match (Windows editors).
+        val crlf = vendoredVersion.replace("\n", "\r\n")
+        val result = RellSecurityCheck.analyze(
+            mapOf("src/lib/ft4/version.rell" to crlf, "src/main.rell" to cleanApp)
+        )
+        assertTrue(result.ok, result.findings.toString())
+        assertTrue(result.findings.isEmpty(), result.findings.toString())
+        assertTrue(result.notes.contains("vendored-library"), result.notes)
+        assertFalse(result.notes.contains("differs"), result.notes)
+    }
+
+    @Test
+    fun plantedLibFt4FileIsScannedAndFlaggedBySecurityCheck() {
+        val result = RellSecurityCheck.analyze(
+            mapOf("src/lib/ft4/version.rell" to plantedVersion, "src/main.rell" to cleanApp)
+        )
+        assertFalse(result.ok, result.notes)
+        assertTrue(
+            result.findings.any {
+                it.severity == "HIGH" && it.rule == "unauthenticated-mutation" &&
+                    it.file == "src/lib/ft4/version.rell"
+            },
+            "the planted mutation must be flagged despite the lib/ft4 path: ${result.findings}"
+        )
+        assertTrue(
+            result.notes.contains(
+                "lib/ft4/version.rell differs from vendored FT4 ${RellLibs.FT4_VERSION} - scanned as user code"
+            ),
+            result.notes
+        )
+        // Nothing matched the vendored copy, so no exemption note.
+        assertFalse(result.notes.contains("vendored-library"), result.notes)
+    }
+
+    @Test
+    fun mixedSubmissionScansOnlyTheModifiedFile() {
+        val vendoredAdmin = RellLibs.vendoredFt4Files().getValue("lib/ft4/admin/module.rell")
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "src/lib/ft4/admin/module.rell" to vendoredAdmin,
+                "src/lib/ft4/version.rell" to plantedVersion,
+                "src/main.rell" to cleanApp
+            )
+        )
+        assertFalse(result.ok)
+        assertTrue(
+            result.findings.isNotEmpty() && result.findings.all { it.file == "src/lib/ft4/version.rell" },
+            "only the modified file may produce findings: ${result.findings}"
+        )
+        assertTrue(result.notes.contains("1 vendored-library file(s)"), result.notes)
+        assertTrue(result.notes.contains("lib/ft4/version.rell differs"), result.notes)
+        assertFalse(result.notes.contains("admin/module.rell differs"), result.notes)
+    }
+
+    @Test
+    fun ft4ImportScanFlagsModifiedLibFileWithNote() {
+        val forked = vendoredVersion + "\nimport lib.ft4.admin;\n"
+        val result = Ft4ImportCheck.scanFiles(
+            mapOf(
+                "src/lib/ft4/admin/module.rell" to
+                    RellLibs.vendoredFt4Files().getValue("lib/ft4/admin/module.rell"),
+                "src/lib/ft4/version.rell" to forked,
+                "src/main.rell" to cleanApp
+            )
+        )
+        assertFalse(result.ok)
+        assertEquals(1, result.exemptedLibFiles)
+        assertTrue(
+            result.errors.any { it.contains("src/lib/ft4/version.rell") && it.contains("forbidden") },
+            "the forked lib file's forbidden import must be flagged: ${result.errors}"
+        )
+        assertTrue(
+            result.warnings.any { it.contains("lib/ft4/version.rell differs from vendored FT4") },
+            "the differs-note must explain why the lib file was scanned: ${result.warnings}"
+        )
+    }
+
+    @Test
+    fun checkDappProjectScansPlantedLibFile() {
+        val result = CheckDappProject.check(
+            yaml,
+            compilableLibTree + ("src/lib/ft4/version.rell" to plantedVersion) + ("src/main.rell" to cleanApp)
+        )
+        assertFalse(result.ok, "planted lib/ft4 mutation must fail the gate: ${result.notes}")
+        assertTrue(
+            result.errors.any { it.contains("lib/ft4/version.rell") && it.contains("unauthenticated-mutation") },
+            "the planted operation must surface as a blocking finding: ${result.errors}"
+        )
+        assertTrue(
+            result.notes.any { it.contains("lib/ft4/version.rell differs from vendored FT4") },
+            "the differs-note must be carried: ${result.notes}"
+        )
+        // The untouched rest of the tree stays exempt.
+        assertTrue(
+            result.notes.any { it.contains("vendored-library") },
+            "identical files must still be exempt: ${result.notes}"
+        )
     }
 
     // ---- F1: compile notes survive the compile-gate error paths -----------
