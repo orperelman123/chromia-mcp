@@ -576,9 +576,9 @@
         },
         {
             "title": "Check dapp project",
-            "description": "Read-only in-memory project check: chromia.yml plus one or more .rell files. Combines validate_chromia_yml and check_ft4_imports.",
+            "description": "Read-only in-memory project check: chromia.yml plus one or more .rell files. Combines validate_chromia_yml and check_ft4_imports, compiles the sources (rell_check), and security-scans them (rell_security_check) when they build.",
             "tool": "mcp_chromia-mcp_check_dapp_project",
-            "prompt": "Check this Chromia project in memory. Call check_dapp_project with the chromia.yml string and one or more .rell file contents. It runs validate_chromia_yml and check_ft4_imports and returns {ok, errors, warnings}. Do not write files, run chr, or talk to a network.",
+            "prompt": "Check this Chromia project in memory. Call check_dapp_project with the chromia.yml string and one or more .rell file contents. It runs validate_chromia_yml and check_ft4_imports, compiles the sources (rell_check), and security-scans them (rell_security_check) when they build, returning {ok, errors, warnings}. Do not write files, run chr, or talk to a network.",
             "parameters": {
                 "yaml": "{yaml}",
                 "rell": "{rell}"

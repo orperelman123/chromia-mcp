@@ -1956,12 +1956,14 @@ class DappBuildToolsTest {
             )
         )
         assertFalse(result.ok)
+        // Findings use the normalized source-root path + line, matching the
+        // compile/security format (audit 2026-09-01, F8).
         assertTrue(
-            result.errors.any { it.contains("src/main.rell") && it.contains("lib.ft4.admin") },
+            result.errors.any { it.startsWith("main.rell:2:") && it.contains("lib.ft4.admin") },
             result.errors.toString()
         )
         assertTrue(
-            result.errors.any { it.contains("src/main.rell") && it.contains("ras_open") },
+            result.errors.any { it.startsWith("main.rell:3:") && it.contains("ras_open") },
             result.errors.toString()
         )
     }

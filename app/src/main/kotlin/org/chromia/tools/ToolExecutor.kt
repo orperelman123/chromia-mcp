@@ -330,20 +330,30 @@ abstract class BaseToolStrategy : ToolStrategy {
         val entries = when (raw) {
             is Map<*, *> -> raw.entries
             is JsonObject -> raw.entries
-            else -> return null
+            else -> throw IllegalArgumentException(
+                "`$key` must be an object mapping .rell file paths to source strings (got ${raw::class.simpleName})"
+            )
         }
+        // Invalid entries used to be silently dropped, so the tool analyzed a
+        // partial project - and when EVERY value was invalid the caller was told
+        // the parameter was missing when it was sent (audit 2026-09-01). Same
+        // treatment as extractRellFilesMap: name the offending keys.
         val out = linkedMapOf<String, String>()
+        val invalid = mutableListOf<String>()
         entries.forEach { (k, v) ->
-            if (k == null || v == null || v is JsonNull) return@forEach
-            val path = k.toString().trim().takeIf { it.isNotEmpty() } ?: return@forEach
+            val path = (k?.toString() ?: "").trim()
             val content = when (v) {
                 is String -> v
-                is JsonPrimitive -> v.content
-                else -> return@forEach
+                is JsonPrimitive -> if (v.isString) v.content else null
+                else -> null
             }
-            out[path] = content
+            if (path.isEmpty() || content == null) invalid.add(path.ifEmpty { "(empty path)" }) else out[path] = content
         }
-        return out.takeIf { it.isNotEmpty() }
+        require(invalid.isEmpty()) {
+            "`$key` values must be source strings keyed by file path; invalid entr${if (invalid.size == 1) "y" else "ies"} at: ${invalid.joinToString(", ")}"
+        }
+        require(out.isNotEmpty()) { "`$key` was provided but is an empty object - pass at least one file, e.g. {\"main.rell\": \"module; ...\"}" }
+        return out
     }
 
     protected fun handleResult(result: NetworkResult<JsonObject>, errorMessage: String): CallToolResult {
@@ -495,8 +505,10 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
-        val limit = extractInt(args, "limit")
-        require(limit == null || limit > 0) { "limit must be a positive integer (got $limit)" }
+        // Same validation as extractPagination: a malformed limit used to be
+        // silently dropped ("limit":"abc" -> unlimited) and an absurd limit was
+        // forwarded uncapped (audit 2026-09-01).
+        val limit = extractPagination(args).limit
 
         val filters = org.chromia.domain.AssetFilters(
             brids = extractStringList(args, "brids"),
@@ -1052,11 +1064,34 @@ class RunRellTestsStrategy : BaseToolStrategy() {
             )
         }
         // module_args by module name, e.g. {"lib.ft4.core.accounts": {...}} - required
-        // to exercise real FT4 operations in tests.
+        // to exercise real FT4 operations in tests. Malformed shapes used to be
+        // silently ignored (non-object -> no args, per-module non-object -> {}),
+        // so tests ran without the args the agent sent (audit 2026-09-01).
         val moduleArgsArg = args["moduleArgs"]
-        val moduleArgs = if (moduleArgsArg is JsonObject) {
-            moduleArgsArg.mapValues { (_, v) -> (v as? JsonObject)?.toMap() ?: emptyMap() }
-        } else emptyMap()
+        val moduleArgs = when (moduleArgsArg) {
+            null, is JsonNull -> emptyMap()
+            is JsonObject -> {
+                val badModules = moduleArgsArg.filterValues { it !is JsonObject }.keys
+                if (badModules.isNotEmpty()) {
+                    return toolErrorResult(
+                        "moduleArgs value for module(s) ${badModules.joinToString(", ")} must be an args object " +
+                            "(e.g. {\"rate_limit\": {...}}) - got a non-object value. Do not JSON-encode the args."
+                    )
+                }
+                moduleArgsArg.mapValues { (_, v) -> (v as JsonObject).toMap() }
+            }
+            else -> {
+                val got = if (moduleArgsArg is JsonPrimitive && moduleArgsArg.isString) {
+                    "a string - do not JSON-encode it"
+                } else {
+                    "${moduleArgsArg::class.simpleName}"
+                }
+                return toolErrorResult(
+                    "moduleArgs must be an object mapping module name -> args object " +
+                        "(e.g. {\"lib.ft4.core.accounts\": {\"rate_limit\": {...}}}); got $got."
+                )
+            }
+        }
 
         return runCatching {
             val result = withContext(Dispatchers.IO) {

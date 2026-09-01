@@ -1637,7 +1637,7 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                            "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects, e.g. {\"main.rell\": \"module; ...\"}.")
+                            "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects, e.g. {\"main.rell\": \"module; ...\"}. Paths are relative to the Rell source root - drop the project's src/ prefix (a leading ./ or src/ is normalized away automatically).")
                         )
                     ),
                     "modules" to JsonObject(
@@ -1688,7 +1688,7 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                            "description" to JsonPrimitive("Map of relative .rell paths to contents: app modules plus at least one @test module, e.g. {\"main.rell\": \"module; ...\", \"main_test.rell\": \"@test module; import main; function test_x() { ... }\"}.")
+                            "description" to JsonPrimitive("Map of relative .rell paths to contents: app modules plus at least one @test module, e.g. {\"main.rell\": \"module; ...\", \"main_test.rell\": \"@test module; import main; function test_x() { ... }\"}. Paths are relative to the Rell source root - drop the project's src/ prefix (a leading ./ or src/ is normalized away automatically).")
                         )
                     ),
                     "moduleArgs" to JsonObject(

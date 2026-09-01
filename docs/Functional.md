@@ -236,7 +236,7 @@ RAG-powered documentation retrieval:
 
 Read-only BUILD tools (no explorer, no signed txs, no `chr` subprocess):
 
-- `scaffold_dapp` — chromia.yml + `src/main.rell` + `src/test/main_test.rell` (Rell 0.16.7, merkle_hash_version 2, FT4 v1.1.0r API 1)
+- `scaffold_dapp` — chromia.yml + `src/main.rell` + `src/test/main_test.rell` (Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1)
 - `validate_chromia_yml` — `{ok, errors[], warnings[]}` for compile.rellVersion (semver N.N.N), `blockchains.*.module` (name, not path), merkle_hash_version 2, reserved deployment names, 64-hex Directory BRID, forbidden FT4 admin / ras_open libs
 - `ft4_module_args` — production FT4 module_args + libs (`insecure: false`). `require_mandatory_flags` main-only. `DEFAULT_LOGIN_CONFIG_NAME` is `"default"`. Never emits admin / ras_open. `includeIccf=true` also emits official `net.postchain.d1.iccf.IccfGTXModule` gtx wiring
 - `chr_build_help` — official CLI 0.33.x install / `chr install` / `chr build` / `chr test` commands and expected chromia.yml shape
@@ -261,8 +261,11 @@ Read-only BUILD tools (no explorer, no signed txs, no `chr` subprocess):
 - `chromia_language_clients_help` — official C# / Go / Rust / React Kit / REST query-only wiring. Skips signed txs, key generation, and C# NuGet id (not printed). JS/TS, Kotlin, Python, FT4 local reads stay on `chr_generate_client_help`. Does not run chr, generate keys, or send a tx
 - `chr_library_help` — official CLI 0.33.x public `chr library` (install / list / view / versions). `chr install` alias. Library-chain vs git `libs:`. Does not invent a library-chain BRID, generate keys, run chr, or send a tx
 - `chr_create_rell_dapp_help` — official CLI 0.33.x `chr create-rell-dapp` templates (`plain`, `plain-multi`, `minimal`, `plain-library`, `asset-management`) and `--devcontainer`. Does not run chr, write files, generate keys, or send a tx
-- `check_dapp_project` — read-only in-memory scan of a `chromia.yml` string plus one or more `.rell` file contents; combines `validate_chromia_yml` and `check_ft4_imports` into `{ok, errors[], warnings[]}`
+- `check_dapp_project` — read-only in-memory scan of a `chromia.yml` string plus one or more `.rell` file contents; combines `validate_chromia_yml` and `check_ft4_imports`, compiles the sources (`rell_check`), and security-scans them (`rell_security_check`) when they build, into `{ok, errors[], warnings[]}`
 - `check_ft4_imports` — read-only in-memory scan of `.rell` sources for forbidden FT4 production imports (`lib.ft4.admin`, `ras_open`, `ras_transfer_open`, `admin.crosschain`)
+- `rell_check` — in-process Rell compilation (the same compiler the Chromia CLI embeds) with structured `{file, line, column, severity, text}` diagnostics; vendored FT4 sources make `import lib.ft4.*` compile without `chr install`
+- `rell_security_check` — static security pass over compiling Rell code (banned admin modules, unauthenticated mutations, hardcoded key material, missing input validation) with line-anchored findings and fixes
+- `run_rell_tests` — in-process Rell test execution (embedded CLI test runner) with per-case pass/fail results; entity/database tests need PostgreSQL via `CHROMIA_TEST_DATABASE_URL`, pure-logic tests run without it
 - `chromia_rell_language_help` — official Rell definition syntax (query / operation / entity / object / struct / enum / function / module). Official Hello World query `hello_world`. Does not invent language features, run chr, generate keys, or send a tx
 - `chromia_rell_types_help` — official Rell types (simple, collection, complex, iterables, sub-types, virtual). Official slug is `sub-types` (not `subtypes`, which 404s). Does not invent types, run chr, generate keys, or send a tx
 - `chromia_rell_expressions_help` — official Rell values / operators / conditional / jump / lambda pages. Does not invent operators. Does not run chr, generate keys, or send a tx

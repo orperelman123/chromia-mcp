@@ -41,9 +41,14 @@ object RellCheck {
 
     fun check(files: Map<String, String>, modules: List<String>?): Result {
         validateFileMap(files)
+        // Scaffold-shaped keys (src/main.rell) otherwise become modules named
+        // src.main, and the compiler answers "Module 'main' not found" - steering
+        // agents to the wrong fix (audit 2026-09-01). Paths are relative to the
+        // Rell source root, so a leading ./ or src/ project prefix is dropped.
+        val sources = normalizeSourceRoots(files)
         val tempDir = Files.createTempDirectory("rell-check")
         return try {
-            files.forEach { (relPath, content) ->
+            sources.forEach { (relPath, content) ->
                 val target = tempDir.resolve(relPath).normalize()
                 require(target.startsWith(tempDir)) { "Path escapes source root: $relPath" }
                 Files.createDirectories(target.parent)
@@ -57,17 +62,17 @@ object RellCheck {
             // false green on broken code. A root module.rell resolves to the empty
             // module name and is filtered out, so the FT4 branch hit exactly that.
             // Fall back to null (= all modules) whenever the scoped list is empty.
-            if (RellLibs.needsFt4(files)) RellLibs.provisionFt4(tempDir)
+            if (RellLibs.needsFt4(sources)) RellLibs.provisionFt4(tempDir)
             // Test modules are not app modules: without passing them explicitly a
             // project of only @test files compiled nothing and reported ok=true.
-            val testModules = files.filterValues { RunRellTests.isTestModuleSource(it) }
+            val testModules = sources.filterValues { RunRellTests.isTestModuleSource(it) }
                 .map { (path, content) -> RunRellTests.moduleNameForPath(path, content) }
                 .filter { it.isNotEmpty() }
                 .distinct()
             // A header-less sibling of a @test module.rell resolves to the test
             // module's name - subtract so it is never passed as an app module.
             val effectiveModules = modules
-                ?: (RellLibs.userAppModules(files) - testModules.toSet()).ifEmpty { null }
+                ?: (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
             compile(tempDir, effectiveModules, testModules)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
@@ -80,6 +85,30 @@ object RellCheck {
      * fails with a cryptic syntax error (QA finding). Strip it before compiling.
      */
     internal fun stripBom(content: String): String = content.removePrefix("﻿")
+
+    /**
+     * Drops a leading ./ and src/ project prefix - file paths are relative to
+     * the Rell SOURCE ROOT, but agents feed scaffold_dapp output (keyed
+     * src/main.rell) verbatim, deriving module src.main and a misleading
+     * "Module 'main' not found" (audit 2026-09-01). Same normalization as
+     * [CheckDappProject]. Two inputs collapsing to one path is an error, like
+     * the case-insensitive collision check.
+     */
+    internal fun normalizeSourceRoot(path: String): String =
+        path.trim().removePrefix("./").removePrefix("src/")
+
+    internal fun normalizeSourceRoots(files: Map<String, String>): LinkedHashMap<String, String> {
+        val collisions = files.keys
+            .groupBy { normalizeSourceRoot(it).lowercase().replace('\\', '/') }
+            .filterValues { it.size > 1 }
+        require(collisions.isEmpty()) {
+            "Paths ${collisions.values.first()} resolve to the same file after the src/ prefix is " +
+                "normalized away (paths are relative to the Rell source root) - rename one so both can be used."
+        }
+        val out = linkedMapOf<String, String>()
+        files.forEach { (path, content) -> out[normalizeSourceRoot(path)] = content }
+        return out
+    }
 
     private fun validateFileMap(files: Map<String, String>) {
         require(files.isNotEmpty()) { "Provide `source` or a non-empty `files` map" }

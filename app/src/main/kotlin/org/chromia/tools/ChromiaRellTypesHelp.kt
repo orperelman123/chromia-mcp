@@ -7,7 +7,7 @@ import kotlinx.serialization.json.put
 
 /**
  * Official Rell type-system help. Quotes docs.chromia.com/rell type pages only.
- * Does not invent types or methods. Rell pin 0.16.7 (docs may list 0.16.4).
+ * Does not invent types or methods. Rell language source tag 0.16.7 (docs may list 0.16.4).
  * Definition syntax lives on chromia_rell_language_help.
  * Official /types/subtypes is 404; canonical slug is /types/sub-types.
  */
@@ -264,7 +264,7 @@ object ChromiaRellTypesHelp {
     """.trimIndent() + "\n"
 
     fun notes(): String = """
-        Official Rell type pages for CLI $CLI_SERIES. Rell pin $RELL_VERSION (docs may still list 0.16.4 — source wins).
+        Official Rell type pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Types index: $TYPES_URL
         Simple: $SIMPLE_URL  Collection: $COLLECTION_URL  Complex: $COMPLEX_URL
         Iterables: $ITERABLES_URL  Subtypes: $SUBTYPES_URL  Virtual: $VIRTUAL_URL
@@ -338,6 +338,8 @@ object ChromiaRellTypesHelp {
         put("java", "21+")
         put("postgres", "16+")
         put("rell", RELL_VERSION)
+        put("rellSourceTag", RELL_VERSION)
+        put("rellVersionPin", DappScaffold.RELL_VERSION)
         put("tool", TOOL_NAME)
         put("docs", TYPES_URL)
         put("simple_docs", SIMPLE_URL)

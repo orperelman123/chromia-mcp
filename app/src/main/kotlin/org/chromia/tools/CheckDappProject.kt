@@ -14,6 +14,14 @@ import kotlinx.serialization.json.put
 object CheckDappProject {
     const val YAML_PATH = "chromia.yml"
 
+    private val LINE_REF = Regex("""^line (\d+): (.*)$""")
+
+    /** "line 3: msg" -> "main.rell:3: msg", matching the compile/security format. */
+    private fun locate(label: String, finding: String): String =
+        LINE_REF.matchEntire(finding)
+            ?.let { "$label:${it.groupValues[1]}: ${it.groupValues[2]}" }
+            ?: "$label: $finding"
+
     data class Result(
         val ok: Boolean,
         val errors: List<String>,
@@ -40,10 +48,13 @@ object CheckDappProject {
             errors += "missing .rell file contents"
         }
         rellFiles.forEach { (path, content) ->
-            val label = path.trim().ifEmpty { "rell" }
+            // Same normalized path and "<path>:<line>: ..." shape as the compile
+            // and security findings below - FT4 findings used to say
+            // "src/main.rell: line 3: ..." for the same file (audit 2026-09-01).
+            val label = path.trim().removePrefix("./").removePrefix("src/").ifEmpty { "rell" }
             val one = Ft4ImportCheck.scan(content)
-            one.errors.forEach { err -> errors += "$label: $err" }
-            one.warnings.forEach { warn -> warnings += "$label: $warn" }
+            one.errors.forEach { err -> errors += locate(label, err) }
+            one.warnings.forEach { warn -> warnings += locate(label, warn) }
         }
 
         if (compile && rellFiles.isNotEmpty()) {

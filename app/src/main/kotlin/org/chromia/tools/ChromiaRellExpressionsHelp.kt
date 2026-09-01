@@ -7,7 +7,7 @@ import kotlinx.serialization.json.put
 
 /**
  * Official Rell expression help. Quotes docs.chromia.com/rell expression pages only.
- * Does not invent operators. Rell pin 0.16.7 (docs may list 0.16.4).
+ * Does not invent operators. Rell language source tag 0.16.7 (docs may list 0.16.4).
  */
 object ChromiaRellExpressionsHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -190,7 +190,7 @@ object ChromiaRellExpressionsHelp {
     """.trimIndent() + "\n"
 
     fun notes(): String = """
-        Official Rell expression pages for CLI $CLI_SERIES. Rell pin $RELL_VERSION (docs may still list 0.16.4 — source wins).
+        Official Rell expression pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Index: $INDEX_URL
         Values: $VALUES_URL  Operators: $OPERATORS_URL
         Conditional: $CONDITIONAL_URL  Jump: $JUMP_URL  Lambda: $LAMBDA_URL
@@ -244,6 +244,8 @@ object ChromiaRellExpressionsHelp {
         put("java", "21+")
         put("postgres", "16+")
         put("rell", RELL_VERSION)
+        put("rellSourceTag", RELL_VERSION)
+        put("rellVersionPin", DappScaffold.RELL_VERSION)
         put("tool", TOOL_NAME)
         put("docs", INDEX_URL)
         put("values_docs", VALUES_URL)

@@ -159,11 +159,16 @@ object RunRellTests {
         require(collisions.isEmpty()) {
             "Case-insensitive path collision: ${collisions.values.first()} - most file systems treat these as the same file; rename one."
         }
+        // Scaffold-shaped keys (src/test/main_test.rell) otherwise derive module
+        // src.test.main_test, whose `import main;` fails with a misleading
+        // "Module 'main' not found" (audit 2026-09-01). Paths are relative to the
+        // Rell source root - normalize the ./ and src/ prefixes away, like rell_check.
+        val sources = RellCheck.normalizeSourceRoots(files)
 
         // Detect @test on comment/string-masked source: `@test // note` + newline +
         // `module;` is a valid header, and "@test module" inside a comment or string
         // must not classify a file as a test module.
-        val testModules = files
+        val testModules = sources
             .filterValues { isTestModuleSource(it) }
             .map { (path, content) -> moduleNameForPath(path, content) }
             .distinct()
@@ -177,7 +182,7 @@ object RunRellTests {
         val tempDir = Files.createTempDirectory("rell-tests")
         var cleanupDeferred = false
         return try {
-            files.forEach { (relPath, content) ->
+            sources.forEach { (relPath, content) ->
                 val target = tempDir.resolve(relPath).normalize()
                 require(target.startsWith(tempDir)) { "Path escapes source root: $relPath" }
                 Files.createDirectories(target.parent)
@@ -187,11 +192,11 @@ object RunRellTests {
             // lib present, app modules must be scoped to the user's own files.
             // A header-less sibling of a @test module.rell resolves to the test
             // module's name - subtract so it is never passed as an app module.
-            val appModules = if (RellLibs.needsFt4(files)) {
+            val appModules = if (RellLibs.needsFt4(sources)) {
                 RellLibs.provisionFt4(tempDir)
-                RellLibs.userAppModules(files) - testModules.toSet()
+                RellLibs.userAppModules(sources) - testModules.toSet()
             } else {
-                (RellLibs.userAppModules(files) - testModules.toSet()).ifEmpty { null }
+                (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
             }
             val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
             cleanupDeferred = outcome.cleanupDeferred
@@ -332,6 +337,11 @@ object RunRellTests {
         val dbLimited = cases.count { it.dbRequired }
         val notes = buildString {
             append("Ran ${cases.size} test(s) in ${testModules.size} test module(s): ${cases.size - failed} passed, $failed failed.")
+            if (cases.isEmpty()) {
+                // ok=false with total=0 and no explanation left agents guessing
+                // (audit 2026-09-01): the @test module was found, but nothing ran.
+                append(" 0 test functions found - test functions must be named test_*.")
+            }
             if (dbLimited > 0) {
                 append(" $dbLimited failure(s) are environmental (dbRequired=true): the test touches entities/objects and needs PostgreSQL via $DATABASE_URL_ENV.")
             } else if (databaseUrl == null) {

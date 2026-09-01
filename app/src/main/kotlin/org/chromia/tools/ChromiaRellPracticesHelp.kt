@@ -165,7 +165,7 @@ object ChromiaRellPracticesHelp {
     )
 
     fun notes(): String = """
-        Official leftover Rell BUILD practice pages for CLI $CLI_SERIES. Rell pin $RELL_VERSION (docs may still list 0.16.4 — source wins).
+        Official leftover Rell BUILD practice pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Security: $SECURITY_URL
         Best practices: $BEST_PRACTICES_URL
         SQL analysis: $ANALYZE_URL (see chr_repl_help). RellDoc comments: $RELLDOC_URL (see chromia_rell_language_help).
@@ -211,6 +211,8 @@ object ChromiaRellPracticesHelp {
         put("java", "21+")
         put("postgres", "16+")
         put("rell", RELL_VERSION)
+        put("rellSourceTag", RELL_VERSION)
+        put("rellVersionPin", DappScaffold.RELL_VERSION)
         put("tool", TOOL_NAME)
         put("security_docs", SECURITY_URL)
         put("best_practices_docs", BEST_PRACTICES_URL)

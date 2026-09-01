@@ -103,7 +103,11 @@ object Ft4ImportCheck {
     """.trimIndent()
 
     fun scan(rell: String): Result {
-        val live = stripComments(rell)
+        // Mask string literals as well as comments: imports never live inside
+        // strings, and a banned name in a doc string ("never use lib.ft4.admin")
+        // was flagged as a forbidden import - contradicting rell_security_check,
+        // which already masks strings (audit 2026-09-01).
+        val live = maskRellSource(rell, maskStrings = true)
         val hits = mutableListOf<Hit>()
         val warnings = mutableListOf<String>()
         live.lineSequence().forEachIndexed { index, rawLine ->

@@ -59,8 +59,9 @@ class Ft4ImportCheckRegressionTest {
         val direct = Ft4ImportCheck.scan(rell)
         assertTrue(direct.warnings.isNotEmpty(), "expected a cross-chain warning")
         val result = CheckDappProject.check(yaml, mapOf("src/main.rell" to rell))
+        // Label is the normalized source-root path, shared with compile findings.
         assertTrue(
-            result.warnings.any { it.startsWith("src/main.rell:") && it.contains("cross-chain") },
+            result.warnings.any { it.startsWith("main.rell:") && it.contains("cross-chain") },
             result.warnings.toString()
         )
     }

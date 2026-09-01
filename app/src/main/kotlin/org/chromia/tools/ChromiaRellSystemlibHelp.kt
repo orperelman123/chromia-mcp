@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
  * Quotes docs.chromia.com/rell systemlib pages only.
  * Official rell.time slug is /namespaces/time (200); /namespaces/rell.time is 404.
  * Crypto: HASH and VERIFY only. Skips privkey / signing helpers and official printed sample keys.
- * Rell pin 0.16.7 (docs examples may show 0.10.1).
+ * Rell language source tag 0.16.7 (docs examples may show 0.10.1).
  */
 object ChromiaRellSystemlibHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -249,7 +249,7 @@ object ChromiaRellSystemlibHelp {
     """.trimIndent() + "\n"
 
     fun notes(): String = """
-        Official Rell systemlib pages for CLI $CLI_SERIES. Rell pin $RELL_VERSION (docs examples may show 0.10.1 — source wins).
+        Official Rell systemlib pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs examples may show 0.10.1 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Index: $INDEX_URL
         Global functions: $GLOBAL_URL
         require / error handling: $REQUIRE_URL
@@ -269,7 +269,7 @@ object ChromiaRellSystemlibHelp {
         tx_data is serialized GTX; official decode: gtx_transaction.from_bytes(.tx_data) (query example on the entities page).
         System queries are read-only inspection. get_mount_names kinds: "query", "operation", "entity", "object" (empty list = all).
         Return keys are pluralized: "queries", "operations", "entities", "objects". Invalid kind/module name throws; unknown module is ignored.
-        Docs examples on the queries page may show Rell 0.10.1 — production pin is $RELL_VERSION.
+        Docs examples on the queries page may show Rell 0.10.1 — the current language source tag is $RELL_VERSION.
         chain_context ($CHAIN_CONTEXT_URL): args is this module's module_args struct from chromia.yml moduleArgs.
         Access to args is only possible if that module defines struct module_args. Defaults may be omitted in YAML.
         If every attribute has a default, the args section may be omitted. Every module can have its own module_args.
@@ -315,6 +315,8 @@ object ChromiaRellSystemlibHelp {
         put("java", "21+")
         put("postgres", "16+")
         put("rell", RELL_VERSION)
+        put("rellSourceTag", RELL_VERSION)
+        put("rellVersionPin", DappScaffold.RELL_VERSION)
         put("tool", TOOL_NAME)
         put("docs", INDEX_URL)
         put("global_docs", GLOBAL_URL)

@@ -101,7 +101,7 @@ The old Node LSP package is unmaintained.
 
 1. Use chromia-lsp-mcp per project (README Claude Code snippet; image tag 0.1.1 or later).
 2. Use https://mcp.chromia.dev/sse for explorer and fetch_docs. Answers may predate Rell 0.16 / CLI 0.33.
-3. Copy chromia-skill into .claude/skills/chromia-skill. For Codex, place it under .agents/skills yourself. Change rellVersion 0.14.5 to 0.16.7 before scaffolding.
+3. Copy chromia-skill into .claude/skills/chromia-skill. For Codex, place it under .agents/skills yourself. Change rellVersion 0.14.5 to 0.16.1 (the newest pin the CLI-bundled Rell accepts; 0.16.7 is the language source tag and fails `chr build`) before scaffolding.
 4. Run current chr 0.33.x on the host. Do not use the Docker image CLI 0.27.7 for production work.
 5. For directory-chain or EIF, read that repo CLAUDE.md then verify versions against chromia.yml / pom.xml (markdown lags).
 There is no official Chromia Claude Code agent or Chromia Codex agent beyond the above.

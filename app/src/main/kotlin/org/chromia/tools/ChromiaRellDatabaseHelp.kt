@@ -157,7 +157,7 @@ object ChromiaRellDatabaseHelp {
     """.trimIndent() + "\n"
 
     fun notes(): String = """
-        Official Rell database-language pages for CLI $CLI_SERIES. Rell pin $RELL_VERSION (docs may still list 0.16.4 — source wins).
+        Official Rell database-language pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Index: $INDEX_URL  Overview / at-operator: $OVERVIEW_URL
         Create: $CREATE_URL  Update: $UPDATE_URL  Delete: $DELETE_URL
         These are Rell language constructs. create / update / delete run inside operations.
@@ -220,6 +220,8 @@ object ChromiaRellDatabaseHelp {
         put("java", "21+")
         put("postgres", "16+")
         put("rell", RELL_VERSION)
+        put("rellSourceTag", RELL_VERSION)
+        put("rellVersionPin", DappScaffold.RELL_VERSION)
         put("tool", TOOL_NAME)
         put("docs", OVERVIEW_URL)
         put("create_docs", CREATE_URL)

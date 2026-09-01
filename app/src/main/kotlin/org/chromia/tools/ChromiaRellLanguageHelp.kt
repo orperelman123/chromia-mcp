@@ -303,7 +303,7 @@ object ChromiaRellLanguageHelp {
     )
 
     val leftoverReleases = listOf(
-        "docs-site latest listed 0.16.4 (2026-08-02); production source pin 0.16.7",
+        "docs-site latest listed 0.16.4 (2026-08-02); language source tag 0.16.7",
         "0.16.7  source notes 2026-08-14 (not on docs-site): smaller dependency footprint; LSP honours compile.rellVersion; rell/setSettingsFiles; more constructs version-restricted",
         "0.16.6  source notes 2026-08-07 (not on docs-site): convert expression/block body; lambdas/value-blocks/jumps now require language version 0.16.1",
         "0.16.5  source notes 2026-08-04 (not on docs-site): linter+formatter edit order; formatter argument-list/chain breaks; rule_simplify_nullable_if",
@@ -353,7 +353,7 @@ object ChromiaRellLanguageHelp {
     """.trimIndent() + "\n"
 
     fun notes(): String = """
-        Official Rell definition syntax for CLI $CLI_SERIES. Rell pin $RELL_VERSION (docs may still list 0.16.4 — source wins).
+        Official Rell definition syntax for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Intro: $INTRO_URL
         Core concepts (cardinality @ / @? / @+ / @*): $CORE_CONCEPTS_URL
         Query: $QUERY_URL — cannot modify the database; must return a value; parameter and return types must be GTV-compatible.
@@ -401,7 +401,7 @@ object ChromiaRellLanguageHelp {
         Comments: // rest-of-line and /* block */ (core-concepts). RellDoc: $RELLDOC_URL — /** … */ with leading *.
         Official RellDoc tags: @param, @return, @throws, @see, @since, @author.
         RellDoc comments are processed by chr generate docs-site (chromia_docs_yml_help).
-        Official leftover releases: $RELEASES_URL — docs-site latest listed is 0.16.4 (2026-08-02); production pin is $RELL_VERSION (source wins).
+        Official leftover releases: $RELEASES_URL — docs-site latest listed is 0.16.4 (2026-08-02); the language source tag is $RELL_VERSION (source wins). The chromia.yml compile.rellVersion pin stays ${DappScaffold.RELL_VERSION}.
         Source notes (not on the docs-site table): 0.16.5 / 0.16.6 / 0.16.7. Do not invent changelog items.
         0.16.3: rule_replace_if_with_when and LSP chromiaConfigFiles. 0.16.0: RR_* + jOOQ SQL + ANTLR.
         0.14.0 replaced @returns with @return. 0.14.3: new default params at the end (ops and queries).
@@ -444,6 +444,8 @@ object ChromiaRellLanguageHelp {
         put("java", "21+")
         put("postgres", "16+")
         put("rell", RELL_VERSION)
+        put("rellSourceTag", RELL_VERSION)
+        put("rellVersionPin", DappScaffold.RELL_VERSION)
         put("tool", TOOL_NAME)
         put("docs", INTRO_URL)
         put("query_docs", QUERY_URL)
