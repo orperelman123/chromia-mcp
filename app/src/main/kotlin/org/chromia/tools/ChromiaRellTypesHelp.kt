@@ -430,26 +430,26 @@ object ChromiaRellTypesHelp {
     }
 }
 
-// Official ECOSYSTEM ecosystem/extensions/zkp INDEX leftovers encoded as ECOSYSTEM_ZKP_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/bridge-troubleshooting/bridge-deposit-troubleshooting INDEX leftovers encoded as ECOSYSTEM_BRIDGE_DEPOSIT_TROUBLESHOOTING_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/prepare-node INDEX leftovers encoded as ECOSYSTEM_PREPARE_NODE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/blockchain INDEX leftovers encoded as ECOSYSTEM_PMC_BLOCKCHAIN_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/alternative-sol INDEX leftovers encoded as ECOSYSTEM_GOV_ALTERNATIVE_SOL_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/rell-language INDEX leftovers encoded as ECOSYSTEM_GOV_RELL_LANGUAGE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/block-explorer/using-explorer INDEX leftovers encoded as ECOSYSTEM_BLOCK_EXPLORER_USING_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/filehub/configure-filehub/filehub-work INDEX leftovers encoded as ECOSYSTEM_FILEHUB_WORK_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/blockchain-transactions/query-transaction INDEX leftovers encoded as LEARN_BOOK_REVIEW_QUERY_TX_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-blockchain INDEX leftovers encoded as LEARN_FT4_DEMO_BLOCKCHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-frontend-application/transfer INDEX leftovers encoded as LEARN_FT4_DEMO_FRONTEND_TRANSFER_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/data-modeling/tables INDEX leftovers encoded as LEARN_NEWS_DATA_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/types INDEX leftovers encoded as RELL_TYPES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one INDEX leftovers encoded as LEARN_TTT_MODULE_ONE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/code-deep-dive/rell-interface INDEX leftovers encoded as LEARN_VECTOR_DB_RELL_INTERFACE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/types/simple-types INDEX leftovers encoded as RELL_TYPES_SIMPLE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/zero-knowledge-proof/dapp/dapp-operations INDEX leftovers encoded as LEARN_ZK_DAPP_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/sign-transaction INDEX leftovers encoded as LEARN_BOOK_REVIEW_SIGN_TX_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/input-verification/input-verification INDEX leftovers encoded as LEARN_BOOK_REVIEW_INPUT_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/chromia-comparisons/polygon INDEX leftovers encoded as LEARN_COMPARISONS_POLYGON_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/types/collection-types INDEX leftovers encoded as RELL_TYPES_COLLECTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/namespaces/crypto INDEX leftovers encoded as RELL_SYSTEMLIB_CRYPTO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/types/complex-types INDEX leftovers encoded as RELL_TYPES_COMPLEX_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/extensions/zkp INDEX encoded as ECOSYSTEM_ZKP_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/bridge-troubleshooting/bridge-deposit-troubleshooting INDEX encoded as ECOSYSTEM_BRIDGE_DEPOSIT_TROUBLESHOOTING_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/prepare-node INDEX encoded as ECOSYSTEM_PREPARE_NODE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/blockchain INDEX encoded as ECOSYSTEM_PMC_BLOCKCHAIN_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/alternative-sol INDEX encoded as ECOSYSTEM_GOV_ALTERNATIVE_SOL_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/rell-language INDEX encoded as ECOSYSTEM_GOV_RELL_LANGUAGE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/block-explorer/using-explorer INDEX encoded as ECOSYSTEM_BLOCK_EXPLORER_USING_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/filehub/configure-filehub/filehub-work INDEX encoded as ECOSYSTEM_FILEHUB_WORK_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/blockchain-transactions/query-transaction INDEX encoded as LEARN_BOOK_REVIEW_QUERY_TX_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-blockchain INDEX encoded as LEARN_FT4_DEMO_BLOCKCHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-frontend-application/transfer INDEX encoded as LEARN_FT4_DEMO_FRONTEND_TRANSFER_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/data-modeling/tables INDEX encoded as LEARN_NEWS_DATA_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/types INDEX encoded as RELL_TYPES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one INDEX encoded as LEARN_TTT_MODULE_ONE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/code-deep-dive/rell-interface INDEX encoded as LEARN_VECTOR_DB_RELL_INTERFACE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/types/simple-types INDEX encoded as RELL_TYPES_SIMPLE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/zero-knowledge-proof/dapp/dapp-operations INDEX encoded as LEARN_ZK_DAPP_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/sign-transaction INDEX encoded as LEARN_BOOK_REVIEW_SIGN_TX_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/input-verification/input-verification INDEX encoded as LEARN_BOOK_REVIEW_INPUT_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/chromia-comparisons/polygon INDEX encoded as LEARN_COMPARISONS_POLYGON_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/types/collection-types INDEX encoded as RELL_TYPES_COLLECTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/namespaces/crypto INDEX encoded as RELL_SYSTEMLIB_CRYPTO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/types/complex-types INDEX encoded as RELL_TYPES_COMPLEX_INDEX_* (query-only HELP ONLY WRITE SKIP).

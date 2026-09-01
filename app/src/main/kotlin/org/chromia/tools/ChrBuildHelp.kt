@@ -373,34 +373,34 @@ object ChrBuildHelp {
         put("notes", notes())
     }
 }
-// Official BUILD cli/commands/build leftovers encoded as BUILD_INDEX_* (query-only).
-// Official BUILD cli/commands/code leftovers encoded as CODE_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/benefits INDEX leftovers encoded as GET_STARTED_BENEFITS_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/extensions INDEX leftovers encoded as GET_STARTED_EXTENSIONS_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases INDEX leftovers encoded as GET_STARTED_USE_CASES_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/staking-summary INDEX leftovers encoded as GET_STARTED_STAKING_SUMMARY_INDEX_* (query-only).
-// Official GET-STARTED get-started/installation INDEX leftovers encoded as GET_STARTED_INSTALLATION_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/filehub/filehub-setup/deploy-filehub INDEX leftovers encoded as ECOSYSTEM_FILEHUB_DEPLOY_FILEHUB_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/mass-exit/operations INDEX leftovers encoded as ECOSYSTEM_MASS_EXIT_OPERATIONS_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/setup-tls INDEX leftovers encoded as ECOSYSTEM_SETUP_TLS_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/container INDEX leftovers encoded as ECOSYSTEM_PMC_CONTAINER_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/extensions/delegates INDEX leftovers encoded as ECOSYSTEM_GOV_DELEGATES_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure/vote-weight-strategy INDEX leftovers encoded as ECOSYSTEM_GOV_VOTE_WEIGHT_STRATEGY_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/block-explorer/overview INDEX leftovers encoded as ECOSYSTEM_BLOCK_EXPLORER_OVERVIEW_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/filehub/configure-filehub/filehub-configure INDEX leftovers encoded as ECOSYSTEM_FILEHUB_CONFIGURE_FILEHUB_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/big-data/introduction INDEX leftovers encoded as LEARN_BIG_DATA_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/book-review-entity INDEX leftovers encoded as LEARN_BOOK_REVIEW_RELATED_ENTITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/chromia-for-evm-developers/introduction INDEX leftovers encoded as LEARN_EVM_DEVELOPERS_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/chromia-for-evm-developers/news-feed INDEX leftovers encoded as LEARN_EVM_NEWS_FEED_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-blockchain/setup INDEX leftovers encoded as LEARN_FT4_DEMO_BLOCKCHAIN_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/operations-queries/basic-operations INDEX leftovers encoded as LEARN_NEWS_BASIC_OPS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/data-modeling/tables INDEX leftovers encoded as LEARN_TTT_DATA_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/data-pipeline/upload-vectors INDEX leftovers encoded as LEARN_VECTOR_DB_UPLOAD_VECTORS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/monetize-dapp/introduction INDEX leftovers encoded as LEARN_MONETIZE_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof dapp-setup-run leftovers encoded as LEARN_ZK_DAPP_SETUP_RUN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chat-agent-course explore-and-extend leftovers encoded as LEARN_CHAT_AGENT_EXPLORE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/expressions/jump-expressions INDEX leftovers encoded as RELL_EXPRESSIONS_JUMP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs compare-frontend leftovers encoded as LEARN_WEB3_COMPARE_FRONTEND_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/releases INDEX leftovers encoded as RELL_RELEASES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official DOCS docs.chromia.com root INDEX leftovers encoded as DOCS_ROOT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN learn.chromia.com home INDEX leftovers encoded as LEARN_HOME_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/build encoded as BUILD_INDEX_* (query-only).
+// Official BUILD cli/commands/code encoded as CODE_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/benefits INDEX encoded as GET_STARTED_BENEFITS_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/extensions INDEX encoded as GET_STARTED_EXTENSIONS_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases INDEX encoded as GET_STARTED_USE_CASES_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/staking-summary INDEX encoded as GET_STARTED_STAKING_SUMMARY_INDEX_* (query-only).
+// Official GET-STARTED get-started/installation INDEX encoded as GET_STARTED_INSTALLATION_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/filehub/filehub-setup/deploy-filehub INDEX encoded as ECOSYSTEM_FILEHUB_DEPLOY_FILEHUB_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/mass-exit/operations INDEX encoded as ECOSYSTEM_MASS_EXIT_OPERATIONS_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/setup-tls INDEX encoded as ECOSYSTEM_SETUP_TLS_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/container INDEX encoded as ECOSYSTEM_PMC_CONTAINER_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/extensions/delegates INDEX encoded as ECOSYSTEM_GOV_DELEGATES_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure/vote-weight-strategy INDEX encoded as ECOSYSTEM_GOV_VOTE_WEIGHT_STRATEGY_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/block-explorer/overview INDEX encoded as ECOSYSTEM_BLOCK_EXPLORER_OVERVIEW_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/filehub/configure-filehub/filehub-configure INDEX encoded as ECOSYSTEM_FILEHUB_CONFIGURE_FILEHUB_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/big-data/introduction INDEX encoded as LEARN_BIG_DATA_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/book-review-entity INDEX encoded as LEARN_BOOK_REVIEW_RELATED_ENTITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/chromia-for-evm-developers/introduction INDEX encoded as LEARN_EVM_DEVELOPERS_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/chromia-for-evm-developers/news-feed INDEX encoded as LEARN_EVM_NEWS_FEED_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-blockchain/setup INDEX encoded as LEARN_FT4_DEMO_BLOCKCHAIN_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/operations-queries/basic-operations INDEX encoded as LEARN_NEWS_BASIC_OPS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/data-modeling/tables INDEX encoded as LEARN_TTT_DATA_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/data-pipeline/upload-vectors INDEX encoded as LEARN_VECTOR_DB_UPLOAD_VECTORS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/monetize-dapp/introduction INDEX encoded as LEARN_MONETIZE_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof dapp-setup-run encoded as LEARN_ZK_DAPP_SETUP_RUN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chat-agent-course explore-and-extend encoded as LEARN_CHAT_AGENT_EXPLORE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/expressions/jump-expressions INDEX encoded as RELL_EXPRESSIONS_JUMP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs compare-frontend encoded as LEARN_WEB3_COMPARE_FRONTEND_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/releases INDEX encoded as RELL_RELEASES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official DOCS docs.chromia.com root INDEX encoded as DOCS_ROOT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN learn.chromia.com home INDEX encoded as LEARN_HOME_INDEX_* (query-only HELP ONLY WRITE SKIP).

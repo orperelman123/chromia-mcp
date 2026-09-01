@@ -132,12 +132,12 @@ object ChrToolsHelp {
     }
 }
 
-// Official BUILD cli/commands/tools leftovers encoded as TOOLS_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/deploy-bridge INDEX leftovers encoded as ECOSYSTEM_DEPLOY_BRIDGE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/change-ft4-key INDEX leftovers encoded as ECOSYSTEM_CHANGE_FT4_KEY_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/voterset INDEX leftovers encoded as ECOSYSTEM_PMC_VOTERSET_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/rell-masterclass/update INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_UPDATE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/defining-messages INDEX leftovers encoded as LEARN_ICMF_DEFINING_MESSAGES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-assets INDEX leftovers encoded as LEARN_MARKETPLACE_MODULE_ASSETS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/struct INDEX leftovers encoded as RELL_MODULE_STRUCT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/BigData INDEX leftovers encoded as LEARN_TAGS_BIGDATA_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/tools encoded as TOOLS_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/deploy-bridge INDEX encoded as ECOSYSTEM_DEPLOY_BRIDGE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/change-ft4-key INDEX encoded as ECOSYSTEM_CHANGE_FT4_KEY_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/voterset INDEX encoded as ECOSYSTEM_PMC_VOTERSET_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/rell-masterclass/update INDEX encoded as LEARN_RELL_MASTERCLASS_UPDATE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/defining-messages INDEX encoded as LEARN_ICMF_DEFINING_MESSAGES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-assets INDEX encoded as LEARN_MARKETPLACE_MODULE_ASSETS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/struct INDEX encoded as RELL_MODULE_STRUCT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/BigData INDEX encoded as LEARN_TAGS_BIGDATA_INDEX_* (query-only HELP ONLY WRITE SKIP).

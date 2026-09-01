@@ -1615,7 +1615,7 @@ class DappBuildToolsTest {
     }
 
     @Test
-    fun chrDeployHelpEncodesLeftoverOfficialTchrBinanceAndExplorerVerify() {
+    fun chrDeployHelpEncodesTchrBinanceAndExplorerVerify() {
         val binance = ChrDeployHelp.tchrBinanceNote()
         val explorer = ChrDeployHelp.explorerVerifyNote()
         val connect = ChrDeployHelp.connectClientNote()

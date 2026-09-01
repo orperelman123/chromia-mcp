@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
  * Documents official ICCF library-chain com.chromia.iccf 1.90.1 and FT4-setup git 1.87.0.
  * Does not run chr, generate keys, invent a library-chain BRID, or send signed transactions.
  * Source: docs.chromia.com/build/cli/commands/library and docs.chromia.com/build/cli/library.
- * Official BUILD cli/library index slash/title leftovers live here (query-only).
+ * Official BUILD cli/library index slash/title values live here (query-only).
  */
 object ChrLibraryHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -186,13 +186,13 @@ object ChrLibraryHelp {
         put("notes", notes())
     }
 }
-// Official BUILD cli/commands/library leftovers encoded as COMMANDS_LIBRARY_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/container-management INDEX leftovers encoded as ECOSYSTEM_CONTAINER_MANAGEMENT_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/add-replica-node INDEX leftovers encoded as ECOSYSTEM_ADD_REPLICA_NODE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands INDEX leftovers encoded as ECOSYSTEM_PMC_COMMANDS_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/transaction INDEX leftovers encoded as ECOSYSTEM_PMC_TRANSACTION_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/rell-structure INDEX leftovers encoded as LEARN_BOOK_REVIEW_RELL_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/order-chain INDEX leftovers encoded as LEARN_ICMF_ORDER_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/create-accounts/install-configure-ft4 INDEX leftovers encoded as LEARN_NEWS_FT4_ACCOUNTS_CONFIG_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/statements/conditional-statements INDEX leftovers encoded as RELL_STATEMENTS_CONDITIONAL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/tag INDEX leftovers encoded as LEARN_TAGS_TAG_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/library encoded as COMMANDS_LIBRARY_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/container-management INDEX encoded as ECOSYSTEM_CONTAINER_MANAGEMENT_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/add-replica-node INDEX encoded as ECOSYSTEM_ADD_REPLICA_NODE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands INDEX encoded as ECOSYSTEM_PMC_COMMANDS_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/transaction INDEX encoded as ECOSYSTEM_PMC_TRANSACTION_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/rell-structure INDEX encoded as LEARN_BOOK_REVIEW_RELL_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/order-chain INDEX encoded as LEARN_ICMF_ORDER_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/create-accounts/install-configure-ft4 INDEX encoded as LEARN_NEWS_FT4_ACCOUNTS_CONFIG_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/statements/conditional-statements INDEX encoded as RELL_STATEMENTS_CONDITIONAL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/tag INDEX encoded as LEARN_TAGS_TAG_INDEX_* (query-only HELP ONLY WRITE SKIP).

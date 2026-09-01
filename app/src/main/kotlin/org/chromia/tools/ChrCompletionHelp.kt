@@ -14,11 +14,11 @@ import kotlinx.serialization.json.put
  * - chr fetch-config: hidden + experimental in source; not on the official command index
  * - chr deployment lease-info: hidden + experimental; not on the live deployment page
  * - chr deployment remove-container: hidden; economy-chain FT4 removeContainerOperation (signed, no refund)
- * Official BUILD cli/commands index slash/title/child-card leftovers live here (query-only).
- * Official BUILD cli/introduction index slash/title leftovers live here (query-only).
- * Official BUILD cli/cli-release-notes index slash/title leftovers live here (query-only).
- * Official BUILD cli/commands/help index slash/title leftovers live here (query-only).
- * Official BUILD cli/commands/version index slash/title leftovers live here (query-only).
+ * Official BUILD cli/commands index slash/title/child-card values live here (query-only).
+ * Official BUILD cli/introduction index slash/title values live here (query-only).
+ * Official BUILD cli/cli-release-notes index slash/title values live here (query-only).
+ * Official BUILD cli/commands/help index slash/title values live here (query-only).
+ * Official BUILD cli/commands/version index slash/title values live here (query-only).
  */
 object ChrCompletionHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -223,8 +223,8 @@ object ChrCompletionHelp {
         put("notes", notes())
     }
 }
-// Official BUILD cli/commands/help leftovers encoded as HELP_INDEX_* (query-only).
-// Official BUILD cli/commands/version leftovers encoded as VERSION_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/deploy-bridge/deploy-bridge-chains INDEX leftovers encoded as ECOSYSTEM_DEPLOY_BRIDGE_CHAINS_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/rell-masterclass/indexes INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_INDEXES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/iccf-course/system-overview INDEX leftovers encoded as LEARN_ICCF_SYSTEM_OVERVIEW_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/help encoded as HELP_INDEX_* (query-only).
+// Official BUILD cli/commands/version encoded as VERSION_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/deploy-bridge/deploy-bridge-chains INDEX encoded as ECOSYSTEM_DEPLOY_BRIDGE_CHAINS_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/rell-masterclass/indexes INDEX encoded as LEARN_RELL_MASTERCLASS_INDEXES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/iccf-course/system-overview INDEX encoded as LEARN_ICCF_SYSTEM_OVERVIEW_INDEX_* (query-only HELP ONLY WRITE SKIP).

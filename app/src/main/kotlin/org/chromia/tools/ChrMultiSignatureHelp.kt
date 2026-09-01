@@ -115,11 +115,11 @@ object ChrMultiSignatureHelp {
     }
 }
 
-// Official BUILD cli/commands/multi-signature leftovers encoded as MULTI_SIGNATURE_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/start-a-node INDEX leftovers encoded as ECOSYSTEM_START_NODE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/blockchain-based-provider-authentication INDEX leftovers encoded as ECOSYSTEM_PROVIDER_AUTH_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/cluster-anchoring INDEX leftovers encoded as ECOSYSTEM_PMC_CLUSTER_ANCHORING_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/what-next INDEX leftovers encoded as LEARN_BOOK_REVIEW_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/introduction INDEX leftovers encoded as LEARN_ICMF_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/introduction INDEX leftovers encoded as LEARN_MARKETPLACE_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/AI INDEX leftovers encoded as LEARN_TAGS_AI_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/multi-signature encoded as MULTI_SIGNATURE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/start-a-node INDEX encoded as ECOSYSTEM_START_NODE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/blockchain-based-provider-authentication INDEX encoded as ECOSYSTEM_PROVIDER_AUTH_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/cluster-anchoring INDEX encoded as ECOSYSTEM_PMC_CLUSTER_ANCHORING_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/what-next INDEX encoded as LEARN_BOOK_REVIEW_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/introduction INDEX encoded as LEARN_ICMF_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/introduction INDEX encoded as LEARN_MARKETPLACE_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/AI INDEX encoded as LEARN_TAGS_AI_INDEX_* (query-only HELP ONLY WRITE SKIP).

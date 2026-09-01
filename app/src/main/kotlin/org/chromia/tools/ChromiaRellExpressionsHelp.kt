@@ -313,24 +313,24 @@ object ChromiaRellExpressionsHelp {
     }
 }
 
-// Official ECOSYSTEM ecosystem/filehub/filehub-setup/deploy-filechain INDEX leftovers encoded as ECOSYSTEM_FILEHUB_DEPLOY_FILECHAIN_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/governance/getting-started/extensions/icmf INDEX leftovers encoded as ECOSYSTEM_GOV_ICMF_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure INDEX leftovers encoded as ECOSYSTEM_GOV_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official ECOSYSTEM ecosystem/governance/governance-voting-process INDEX leftovers encoded as ECOSYSTEM_GOV_VOTING_PROCESS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/core-concepts INDEX leftovers encoded as RELL_CORE_CONCEPTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/blockchain-transactions INDEX leftovers encoded as LEARN_BOOK_REVIEW_TRANSACTIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/build-client/sign-transaction INDEX leftovers encoded as LEARN_BOOK_REVIEW_CONNECT_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/rell-masterclass/sub-queries INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_SUBQUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-frontend-application/burn INDEX leftovers encoded as LEARN_FT4_DEMO_FRONTEND_BURN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-assets/list-card INDEX leftovers encoded as LEARN_MARKETPLACE_LIST_CARD_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/project-structure/incorporate-modules INDEX leftovers encoded as LEARN_NEWS_INCORPORATE_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/expressions INDEX leftovers encoded as RELL_EXPRESSIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-two/scaffold INDEX leftovers encoded as LEARN_TTT_SCAFFOLD_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX vector-db use-cases leftovers encoded as LEARN_VECTOR_DB_USE_CASES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/expressions/conditional-expressions INDEX leftovers encoded as RELL_EXPRESSIONS_CONDITIONAL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof circom-circuits-compile leftovers encoded as LEARN_ZK_CIRCOM_COMPILE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX rell-integration-test introduction leftovers encoded as LEARN_RELL_INTEGRATION_TEST_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX book-review sign-transaction child leftovers encoded as LEARN_BOOK_REVIEW_SIGN_TX_SIGN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/mount INDEX leftovers encoded as RELL_MODULE_MOUNT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/namespaces/op_context INDEX leftovers encoded as RELL_SYSTEMLIB_OP_CONTEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/types/sub-types INDEX leftovers encoded as RELL_TYPES_SUB_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/filehub/filehub-setup/deploy-filechain INDEX encoded as ECOSYSTEM_FILEHUB_DEPLOY_FILECHAIN_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/governance/getting-started/extensions/icmf INDEX encoded as ECOSYSTEM_GOV_ICMF_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure INDEX encoded as ECOSYSTEM_GOV_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/governance/governance-voting-process INDEX encoded as ECOSYSTEM_GOV_VOTING_PROCESS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/core-concepts INDEX encoded as RELL_CORE_CONCEPTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/blockchain-transactions INDEX encoded as LEARN_BOOK_REVIEW_TRANSACTIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/build-client/sign-transaction INDEX encoded as LEARN_BOOK_REVIEW_CONNECT_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/rell-masterclass/sub-queries INDEX encoded as LEARN_RELL_MASTERCLASS_SUBQUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-frontend-application/burn INDEX encoded as LEARN_FT4_DEMO_FRONTEND_BURN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-assets/list-card INDEX encoded as LEARN_MARKETPLACE_LIST_CARD_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/project-structure/incorporate-modules INDEX encoded as LEARN_NEWS_INCORPORATE_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/expressions INDEX encoded as RELL_EXPRESSIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-two/scaffold INDEX encoded as LEARN_TTT_SCAFFOLD_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX vector-db use-cases encoded as LEARN_VECTOR_DB_USE_CASES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/expressions/conditional-expressions INDEX encoded as RELL_EXPRESSIONS_CONDITIONAL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof circom-circuits-compile encoded as LEARN_ZK_CIRCOM_COMPILE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX rell-integration-test introduction encoded as LEARN_RELL_INTEGRATION_TEST_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX book-review sign-transaction child encoded as LEARN_BOOK_REVIEW_SIGN_TX_SIGN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/mount INDEX encoded as RELL_MODULE_MOUNT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/namespaces/op_context INDEX encoded as RELL_SYSTEMLIB_OP_CONTEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/types/sub-types INDEX encoded as RELL_TYPES_SUB_INDEX_* (query-only HELP ONLY WRITE SKIP).

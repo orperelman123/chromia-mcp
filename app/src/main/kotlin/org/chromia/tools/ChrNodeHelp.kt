@@ -307,28 +307,28 @@ object ChrNodeHelp {
     }
 }
 
-// Official BUILD cli/commands/node leftovers encoded as NODE_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture INDEX leftovers encoded as GET_STARTED_ARCHITECTURE_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/node INDEX leftovers encoded as GET_STARTED_ARCHITECTURE_NODE_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture-summary INDEX leftovers encoded as GET_STARTED_ARCHITECTURE_SUMMARY_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/overview INDEX leftovers encoded as ECOSYSTEM_PROVIDERS_OVERVIEW_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/mass-exit/overview INDEX leftovers encoded as ECOSYSTEM_MASS_EXIT_OVERVIEW_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/setup-prometheus INDEX leftovers encoded as ECOSYSTEM_SETUP_PROMETHEUS_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/config INDEX leftovers encoded as ECOSYSTEM_PMC_CONFIG_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/extensions INDEX leftovers encoded as ECOSYSTEM_GOV_EXTENSIONS_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure/vote-requirements INDEX leftovers encoded as ECOSYSTEM_GOV_VOTE_REQUIREMENTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official ECOSYSTEM ecosystem/block-explorer/features INDEX leftovers encoded as ECOSYSTEM_BLOCK_EXPLORER_FEATURES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official ECOSYSTEM ecosystem/bridge/overview INDEX leftovers encoded as ECOSYSTEM_BRIDGE_OVERVIEW_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/build-client INDEX leftovers encoded as LEARN_BOOK_REVIEW_BUILD_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/book-review-entity/basic-operations INDEX leftovers encoded as LEARN_BOOK_REVIEW_ADD_REVIEW_OP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/rell-masterclass/introduction INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/chromia-for-evm-developers/news-feed-follower INDEX leftovers encoded as LEARN_EVM_NEWS_FEED_FOLLOWER_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-blockchain/test INDEX leftovers encoded as LEARN_FT4_DEMO_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/input-verification/input-verification INDEX leftovers encoded as LEARN_NEWS_VERIFY_INPUTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/data-modeling/write-queries INDEX leftovers encoded as LEARN_TTT_WRITE_QUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/data-pipeline/preprocess INDEX leftovers encoded as LEARN_VECTOR_DB_PREPROCESS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/monetize-dapp/introduction INDEX leftovers encoded as LEARN_MONETIZE_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof dapp-verification leftovers encoded as LEARN_ZK_DAPP_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chromia-goat-chat-agent introduction leftovers encoded as LEARN_GOAT_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs scalability leftovers encoded as LEARN_WEB3_SCALABILITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/special-operations INDEX leftovers encoded as RELL_SPECIAL_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/node encoded as NODE_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture INDEX encoded as GET_STARTED_ARCHITECTURE_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/node INDEX encoded as GET_STARTED_ARCHITECTURE_NODE_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture-summary INDEX encoded as GET_STARTED_ARCHITECTURE_SUMMARY_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/overview INDEX encoded as ECOSYSTEM_PROVIDERS_OVERVIEW_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/mass-exit/overview INDEX encoded as ECOSYSTEM_MASS_EXIT_OVERVIEW_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/setup-prometheus INDEX encoded as ECOSYSTEM_SETUP_PROMETHEUS_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/config INDEX encoded as ECOSYSTEM_PMC_CONFIG_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/extensions INDEX encoded as ECOSYSTEM_GOV_EXTENSIONS_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure/vote-requirements INDEX encoded as ECOSYSTEM_GOV_VOTE_REQUIREMENTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/block-explorer/features INDEX encoded as ECOSYSTEM_BLOCK_EXPLORER_FEATURES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/bridge/overview INDEX encoded as ECOSYSTEM_BRIDGE_OVERVIEW_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/build-client INDEX encoded as LEARN_BOOK_REVIEW_BUILD_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/book-review-entity/basic-operations INDEX encoded as LEARN_BOOK_REVIEW_ADD_REVIEW_OP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/rell-masterclass/introduction INDEX encoded as LEARN_RELL_MASTERCLASS_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/chromia-for-evm-developers/news-feed-follower INDEX encoded as LEARN_EVM_NEWS_FEED_FOLLOWER_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-blockchain/test INDEX encoded as LEARN_FT4_DEMO_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/input-verification/input-verification INDEX encoded as LEARN_NEWS_VERIFY_INPUTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/data-modeling/write-queries INDEX encoded as LEARN_TTT_WRITE_QUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/data-pipeline/preprocess INDEX encoded as LEARN_VECTOR_DB_PREPROCESS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/monetize-dapp/introduction INDEX encoded as LEARN_MONETIZE_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof dapp-verification encoded as LEARN_ZK_DAPP_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-goat-chat-agent introduction encoded as LEARN_GOAT_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs scalability encoded as LEARN_WEB3_SCALABILITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/special-operations INDEX encoded as RELL_SPECIAL_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).

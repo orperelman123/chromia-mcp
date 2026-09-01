@@ -9,8 +9,8 @@ import kotlinx.serialization.json.put
  * Official chromia.yml `blockchains.<name>.config` blockchain-properties (thin).
  * Keys from docs.chromia.com/build/configuration/blockchain-properties only.
  * Focus: gtx / blockstrategy / query timeouts. Does not invent keys. Does not run chr.
- * Official BUILD configuration/blockchain-properties index slash/title leftovers live here (query-only).
- * Official GET-STARTED get-started/about/protocols/icmf INDEX leftovers live here (query-only).
+ * Official BUILD configuration/blockchain-properties index slash/title values live here (query-only).
+ * Official GET-STARTED get-started/about/protocols/icmf INDEX values live here (query-only).
  */
 object BlockchainPropertiesHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -257,15 +257,15 @@ object BlockchainPropertiesHelp {
         put("notes", notes())
     }
 }
-// Official GET-STARTED get-started/about/protocols/icmf INDEX leftovers encoded as GET_STARTED_ICMF_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/apis-1 INDEX leftovers encoded as ECOSYSTEM_PROVIDERS_APIS_INDEX_* (query-only).
-// Official LEARN courses/rell-masterclass/join INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_JOIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/iccf-course/subscription-chain INDEX leftovers encoded as LEARN_ICCF_SUBSCRIPTION_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-ft4 INDEX leftovers encoded as LEARN_MARKETPLACE_FT4_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/create-accounts/install-configure-ft4 INDEX leftovers encoded as LEARN_TTT_FT4_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/create-accounts/update-tests INDEX leftovers encoded as LEARN_TTT_UPDATE_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX news-feed register-evm-accounts leftovers encoded as LEARN_NEWS_REGISTER_EVM_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chat-agent-course setup leftovers encoded as LEARN_CHAT_AGENT_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX random-number-generation introduction leftovers encoded as LEARN_RNG_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chromia-comparisons polkadot leftovers encoded as LEARN_COMPARISONS_POLKADOT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/SQL INDEX leftovers encoded as LEARN_TAGS_SQL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official GET-STARTED get-started/about/protocols/icmf INDEX encoded as GET_STARTED_ICMF_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/apis-1 INDEX encoded as ECOSYSTEM_PROVIDERS_APIS_INDEX_* (query-only).
+// Official LEARN courses/rell-masterclass/join INDEX encoded as LEARN_RELL_MASTERCLASS_JOIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/iccf-course/subscription-chain INDEX encoded as LEARN_ICCF_SUBSCRIPTION_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-ft4 INDEX encoded as LEARN_MARKETPLACE_FT4_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/create-accounts/install-configure-ft4 INDEX encoded as LEARN_TTT_FT4_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/create-accounts/update-tests INDEX encoded as LEARN_TTT_UPDATE_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX news-feed register-evm-accounts encoded as LEARN_NEWS_REGISTER_EVM_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chat-agent-course setup encoded as LEARN_CHAT_AGENT_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX random-number-generation introduction encoded as LEARN_RNG_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-comparisons polkadot encoded as LEARN_COMPARISONS_POLKADOT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/SQL INDEX encoded as LEARN_TAGS_SQL_INDEX_* (query-only HELP ONLY WRITE SKIP).

@@ -10,14 +10,14 @@ import kotlinx.serialization.json.put
  * Sources: docs.chromia.com/build/configuration/project-structure
  * and docs.chromia.com/rell/modules.
  * Official examples only. Does not run chr.
- * Official BUILD configuration index slash/title/child-card leftovers live here (query-only).
- * Official BUILD configuration/project-structure index slash/title leftovers live here (query-only).
- * Official BUILD configuration/project-config index slash/title leftovers live here (query-only).
- * Official GET-STARTED get-started/about INDEX leftovers live here (query-only).
- * Official GET-STARTED get-started/about/architecture/chain-governance INDEX leftovers live here (query-only).
- * Official GET-STARTED get-started/about/architecture/platform-architecture INDEX leftovers live here (query-only).
- * Official GET-STARTED get-started/about/staking INDEX leftovers live here (query-only).
- * Official ECOSYSTEM ecosystem/governance/overview INDEX leftovers live here (query-only).
+ * Official BUILD configuration index slash/title/child-card values live here (query-only).
+ * Official BUILD configuration/project-structure index slash/title values live here (query-only).
+ * Official BUILD configuration/project-config index slash/title values live here (query-only).
+ * Official GET-STARTED get-started/about INDEX values live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/chain-governance INDEX values live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/platform-architecture INDEX values live here (query-only).
+ * Official GET-STARTED get-started/about/staking INDEX values live here (query-only).
+ * Official ECOSYSTEM ecosystem/governance/overview INDEX values live here (query-only).
  */
 object ChromiaProjectStructureHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -274,25 +274,25 @@ object ChromiaProjectStructureHelp {
         put("notes", notes())
     }
 }
-// Official GET-STARTED get-started/about INDEX leftovers encoded as GET_STARTED_ABOUT_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/chain-governance INDEX leftovers encoded as GET_STARTED_CHAIN_GOVERNANCE_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/platform-architecture INDEX leftovers encoded as GET_STARTED_PLATFORM_ARCHITECTURE_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/staking INDEX leftovers encoded as GET_STARTED_STAKING_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/pmccli-installation INDEX leftovers encoded as ECOSYSTEM_PMC_INSTALL_INDEX_* (query-only).
-// Official REFERENCE reference/ft4 INDEX leftovers encoded as REFERENCE_FT4_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/governance/overview INDEX leftovers encoded as ECOSYSTEM_GOV_OVERVIEW_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/big-data/blockchain-side-description INDEX leftovers encoded as LEARN_BIG_DATA_BLOCKCHAIN_COMPONENTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/introduction INDEX leftovers encoded as LEARN_FT4_DEMO_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/continuous-integration-deploy INDEX leftovers encoded as LEARN_CI_DEPLOY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-frontend-application/account-regisration INDEX leftovers encoded as LEARN_FT4_DEMO_ACCOUNT_REG_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/input-verification INDEX leftovers encoded as LEARN_NEWS_INPUT_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/identifiers-syntax INDEX leftovers encoded as RELL_IDENTIFIERS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/data-modeling INDEX leftovers encoded as LEARN_TTT_DATA_MODELING_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/data-pipeline INDEX leftovers encoded as LEARN_VECTOR_DB_PIPELINE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/zero-knowledge-proof/dapp/dapp-overview INDEX leftovers encoded as LEARN_ZK_DAPP_OVERVIEW_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/sign-transaction/structure INDEX leftovers encoded as LEARN_BOOK_REVIEW_SIGN_TX_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/expressions/operators INDEX leftovers encoded as RELL_EXPRESSIONS_OPERATORS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/web3-for-web2-devs/classic-web2-stack INDEX leftovers encoded as LEARN_WEB3_CLASSIC_STACK_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/system-queries INDEX leftovers encoded as RELL_SYSTEMLIB_QUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Dapp INDEX leftovers encoded as LEARN_TAGS_DAPP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official BUILD configuration/project-config leftovers encoded as PROJECT_CONFIG_INDEX_* (query-only).
+// Official GET-STARTED get-started/about INDEX encoded as GET_STARTED_ABOUT_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/chain-governance INDEX encoded as GET_STARTED_CHAIN_GOVERNANCE_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/platform-architecture INDEX encoded as GET_STARTED_PLATFORM_ARCHITECTURE_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/staking INDEX encoded as GET_STARTED_STAKING_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/pmccli-installation INDEX encoded as ECOSYSTEM_PMC_INSTALL_INDEX_* (query-only).
+// Official REFERENCE reference/ft4 INDEX encoded as REFERENCE_FT4_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/governance/overview INDEX encoded as ECOSYSTEM_GOV_OVERVIEW_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/big-data/blockchain-side-description INDEX encoded as LEARN_BIG_DATA_BLOCKCHAIN_COMPONENTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/introduction INDEX encoded as LEARN_FT4_DEMO_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/continuous-integration-deploy INDEX encoded as LEARN_CI_DEPLOY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-frontend-application/account-regisration INDEX encoded as LEARN_FT4_DEMO_ACCOUNT_REG_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/input-verification INDEX encoded as LEARN_NEWS_INPUT_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/identifiers-syntax INDEX encoded as RELL_IDENTIFIERS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/data-modeling INDEX encoded as LEARN_TTT_DATA_MODELING_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/data-pipeline INDEX encoded as LEARN_VECTOR_DB_PIPELINE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/zero-knowledge-proof/dapp/dapp-overview INDEX encoded as LEARN_ZK_DAPP_OVERVIEW_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/sign-transaction/structure INDEX encoded as LEARN_BOOK_REVIEW_SIGN_TX_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/expressions/operators INDEX encoded as RELL_EXPRESSIONS_OPERATORS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/web3-for-web2-devs/classic-web2-stack INDEX encoded as LEARN_WEB3_CLASSIC_STACK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/system-queries INDEX encoded as RELL_SYSTEMLIB_QUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Dapp INDEX encoded as LEARN_TAGS_DAPP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD configuration/project-config encoded as PROJECT_CONFIG_INDEX_* (query-only).

@@ -122,6 +122,66 @@ class HttpClientServiceTest {
     }
 
     @Test
+    fun http400OnTestnetAppendsUpstreamLimitationHint() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = "bad request",
+                status = HttpStatusCode.BadRequest,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val result = service(engine).executeGraphQLQuery(
+            graphqlQuery { query("{ ping }") },
+            "testnet"
+        )
+        assertTrue(result is NetworkResult.Error)
+        val error = result as NetworkResult.Error
+        assertTrue(error.message.contains("Bad Request"))
+        assertTrue(error.message.contains("rejects network=testnet"))
+        assertTrue(error.message.contains("docs/UPSTREAM.md"))
+        assertTrue(error.message.contains("chromia_dapp_query"))
+        assertTrue(error.cause is HttpRequestException)
+        assertEquals(400, (error.cause as HttpRequestException).statusCode)
+    }
+
+    @Test
+    fun http400OnMainnetStaysPlain() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = "bad request",
+                status = HttpStatusCode.BadRequest,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val result = service(engine).executeGraphQLQuery(
+            graphqlQuery { query("{ ping }") },
+            "mainnet"
+        )
+        assertTrue(result is NetworkResult.Error)
+        val error = result as NetworkResult.Error
+        assertTrue(error.message.contains("Bad Request"))
+        assertTrue(!error.message.contains("rejects network=testnet"))
+    }
+
+    @Test
+    fun http5xxOnTestnetStaysPlain() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = "unavailable",
+                status = HttpStatusCode.ServiceUnavailable,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val result = service(engine).executeGraphQLQuery(
+            graphqlQuery { query("{ ping }") },
+            "testnet"
+        )
+        assertTrue(result is NetworkResult.Error)
+        val error = result as NetworkResult.Error
+        assertTrue(!error.message.contains("rejects network=testnet"))
+    }
+
+    @Test
     fun transportFailureKeepsCause() = runBlocking {
         val engine = MockEngine { throw java.io.IOException("connection reset") }
         val result = service(engine).executeGraphQLQuery(

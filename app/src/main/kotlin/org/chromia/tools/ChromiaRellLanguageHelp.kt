@@ -552,29 +552,29 @@ object ChromiaRellLanguageHelp {
         put("notes", notes())
     }
 }
-// Official rell/language-features INDEX leftovers encoded as RELL_LANGUAGE_FEATURES_INDEX_* (query-only).
-// Official get-started/about/what-is-rell INDEX leftovers encoded as WHAT_IS_RELL_INDEX_* (query-only).
-// Official get-started/use-cases/cross-chain/icmf INDEX leftovers encoded as GET_STARTED_ICMF_USE_CASE_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/rewards INDEX leftovers encoded as ECOSYSTEM_PROVIDER_REWARDS_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/deploy-bridge/interact-with-frontend INDEX leftovers encoded as ECOSYSTEM_INTERACT_WITH_FRONTEND_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/automated-network-setup INDEX leftovers encoded as ECOSYSTEM_AUTOMATED_NETWORK_SETUP_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/economy INDEX leftovers encoded as ECOSYSTEM_PMC_ECONOMY_INDEX_* (query-only HELP ONLY).
-// Official REFERENCE reference/terminology INDEX leftovers encoded as REFERENCE_TERMINOLOGY_INDEX_* (query-only HELP ONLY).
-// Official RELL rell/language-features/database/create INDEX leftovers encoded as RELL_DATABASE_CREATE_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/book-entity INDEX leftovers encoded as LEARN_BOOK_REVIEW_BOOK_ENTITY_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/ft4-asset/introduction INDEX leftovers encoded as LEARN_FT4_ASSET_INTRO_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/chromia-for-evm-developers/summary INDEX leftovers encoded as LEARN_EVM_SUMMARY_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/ft4-demo-app/module-frontend-application INDEX leftovers encoded as LEARN_FT4_DEMO_FRONTEND_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/my-news-feed/module-one/data-modeling/model INDEX leftovers encoded as LEARN_NEWS_MODEL_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/entity INDEX leftovers encoded as RELL_MODULE_ENTITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/introduction INDEX leftovers encoded as LEARN_TTT_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/code-deep-dive INDEX leftovers encoded as LEARN_VECTOR_DB_DEEP_DIVE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/query INDEX leftovers encoded as RELL_MODULE_QUERY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof dapp-entities leftovers encoded as LEARN_ZK_DAPP_ENTITIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chat-agent-course test-your-setup leftovers encoded as LEARN_CHAT_AGENT_TEST_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX latest-known-time introduction leftovers encoded as LEARN_LKT_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chromia-comparisons solana leftovers encoded as LEARN_COMPARISONS_SOLANA_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/abstract INDEX leftovers encoded as RELL_MODULE_ABSTRACT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/object INDEX leftovers encoded as RELL_MODULE_OBJECT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules INDEX leftovers encoded as RELL_LANGUAGE_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Rell INDEX leftovers encoded as LEARN_TAGS_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official rell/language-features INDEX encoded as RELL_LANGUAGE_FEATURES_INDEX_* (query-only).
+// Official get-started/about/what-is-rell INDEX encoded as WHAT_IS_RELL_INDEX_* (query-only).
+// Official get-started/use-cases/cross-chain/icmf INDEX encoded as GET_STARTED_ICMF_USE_CASE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/rewards INDEX encoded as ECOSYSTEM_PROVIDER_REWARDS_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/deploy-bridge/interact-with-frontend INDEX encoded as ECOSYSTEM_INTERACT_WITH_FRONTEND_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/automated-network-setup INDEX encoded as ECOSYSTEM_AUTOMATED_NETWORK_SETUP_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/economy INDEX encoded as ECOSYSTEM_PMC_ECONOMY_INDEX_* (query-only HELP ONLY).
+// Official REFERENCE reference/terminology INDEX encoded as REFERENCE_TERMINOLOGY_INDEX_* (query-only HELP ONLY).
+// Official RELL rell/language-features/database/create INDEX encoded as RELL_DATABASE_CREATE_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/book-entity INDEX encoded as LEARN_BOOK_REVIEW_BOOK_ENTITY_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/ft4-asset/introduction INDEX encoded as LEARN_FT4_ASSET_INTRO_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/chromia-for-evm-developers/summary INDEX encoded as LEARN_EVM_SUMMARY_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/ft4-demo-app/module-frontend-application INDEX encoded as LEARN_FT4_DEMO_FRONTEND_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/my-news-feed/module-one/data-modeling/model INDEX encoded as LEARN_NEWS_MODEL_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/entity INDEX encoded as RELL_MODULE_ENTITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/introduction INDEX encoded as LEARN_TTT_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/code-deep-dive INDEX encoded as LEARN_VECTOR_DB_DEEP_DIVE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/query INDEX encoded as RELL_MODULE_QUERY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof dapp-entities encoded as LEARN_ZK_DAPP_ENTITIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chat-agent-course test-your-setup encoded as LEARN_CHAT_AGENT_TEST_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX latest-known-time introduction encoded as LEARN_LKT_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-comparisons solana encoded as LEARN_COMPARISONS_SOLANA_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/abstract INDEX encoded as RELL_MODULE_ABSTRACT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/object INDEX encoded as RELL_MODULE_OBJECT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules INDEX encoded as RELL_LANGUAGE_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Rell INDEX encoded as LEARN_TAGS_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).

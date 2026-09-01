@@ -9,7 +9,7 @@ import kotlinx.serialization.json.put
  * Official chromia.yml `docs:` section for `chr generate docs-site`.
  * Keys from docs.chromia.com/build/configuration/project-config only.
  * Does not invent theme / nav / logo. Does not run chr.
- * Official BUILD cli/generating-doc-site index slash/title leftovers live here (query-only).
+ * Official BUILD cli/generating-doc-site index slash/title values live here (query-only).
  */
 object ChromiaDocsYmlHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -202,15 +202,15 @@ object ChromiaDocsYmlHelp {
     }
 }
 
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/proposal INDEX leftovers encoded as ECOSYSTEM_PMC_PROPOSAL_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/governance-starter-kit INDEX leftovers encoded as ECOSYSTEM_GOV_STARTER_KIT_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/ft4-demo-app/module-init INDEX leftovers encoded as LEARN_FT4_DEMO_MODULE_INIT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/iccf-course/manual-testing INDEX leftovers encoded as LEARN_ICCF_MANUAL_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/operations-queries/write-queries INDEX leftovers encoded as LEARN_NEWS_BASIC_QUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/project-structure/incorporate-modules INDEX leftovers encoded as LEARN_TTT_INCORPORATE_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/setup/deploy-rell-module INDEX leftovers encoded as LEARN_VECTOR_DB_DEPLOY_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/monetize-dapp/open INDEX leftovers encoded as LEARN_MONETIZE_OPEN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/zero-knowledge-proof/setup INDEX leftovers encoded as LEARN_ZK_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX relationships-course setup leftovers encoded as LEARN_RELATIONSHIPS_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs revenues-and-op-costs leftovers encoded as LEARN_WEB3_REVENUES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Multichain INDEX leftovers encoded as LEARN_TAGS_MULTICHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/proposal INDEX encoded as ECOSYSTEM_PMC_PROPOSAL_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/governance-starter-kit INDEX encoded as ECOSYSTEM_GOV_STARTER_KIT_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/ft4-demo-app/module-init INDEX encoded as LEARN_FT4_DEMO_MODULE_INIT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/iccf-course/manual-testing INDEX encoded as LEARN_ICCF_MANUAL_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/operations-queries/write-queries INDEX encoded as LEARN_NEWS_BASIC_QUERIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/project-structure/incorporate-modules INDEX encoded as LEARN_TTT_INCORPORATE_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/setup/deploy-rell-module INDEX encoded as LEARN_VECTOR_DB_DEPLOY_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/monetize-dapp/open INDEX encoded as LEARN_MONETIZE_OPEN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/zero-knowledge-proof/setup INDEX encoded as LEARN_ZK_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX relationships-course setup encoded as LEARN_RELATIONSHIPS_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs revenues-and-op-costs encoded as LEARN_WEB3_REVENUES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Multichain INDEX encoded as LEARN_TAGS_MULTICHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).

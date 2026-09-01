@@ -107,10 +107,10 @@ object ChrEifHelp {
     }
 }
 
-// Official BUILD cli/commands/eif leftovers encoded as EIF_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases/cross-chain/iccf INDEX leftovers encoded as GET_STARTED_ICCF_USE_CASE_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/extensions INDEX leftovers encoded as ECOSYSTEM_EXTENSIONS_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/mass-exit/setup INDEX leftovers encoded as ECOSYSTEM_MASS_EXIT_SETUP_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/extensions/eif INDEX leftovers encoded as ECOSYSTEM_GOV_EIF_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/setup INDEX leftovers encoded as LEARN_BOOK_REVIEW_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-nft/nft INDEX leftovers encoded as LEARN_MARKETPLACE_NFT_MODEL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/eif encoded as EIF_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/cross-chain/iccf INDEX encoded as GET_STARTED_ICCF_USE_CASE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/extensions INDEX encoded as ECOSYSTEM_EXTENSIONS_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/mass-exit/setup INDEX encoded as ECOSYSTEM_MASS_EXIT_SETUP_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/extensions/eif INDEX encoded as ECOSYSTEM_GOV_EIF_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/setup INDEX encoded as LEARN_BOOK_REVIEW_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-nft/nft INDEX encoded as LEARN_MARKETPLACE_NFT_MODEL_INDEX_* (query-only HELP ONLY WRITE SKIP).

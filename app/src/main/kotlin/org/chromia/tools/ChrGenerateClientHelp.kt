@@ -440,16 +440,16 @@ object ChrGenerateClientHelp {
     }
 }
 
-// Official BUILD cli/commands/generate leftovers encoded as GENERATE_INDEX_* (query-only).
-// Official BUILD deployment/testnet/connect-client leftovers encoded as TESTNET_CONNECT_INDEX_* (query-only).
-// Official BUILD deployment/mainnet/connect-client leftovers encoded as MAINNET_CONNECT_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/deploy-bridge/deploy-erc20-token INDEX leftovers encoded as ECOSYSTEM_DEPLOY_ERC20_TOKEN_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/node-maintenance-guidelines INDEX leftovers encoded as ECOSYSTEM_NODE_MAINTENANCE_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/network INDEX leftovers encoded as ECOSYSTEM_PMC_NETWORK_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/continuous-integration/introduction INDEX leftovers encoded as LEARN_CI_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/delivery-chain INDEX leftovers encoded as LEARN_ICMF_DELIVERY_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-two/setup INDEX leftovers encoded as LEARN_NEWS_MODULE_TWO_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/what-next INDEX leftovers encoded as LEARN_TTT_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/create-accounts INDEX leftovers encoded as LEARN_TTT_CREATE_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof frontend-setup-run leftovers encoded as LEARN_ZK_FRONTEND_SETUP_RUN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX relationships-course many-to-many leftovers encoded as LEARN_RELATIONSHIPS_MANY_TO_MANY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/generate encoded as GENERATE_INDEX_* (query-only).
+// Official BUILD deployment/testnet/connect-client encoded as TESTNET_CONNECT_INDEX_* (query-only).
+// Official BUILD deployment/mainnet/connect-client encoded as MAINNET_CONNECT_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/deploy-bridge/deploy-erc20-token INDEX encoded as ECOSYSTEM_DEPLOY_ERC20_TOKEN_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/node-maintenance-guidelines INDEX encoded as ECOSYSTEM_NODE_MAINTENANCE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/network INDEX encoded as ECOSYSTEM_PMC_NETWORK_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/continuous-integration/introduction INDEX encoded as LEARN_CI_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/delivery-chain INDEX encoded as LEARN_ICMF_DELIVERY_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-two/setup INDEX encoded as LEARN_NEWS_MODULE_TWO_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/what-next INDEX encoded as LEARN_TTT_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/create-accounts INDEX encoded as LEARN_TTT_CREATE_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof frontend-setup-run encoded as LEARN_ZK_FRONTEND_SETUP_RUN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX relationships-course many-to-many encoded as LEARN_RELATIONSHIPS_MANY_TO_MANY_INDEX_* (query-only HELP ONLY WRITE SKIP).

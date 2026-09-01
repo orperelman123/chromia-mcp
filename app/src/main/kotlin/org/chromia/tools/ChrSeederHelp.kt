@@ -8,11 +8,11 @@ import kotlinx.serialization.json.put
  * Does not run chr, generate a key, invent a BRID, or send signed transactions.
  * Source: docs.chromia.com/build/cli/commands/seeder, docs.chromia.com/build/cli/Seeder,
  * and chromia-cli SeederCommand (0.33.x). Early-stage; may change.
- * Official BUILD cli/Seeder index slash/title leftovers live here (query-only).
- * Official BUILD cli/Seeder/generator index slash/title leftovers live here (query-only).
- * Official BUILD cli/Seeder/seeder-example index slash/title leftovers live here (query-only).
- * Official BUILD cli/Seeder/configurable-generators index slash/title leftovers live here (query-only).
- * Official BUILD cli/commands/seeder index slash/title leftovers live here (query-only).
+ * Official BUILD cli/Seeder index slash/title values live here (query-only).
+ * Official BUILD cli/Seeder/generator index slash/title values live here (query-only).
+ * Official BUILD cli/Seeder/seeder-example index slash/title values live here (query-only).
+ * Official BUILD cli/Seeder/configurable-generators index slash/title values live here (query-only).
+ * Official BUILD cli/commands/seeder index slash/title values live here (query-only).
  */
 object ChrSeederHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -165,14 +165,14 @@ object ChrSeederHelp {
         put("notes", notes())
     }
 }
-// Official BUILD cli/Seeder/configurable-generators leftovers encoded as SEEDER_CONFIGURABLE_INDEX_* (query-only).
-// Official BUILD cli/commands/seeder leftovers encoded as COMMANDS_SEEDER_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/troubleshooting INDEX leftovers encoded as ECOSYSTEM_PMC_TROUBLESHOOTING_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/api INDEX leftovers encoded as ECOSYSTEM_NODES_API_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/help INDEX leftovers encoded as ECOSYSTEM_PMC_HELP_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/subnode-jar-extension INDEX leftovers encoded as ECOSYSTEM_PMC_SUBNODE_JAR_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/ft4-asset/ft4-basics INDEX leftovers encoded as LEARN_FT4_ASSET_BASICS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/setup INDEX leftovers encoded as LEARN_ICMF_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-assets/test-marketplace INDEX leftovers encoded as LEARN_MARKETPLACE_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/operation INDEX leftovers encoded as RELL_MODULE_OPERATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Concepts INDEX leftovers encoded as LEARN_TAGS_CONCEPTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/Seeder/configurable-generators encoded as SEEDER_CONFIGURABLE_INDEX_* (query-only).
+// Official BUILD cli/commands/seeder encoded as COMMANDS_SEEDER_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/troubleshooting INDEX encoded as ECOSYSTEM_PMC_TROUBLESHOOTING_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/api INDEX encoded as ECOSYSTEM_NODES_API_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/help INDEX encoded as ECOSYSTEM_PMC_HELP_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/subnode-jar-extension INDEX encoded as ECOSYSTEM_PMC_SUBNODE_JAR_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/ft4-asset/ft4-basics INDEX encoded as LEARN_FT4_ASSET_BASICS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/setup INDEX encoded as LEARN_ICMF_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-assets/test-marketplace INDEX encoded as LEARN_MARKETPLACE_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/operation INDEX encoded as RELL_MODULE_OPERATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Concepts INDEX encoded as LEARN_TAGS_CONCEPTS_INDEX_* (query-only HELP ONLY WRITE SKIP).

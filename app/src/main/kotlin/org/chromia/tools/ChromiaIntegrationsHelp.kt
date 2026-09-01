@@ -9,26 +9,26 @@ import kotlinx.serialization.json.put
  * Official BUILD integrations hub (read-only facts).
  * No invented package ids. C# NuGet id is unpublished on the official C# page.
  * Skips exchange account-creation / transfer / memo write operations.
- * Official BUILD integrations index leftovers live here (query-only).
- * Official BUILD token-chain index leftovers also live here (query-only).
- * Official BUILD exchange-guide leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide index leftovers also live here (query-only).
- * Official BUILD integrations/memo-guide index leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide/overview index leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide/step-1-account index leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide/step-2-access index leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide/step-3-transaction index leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide/step-4-non-existent-accounts index leftovers also live here (query-only).
- * Official BUILD integrations/exchange-guide/additional-resources index leftovers also live here (query-only).
- * Official BUILD token-chain/user-account-creation index leftovers also live here (query-only).
- * Official BUILD token-chain/developer-token-proposal index leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/architecture/chains INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/architecture/chains/directory-chain INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/providers INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/architecture/chains/economy-chain INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/architecture/chains/cluster-anchoring-chain INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/use-cases/cross-chain INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/architecture/chains/token-chain INDEX leftovers also live here (query-only).
+ * Official BUILD integrations index values live here (query-only).
+ * Official BUILD token-chain index values also live here (query-only).
+ * Official BUILD exchange-guide values also live here (query-only).
+ * Official BUILD integrations/exchange-guide index values also live here (query-only).
+ * Official BUILD integrations/memo-guide index values also live here (query-only).
+ * Official BUILD integrations/exchange-guide/overview index values also live here (query-only).
+ * Official BUILD integrations/exchange-guide/step-1-account index values also live here (query-only).
+ * Official BUILD integrations/exchange-guide/step-2-access index values also live here (query-only).
+ * Official BUILD integrations/exchange-guide/step-3-transaction index values also live here (query-only).
+ * Official BUILD integrations/exchange-guide/step-4-non-existent-accounts index values also live here (query-only).
+ * Official BUILD integrations/exchange-guide/additional-resources index values also live here (query-only).
+ * Official BUILD token-chain/user-account-creation index values also live here (query-only).
+ * Official BUILD token-chain/developer-token-proposal index values also live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/chains INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/chains/directory-chain INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/about/providers INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/chains/economy-chain INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/chains/cluster-anchoring-chain INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/use-cases/cross-chain INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/about/architecture/chains/token-chain INDEX values also live here (query-only).
  */
 object ChromiaIntegrationsHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -438,33 +438,33 @@ object ChromiaIntegrationsHelp {
         put("notes", notes())
     }
 }
-// Official BUILD integrations/memo-guide leftovers encoded as MEMO_INDEX_* (query-only).
-// Official BUILD integrations/memo-guide leftovers encoded as MEMO_GUIDE_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide leftovers encoded as EXCHANGE_GUIDE_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/overview leftovers encoded as EXCHANGE_OVERVIEW_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/step-1-account leftovers encoded as EXCHANGE_STEP1_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/step-1-account leftovers encoded as EXCHANGE_STEP_1_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/step-2-access leftovers encoded as EXCHANGE_STEP2_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/step-3-transaction leftovers encoded as EXCHANGE_STEP3_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/step-4-non-existent-accounts leftovers encoded as EXCHANGE_STEP4_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/additional-resources leftovers encoded as EXCHANGE_RESOURCES_INDEX_* (query-only).
-// Official BUILD integrations/exchange-guide/additional-resources leftovers encoded as EXCHANGE_ADDITIONAL_RESOURCES_INDEX_* (query-only).
-// Official BUILD token-chain/user-account-creation leftovers encoded as TOKEN_CHAIN_ACCOUNT_INDEX_* (query-only).
-// Official BUILD token-chain/developer-token-proposal leftovers encoded as TOKEN_CHAIN_PROPOSAL_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/chains INDEX leftovers encoded as GET_STARTED_SYSTEM_CHAINS_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/chains/directory-chain INDEX leftovers encoded as GET_STARTED_DIRECTORY_CHAIN_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/providers INDEX leftovers encoded as GET_STARTED_PROVIDERS_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/chains/economy-chain INDEX leftovers encoded as GET_STARTED_ECONOMY_CHAIN_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/chains/cluster-anchoring-chain INDEX leftovers encoded as GET_STARTED_CLUSTER_ANCHORING_CHAIN_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases/cross-chain INDEX leftovers encoded as GET_STARTED_CROSS_CHAIN_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/architecture/chains/token-chain INDEX leftovers encoded as GET_STARTED_TOKEN_CHAIN_INDEX_* (query-only).
-// Official LEARN courses/book-review/input-verification/structure INDEX leftovers encoded as LEARN_BOOK_REVIEW_INPUT_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/iccf-course/introduction INDEX leftovers encoded as LEARN_ICCF_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/input-verification/tests INDEX leftovers encoded as LEARN_NEWS_UNIT_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/project-structure INDEX leftovers encoded as LEARN_TTT_PROJECT_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/setup/configure.rell INDEX leftovers encoded as LEARN_VECTOR_DB_CONFIGURE_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/monetize-dapp/setup INDEX leftovers encoded as LEARN_MONETIZE_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/zero-knowledge-proof/introduction INDEX leftovers encoded as LEARN_ZK_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/relationships-course/introduction INDEX leftovers encoded as LEARN_RELATIONSHIPS_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/web3-for-web2-devs/security INDEX leftovers encoded as LEARN_WEB3_SECURITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Web3 INDEX leftovers encoded as LEARN_TAGS_WEB3_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD integrations/memo-guide encoded as MEMO_INDEX_* (query-only).
+// Official BUILD integrations/memo-guide encoded as MEMO_GUIDE_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide encoded as EXCHANGE_GUIDE_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/overview encoded as EXCHANGE_OVERVIEW_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/step-1-account encoded as EXCHANGE_STEP1_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/step-1-account encoded as EXCHANGE_STEP_1_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/step-2-access encoded as EXCHANGE_STEP2_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/step-3-transaction encoded as EXCHANGE_STEP3_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/step-4-non-existent-accounts encoded as EXCHANGE_STEP4_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/additional-resources encoded as EXCHANGE_RESOURCES_INDEX_* (query-only).
+// Official BUILD integrations/exchange-guide/additional-resources encoded as EXCHANGE_ADDITIONAL_RESOURCES_INDEX_* (query-only).
+// Official BUILD token-chain/user-account-creation encoded as TOKEN_CHAIN_ACCOUNT_INDEX_* (query-only).
+// Official BUILD token-chain/developer-token-proposal encoded as TOKEN_CHAIN_PROPOSAL_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/chains INDEX encoded as GET_STARTED_SYSTEM_CHAINS_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/chains/directory-chain INDEX encoded as GET_STARTED_DIRECTORY_CHAIN_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/providers INDEX encoded as GET_STARTED_PROVIDERS_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/chains/economy-chain INDEX encoded as GET_STARTED_ECONOMY_CHAIN_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/chains/cluster-anchoring-chain INDEX encoded as GET_STARTED_CLUSTER_ANCHORING_CHAIN_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/cross-chain INDEX encoded as GET_STARTED_CROSS_CHAIN_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/architecture/chains/token-chain INDEX encoded as GET_STARTED_TOKEN_CHAIN_INDEX_* (query-only).
+// Official LEARN courses/book-review/input-verification/structure INDEX encoded as LEARN_BOOK_REVIEW_INPUT_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/iccf-course/introduction INDEX encoded as LEARN_ICCF_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/input-verification/tests INDEX encoded as LEARN_NEWS_UNIT_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/project-structure INDEX encoded as LEARN_TTT_PROJECT_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/setup/configure.rell INDEX encoded as LEARN_VECTOR_DB_CONFIGURE_RELL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/monetize-dapp/setup INDEX encoded as LEARN_MONETIZE_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/zero-knowledge-proof/introduction INDEX encoded as LEARN_ZK_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/relationships-course/introduction INDEX encoded as LEARN_RELATIONSHIPS_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/web3-for-web2-devs/security INDEX encoded as LEARN_WEB3_SECURITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Web3 INDEX encoded as LEARN_TAGS_WEB3_INDEX_* (query-only HELP ONLY WRITE SKIP).

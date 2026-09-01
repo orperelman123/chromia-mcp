@@ -403,22 +403,22 @@ object ChromiaRellSystemlibHelp {
     }
 }
 
-// Official ECOSYSTEM ecosystem/bridge/bridge-lease INDEX leftovers encoded as ECOSYSTEM_BRIDGE_LEASE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/bridge/mass-exit INDEX leftovers encoded as ECOSYSTEM_MASS_EXIT_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes/economy-chain-config INDEX leftovers encoded as ECOSYSTEM_ECONOMY_CHAIN_CONFIG_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/lease INDEX leftovers encoded as ECOSYSTEM_PMC_LEASE_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/rell-masterclass/entities INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_ENTITIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/iccf-course/digital-warehouse-chain INDEX leftovers encoded as LEARN_ICCF_WAREHOUSE_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one INDEX leftovers encoded as LEARN_NEWS_MODULE_ONE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/project-structure/modules INDEX leftovers encoded as LEARN_NEWS_RELL_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib INDEX leftovers encoded as RELL_SYSTEMLIB_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-two INDEX leftovers encoded as LEARN_TTT_MODULE_TWO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX vector-db finalize-python-env leftovers encoded as LEARN_VECTOR_DB_FINALIZE_PYTHON_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof dapp leftovers encoded as LEARN_ZK_DAPP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/global-functions INDEX leftovers encoded as RELL_SYSTEMLIB_GLOBAL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof circom-circuits leftovers encoded as LEARN_ZK_CIRCOM_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX relationships-course one-to-many leftovers encoded as LEARN_RELATIONSHIPS_ONE_TO_MANY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs web3-benefits leftovers encoded as LEARN_WEB3_BENEFITS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/namespaces INDEX leftovers encoded as RELL_SYSTEMLIB_NAMESPACES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/namespaces/chain_context INDEX leftovers encoded as RELL_SYSTEMLIB_CHAIN_CONTEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/system-entities INDEX leftovers encoded as RELL_SYSTEMLIB_ENTITIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/bridge/bridge-lease INDEX encoded as ECOSYSTEM_BRIDGE_LEASE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/bridge/mass-exit INDEX encoded as ECOSYSTEM_MASS_EXIT_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes/economy-chain-config INDEX encoded as ECOSYSTEM_ECONOMY_CHAIN_CONFIG_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/lease INDEX encoded as ECOSYSTEM_PMC_LEASE_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/rell-masterclass/entities INDEX encoded as LEARN_RELL_MASTERCLASS_ENTITIES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/iccf-course/digital-warehouse-chain INDEX encoded as LEARN_ICCF_WAREHOUSE_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one INDEX encoded as LEARN_NEWS_MODULE_ONE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/project-structure/modules INDEX encoded as LEARN_NEWS_RELL_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib INDEX encoded as RELL_SYSTEMLIB_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-two INDEX encoded as LEARN_TTT_MODULE_TWO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX vector-db finalize-python-env encoded as LEARN_VECTOR_DB_FINALIZE_PYTHON_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof dapp encoded as LEARN_ZK_DAPP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/global-functions INDEX encoded as RELL_SYSTEMLIB_GLOBAL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof circom-circuits encoded as LEARN_ZK_CIRCOM_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX relationships-course one-to-many encoded as LEARN_RELATIONSHIPS_ONE_TO_MANY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs web3-benefits encoded as LEARN_WEB3_BENEFITS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/namespaces INDEX encoded as RELL_SYSTEMLIB_NAMESPACES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/namespaces/chain_context INDEX encoded as RELL_SYSTEMLIB_CHAIN_CONTEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/system-entities INDEX encoded as RELL_SYSTEMLIB_ENTITIES_INDEX_* (query-only HELP ONLY WRITE SKIP).

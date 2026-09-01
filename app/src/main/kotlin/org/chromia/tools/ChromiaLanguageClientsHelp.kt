@@ -8,37 +8,37 @@ import kotlinx.serialization.json.put
 /**
  * Official BUILD query-only wiring for C# / Go / Rust / React Kit / REST.
  * JS/TS, Kotlin, Python, and FT4 local reads live on chr_generate_client_help.
- * Official BUILD clients ft4-client slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients slash/title/child-card leftovers live here (query-only).
- * Official BUILD clients react-kit slash/title leftovers live here (query-only).
- * Official BUILD clients filehub-client slash/title leftovers live here (query-only).
- * Official BUILD clients bridge-client slash/title leftovers live here (query-only).
+ * Official BUILD clients ft4-client slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients slash/title/child-card values live here (query-only).
+ * Official BUILD clients react-kit slash/title values live here (query-only).
+ * Official BUILD clients filehub-client slash/title values live here (query-only).
+ * Official BUILD clients bridge-client slash/title values live here (query-only).
  * Official pages only. Official Filehub work getFile / MCP setup / bridge checkAllowance are read-only. Skips signed txs, key generation, FilehubAdministrator writes, MCP explorer-dump sample BRIDs, and invented package ids.
- * Official BUILD clients mcp-server slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients javascript-typescript slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients python-client slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients kotlin-client slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients c-sharp-client slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients rust-client slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-clients go-client slash/title leftovers live here (query-only).
- * Official BUILD clients postchain-rest-api slash/title leftovers live here (query-only).
- * Official BUILD clients overview slash/title leftovers live here (query-only).
- * Official BUILD clients/postchain-clients/javascript-typescript/hello-world-quickstart leftovers encoded as JS_QUICKSTART_INDEX_* (query-only).
- * Official BUILD clients/postchain-clients/javascript-typescript/reference leftovers encoded as JS_REFERENCE_INDEX_* (query-only).
- * Official BUILD clients/postchain-clients/c-sharp-client leftovers encoded as CSHARP_CLIENT_INDEX_* (query-only).
- * Official BUILD clients/postchain-clients/go-client leftovers encoded as GO_CLIENT_INDEX_* (query-only).
- * Official BUILD clients/postchain-clients/rust-client leftovers encoded as RUST_CLIENT_INDEX_* (query-only).
- * Official BUILD clients/postchain-clients/kotlin-client leftovers encoded as KOTLIN_CLIENT_INDEX_* (query-only).
- * Official BUILD clients/postchain-clients/python-client leftovers encoded as PYTHON_CLIENT_INDEX_* (query-only).
- * Official get-started/about/dapp leftovers encoded as GET_STARTED_DAPP_INDEX_* (query-only).
- * Official get-started/about/chromia-vs-evm leftovers encoded as GET_STARTED_CHROMIA_VS_EVM_INDEX_* (query-only).
- * Official get-started/about/protocols/gtx leftovers encoded as GET_STARTED_GTX_INDEX_* (query-only).
- * Official get-started/about/architecture/chains/system-anchoring-chain leftovers encoded as GET_STARTED_SYSTEM_ANCHORING_CHAIN_INDEX_* (query-only).
- * Official get-started/about/staking/user-delegation leftovers encoded as GET_STARTED_USER_DELEGATION_INDEX_* (query-only).
- * Official get-started/about/protocols/iccf leftovers encoded as GET_STARTED_ICCF_PROTOCOL_INDEX_* (query-only).
- * Official ecosystem/governance/getting-started/governance-structure/user-proposal-flows leftovers encoded as ECOSYSTEM_GOV_USER_PROPOSAL_FLOWS_INDEX_* (query-only).
- * Official ecosystem/governance/governance-voting-process/voting-flow leftovers encoded as ECOSYSTEM_GOV_VOTING_FLOW_INDEX_* (query-only).
- * Official ecosystem/bridge/bridge-client/client leftovers encoded as ECOSYSTEM_BRIDGE_CLIENT_CONFIGURE_INDEX_* (query-only).
+ * Official BUILD clients mcp-server slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients javascript-typescript slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients python-client slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients kotlin-client slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients c-sharp-client slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients rust-client slash/title values live here (query-only).
+ * Official BUILD clients postchain-clients go-client slash/title values live here (query-only).
+ * Official BUILD clients postchain-rest-api slash/title values live here (query-only).
+ * Official BUILD clients overview slash/title values live here (query-only).
+ * Official BUILD clients/postchain-clients/javascript-typescript/hello-world-quickstart encoded as JS_QUICKSTART_INDEX_* (query-only).
+ * Official BUILD clients/postchain-clients/javascript-typescript/reference encoded as JS_REFERENCE_INDEX_* (query-only).
+ * Official BUILD clients/postchain-clients/c-sharp-client encoded as CSHARP_CLIENT_INDEX_* (query-only).
+ * Official BUILD clients/postchain-clients/go-client encoded as GO_CLIENT_INDEX_* (query-only).
+ * Official BUILD clients/postchain-clients/rust-client encoded as RUST_CLIENT_INDEX_* (query-only).
+ * Official BUILD clients/postchain-clients/kotlin-client encoded as KOTLIN_CLIENT_INDEX_* (query-only).
+ * Official BUILD clients/postchain-clients/python-client encoded as PYTHON_CLIENT_INDEX_* (query-only).
+ * Official get-started/about/dapp encoded as GET_STARTED_DAPP_INDEX_* (query-only).
+ * Official get-started/about/chromia-vs-evm encoded as GET_STARTED_CHROMIA_VS_EVM_INDEX_* (query-only).
+ * Official get-started/about/protocols/gtx encoded as GET_STARTED_GTX_INDEX_* (query-only).
+ * Official get-started/about/architecture/chains/system-anchoring-chain encoded as GET_STARTED_SYSTEM_ANCHORING_CHAIN_INDEX_* (query-only).
+ * Official get-started/about/staking/user-delegation encoded as GET_STARTED_USER_DELEGATION_INDEX_* (query-only).
+ * Official get-started/about/protocols/iccf encoded as GET_STARTED_ICCF_PROTOCOL_INDEX_* (query-only).
+ * Official ecosystem/governance/getting-started/governance-structure/user-proposal-flows encoded as ECOSYSTEM_GOV_USER_PROPOSAL_FLOWS_INDEX_* (query-only).
+ * Official ecosystem/governance/governance-voting-process/voting-flow encoded as ECOSYSTEM_GOV_VOTING_FLOW_INDEX_* (query-only).
+ * Official ecosystem/bridge/bridge-client/client encoded as ECOSYSTEM_BRIDGE_CLIENT_CONFIGURE_INDEX_* (query-only).
  */
 object ChromiaLanguageClientsHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -215,7 +215,9 @@ object ChromiaLanguageClientsHelp {
     const val MCP_OFFICIAL_SSE_PATH = "/sse"
     const val MCP_HEALTH_PATH = "/health"
     const val MCP_HEALTH_STATUS = "healthy"
-    const val MCP_HEALTH_VERSION = "0.2.2"
+    // Placeholder, not a recorded value: /health reports the running build's version
+    // (Gradle project.version via BuildInfo), so any pinned number goes stale.
+    const val MCP_HEALTH_VERSION = "<version>"
     const val MCP_OFFICIAL_HOST_STATUS = "502"
     const val FILEHUB_GATEWAY_HOST = "filehub-gw.chromia.com"
     const val GO_MODULE = "gitlab.com/chromaway/ft4-go-client"
@@ -556,7 +558,7 @@ object ChromiaLanguageClientsHelp {
         Docs print IccfGtxModule; source pin is net.postchain.d1.iccf.IccfGTXModule plus library-chain com.chromia.iccf 1.90.1;
         official-but-stale FT4-setup git directory-chain tag is 1.87.0. See ft4_module_args. Skip iccf_proof writes.
         Official Filehub configure page prints package id filehub from configure AND work.
-        Official BUILD MCP server (200): $MCP_SERVER_URL. Official page key $MCP_OFFICIAL_PAGE_KEY vs fat JAR $MCP_FAT_JAR_NAME. Official prod $MCP_PROD_URL $MCP_OFFICIAL_PROD_SSE local README $MCP_OFFICIAL_LOCAL_SSE this-tree live GET / is the SSE endpoint GET /sse 404 /health {status:healthy, server:$MCP_FAT_JAR_NAME, version:$MCP_HEALTH_VERSION} host currently $MCP_OFFICIAL_HOST_STATUS. Official local SSE $MCP_LOCAL_SSE via $MCP_LOCAL_GRADLE from $MCP_REPO. Official LSP $LSP_MCP_NPM with optional Rell $LSP_MCP_RELL; config key lsp-mcp. Official ChatGPT auth: No authentication. Skip explorer-dump sample BRIDs.
+        Official BUILD MCP server (200): $MCP_SERVER_URL. Official page key $MCP_OFFICIAL_PAGE_KEY vs fat JAR $MCP_FAT_JAR_NAME. Official prod $MCP_PROD_URL $MCP_OFFICIAL_PROD_SSE local README $MCP_OFFICIAL_LOCAL_SSE this-tree live GET / is the SSE endpoint GET /sse 404 /health {status:healthy, server:$MCP_FAT_JAR_NAME, version:$MCP_HEALTH_VERSION} (version tracks the running build) host currently $MCP_OFFICIAL_HOST_STATUS. Official local SSE $MCP_LOCAL_SSE via $MCP_LOCAL_GRADLE from $MCP_REPO. Official LSP $LSP_MCP_NPM with optional Rell $LSP_MCP_RELL; config key lsp-mcp. Official ChatGPT auth: No authentication. Skip explorer-dump sample BRIDs.
         Official BUILD clients mcp-server ($MCP_SERVER_INDEX_URL 307 $MCP_SERVER_INDEX_URL_SLASH 200 $MCP_SERVER_INDEX_TITLE): intro A Model Context Protocol (MCP) server that provides access to Chromia blockchain infrastructure and deployed dApps through the Chromia Explorer Overview Documentation Tools Setup Claude Rell LSP Integration Usage Examples Networks Query-only skip signed txs explorer-dump sample BRIDs no sample keys no invented 64-hex sample admin pubkey do not invent a hosted URL host currently $MCP_OFFICIAL_HOST_STATUS.
         Official BUILD clients postchain-clients javascript-typescript ($JS_TS_INDEX_URL 307 $JS_TS_INDEX_URL_SLASH 200 $JS_TS_INDEX_TITLE): intro The JavaScript/TypeScript client library provides a comprehensive set of functions Getting started Hello World Quickstart $JS_QUICKSTART_URL Installation postchain-client Query Execution Multiple Node Support TypeScript Support Automatic Discovery Client Reference $JS_REFERENCE_URL Chromia React Kit Client libraries overview Cookbook examples React/Rell Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
         Official BUILD clients postchain-clients python-client ($PYTHON_INDEX_URL 307 $PYTHON_INDEX_URL_SLASH 200 $PYTHON_INDEX_TITLE): intro A Python client library for interacting with Postchain nodes Features aiohttp Prerequisites Python ${ChrGenerateClientHelp.PYTHON_MIN} Installation pip ${ChrGenerateClientHelp.PIP_POSTCHAIN} Configuration ${ChrGenerateClientHelp.PYTHON_ENV_NODE} ${ChrGenerateClientHelp.PYTHON_ENV_RID} Quick Start BlockchainClient NetworkSettings get_collections Queries get_all_books get_all_reviews_for_book Development Running Tests Query-only skip signed txs sample admin pubkey no sample keys no invented 64-hex <BlockchainRID>.
@@ -888,31 +890,31 @@ object ChromiaLanguageClientsHelp {
         put("notes", notes())
     }
 }
-// Official BUILD clients/postchain-clients leftovers encoded as POSTCHAIN_CLIENTS_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/javascript-typescript leftovers encoded as JS_TS_INDEX_* (query-only).
-// Official BUILD clients/ft4-client leftovers encoded as FT4_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/react-kit leftovers encoded as REACT_KIT_INDEX_* (query-only).
-// Official BUILD clients/filehub-client leftovers encoded as FILEHUB_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/bridge-client leftovers encoded as BRIDGE_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/postchain-rest-api leftovers encoded as POSTCHAIN_REST_API_INDEX_* (query-only).
-// Official BUILD clients/overview leftovers encoded as OVERVIEW_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/javascript-typescript/hello-world-quickstart leftovers encoded as JS_QUICKSTART_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/javascript-typescript/reference leftovers encoded as JS_REFERENCE_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/c-sharp-client leftovers encoded as CSHARP_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/go-client leftovers encoded as GO_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/rust-client leftovers encoded as RUST_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/kotlin-client leftovers encoded as KOTLIN_CLIENT_INDEX_* (query-only).
-// Official BUILD clients/postchain-clients/python-client leftovers encoded as PYTHON_CLIENT_INDEX_* (query-only).
-// Official get-started/about/dapp leftovers encoded as GET_STARTED_DAPP_INDEX_* (query-only).
-// Official get-started/about/chromia-vs-evm leftovers encoded as GET_STARTED_CHROMIA_VS_EVM_INDEX_* (query-only).
-// Official get-started/about/protocols/gtx leftovers encoded as GET_STARTED_GTX_INDEX_* (query-only).
-// Official get-started/about/architecture/chains/system-anchoring-chain leftovers encoded as GET_STARTED_SYSTEM_ANCHORING_CHAIN_INDEX_* (query-only).
-// Official get-started/about/staking/user-delegation leftovers encoded as GET_STARTED_USER_DELEGATION_INDEX_* (query-only).
-// Official get-started/about/protocols/iccf leftovers encoded as GET_STARTED_ICCF_PROTOCOL_INDEX_* (query-only).
-// Official ecosystem/governance/getting-started/governance-structure/user-proposal-flows leftovers encoded as ECOSYSTEM_GOV_USER_PROPOSAL_FLOWS_INDEX_* (query-only).
-// Official ecosystem/governance/governance-voting-process/voting-flow leftovers encoded as ECOSYSTEM_GOV_VOTING_FLOW_INDEX_* (query-only).
-// Official ecosystem/bridge/bridge-client/client leftovers encoded as ECOSYSTEM_BRIDGE_CLIENT_CONFIGURE_INDEX_* (query-only).
-// Official LEARN courses/book-review/book-review-entity/write-queries leftovers encoded as LEARN_BOOK_REVIEW_REVIEW_QUERIES_INDEX_* (query-only).
-// Official LEARN courses/ft4-demo-app/module-blockchain/account-management leftovers encoded as LEARN_FT4_DEMO_ACCOUNT_MGMT_INDEX_* (query-only).
-// Official LEARN courses/my-news-feed/introduction INDEX leftovers encoded as LEARN_NEWS_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/React INDEX leftovers encoded as LEARN_TAGS_REACT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD clients/postchain-clients encoded as POSTCHAIN_CLIENTS_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/javascript-typescript encoded as JS_TS_INDEX_* (query-only).
+// Official BUILD clients/ft4-client encoded as FT4_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/react-kit encoded as REACT_KIT_INDEX_* (query-only).
+// Official BUILD clients/filehub-client encoded as FILEHUB_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/bridge-client encoded as BRIDGE_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/postchain-rest-api encoded as POSTCHAIN_REST_API_INDEX_* (query-only).
+// Official BUILD clients/overview encoded as OVERVIEW_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/javascript-typescript/hello-world-quickstart encoded as JS_QUICKSTART_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/javascript-typescript/reference encoded as JS_REFERENCE_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/c-sharp-client encoded as CSHARP_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/go-client encoded as GO_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/rust-client encoded as RUST_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/kotlin-client encoded as KOTLIN_CLIENT_INDEX_* (query-only).
+// Official BUILD clients/postchain-clients/python-client encoded as PYTHON_CLIENT_INDEX_* (query-only).
+// Official get-started/about/dapp encoded as GET_STARTED_DAPP_INDEX_* (query-only).
+// Official get-started/about/chromia-vs-evm encoded as GET_STARTED_CHROMIA_VS_EVM_INDEX_* (query-only).
+// Official get-started/about/protocols/gtx encoded as GET_STARTED_GTX_INDEX_* (query-only).
+// Official get-started/about/architecture/chains/system-anchoring-chain encoded as GET_STARTED_SYSTEM_ANCHORING_CHAIN_INDEX_* (query-only).
+// Official get-started/about/staking/user-delegation encoded as GET_STARTED_USER_DELEGATION_INDEX_* (query-only).
+// Official get-started/about/protocols/iccf encoded as GET_STARTED_ICCF_PROTOCOL_INDEX_* (query-only).
+// Official ecosystem/governance/getting-started/governance-structure/user-proposal-flows encoded as ECOSYSTEM_GOV_USER_PROPOSAL_FLOWS_INDEX_* (query-only).
+// Official ecosystem/governance/governance-voting-process/voting-flow encoded as ECOSYSTEM_GOV_VOTING_FLOW_INDEX_* (query-only).
+// Official ecosystem/bridge/bridge-client/client encoded as ECOSYSTEM_BRIDGE_CLIENT_CONFIGURE_INDEX_* (query-only).
+// Official LEARN courses/book-review/book-review-entity/write-queries encoded as LEARN_BOOK_REVIEW_REVIEW_QUERIES_INDEX_* (query-only).
+// Official LEARN courses/ft4-demo-app/module-blockchain/account-management encoded as LEARN_FT4_DEMO_ACCOUNT_MGMT_INDEX_* (query-only).
+// Official LEARN courses/my-news-feed/introduction INDEX encoded as LEARN_NEWS_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/React INDEX encoded as LEARN_TAGS_REACT_INDEX_* (query-only HELP ONLY WRITE SKIP).

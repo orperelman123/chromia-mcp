@@ -68,7 +68,20 @@ class HttpClientService(
                 when {
                     !response.status.isSuccess() -> {
                         val error = HttpRequestException(response.status.description, response.status.value)
-                        NetworkResult.Error(error.message!!, error)
+                        // The public explorer service rejects network=testnet with a 4xx
+                        // (upstream limitation, docs/UPSTREAM.md #9); append a hint so the
+                        // caller is not left with an opaque "Bad Request".
+                        val testnetHint = if (
+                            response.status.value in 400..499 &&
+                            targetNetwork.equals("testnet", ignoreCase = true)
+                        ) {
+                            " (the public explorer service currently rejects network=testnet" +
+                                " (upstream limitation, see docs/UPSTREAM.md); use mainnet or a" +
+                                " direct node query via chromia_dapp_query)"
+                        } else {
+                            ""
+                        }
+                        NetworkResult.Error(error.message!! + testnetHint, error)
                     }
 
                     else -> GraphQLResponseParser.parseResponse(response.body())

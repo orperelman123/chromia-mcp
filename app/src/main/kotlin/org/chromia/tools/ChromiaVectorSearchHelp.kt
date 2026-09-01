@@ -210,20 +210,20 @@ object ChromiaVectorSearchHelp {
         put("notes", notes())
     }
 }
-// Official BUILD vector-search/sample-workloads leftovers encoded as WORKLOADS_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases/ai-on-chain/vector-db INDEX leftovers encoded as GET_STARTED_VECTOR_DB_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases/ai-on-chain INDEX leftovers encoded as GET_STARTED_AI_ON_CHAIN_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases/ai-on-chain/ai_inference INDEX leftovers encoded as GET_STARTED_AI_INFERENCE_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/extensions/overview INDEX leftovers encoded as ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/install-pmc INDEX leftovers encoded as ECOSYSTEM_NODES_INSTALL_PMC_INDEX_* (query-only).
-// Official docs/updates INDEX leftovers encoded as DOCS_UPDATES_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/big-data/project-launch INDEX leftovers encoded as LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/chromia-for-evm-developers/compare-authentication INDEX leftovers encoded as LEARN_EVM_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/setup INDEX leftovers encoded as LEARN_VECTOR_DB_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/factory-chain INDEX leftovers encoded as LEARN_ICMF_FACTORY_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-two/summary-and-tests INDEX leftovers encoded as LEARN_NEWS_SUMMARY_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN docs/install/cli-installation INDEX leftovers encoded as LEARN_INSTALL_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/zero-knowledge-proof/architecture-overview INDEX leftovers encoded as LEARN_ZK_ARCHITECTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/expressions/values INDEX leftovers encoded as RELL_EXPRESSIONS_VALUES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/PySpark INDEX leftovers encoded as LEARN_TAGS_PYSPARK_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Vector DB INDEX leftovers encoded as LEARN_TAGS_VECTOR_DB_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD vector-search/sample-workloads encoded as WORKLOADS_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/ai-on-chain/vector-db INDEX encoded as GET_STARTED_VECTOR_DB_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/ai-on-chain INDEX encoded as GET_STARTED_AI_ON_CHAIN_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/ai-on-chain/ai_inference INDEX encoded as GET_STARTED_AI_INFERENCE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/extensions/overview INDEX encoded as ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/install-pmc INDEX encoded as ECOSYSTEM_NODES_INSTALL_PMC_INDEX_* (query-only).
+// Official docs/updates INDEX encoded as DOCS_UPDATES_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/big-data/project-launch INDEX encoded as LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/chromia-for-evm-developers/compare-authentication INDEX encoded as LEARN_EVM_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/setup INDEX encoded as LEARN_VECTOR_DB_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/factory-chain INDEX encoded as LEARN_ICMF_FACTORY_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-two/summary-and-tests INDEX encoded as LEARN_NEWS_SUMMARY_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN docs/install/cli-installation INDEX encoded as LEARN_INSTALL_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/zero-knowledge-proof/architecture-overview INDEX encoded as LEARN_ZK_ARCHITECTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/expressions/values INDEX encoded as RELL_EXPRESSIONS_VALUES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/PySpark INDEX encoded as LEARN_TAGS_PYSPARK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Vector DB INDEX encoded as LEARN_TAGS_VECTOR_DB_INDEX_* (query-only HELP ONLY WRITE SKIP).

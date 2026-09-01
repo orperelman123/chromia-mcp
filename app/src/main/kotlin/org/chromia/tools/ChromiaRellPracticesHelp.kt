@@ -275,22 +275,22 @@ object ChromiaRellPracticesHelp {
         put("notes", notes())
     }
 }
-// Official ECOSYSTEM ecosystem/extensions/ai_inference INDEX leftovers encoded as ECOSYSTEM_AI_INFERENCE_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/add-node INDEX leftovers encoded as ECOSYSTEM_ADD_NODE_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc INDEX leftovers encoded as ECOSYSTEM_PMC_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/subnode INDEX leftovers encoded as ECOSYSTEM_PMC_SUBNODE_INDEX_* (query-only HELP ONLY).
-// Official RELL rell/language-features/database/delete INDEX leftovers encoded as RELL_DATABASE_DELETE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/book-review/book-entity/tables INDEX leftovers encoded as LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-asset/testing INDEX leftovers encoded as LEARN_FT4_ASSET_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-demo-app/module-frontend-application/tools INDEX leftovers encoded as LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-assets/buy-mystery-card INDEX leftovers encoded as LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-two/scaffold INDEX leftovers encoded as LEARN_NEWS_SCAFFOLD_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/setup INDEX leftovers encoded as LEARN_TTT_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX news-feed create-accounts leftovers encoded as LEARN_NEWS_CREATE_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/rell-best-practices INDEX leftovers encoded as RELL_BEST_PRACTICES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof frontend-explore leftovers encoded as LEARN_ZK_FRONTEND_EXPLORE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chromia-goat-chat-agent codebase-overview leftovers encoded as LEARN_GOAT_CODEBASE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/statements/loop-statements INDEX leftovers encoded as RELL_STATEMENTS_LOOP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/namespaces/time INDEX leftovers encoded as RELL_SYSTEMLIB_TIME_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/security INDEX leftovers encoded as RELL_SECURITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/ZKP INDEX leftovers encoded as LEARN_TAGS_ZKP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/extensions/ai_inference INDEX encoded as ECOSYSTEM_AI_INFERENCE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/add-node INDEX encoded as ECOSYSTEM_ADD_NODE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc INDEX encoded as ECOSYSTEM_PMC_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/subnode INDEX encoded as ECOSYSTEM_PMC_SUBNODE_INDEX_* (query-only HELP ONLY).
+// Official RELL rell/language-features/database/delete INDEX encoded as RELL_DATABASE_DELETE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/book-entity/tables INDEX encoded as LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-asset/testing INDEX encoded as LEARN_FT4_ASSET_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-frontend-application/tools INDEX encoded as LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-assets/buy-mystery-card INDEX encoded as LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-two/scaffold INDEX encoded as LEARN_NEWS_SCAFFOLD_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/setup INDEX encoded as LEARN_TTT_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX news-feed create-accounts encoded as LEARN_NEWS_CREATE_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/rell-best-practices INDEX encoded as RELL_BEST_PRACTICES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof frontend-explore encoded as LEARN_ZK_FRONTEND_EXPLORE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-goat-chat-agent codebase-overview encoded as LEARN_GOAT_CODEBASE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/statements/loop-statements INDEX encoded as RELL_STATEMENTS_LOOP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/namespaces/time INDEX encoded as RELL_SYSTEMLIB_TIME_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/security INDEX encoded as RELL_SECURITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/ZKP INDEX encoded as LEARN_TAGS_ZKP_INDEX_* (query-only HELP ONLY WRITE SKIP).

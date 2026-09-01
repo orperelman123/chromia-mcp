@@ -166,14 +166,14 @@ object ChrReplHelp {
     }
 }
 
-// Official BUILD cli/commands/repl leftovers encoded as REPL_INDEX_* (query-only).
-// Official BUILD cli/commands/test leftovers encoded as TEST_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/bridge/bridge-client INDEX leftovers encoded as ECOSYSTEM_BRIDGE_CLIENT_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/logging INDEX leftovers encoded as ECOSYSTEM_NODES_LOGGING_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/version INDEX leftovers encoded as ECOSYSTEM_PMC_VERSION_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/keygen INDEX leftovers encoded as ECOSYSTEM_PMC_KEYGEN_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/rell-masterclass/select INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_SELECT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/monetize-dapp/transfer INDEX leftovers encoded as LEARN_MONETIZE_TRANSFER_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-nft INDEX leftovers encoded as LEARN_MARKETPLACE_NFT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/function INDEX leftovers encoded as RELL_MODULE_FUNCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/GOAT INDEX leftovers encoded as LEARN_TAGS_GOAT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/repl encoded as REPL_INDEX_* (query-only).
+// Official BUILD cli/commands/test encoded as TEST_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/bridge-client INDEX encoded as ECOSYSTEM_BRIDGE_CLIENT_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/logging INDEX encoded as ECOSYSTEM_NODES_LOGGING_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/version INDEX encoded as ECOSYSTEM_PMC_VERSION_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/keygen INDEX encoded as ECOSYSTEM_PMC_KEYGEN_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/rell-masterclass/select INDEX encoded as LEARN_RELL_MASTERCLASS_SELECT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/monetize-dapp/transfer INDEX encoded as LEARN_MONETIZE_TRANSFER_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-nft INDEX encoded as LEARN_MARKETPLACE_NFT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/function INDEX encoded as RELL_MODULE_FUNCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/GOAT INDEX encoded as LEARN_TAGS_GOAT_INDEX_* (query-only HELP ONLY WRITE SKIP).

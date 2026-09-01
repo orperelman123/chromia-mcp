@@ -10,46 +10,46 @@ import kotlinx.serialization.json.put
  * Names and parameters from gitlab.com/chromaway/ft4-lib tag v1.1.0r plus official
  * docs.chromia.com/build/ft4/pagination, setup, memo-guide, /build/ft4/prioritization, /build/ft4/terms, /build/ft4/intro, /build/ft4/client.
  * Queries / config read-only only. Never emits admin / ras_open / register / transfer / auth write paths.
- * Official BUILD ft4/intro leftovers live here (query-only).
- * Official BUILD ft4/intro INDEX leftovers also live here (query-only).
- * Official BUILD ft4/setup leftovers also live here (query-only).
- * Official BUILD ft4/client leftovers also live here (query-only).
- * Official BUILD ft4/backend leftovers also live here (query-only).
- * Official BUILD ft4/account-management leftovers also live here (query-only).
- * Official BUILD ft4/account-management INDEX leftovers also live here (query-only).
- * Official BUILD ft4/asset-management leftovers also live here (query-only).
- * Official BUILD ft4/asset-management INDEX leftovers also live here (query-only).
- * Official BUILD ft4/code-examples leftovers also live here (query-only).
- * Official BUILD ft4/code-examples INDEX leftovers also live here (query-only).
- * Official BUILD ft4/pagination leftovers also live here (query-only).
- * Official BUILD ft4/prioritization leftovers also live here (query-only).
- * Official BUILD ft4/configuration-values leftovers also live here (query-only).
- * Official BUILD ft4/configuration-values INDEX leftovers also live here (query-only).
- * Official BUILD ft4/releases/ft4 leftovers also live here (query-only).
- * Official BUILD ft4/terms leftovers also live here (query-only).
- * Official BUILD ft4/setup/ft4-setup leftovers also live here (query-only).
- * Official BUILD ft4/setup/ft4-setup INDEX leftovers also live here (query-only).
- * Official BUILD ft4/setup/imports leftovers also live here (query-only).
- * Official BUILD ft4/client/client-setup leftovers also live here (query-only).
- * Official BUILD ft4/client/client-auth-descriptors leftovers also live here (query-only).
- * Official BUILD ft4/client/client-account-registration leftovers also live here (query-only).
- * Official BUILD ft4/client/client-login leftovers also live here (query-only).
- * Official BUILD ft4/client/client-key-store leftovers also live here (query-only).
- * Official BUILD ft4/client/client-transfer-assets leftovers also live here (query-only).
- * Official BUILD ft4/client/client-orchestrator leftovers also live here (query-only).
- * Official BUILD ft4/backend/accounts leftovers also live here (query-only).
- * Official BUILD ft4/backend/authentication leftovers also live here (query-only).
- * Official BUILD ft4/backend/assets leftovers also live here (query-only).
- * Official BUILD ft4/backend/cross-chain leftovers also live here (query-only).
- * Official BUILD ft4/backend/cross-chain/introduction leftovers also live here (query-only).
- * Official BUILD ft4/backend/cross-chain/automate-cross-chain-asset-registration INDEX leftovers also live here (query-only).
- * Official BUILD ft4/account-management/overview leftovers also live here (query-only).
- * Official BUILD ft4/account-management/auth-descriptors leftovers also live here (query-only).
- * Official BUILD ft4/account-management/multisig leftovers also live here (query-only).
- * Official BUILD ft4/asset-management/asset leftovers also live here (query-only).
- * Official BUILD ft4/asset-management/transfer-assets leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/protocols/ft4 INDEX leftovers also live here (query-only).
- * Official GET-STARTED get-started/about/protocols INDEX leftovers also live here (query-only).
+ * Official BUILD ft4/intro values live here (query-only).
+ * Official BUILD ft4/intro INDEX values also live here (query-only).
+ * Official BUILD ft4/setup values also live here (query-only).
+ * Official BUILD ft4/client values also live here (query-only).
+ * Official BUILD ft4/backend values also live here (query-only).
+ * Official BUILD ft4/account-management values also live here (query-only).
+ * Official BUILD ft4/account-management INDEX values also live here (query-only).
+ * Official BUILD ft4/asset-management values also live here (query-only).
+ * Official BUILD ft4/asset-management INDEX values also live here (query-only).
+ * Official BUILD ft4/code-examples values also live here (query-only).
+ * Official BUILD ft4/code-examples INDEX values also live here (query-only).
+ * Official BUILD ft4/pagination values also live here (query-only).
+ * Official BUILD ft4/prioritization values also live here (query-only).
+ * Official BUILD ft4/configuration-values values also live here (query-only).
+ * Official BUILD ft4/configuration-values INDEX values also live here (query-only).
+ * Official BUILD ft4/releases/ft4 values also live here (query-only).
+ * Official BUILD ft4/terms values also live here (query-only).
+ * Official BUILD ft4/setup/ft4-setup values also live here (query-only).
+ * Official BUILD ft4/setup/ft4-setup INDEX values also live here (query-only).
+ * Official BUILD ft4/setup/imports values also live here (query-only).
+ * Official BUILD ft4/client/client-setup values also live here (query-only).
+ * Official BUILD ft4/client/client-auth-descriptors values also live here (query-only).
+ * Official BUILD ft4/client/client-account-registration values also live here (query-only).
+ * Official BUILD ft4/client/client-login values also live here (query-only).
+ * Official BUILD ft4/client/client-key-store values also live here (query-only).
+ * Official BUILD ft4/client/client-transfer-assets values also live here (query-only).
+ * Official BUILD ft4/client/client-orchestrator values also live here (query-only).
+ * Official BUILD ft4/backend/accounts values also live here (query-only).
+ * Official BUILD ft4/backend/authentication values also live here (query-only).
+ * Official BUILD ft4/backend/assets values also live here (query-only).
+ * Official BUILD ft4/backend/cross-chain values also live here (query-only).
+ * Official BUILD ft4/backend/cross-chain/introduction values also live here (query-only).
+ * Official BUILD ft4/backend/cross-chain/automate-cross-chain-asset-registration INDEX values also live here (query-only).
+ * Official BUILD ft4/account-management/overview values also live here (query-only).
+ * Official BUILD ft4/account-management/auth-descriptors values also live here (query-only).
+ * Official BUILD ft4/account-management/multisig values also live here (query-only).
+ * Official BUILD ft4/asset-management/asset values also live here (query-only).
+ * Official BUILD ft4/asset-management/transfer-assets values also live here (query-only).
+ * Official GET-STARTED get-started/about/protocols/ft4 INDEX values also live here (query-only).
+ * Official GET-STARTED get-started/about/protocols INDEX values also live here (query-only).
  */
 object ChromiaFt4QueriesHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -799,41 +799,41 @@ object ChromiaFt4QueriesHelp {
         put("notes", notes())
     }
 }
-// Official BUILD ft4/account-management/multisig leftovers encoded as ACCOUNT_MGMT_MULTISIG_INDEX_* (query-only).
-// Official BUILD ft4/asset-management/asset leftovers encoded as ASSET_MGMT_ASSET_INDEX_* (query-only).
-// Official BUILD ft4/asset-management/transfer-assets leftovers encoded as ASSET_MGMT_TRANSFER_ASSETS_INDEX_* (query-only).
-// Official BUILD ft4/backend/accounts/account-linking leftovers encoded as BACKEND_ACCOUNT_LINKING_INDEX_* (query-only).
-// Official BUILD ft4/backend/accounts/overview leftovers encoded as BACKEND_ACCOUNTS_OVERVIEW_INDEX_* (query-only).
-// Official BUILD ft4/backend/accounts/open leftovers encoded as BACKEND_ACCOUNTS_OPEN_INDEX_* (query-only).
-// Official BUILD ft4/backend/accounts/fixed leftovers encoded as BACKEND_ACCOUNTS_FIXED_INDEX_* (query-only).
-// Official BUILD ft4/backend/accounts/subscription leftovers encoded as BACKEND_ACCOUNTS_SUBSCRIPTION_INDEX_* (query-only).
-// Official BUILD ft4/backend/accounts/accounts-and-auth-descriptors leftovers encoded as BACKEND_ACCOUNTS_AND_AUTH_DESCRIPTORS_INDEX_* (query-only).
-// Official BUILD ft4/backend/authentication/auth leftovers encoded as BACKEND_AUTHENTICATION_AUTH_INDEX_* (query-only).
-// Official BUILD ft4/backend/authentication/auth-descriptors-and-rules leftovers encoded as BACKEND_AUTHENTICATION_AUTH_DESCRIPTORS_AND_RULES_INDEX_* (query-only).
-// Official BUILD ft4/backend/authentication/multi-sig leftovers encoded as BACKEND_AUTHENTICATION_MULTI_SIG_INDEX_* (query-only).
-// Official BUILD ft4/backend/assets/register-assets leftovers encoded as BACKEND_ASSETS_REGISTER_ASSETS_INDEX_* (query-only).
-// Official BUILD ft4/backend/assets/asset-amounts leftovers encoded as BACKEND_ASSETS_ASSET_AMOUNTS_INDEX_* (query-only).
-// Official BUILD ft4/backend/assets/locking-assets leftovers encoded as BACKEND_ASSETS_LOCKING_ASSETS_INDEX_* (query-only).
-// Official BUILD ft4/backend/cross-chain/introduction leftovers encoded as BACKEND_CROSS_CHAIN_INTRODUCTION_INDEX_* (query-only).
-// Official BUILD ft4/backend/cross-chain/cross-chain-assets leftovers encoded as BACKEND_CROSS_CHAIN_ASSETS_INDEX_* (query-only).
-// Official BUILD ft4/backend/cross-chain/cross-chain-transfers leftovers encoded as BACKEND_CROSS_CHAIN_TRANSFERS_INDEX_* (query-only).
-// Official BUILD ft4/backend/cross-chain/automate-cross-chain-asset-registration leftovers encoded as BACKEND_CROSS_CHAIN_AUTOMATE_REGISTRATION_INDEX_* (query-only).
-// Official BUILD ft4/backend/cross-chain/automate-cross-chain-asset-registration INDEX leftovers encoded as AUTOMATE_CROSSCHAIN_ASSET_INDEX_* (query-only).
-// Official BUILD ft4/prioritization leftovers encoded as PRIORITIZATION_INDEX_* (query-only).
-// Official BUILD ft4/code-examples leftovers encoded as CODE_EXAMPLES_INDEX_* (query-only).
-// Official BUILD ft4/intro leftovers encoded as INTRO_INDEX_* (query-only).
-// Official BUILD ft4/account-management leftovers encoded as ACCOUNT_MANAGEMENT_INDEX_* (query-only).
-// Official BUILD ft4/asset-management leftovers encoded as ASSET_MANAGEMENT_INDEX_* (query-only).
-// Official BUILD ft4/configuration-values INDEX leftovers encoded as FT4_CONFIGURATION_VALUES_INDEX_* (query-only).
-// Official BUILD ft4/setup/ft4-setup INDEX leftovers encoded as FT4_SETUP_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/protocols/ft4 INDEX leftovers encoded as GET_STARTED_FT4_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/protocols INDEX leftovers encoded as GET_STARTED_PROTOCOLS_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/protocols/gtv INDEX leftovers encoded as GET_STARTED_GTV_INDEX_* (query-only).
-// Official GET-STARTED get-started/about/protocols-summary INDEX leftovers encoded as GET_STARTED_PROTOCOLS_SUMMARY_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure/user-types INDEX leftovers encoded as ECOSYSTEM_GOV_USER_TYPES_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/governance/governance-voting-process/voting-types INDEX leftovers encoded as ECOSYSTEM_GOV_VOTING_TYPES_INDEX_* (query-only).
-// Official LEARN courses/book-review/build-client/complete-example INDEX leftovers encoded as LEARN_BOOK_REVIEW_COMPLETE_EXAMPLE_INDEX_* (query-only).
-// Official LEARN courses/book-review/book-review-entity/tables INDEX leftovers encoded as LEARN_BOOK_REVIEW_REVIEW_TABLES_INDEX_* (query-only).
-// Official LEARN courses/chromia-for-evm-developers/asset-transfer INDEX leftovers encoded as LEARN_EVM_ASSET_TRANSFER_INDEX_* (query-only).
-// Official LEARN courses/ft4-asset/consideration-recomendations INDEX leftovers encoded as LEARN_FT4_ASSET_CONSIDERATIONS_INDEX_* (query-only).
-// Official LEARN tags/FT4 INDEX leftovers encoded as LEARN_TAGS_FT4_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD ft4/account-management/multisig encoded as ACCOUNT_MGMT_MULTISIG_INDEX_* (query-only).
+// Official BUILD ft4/asset-management/asset encoded as ASSET_MGMT_ASSET_INDEX_* (query-only).
+// Official BUILD ft4/asset-management/transfer-assets encoded as ASSET_MGMT_TRANSFER_ASSETS_INDEX_* (query-only).
+// Official BUILD ft4/backend/accounts/account-linking encoded as BACKEND_ACCOUNT_LINKING_INDEX_* (query-only).
+// Official BUILD ft4/backend/accounts/overview encoded as BACKEND_ACCOUNTS_OVERVIEW_INDEX_* (query-only).
+// Official BUILD ft4/backend/accounts/open encoded as BACKEND_ACCOUNTS_OPEN_INDEX_* (query-only).
+// Official BUILD ft4/backend/accounts/fixed encoded as BACKEND_ACCOUNTS_FIXED_INDEX_* (query-only).
+// Official BUILD ft4/backend/accounts/subscription encoded as BACKEND_ACCOUNTS_SUBSCRIPTION_INDEX_* (query-only).
+// Official BUILD ft4/backend/accounts/accounts-and-auth-descriptors encoded as BACKEND_ACCOUNTS_AND_AUTH_DESCRIPTORS_INDEX_* (query-only).
+// Official BUILD ft4/backend/authentication/auth encoded as BACKEND_AUTHENTICATION_AUTH_INDEX_* (query-only).
+// Official BUILD ft4/backend/authentication/auth-descriptors-and-rules encoded as BACKEND_AUTHENTICATION_AUTH_DESCRIPTORS_AND_RULES_INDEX_* (query-only).
+// Official BUILD ft4/backend/authentication/multi-sig encoded as BACKEND_AUTHENTICATION_MULTI_SIG_INDEX_* (query-only).
+// Official BUILD ft4/backend/assets/register-assets encoded as BACKEND_ASSETS_REGISTER_ASSETS_INDEX_* (query-only).
+// Official BUILD ft4/backend/assets/asset-amounts encoded as BACKEND_ASSETS_ASSET_AMOUNTS_INDEX_* (query-only).
+// Official BUILD ft4/backend/assets/locking-assets encoded as BACKEND_ASSETS_LOCKING_ASSETS_INDEX_* (query-only).
+// Official BUILD ft4/backend/cross-chain/introduction encoded as BACKEND_CROSS_CHAIN_INTRODUCTION_INDEX_* (query-only).
+// Official BUILD ft4/backend/cross-chain/cross-chain-assets encoded as BACKEND_CROSS_CHAIN_ASSETS_INDEX_* (query-only).
+// Official BUILD ft4/backend/cross-chain/cross-chain-transfers encoded as BACKEND_CROSS_CHAIN_TRANSFERS_INDEX_* (query-only).
+// Official BUILD ft4/backend/cross-chain/automate-cross-chain-asset-registration encoded as BACKEND_CROSS_CHAIN_AUTOMATE_REGISTRATION_INDEX_* (query-only).
+// Official BUILD ft4/backend/cross-chain/automate-cross-chain-asset-registration INDEX encoded as AUTOMATE_CROSSCHAIN_ASSET_INDEX_* (query-only).
+// Official BUILD ft4/prioritization encoded as PRIORITIZATION_INDEX_* (query-only).
+// Official BUILD ft4/code-examples encoded as CODE_EXAMPLES_INDEX_* (query-only).
+// Official BUILD ft4/intro encoded as INTRO_INDEX_* (query-only).
+// Official BUILD ft4/account-management encoded as ACCOUNT_MANAGEMENT_INDEX_* (query-only).
+// Official BUILD ft4/asset-management encoded as ASSET_MANAGEMENT_INDEX_* (query-only).
+// Official BUILD ft4/configuration-values INDEX encoded as FT4_CONFIGURATION_VALUES_INDEX_* (query-only).
+// Official BUILD ft4/setup/ft4-setup INDEX encoded as FT4_SETUP_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/protocols/ft4 INDEX encoded as GET_STARTED_FT4_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/protocols INDEX encoded as GET_STARTED_PROTOCOLS_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/protocols/gtv INDEX encoded as GET_STARTED_GTV_INDEX_* (query-only).
+// Official GET-STARTED get-started/about/protocols-summary INDEX encoded as GET_STARTED_PROTOCOLS_SUMMARY_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/governance/getting-started/governance-structure/user-types INDEX encoded as ECOSYSTEM_GOV_USER_TYPES_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/governance/governance-voting-process/voting-types INDEX encoded as ECOSYSTEM_GOV_VOTING_TYPES_INDEX_* (query-only).
+// Official LEARN courses/book-review/build-client/complete-example INDEX encoded as LEARN_BOOK_REVIEW_COMPLETE_EXAMPLE_INDEX_* (query-only).
+// Official LEARN courses/book-review/book-review-entity/tables INDEX encoded as LEARN_BOOK_REVIEW_REVIEW_TABLES_INDEX_* (query-only).
+// Official LEARN courses/chromia-for-evm-developers/asset-transfer INDEX encoded as LEARN_EVM_ASSET_TRANSFER_INDEX_* (query-only).
+// Official LEARN courses/ft4-asset/consideration-recomendations INDEX encoded as LEARN_FT4_ASSET_CONSIDERATIONS_INDEX_* (query-only).
+// Official LEARN tags/FT4 INDEX encoded as LEARN_TAGS_FT4_INDEX_* (query-only HELP ONLY WRITE SKIP).

@@ -8,7 +8,7 @@ import kotlinx.serialization.json.put
  * Source: docs.chromia.com/build/cli/key-pair-management (read / lookup flow).
  * Official keygen command page is HELP ONLY (flags + URL).
  * Does not generate a key, print a private key, print a sample key, or send a signed tx.
- * Official BUILD cli/key-pair-management index slash/title leftovers live here (query-only).
+ * Official BUILD cli/key-pair-management index slash/title values live here (query-only).
  */
 object ChrKeyIdHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -159,13 +159,13 @@ object ChrKeyIdHelp {
     }
 }
 
-// Official BUILD cli/commands/keygen leftovers encoded as KEYGEN_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/nodes INDEX leftovers encoded as ECOSYSTEM_PROVIDERS_NODES_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/marketplace-course/module-assets/test-cli INDEX leftovers encoded as LEARN_MARKETPLACE_TEST_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-two/connecting-the-client INDEX leftovers encoded as LEARN_TTT_CONNECT_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/vector-db-movie-demo/code-deep-dive/python-client INDEX leftovers encoded as LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/create-accounts/authentication INDEX leftovers encoded as LEARN_TTT_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof course leftovers encoded as LEARN_ZK_PROOF_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs chromia-web3-stack leftovers encoded as LEARN_WEB3_CHROMIA_STACK_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chromia-comparisons etherum leftovers encoded as LEARN_COMPARISONS_ETHEREUM_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Chatbot INDEX leftovers encoded as LEARN_TAGS_CHATBOT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/keygen encoded as KEYGEN_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes INDEX encoded as ECOSYSTEM_PROVIDERS_NODES_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/marketplace-course/module-assets/test-cli INDEX encoded as LEARN_MARKETPLACE_TEST_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-two/connecting-the-client INDEX encoded as LEARN_TTT_CONNECT_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/code-deep-dive/python-client INDEX encoded as LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/create-accounts/authentication INDEX encoded as LEARN_TTT_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof course encoded as LEARN_ZK_PROOF_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs chromia-web3-stack encoded as LEARN_WEB3_CHROMIA_STACK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-comparisons etherum encoded as LEARN_COMPARISONS_ETHEREUM_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Chatbot INDEX encoded as LEARN_TAGS_CHATBOT_INDEX_* (query-only HELP ONLY WRITE SKIP).

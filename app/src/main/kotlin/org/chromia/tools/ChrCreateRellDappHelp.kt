@@ -1409,24 +1409,24 @@ object ChrCreateRellDappHelp {
         put("notes", notes())
     }
 }
-// Official ECOSYSTEM ecosystem/filehub/filehub-setup INDEX leftovers encoded as ECOSYSTEM_FILEHUB_SETUP_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/node-config INDEX leftovers encoded as ECOSYSTEM_NODE_CONFIG_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/governance/getting-started/governance-starter-kit/import INDEX leftovers encoded as ECOSYSTEM_GOV_STARTER_KIT_IMPORT_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/build-client/prerequisites INDEX leftovers encoded as LEARN_BOOK_REVIEW_PREREQUISITES_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/big-data/setup INDEX leftovers encoded as LEARN_BIG_DATA_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/ft4-asset/setup INDEX leftovers encoded as LEARN_FT4_ASSET_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/iccf-course/setup INDEX leftovers encoded as LEARN_ICCF_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/module-one/project-structure INDEX leftovers encoded as LEARN_NEWS_PROJECT_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/rell-intro INDEX leftovers encoded as RELL_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/tic-tac-toe/module-one/project-structure/modules INDEX leftovers encoded as LEARN_TTT_RELL_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX vector-db embedding-model leftovers encoded as LEARN_VECTOR_DB_EMBEDDING_MODEL_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX monetize-dapp account-registration leftovers encoded as LEARN_MONETIZE_ACCOUNT_REGISTRATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof frontend leftovers encoded as LEARN_ZK_FRONTEND_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX relationships-course joins leftovers encoded as LEARN_RELATIONSHIPS_JOINS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs summary leftovers encoded as LEARN_WEB3_SUMMARY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/modules/namespace INDEX leftovers encoded as RELL_MODULE_NAMESPACE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/language-features/systemlib/require-function INDEX leftovers encoded as RELL_SYSTEMLIB_REQUIRE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/modules INDEX leftovers encoded as RELL_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/filehub/filehub-setup INDEX encoded as ECOSYSTEM_FILEHUB_SETUP_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/node-config INDEX encoded as ECOSYSTEM_NODE_CONFIG_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/governance/getting-started/governance-starter-kit/import INDEX encoded as ECOSYSTEM_GOV_STARTER_KIT_IMPORT_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/build-client/prerequisites INDEX encoded as LEARN_BOOK_REVIEW_PREREQUISITES_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/big-data/setup INDEX encoded as LEARN_BIG_DATA_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-asset/setup INDEX encoded as LEARN_FT4_ASSET_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/iccf-course/setup INDEX encoded as LEARN_ICCF_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-one/project-structure INDEX encoded as LEARN_NEWS_PROJECT_STRUCTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/rell-intro INDEX encoded as RELL_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/project-structure/modules INDEX encoded as LEARN_TTT_RELL_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX vector-db embedding-model encoded as LEARN_VECTOR_DB_EMBEDDING_MODEL_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX monetize-dapp account-registration encoded as LEARN_MONETIZE_ACCOUNT_REGISTRATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof frontend encoded as LEARN_ZK_FRONTEND_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX relationships-course joins encoded as LEARN_RELATIONSHIPS_JOINS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs summary encoded as LEARN_WEB3_SUMMARY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/namespace INDEX encoded as RELL_MODULE_NAMESPACE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/require-function INDEX encoded as RELL_SYSTEMLIB_REQUIRE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/modules INDEX encoded as RELL_MODULES_INDEX_* (query-only HELP ONLY WRITE SKIP).
 // Official dapp-build INDEX help map architecture INDEX local walk Node is initialized REST query Hello World! chain-id 0 postgres defaults worked Driver 17.11 (query-only HELP ONLY WRITE SKIP; no new pages).
 // Local next-step walk (chr test, chr generate client-stubs, FT4 chromia.yml libs import, chr build) encoded as test* / generate_client* / ft4_* (query-only HELP ONLY WRITE SKIP; no keys, no signed FT4 ops, no new pages).
 // Local fire-0065 verify (chr test --modules filter, chr generate client-stubs -m main, chr generate graph empty rell.mmd) encoded as test_modules_filter* / generate_client_module_flag / generate_graph (query-only HELP ONLY WRITE SKIP; no keys, no signed ops).

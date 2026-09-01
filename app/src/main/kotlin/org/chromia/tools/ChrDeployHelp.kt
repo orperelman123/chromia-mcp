@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
  * Schema compare / DROP wording from DeployUpdateCommand + ReportGenerator (0.30.0 / 0.31.0).
  * Skipped (sign): proposal vote/retract-vote/revoke/rename, voterset update/add-dapp-provider,
  * pause/resume/remove, container configuration/pause/resume.
- * Skipped (hidden): lease-info, remove-container. Official BUILD deployment index slash/title/child-card leftovers live here (query-only). Official BUILD vault-listing read-only find_dapp_details; skip chr tx writes and sample 64-hex. Official get-tchr-binance READ-ONLY faucet/allowance; deploy-dapp explorer verify; connect-client started. Official BUILD deployment testnet index slash/title/child-card leftovers live here (query-only). Official BUILD deployment mainnet index slash/title/child-card leftovers live here (query-only). Official BUILD deployment testnet-tokens index slash/title/child-card leftovers live here (query-only). Official BUILD deployment vault-listing index slash/title/child-card leftovers live here (query-only). Official BUILD deployment deploy-frontend-dapp index slash/title leftovers live here (query-only). Official BUILD deployment testnet/getting-started index slash/title leftovers live here (query-only). Official BUILD deployment mainnet/getting-started index slash/title leftovers live here (query-only). Official BUILD deployment testnet/deploy-dapp index slash/title leftovers live here (query-only). Official BUILD deployment mainnet/deploy-dapp index slash/title leftovers live here (query-only). Official BUILD deployment testnet/list-dapp-vault index slash/title leftovers live here (query-only). Official BUILD deployment vault-listing/quick-vault-listing index slash/title leftovers live here (query-only). Official BUILD deployment vault-listing/dynamic-vault-listing index slash/title leftovers live here (query-only). Official BUILD deployment testnet-tokens/get-tchr-chromia index slash/title leftovers live here (query-only). Official BUILD deployment testnet-tokens/get-tchr-binance index slash/title leftovers live here (query-only). Official GET-STARTED create-dapp/deploy-to-testnet index slash/title leftovers live here (query-only).
+ * Skipped (hidden): lease-info, remove-container. Official BUILD deployment index slash/title/child-card values live here (query-only). Official BUILD vault-listing read-only find_dapp_details; skip chr tx writes and sample 64-hex. Official get-tchr-binance READ-ONLY faucet/allowance; deploy-dapp explorer verify; connect-client started. Official BUILD deployment testnet index slash/title/child-card values live here (query-only). Official BUILD deployment mainnet index slash/title/child-card values live here (query-only). Official BUILD deployment testnet-tokens index slash/title/child-card values live here (query-only). Official BUILD deployment vault-listing index slash/title/child-card values live here (query-only). Official BUILD deployment deploy-frontend-dapp index slash/title values live here (query-only). Official BUILD deployment testnet/getting-started index slash/title values live here (query-only). Official BUILD deployment mainnet/getting-started index slash/title values live here (query-only). Official BUILD deployment testnet/deploy-dapp index slash/title values live here (query-only). Official BUILD deployment mainnet/deploy-dapp index slash/title values live here (query-only). Official BUILD deployment testnet/list-dapp-vault index slash/title values live here (query-only). Official BUILD deployment vault-listing/quick-vault-listing index slash/title values live here (query-only). Official BUILD deployment vault-listing/dynamic-vault-listing index slash/title values live here (query-only). Official BUILD deployment testnet-tokens/get-tchr-chromia index slash/title values live here (query-only). Official BUILD deployment testnet-tokens/get-tchr-binance index slash/title values live here (query-only). Official GET-STARTED create-dapp/deploy-to-testnet index slash/title values live here (query-only).
  */
 object ChrDeployHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -676,19 +676,19 @@ object ChrDeployHelp {
         put("notes", notes())
     }
 }
-// Official BUILD cli/commands/deployment leftovers encoded as COMMANDS_DEPLOYMENT_INDEX_* (query-only).
-// Official BUILD deployment/testnet/getting-started leftovers encoded as TESTNET_GETTING_STARTED_INDEX_* (query-only).
-// Official BUILD deployment/mainnet/getting-started leftovers encoded as MAINNET_GETTING_STARTED_INDEX_* (query-only).
-// Official BUILD deployment/testnet/deploy-dapp leftovers encoded as TESTNET_DEPLOY_DAPP_INDEX_* (query-only).
-// Official BUILD deployment/mainnet/deploy-dapp leftovers encoded as MAINNET_DEPLOY_DAPP_INDEX_* (query-only).
-// Official BUILD deployment/mainnet/multi-deployment leftovers encoded as MAINNET_MULTI_DEPLOYMENT_INDEX_* (query-only).
-// Official BUILD deployment/testnet/list-dapp-vault leftovers encoded as TESTNET_LIST_DAPP_VAULT_INDEX_* (query-only).
-// Official BUILD deployment/vault-listing/quick-vault-listing leftovers encoded as QUICK_VAULT_LISTING_INDEX_* (query-only).
-// Official BUILD deployment/vault-listing/dynamic-vault-listing leftovers encoded as DYNAMIC_VAULT_LISTING_INDEX_* (query-only).
-// Official BUILD deployment/testnet-tokens/get-tchr-chromia leftovers encoded as GET_TCHR_CHROMIA_INDEX_* (query-only).
-// Official BUILD deployment/testnet-tokens/get-tchr-binance leftovers encoded as GET_TCHR_BINANCE_INDEX_* (query-only).
-// Official GET-STARTED create-dapp/deploy-to-testnet leftovers encoded as GET_STARTED_DEPLOY_TESTNET_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/container-management/add-dapp-provider-to-voterset INDEX leftovers encoded as ECOSYSTEM_ADD_DAPP_PROVIDER_TO_VOTERSET_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/introduction INDEX leftovers encoded as LEARN_BOOK_REVIEW_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/setup INDEX leftovers encoded as LEARN_MARKETPLACE_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/Crosschain INDEX leftovers encoded as LEARN_TAGS_CROSSCHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/deployment encoded as COMMANDS_DEPLOYMENT_INDEX_* (query-only).
+// Official BUILD deployment/testnet/getting-started encoded as TESTNET_GETTING_STARTED_INDEX_* (query-only).
+// Official BUILD deployment/mainnet/getting-started encoded as MAINNET_GETTING_STARTED_INDEX_* (query-only).
+// Official BUILD deployment/testnet/deploy-dapp encoded as TESTNET_DEPLOY_DAPP_INDEX_* (query-only).
+// Official BUILD deployment/mainnet/deploy-dapp encoded as MAINNET_DEPLOY_DAPP_INDEX_* (query-only).
+// Official BUILD deployment/mainnet/multi-deployment encoded as MAINNET_MULTI_DEPLOYMENT_INDEX_* (query-only).
+// Official BUILD deployment/testnet/list-dapp-vault encoded as TESTNET_LIST_DAPP_VAULT_INDEX_* (query-only).
+// Official BUILD deployment/vault-listing/quick-vault-listing encoded as QUICK_VAULT_LISTING_INDEX_* (query-only).
+// Official BUILD deployment/vault-listing/dynamic-vault-listing encoded as DYNAMIC_VAULT_LISTING_INDEX_* (query-only).
+// Official BUILD deployment/testnet-tokens/get-tchr-chromia encoded as GET_TCHR_CHROMIA_INDEX_* (query-only).
+// Official BUILD deployment/testnet-tokens/get-tchr-binance encoded as GET_TCHR_BINANCE_INDEX_* (query-only).
+// Official GET-STARTED create-dapp/deploy-to-testnet encoded as GET_STARTED_DEPLOY_TESTNET_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/container-management/add-dapp-provider-to-voterset INDEX encoded as ECOSYSTEM_ADD_DAPP_PROVIDER_TO_VOTERSET_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/introduction INDEX encoded as LEARN_BOOK_REVIEW_INTRODUCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/setup INDEX encoded as LEARN_MARKETPLACE_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Crosschain INDEX encoded as LEARN_TAGS_CROSSCHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).

@@ -10,7 +10,7 @@ import kotlinx.serialization.json.put
  * Official pages only, including docs.chromia.com/rell/tests builders and asserts.
  * Skips recipes that sign a live tx, cookbook-only flags/keys, and official printed sample keys.
  * Source: docs.chromia.com/build/cookbook/ plus command / rell/tests pages when they disagree.
- * Official GET-STARTED get-started/use-cases/real-time-data/stork INDEX leftovers live here (query-only).
+ * Official GET-STARTED get-started/use-cases/real-time-data/stork INDEX values live here (query-only).
  */
 object ChromiaCookbookHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -784,46 +784,46 @@ object ChromiaCookbookHelp {
         put("notes", notes())
     }
 }
-// Official BUILD cookbook/overview leftovers encoded as OVERVIEW_INDEX_* (query-only).
-// Official BUILD cookbook/cli leftovers encoded as CLI_INDEX_* (query-only).
-// Official BUILD cookbook/query-creation leftovers encoded as QUERY_CREATION_INDEX_* (query-only).
-// Official BUILD cookbook/query-creation/make-query leftovers encoded as MAKE_QUERY_INDEX_* (query-only).
-// Official BUILD cookbook/query-creation/check-account-memo-requirement leftovers encoded as MEMO_QUERY_INDEX_* (query-only).
-// Official BUILD cookbook/query-creation/get-account-balance leftovers encoded as GET_ACCOUNT_BALANCE_INDEX_* (query-only).
-// Official BUILD cookbook/query-creation/pagination-with-ft4 leftovers encoded as PAGINATION_FT4_INDEX_* (query-only).
-// Official BUILD cookbook/query-creation/pagination leftovers encoded as PAGINATION_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection leftovers encoded as DATA_INSPECTION_INDEX_* (query-only).
-// Official BUILD cookbook/account-creation leftovers encoded as ACCOUNT_CREATION_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation leftovers encoded as TRANSACTION_CREATION_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/simple-transaction leftovers encoded as SIMPLE_TRANSACTION_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-transaction-status leftovers encoded as TX_STATUS_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/make-transfer leftovers encoded as MAKE_TRANSFER_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/enable-disable-memo leftovers encoded as ENABLE_DISABLE_MEMO_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/transfer-with-memo leftovers encoded as TRANSFER_WITH_MEMO_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/time-bound-transactions leftovers encoded as TIME_BOUND_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/call-operation-with-ft4-auth leftovers encoded as CALL_OP_FT4_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/register-crosschain-asset leftovers encoded as REGISTER_CROSSCHAIN_ASSET_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/register-asset leftovers encoded as REGISTER_ASSET_INDEX_* (query-only).
-// Official BUILD cookbook/transaction-creation/crosschain-transfer leftovers encoded as CROSSCHAIN_TRANSFER_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-transaction-data leftovers encoded as TX_DATA_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-block-data leftovers encoded as BLOCK_DATA_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-block-data leftovers encoded as GET_BLOCK_DATA_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-account-by-id leftovers encoded as ACCOUNT_BY_ID_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-account-by-id leftovers encoded as GET_ACCOUNT_BY_ID_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-account-by-signer leftovers encoded as ACCOUNT_BY_SIGNER_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-account-by-signer leftovers encoded as GET_ACCOUNT_BY_SIGNER_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-account-transfer-history leftovers encoded as ACCOUNT_TRANSFER_HISTORY_INDEX_* (query-only).
-// Official BUILD cookbook/data-inspection/get-account-transfer-history leftovers encoded as GET_ACCOUNT_TRANSFER_HISTORY_INDEX_* (query-only).
-// Official BUILD cookbook/account-creation/open-strategy leftovers encoded as OPEN_STRATEGY_INDEX_* (query-only).
-// Official BUILD cookbook/account-creation/transfer-fee-strategy leftovers encoded as TRANSFER_FEE_STRATEGY_INDEX_* (query-only).
-// Official BUILD cookbook/account-creation/transfer-open-strategy leftovers encoded as TRANSFER_OPEN_STRATEGY_INDEX_* (query-only).
-// Official BUILD cookbook/account-creation/transfer-subscription-strategy leftovers encoded as TRANSFER_SUBSCRIPTION_STRATEGY_INDEX_* (query-only).
-// Official BUILD cookbook/cli/run-operations leftovers encoded as RUN_OPERATIONS_INDEX_* (query-only).
-// Official BUILD cookbook/cli/run-queries leftovers encoded as RUN_QUERIES_INDEX_* (query-only).
-// Official BUILD cookbook/cli/run-tests leftovers encoded as RUN_TESTS_INDEX_* (query-only).
-// Official BUILD cookbook/cli/create-rell-dapp leftovers encoded as CREATE_RELL_DAPP_INDEX_* (query-only).
-// Official GET-STARTED get-started/use-cases/real-time-data/stork INDEX leftovers encoded as GET_STARTED_STORK_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/container-management/transfer-container-ownership INDEX leftovers encoded as ECOSYSTEM_TRANSFER_CONTAINER_OWNERSHIP_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/book-review/input-verification INDEX leftovers encoded as LEARN_BOOK_REVIEW_INPUT_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/marketplace-course/module-nft/randomness INDEX leftovers encoded as LEARN_MARKETPLACE_NFT_RANDOMNESS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/DeFi INDEX leftovers encoded as LEARN_TAGS_DEFI_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cookbook/overview encoded as OVERVIEW_INDEX_* (query-only).
+// Official BUILD cookbook/cli encoded as CLI_INDEX_* (query-only).
+// Official BUILD cookbook/query-creation encoded as QUERY_CREATION_INDEX_* (query-only).
+// Official BUILD cookbook/query-creation/make-query encoded as MAKE_QUERY_INDEX_* (query-only).
+// Official BUILD cookbook/query-creation/check-account-memo-requirement encoded as MEMO_QUERY_INDEX_* (query-only).
+// Official BUILD cookbook/query-creation/get-account-balance encoded as GET_ACCOUNT_BALANCE_INDEX_* (query-only).
+// Official BUILD cookbook/query-creation/pagination-with-ft4 encoded as PAGINATION_FT4_INDEX_* (query-only).
+// Official BUILD cookbook/query-creation/pagination encoded as PAGINATION_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection encoded as DATA_INSPECTION_INDEX_* (query-only).
+// Official BUILD cookbook/account-creation encoded as ACCOUNT_CREATION_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation encoded as TRANSACTION_CREATION_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/simple-transaction encoded as SIMPLE_TRANSACTION_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-transaction-status encoded as TX_STATUS_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/make-transfer encoded as MAKE_TRANSFER_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/enable-disable-memo encoded as ENABLE_DISABLE_MEMO_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/transfer-with-memo encoded as TRANSFER_WITH_MEMO_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/time-bound-transactions encoded as TIME_BOUND_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/call-operation-with-ft4-auth encoded as CALL_OP_FT4_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/register-crosschain-asset encoded as REGISTER_CROSSCHAIN_ASSET_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/register-asset encoded as REGISTER_ASSET_INDEX_* (query-only).
+// Official BUILD cookbook/transaction-creation/crosschain-transfer encoded as CROSSCHAIN_TRANSFER_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-transaction-data encoded as TX_DATA_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-block-data encoded as BLOCK_DATA_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-block-data encoded as GET_BLOCK_DATA_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-account-by-id encoded as ACCOUNT_BY_ID_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-account-by-id encoded as GET_ACCOUNT_BY_ID_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-account-by-signer encoded as ACCOUNT_BY_SIGNER_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-account-by-signer encoded as GET_ACCOUNT_BY_SIGNER_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-account-transfer-history encoded as ACCOUNT_TRANSFER_HISTORY_INDEX_* (query-only).
+// Official BUILD cookbook/data-inspection/get-account-transfer-history encoded as GET_ACCOUNT_TRANSFER_HISTORY_INDEX_* (query-only).
+// Official BUILD cookbook/account-creation/open-strategy encoded as OPEN_STRATEGY_INDEX_* (query-only).
+// Official BUILD cookbook/account-creation/transfer-fee-strategy encoded as TRANSFER_FEE_STRATEGY_INDEX_* (query-only).
+// Official BUILD cookbook/account-creation/transfer-open-strategy encoded as TRANSFER_OPEN_STRATEGY_INDEX_* (query-only).
+// Official BUILD cookbook/account-creation/transfer-subscription-strategy encoded as TRANSFER_SUBSCRIPTION_STRATEGY_INDEX_* (query-only).
+// Official BUILD cookbook/cli/run-operations encoded as RUN_OPERATIONS_INDEX_* (query-only).
+// Official BUILD cookbook/cli/run-queries encoded as RUN_QUERIES_INDEX_* (query-only).
+// Official BUILD cookbook/cli/run-tests encoded as RUN_TESTS_INDEX_* (query-only).
+// Official BUILD cookbook/cli/create-rell-dapp encoded as CREATE_RELL_DAPP_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/real-time-data/stork INDEX encoded as GET_STARTED_STORK_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/container-management/transfer-container-ownership INDEX encoded as ECOSYSTEM_TRANSFER_CONTAINER_OWNERSHIP_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/book-review/input-verification INDEX encoded as LEARN_BOOK_REVIEW_INPUT_VERIFICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-nft/randomness INDEX encoded as LEARN_MARKETPLACE_NFT_RANDOMNESS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/DeFi INDEX encoded as LEARN_TAGS_DEFI_INDEX_* (query-only HELP ONLY WRITE SKIP).

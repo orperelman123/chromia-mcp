@@ -178,16 +178,16 @@ object ChromiaYmlDefinitionsHelp {
     }
 }
 
-// Official ECOSYSTEM ecosystem/bridge/bridge-troubleshooting INDEX leftovers encoded as ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_* (query-only).
-// Official ECOSYSTEM ecosystem/providers/nodes/provider-keypair INDEX leftovers encoded as ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_* (query-only HELP ONLY).
-// Official ECOSYSTEM ecosystem/providers/pmc/commands/provider INDEX leftovers encoded as ECOSYSTEM_PMC_PROVIDER_INDEX_* (query-only HELP ONLY).
-// Official LEARN courses/ft4-asset/asset-operations INDEX leftovers encoded as LEARN_FT4_ASSET_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/icmf-course/manual-testing INDEX leftovers encoded as LEARN_ICMF_MANUAL_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN courses/my-news-feed/what-next INDEX leftovers encoded as LEARN_NEWS_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN docs/install/database-setup INDEX leftovers encoded as LEARN_INSTALL_POSTGRES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX news-feed authentication leftovers encoded as LEARN_NEWS_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX zero-knowledge-proof frontend-test leftovers encoded as LEARN_ZK_FRONTEND_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX web3-for-web2-devs introduction leftovers encoded as LEARN_WEB3_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN INDEX chromia-comparisons cosmos leftovers encoded as LEARN_COMPARISONS_COSMOS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official RELL rell/tests INDEX leftovers encoded as RELL_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Official LEARN tags/MetaMask INDEX leftovers encoded as LEARN_TAGS_METAMASK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/bridge/bridge-troubleshooting INDEX encoded as ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/provider-keypair INDEX encoded as ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/provider INDEX encoded as ECOSYSTEM_PMC_PROVIDER_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/ft4-asset/asset-operations INDEX encoded as LEARN_FT4_ASSET_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/manual-testing INDEX encoded as LEARN_ICMF_MANUAL_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/what-next INDEX encoded as LEARN_NEWS_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN docs/install/database-setup INDEX encoded as LEARN_INSTALL_POSTGRES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX news-feed authentication encoded as LEARN_NEWS_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof frontend-test encoded as LEARN_ZK_FRONTEND_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs introduction encoded as LEARN_WEB3_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-comparisons cosmos encoded as LEARN_COMPARISONS_COSMOS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/tests INDEX encoded as RELL_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/MetaMask INDEX encoded as LEARN_TAGS_METAMASK_INDEX_* (query-only HELP ONLY WRITE SKIP).
