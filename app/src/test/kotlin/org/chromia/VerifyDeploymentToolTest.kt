@@ -72,6 +72,12 @@ class VerifyDeploymentToolTest {
             val hint = VerifyDeployment.failureHint(msg, "testnet")
             assertTrue(hint.contains("not on this network"), hint)
             assertTrue(hint.contains("check the BRID and network"), hint)
+            // Regression (live probe 2026-09-02): a mainnet dapp chain hosted in a
+            // non-system cluster (e.g. AllianceGames, cluster "pink") 404s on the
+            // predefined system nodes - the hint must not claim the chain is off
+            // the network, and must name the node-URL escape hatch.
+            assertTrue(hint.contains("cluster"), hint)
+            assertTrue(hint.contains("node URL as `network`"), hint)
         }
     }
 

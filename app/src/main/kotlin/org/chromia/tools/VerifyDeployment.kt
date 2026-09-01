@@ -49,9 +49,14 @@ object VerifyDeployment {
             "blockchain not found", "404"
         ).any { it in m }
         if (unknownChain) {
-            return "the chain is not on this network; check the BRID and network " +
+            // Live-verified 2026-09-02: the predefined mainnet/testnet endpoints are
+            // SYSTEM-cluster nodes, so a dapp chain hosted in another cluster (e.g.
+            // "pink") answers 404 here even though it is live on this network.
+            return "the queried node(s) do not serve this BRID; check the BRID and network " +
                 "(network \"$network\") - a testnet BRID queried on mainnet (or vice versa) fails " +
-                "exactly like this."
+                "exactly like this. If the BRID is right, the chain may be not on this network, or " +
+                "live but hosted in a cluster the predefined \"$network\" system nodes do not serve - " +
+                "pass the dapp's own node URL as `network` to verify it directly."
         }
         val unreachable = listOf(
             "unknownhost", "unknown host", "connection refused", "connect timed out",
