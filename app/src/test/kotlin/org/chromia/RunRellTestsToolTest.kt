@@ -151,4 +151,25 @@ class RunRellTestsToolTest {
             executor.shutdownNow()
         }
     }
+
+    /**
+     * CHROMIA_MCP_TEST_TIMEOUT_SECONDS may only TIGHTEN the execution timeout:
+     * small containers bound runaway tests sooner (stress round 1). Anything
+     * non-numeric, non-positive, or above the 90s default falls back to 90.
+     */
+    @Test
+    fun timeoutEnvOverrideOnlyTightens() {
+        val default = org.chromia.tools.RunRellTests.EXECUTION_TIMEOUT_SECONDS
+        with(org.chromia.tools.RunRellTests) {
+            assertEquals(3L, configuredTimeoutSeconds("3"))
+            assertEquals(5L, configuredTimeoutSeconds(" 5 "))
+            assertEquals(default, configuredTimeoutSeconds(default.toString()))
+            assertEquals(default, configuredTimeoutSeconds(null))
+            assertEquals(default, configuredTimeoutSeconds(""))
+            assertEquals(default, configuredTimeoutSeconds("0"))
+            assertEquals(default, configuredTimeoutSeconds("-3"))
+            assertEquals(default, configuredTimeoutSeconds("abc"))
+            assertEquals(default, configuredTimeoutSeconds("900")) // cannot loosen
+        }
+    }
 }

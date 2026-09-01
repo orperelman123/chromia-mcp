@@ -24,6 +24,20 @@ object RunRellTests {
     const val DATABASE_URL_ENV = "CHROMIA_TEST_DATABASE_URL"
     const val EXECUTION_TIMEOUT_SECONDS = 90L
 
+    /**
+     * Optional operator override for the per-call execution timeout. Small
+     * deployments (or stress rigs) want a bound tighter than the 90s default:
+     * a runaway test pins a core until its loop ends, so the sooner it is
+     * abandoned the sooner the leaked-runner ceiling protects the instance.
+     * Only tightening is allowed - values outside 1..[EXECUTION_TIMEOUT_SECONDS]
+     * or non-numeric fall back to the default rather than failing startup.
+     */
+    const val TIMEOUT_ENV = "CHROMIA_MCP_TEST_TIMEOUT_SECONDS"
+
+    internal fun configuredTimeoutSeconds(raw: String? = System.getenv(TIMEOUT_ENV)): Long =
+        raw?.trim()?.toLongOrNull()?.takeIf { it in 1..EXECUTION_TIMEOUT_SECONDS }
+            ?: EXECUTION_TIMEOUT_SECONDS
+
     // Cap on captured print()/log() output (chars). Without our own printers the
     // dependency default is Rt_OutPrinter = System.out.println, which corrupts
     // the JSON-RPC stream in --stdio mode - possibly mid-frame from the runner
@@ -194,7 +208,7 @@ object RunRellTests {
         databaseUrl: String? = System.getenv(DATABASE_URL_ENV),
         /** module name -> module_args, e.g. {"lib.ft4.core.accounts": {"rate_limit": {...}}}. */
         moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap(),
-        timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS
+        timeoutSeconds: Long = configuredTimeoutSeconds()
     ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
         RellCheck.requireTotalSizeWithinCap(files)
