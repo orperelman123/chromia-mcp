@@ -168,6 +168,24 @@ internal fun toolErrorResult(message: String): CallToolResult =
  */
 internal const val MAX_PAGINATION_LIMIT = 1000
 
+/**
+ * Extracts a {path: source} map from a `files` argument. Non-string values
+ * (e.g. {"content": ...} objects) are returned as invalid keys instead of
+ * silently dropped - dropping them made the tool analyze a partial project
+ * without notice (audit 2026-09-01).
+ */
+internal fun extractRellFilesMap(filesArg: Any?): Pair<LinkedHashMap<String, String>, List<String>> {
+    val files = linkedMapOf<String, String>()
+    val invalid = mutableListOf<String>()
+    if (filesArg is JsonObject) {
+        filesArg.forEach { (path, content) ->
+            if (content is JsonPrimitive && content.isString) files[path] = content.content
+            else invalid.add(path)
+        }
+    }
+    return files to invalid
+}
+
 abstract class BaseToolStrategy : ToolStrategy {
     protected fun extractString(arguments: Map<String, Any>, key: String): String? {
         val value = arguments[key] ?: return null
@@ -304,7 +322,10 @@ abstract class BaseToolStrategy : ToolStrategy {
         if (raw is JsonNull) return null
         if (raw is String || (raw is JsonPrimitive && raw.isString)) {
             val text = extractString(arguments, key) ?: return null
-            return mapOf("rell" to text)
+            // A bare string is a real source file. Keying it "rell" (no .rell
+            // suffix) made check_dapp_project's compile+security gate silently
+            // skip it and report ok=true on unaudited code (audit 2026-09-01).
+            return mapOf("main.rell" to text)
         }
         val entries = when (raw) {
             is Map<*, *> -> raw.entries
@@ -946,13 +967,11 @@ class RellCheckStrategy : BaseToolStrategy() {
         val filesArg = args["files"]
         val modules = extractStringList(args, "modules")
 
-        val files = linkedMapOf<String, String>()
-        if (filesArg is JsonObject) {
-            filesArg.forEach { (path, content) ->
-                if (content is JsonPrimitive && content.isString) {
-                    files[path] = content.content
-                }
-            }
+        val (files, invalidKeys) = extractRellFilesMap(filesArg)
+        if (invalidKeys.isNotEmpty()) {
+            return toolErrorResult(
+                "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
+            )
         }
         if (source != null && files.isEmpty()) {
             files["main.rell"] = source
@@ -980,13 +999,11 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
         val source = extractString(args, "source")
         val filesArg = args["files"]
 
-        val files = linkedMapOf<String, String>()
-        if (filesArg is JsonObject) {
-            filesArg.forEach { (path, content) ->
-                if (content is JsonPrimitive && content.isString) {
-                    files[path] = content.content
-                }
-            }
+        val (files, invalidKeys) = extractRellFilesMap(filesArg)
+        if (invalidKeys.isNotEmpty()) {
+            return toolErrorResult(
+                "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
+            )
         }
         if (source != null && files.isEmpty()) {
             files["main.rell"] = source
@@ -1023,13 +1040,11 @@ class RunRellTestsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val filesArg = args["files"]
-        val files = linkedMapOf<String, String>()
-        if (filesArg is JsonObject) {
-            filesArg.forEach { (path, content) ->
-                if (content is JsonPrimitive && content.isString) {
-                    files[path] = content.content
-                }
-            }
+        val (files, invalidKeys) = extractRellFilesMap(filesArg)
+        if (invalidKeys.isNotEmpty()) {
+            return toolErrorResult(
+                "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
+            )
         }
         if (files.isEmpty()) {
             return toolErrorResult(

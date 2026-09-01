@@ -57,18 +57,17 @@ object RellCheck {
             // false green on broken code. A root module.rell resolves to the empty
             // module name and is filtered out, so the FT4 branch hit exactly that.
             // Fall back to null (= all modules) whenever the scoped list is empty.
-            val effectiveModules = if (RellLibs.needsFt4(files)) {
-                RellLibs.provisionFt4(tempDir)
-                modules ?: RellLibs.userAppModules(files).ifEmpty { null }
-            } else {
-                modules ?: RellLibs.userAppModules(files).ifEmpty { null }
-            }
+            if (RellLibs.needsFt4(files)) RellLibs.provisionFt4(tempDir)
             // Test modules are not app modules: without passing them explicitly a
             // project of only @test files compiled nothing and reported ok=true.
             val testModules = files.filterValues { RunRellTests.isTestModuleSource(it) }
-                .keys.map { RunRellTests.moduleNameForPath(it) }
+                .map { (path, content) -> RunRellTests.moduleNameForPath(path, content) }
                 .filter { it.isNotEmpty() }
                 .distinct()
+            // A header-less sibling of a @test module.rell resolves to the test
+            // module's name - subtract so it is never passed as an app module.
+            val effectiveModules = modules
+                ?: (RellLibs.userAppModules(files) - testModules.toSet()).ifEmpty { null }
             compile(tempDir, effectiveModules, testModules)
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }

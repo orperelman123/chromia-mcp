@@ -44,7 +44,7 @@ object RellLibs {
      */
     fun userAppModules(files: Map<String, String>): List<String> =
         files.filterValues { !RunRellTests.isTestModuleSource(it) }
-            .keys.map { RunRellTests.moduleNameForPath(it) }
+            .map { (path, content) -> RunRellTests.moduleNameForPath(path, content) }
             .filter { it.isNotEmpty() }
             .distinct()
 }

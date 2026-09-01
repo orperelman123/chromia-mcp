@@ -49,9 +49,23 @@ object CheckDappProject {
         if (compile && rellFiles.isNotEmpty()) {
             // A project check that never compiles can report ok:true on code that
             // does not parse. Compile, then security-scan when it builds.
-            val compilable = rellFiles.filterKeys { it.trim().endsWith(".rell") }
-                .mapKeys { (path, _) -> path.trim().removePrefix("./").removePrefix("src/") }
-            if (compilable.isNotEmpty()) {
+            val normalized = rellFiles.keys.filter { it.trim().endsWith(".rell") }
+                .groupBy { it.trim().removePrefix("./").removePrefix("src/") }
+            // src/main.rell and main.rell normalize to the same compile path - one
+            // would silently clobber the other (audit 2026-09-01).
+            val collisions = normalized.filterValues { it.size > 1 }
+            if (collisions.isNotEmpty()) {
+                errors += "rell: paths ${collisions.values.first()} resolve to the same file after " +
+                    "normalization - rename one so both can be checked."
+            }
+            val compilable = normalized.mapValues { (_, paths) -> rellFiles.getValue(paths.first()) }
+            if (compilable.isEmpty()) {
+                // Skipping the gate silently reported ok=true on unaudited code
+                // (audit 2026-09-01): rell input was supplied but nothing is
+                // compilable, which must be an error, not a pass.
+                errors += "rell: no compilable .rell files - key each source by a path ending in .rell " +
+                    "(e.g. {\"main.rell\": \"module; ...\"}) so the compile and security checks can run."
+            } else if (collisions.isEmpty()) {
                 runCatching { RellCheck.check(compilable, null) }.fold(
                     onSuccess = { result ->
                         result.errors.forEach { d ->

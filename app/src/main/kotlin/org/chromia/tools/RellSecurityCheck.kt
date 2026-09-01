@@ -91,24 +91,37 @@ object RellSecurityCheck {
         "ft4.auth",
         "op_context.is_signer",
         "is_signer(",
-        "require_signer",
-        "auth_handler"
+        "require_signer"
     )
+    // "auth_handler" as a bare substring matched identifiers like auth_handlers_cfg;
+    // require the call/definition paren (add_auth_handler(...) still matches).
+    private val AUTH_HANDLER_REGEX = Regex("""auth_handler\s*\(""")
+    // `import a: lib.ft4.auth;` - `a.authenticate()` must count as an auth marker.
+    private val FT4_AUTH_ALIAS_REGEX = Regex("""\bimport\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*lib\.ft4\.auth\s*;""")
 
-    private val MUTATION_REGEX = Regex("""\b(create|update|delete)\b\s""")
-    // [ \t]* (not \s*): under MULTILINE, \s* would swallow preceding newlines and
-    // shift the reported line number to the blank line above the operation.
-    private val OPERATION_REGEX = Regex("""^[ \t]*operation\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(""", RegexOption.MULTILINE)
-    private val FUNCTION_REGEX = Regex("""^[ \t]*function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(""", RegexOption.MULTILINE)
+    // Next char must be whitespace or '(' - the Rell grammar allows parenthesized
+    // targets with no space (`delete(u);`, `update(u)(...)`), which `\s` missed;
+    // `created` / `update_helper(` still cannot match thanks to the \b.
+    private val MUTATION_REGEX = Regex("""\b(create|update|delete)\b[\s(]""")
+    // Not line-anchored: `@mount('x') operation f(...)`, `namespace a { operation g() {...} }`
+    // and `} operation h(` were invisible to a ^-anchored scan (audit 2026-09-01).
+    // Line numbers are computed from the keyword's own match offset.
+    private val OPERATION_REGEX = Regex("""\boperation\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(""")
+    private val FUNCTION_REGEX = Regex("""\bfunction\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(""")
+    private val REQUIRE_REGEX = Regex("""\brequire(_not_empty)?\s*\(""")
     private val HEX_SECRET_REGEX = Regex("""x?["']([0-9a-fA-F]{64,})["']""")
 
-    /**
-     * Names of user functions whose (masked) body contains an auth marker,
-     * expanded to a fixed point: a function that calls an auth-establishing
-     * function is itself auth-establishing. Closes the indirect-auth
-     * false-positive class (require_user()-style helpers).
-     */
-    internal fun authFunctionNames(maskedContent: String): Set<String> {
+    private fun callRegex(fn: String) = Regex("""\b${Regex.escape(fn)}\s*\(""")
+
+    /** Auth markers for one (masked) file: the globals plus its FT4 auth aliases. */
+    internal fun authMarkersFor(masked: String): List<String> =
+        AUTH_MARKERS + FT4_AUTH_ALIAS_REGEX.findAll(masked).map { "${it.groupValues[1]}.authenticate" }
+
+    private fun containsAuthMarker(text: String, markers: List<String>): Boolean =
+        markers.any { text.contains(it) } || AUTH_HANDLER_REGEX.containsMatchIn(text)
+
+    /** name -> masked body for every function definition in the (masked) source. */
+    internal fun functionBodies(maskedContent: String): Map<String, String> {
         val functions = mutableMapOf<String, String>()
         FUNCTION_REGEX.findAll(maskedContent).forEach { match ->
             val name = match.groupValues[1]
@@ -129,40 +142,84 @@ object RellSecurityCheck {
             }
             functions[name] = body
         }
-        val auth = functions.filterValues { body -> AUTH_MARKERS.any { body.contains(it) } }.keys.toMutableSet()
+        return functions
+    }
+
+    /** Fixed point: a function is in the set if seeded or if it calls one that is. */
+    private fun closeOverCalls(functions: Map<String, String>, seed: Set<String>): Set<String> {
+        val result = seed.toMutableSet()
         var changed = true
         while (changed) {
             changed = false
             functions.forEach { (name, body) ->
-                if (name !in auth && auth.any { fn -> Regex("""\b${Regex.escape(fn)}\s*\(""").containsMatchIn(body) }) {
-                    auth.add(name)
+                if (name !in result && result.any { fn -> callRegex(fn).containsMatchIn(body) }) {
+                    result.add(name)
                     changed = true
                 }
             }
         }
-        return auth
+        return result
+    }
+
+    /**
+     * Names of user functions whose (masked) body contains an auth marker,
+     * expanded to a fixed point: a function that calls an auth-establishing
+     * function is itself auth-establishing. Computed over ALL files of the
+     * submission - an auth helper defined in a sibling file must be recognized
+     * (audit 2026-09-01). Closes the indirect-auth false-positive class
+     * (require_user()-style helpers).
+     */
+    internal fun authFunctionNames(maskedFiles: Map<String, String>): Set<String> {
+        val functions = mutableMapOf<String, String>()
+        val seed = mutableSetOf<String>()
+        maskedFiles.forEach { (_, masked) ->
+            val markers = authMarkersFor(masked)
+            functionBodies(masked).forEach { (name, body) ->
+                functions[name] = body
+                if (containsAuthMarker(body, markers)) seed.add(name)
+            }
+        }
+        return closeOverCalls(functions, seed)
+    }
+
+    /**
+     * Names of user functions that mutate state, directly or transitively - an
+     * operation that mutates only via a helper (`operation transfer() { do_transfer(); }`)
+     * must still get an unauthenticated-mutation finding (audit 2026-09-01).
+     */
+    internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> {
+        val functions = mutableMapOf<String, String>()
+        maskedFiles.forEach { (_, masked) -> functions.putAll(functionBodies(masked)) }
+        val seed = functions.filterValues { MUTATION_REGEX.containsMatchIn(it) }.keys.toSet()
+        return closeOverCalls(functions, seed)
     }
 
     fun analyze(files: Map<String, String>): Result {
         val findings = mutableListOf<Finding>()
         var operationsScanned = 0
 
+        // Fully masked: brace/paren matching and the mutation/auth regexes must
+        // never see braces, "update", or auth markers inside strings or comments.
+        val fullyMasked = files.mapValues { (_, content) -> maskRellSource(content, maskStrings = true) }
+        // Auth and mutation call graphs span the whole submission: an auth helper
+        // or a mutating helper defined in a sibling file must be recognized.
+        val authFunctions = authFunctionNames(fullyMasked)
+        val mutatingFunctions = mutatingFunctionNames(fullyMasked)
+
         files.forEach { (path, content) ->
             // Comment-masked: string contents kept (hex key material lives in x"..."
             // literals) but comments cannot hide or fake findings.
             val commentMasked = maskRellSource(content, maskStrings = false)
-            // Fully masked: brace/paren matching and the mutation/auth regexes must
-            // never see braces, "update", or auth markers inside strings or comments.
-            val fullyMasked = maskRellSource(content, maskStrings = true)
-            findings += bannedModuleFindings(path, commentMasked)
+            val masked = fullyMasked.getValue(path)
+            // Banned-module/strategy rules run on fully masked text: a banned name
+            // inside a string literal (e.g. a require() message) is not an import.
+            findings += bannedModuleFindings(path, masked)
             findings += hardcodedSecretFindings(path, commentMasked)
-            // Indirect auth: helper functions whose body authenticates count as auth
-            // markers when invoked from an operation (transitively, to a fixed point).
-            val authFunctions = authFunctionNames(fullyMasked)
-            val ops = scanOperations(path, fullyMasked)
+            val authMarkers = authMarkersFor(masked)
+            val ops = scanOperations(path, masked)
             operationsScanned += ops.size
             ops.forEach { op ->
-                findings += operationFindings(path, op, authFunctions)
+                findings += operationFindings(path, op, authFunctions, mutatingFunctions, authMarkers)
             }
         }
 
@@ -193,7 +250,9 @@ object RellSecurityCheck {
             val trimmed = line.trim()
             if (trimmed.startsWith("//")) return@forEachIndexed
             BANNED_IMPORTS.forEach { banned ->
-                if (trimmed.contains(banned)) {
+                // Dotted-prefix match with boundaries: lib.ft4.admin.crosschain is
+                // banned, lib.ft4.admin_utils is not (audit 2026-09-01).
+                if (Ft4ImportCheck.containsModule(trimmed, banned)) {
                     findings.add(
                         Finding(
                             "CRITICAL", "banned-module", path, idx + 1, trimmed,
@@ -270,12 +329,19 @@ object RellSecurityCheck {
         return null
     }
 
-    private fun operationFindings(path: String, op: OperationBlock, authFunctions: Set<String> = emptySet()): List<Finding> {
+    private fun operationFindings(
+        path: String,
+        op: OperationBlock,
+        authFunctions: Set<String> = emptySet(),
+        mutatingFunctions: Set<String> = emptySet(),
+        authMarkers: List<String> = AUTH_MARKERS
+    ): List<Finding> {
         val findings = mutableListOf<Finding>()
-        val hasAuth = AUTH_MARKERS.any { op.body.contains(it) } ||
-            authFunctions.any { fn -> Regex("""\b${Regex.escape(fn)}\s*\(""").containsMatchIn(op.body) }
-        val hasRequire = op.body.contains("require(") || op.body.contains("require_not_empty(")
-        val mutates = MUTATION_REGEX.containsMatchIn(op.body)
+        val hasAuth = containsAuthMarker(op.body, authMarkers) ||
+            authFunctions.any { fn -> callRegex(fn).containsMatchIn(op.body) }
+        val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body)
+        val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
+            mutatingFunctions.any { fn -> callRegex(fn).containsMatchIn(op.body) }
 
         if (mutates && !hasAuth) {
             findings.add(

@@ -24,10 +24,20 @@ object RunRellTests {
     const val DATABASE_URL_ENV = "CHROMIA_TEST_DATABASE_URL"
     const val EXECUTION_TIMEOUT_SECONDS = 90L
 
-    // Daemon threads so a runaway test (infinite loop) can never block JVM shutdown.
-    private val runnerExecutor = java.util.concurrent.Executors.newCachedThreadPool { r ->
-        Thread(r, "rell-test-runner").apply { isDaemon = true }
-    }
+    // Runner threads abandoned by timed-out calls that have not yet terminated.
+    // A tight loop in user test code does not poll interrupts and Thread.stop is
+    // unsafe (the Rell API exposes no cancellation hook), so an abandoned runner
+    // spins until its loop ends - each one pinning a core meanwhile. The count is
+    // surfaced in the result notes; daemon threads never block JVM shutdown.
+    private val leakedRunners = java.util.concurrent.atomic.AtomicInteger()
+
+    private fun newRunnerExecutor() =
+        // One dedicated thread per call: an unstoppable runaway runner must not
+        // poison a shared pool, and queueing follow-up work on the same thread
+        // guarantees it runs only after the runaway task finishes.
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "rell-test-runner").apply { isDaemon = true }
+        }
 
     private val TEST_MODULE_REGEX = Regex("""(^|\n)\s*@test\s+module\b""")
 
@@ -36,16 +46,72 @@ object RunRellTests {
         TEST_MODULE_REGEX.containsMatchIn(maskRellSource(content, maskStrings = true))
 
     /**
-     * Rell module name for a source path: path separators become dots, and a file
-     * named module.rell belongs to its DIRECTORY module (tests/module.rell -> tests),
-     * per the Rell module rules. Root module.rell maps to "" (rejected by run()).
+     * Rell module name for a source path: path separators become dots. A file
+     * named module.rell - or any file whose CONTENT has no module header - belongs
+     * to its DIRECTORY module (tests/module.rell -> tests, app/entities.rell
+     * without a `module;` header -> app), per the compiler's
+     * C_ModuleUtils.getModuleInfo (`tail == module.rell || ast.header == null`).
+     * Deriving "app.entities" for a header-less file made the compiler throw
+     * "Module 'app.entities' not found" - a false red on the recommended layout
+     * (audit 2026-09-01). Root-level directory files map to "" (the root module).
      */
-    internal fun moduleNameForPath(path: String): String {
+    internal fun moduleNameForPath(path: String, content: String? = null): String {
         val segments = path.replace('\\', '/').removeSuffix(".rell")
             .split('/')
             .filter { it.isNotEmpty() && it != "." }
-        val effective = if (segments.isNotEmpty() && segments.last() == "module") segments.dropLast(1) else segments
+        val directoryFile = segments.isNotEmpty() &&
+            (segments.last() == "module" || (content != null && !hasModuleHeader(content)))
+        val effective = if (directoryFile) segments.dropLast(1) else segments
         return effective.joinToString(".")
+    }
+
+    private val HEADER_KEYWORD_MODIFIERS = setOf("abstract", "mutable", "override")
+
+    /**
+     * True when the source starts (after comments/whitespace) with a module
+     * header: `[modifiers] module ;` where a modifier is abstract/mutable/override
+     * or an annotation such as @test or @mount('x') - mirroring the compiler
+     * grammar (rootParser: optional(moduleHeader), moduleHeader: modifiers MODULE SEMI).
+     */
+    internal fun hasModuleHeader(content: String): Boolean {
+        val masked = maskRellSource(content, maskStrings = true)
+        var i = 0
+        fun skipWs() { while (i < masked.length && masked[i].isWhitespace()) i++ }
+        fun readWord(): String {
+            val start = i
+            while (i < masked.length && (masked[i].isLetterOrDigit() || masked[i] == '_')) i++
+            return masked.substring(start, i)
+        }
+        skipWs()
+        while (i < masked.length) {
+            when {
+                masked[i] == '@' -> {
+                    i++
+                    if (readWord().isEmpty()) return false
+                    skipWs()
+                    if (i < masked.length && masked[i] == '(') {
+                        var depth = 0
+                        while (i < masked.length) {
+                            when (masked[i]) { '(' -> depth++; ')' -> depth-- }
+                            i++
+                            if (depth == 0) break
+                        }
+                        if (depth != 0) return false
+                    }
+                }
+                masked[i].isLetter() || masked[i] == '_' -> {
+                    val word = readWord()
+                    if (word == "module") {
+                        skipWs()
+                        return i < masked.length && masked[i] == ';'
+                    }
+                    if (word !in HEADER_KEYWORD_MODIFIERS) return false
+                }
+                else -> return false
+            }
+            skipWs()
+        }
+        return false
     }
 
     data class CaseResult(
@@ -72,7 +138,8 @@ object RunRellTests {
         files: Map<String, String>,
         databaseUrl: String? = System.getenv(DATABASE_URL_ENV),
         /** module name -> module_args, e.g. {"lib.ft4.core.accounts": {"rate_limit": {...}}}. */
-        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap()
+        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap(),
+        timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS
     ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
         files.keys.forEach { relPath ->
@@ -90,7 +157,8 @@ object RunRellTests {
         // must not classify a file as a test module.
         val testModules = files
             .filterValues { isTestModuleSource(it) }
-            .keys.map { moduleNameForPath(it) }
+            .map { (path, content) -> moduleNameForPath(path, content) }
+            .distinct()
         require(testModules.isNotEmpty()) {
             "No @test modules found. Mark test files with `@test module;` and name test functions test_*."
         }
@@ -99,6 +167,7 @@ object RunRellTests {
         }
 
         val tempDir = Files.createTempDirectory("rell-tests")
+        var cleanupDeferred = false
         return try {
             files.forEach { (relPath, content) ->
                 val target = tempDir.resolve(relPath).normalize()
@@ -108,17 +177,25 @@ object RunRellTests {
             }
             // Vendored FT4 sources for `import lib.ft4.*` - see RellLibs. With the
             // lib present, app modules must be scoped to the user's own files.
+            // A header-less sibling of a @test module.rell resolves to the test
+            // module's name - subtract so it is never passed as an app module.
             val appModules = if (RellLibs.needsFt4(files)) {
                 RellLibs.provisionFt4(tempDir)
-                RellLibs.userAppModules(files)
+                RellLibs.userAppModules(files) - testModules.toSet()
             } else {
-                RellLibs.userAppModules(files).ifEmpty { null }
+                (RellLibs.userAppModules(files) - testModules.toSet()).ifEmpty { null }
             }
-            execute(tempDir, appModules, testModules, databaseUrl, moduleArgs)
+            val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
+            cleanupDeferred = outcome.cleanupDeferred
+            outcome.result
         } finally {
-            runCatching { tempDir.toFile().deleteRecursively() }
+            // On timeout the abandoned runner may still be reading the temp dir;
+            // its deletion is queued behind the runaway task instead (see execute).
+            if (!cleanupDeferred) runCatching { tempDir.toFile().deleteRecursively() }
         }
     }
+
+    private data class ExecuteOutcome(val result: Result, val cleanupDeferred: Boolean)
 
     /** Converts JSON module args to the Gtv map the Rell compiler expects. */
     private fun toGtvArgs(
@@ -146,8 +223,9 @@ object RunRellTests {
         appModules: List<String>?,
         testModules: List<String>,
         databaseUrl: String?,
-        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap()
-    ): Result {
+        moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap(),
+        timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS
+    ): ExecuteOutcome {
         // Capture compiler/runner messages so a test-compile failure reports
         // file/line diagnostics instead of a bare "Compilation failed".
         val messages = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -172,25 +250,43 @@ object RunRellTests {
 
         // User test code executes in-process; bound it so an infinite loop in a
         // test returns a clear failure instead of hanging the tool call forever.
-        val future = runnerExecutor.submit {
+        val executor = newRunnerExecutor()
+        val future = executor.submit {
             RellApiRunTests.runTests(config, sourceDir.toFile(), appModules, testModules)
         }
+        var timedOut = false
         try {
-            future.get(EXECUTION_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+            future.get(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
         } catch (e: java.util.concurrent.TimeoutException) {
+            timedOut = true
             future.cancel(true)
+            leakedRunners.incrementAndGet()
+            // Single-thread executor: this runs only after the runaway task ends
+            // (if ever) - release the leak counter and delete the temp dir it may
+            // still be reading. Daemon thread, so JVM shutdown is never blocked.
+            executor.submit {
+                leakedRunners.decrementAndGet()
+                runCatching { sourceDir.toFile().deleteRecursively() }
+            }
+            executor.shutdown()
             val finished = collected.size
-            return Result(
-                ok = false,
-                total = finished,
-                passed = collected.count { it.res.error == null },
-                failed = finished - collected.count { it.res.error == null },
-                cases = collected.map { r ->
-                    val error = r.res.error
-                    CaseResult(r.case.name, error == null, error?.message)
-                },
-                notes = "Test execution exceeded ${EXECUTION_TIMEOUT_SECONDS}s and was abandoned - " +
-                    "check for an infinite loop or unbounded work in a test. $finished case(s) finished before the timeout."
+            val leaked = leakedRunners.get()
+            return ExecuteOutcome(
+                Result(
+                    ok = false,
+                    total = finished,
+                    passed = collected.count { it.res.error == null },
+                    failed = finished - collected.count { it.res.error == null },
+                    cases = collected.map { r ->
+                        val error = r.res.error
+                        CaseResult(r.case.name, error == null, error?.message)
+                    },
+                    notes = "Test execution exceeded ${timeoutSeconds}s and was abandoned - " +
+                        "check for an infinite loop or unbounded work in a test. $finished case(s) finished before the timeout." +
+                        " $leaked abandoned runner thread(s) from timed-out calls may still be executing " +
+                        "(daemon threads; they cannot be stopped safely and each pins a core until their loop ends)."
+                ),
+                cleanupDeferred = true
             )
         } catch (e: java.util.concurrent.ExecutionException) {
             val cause = e.cause
@@ -201,6 +297,8 @@ object RunRellTests {
                 )
             }
             throw cause ?: e
+        } finally {
+            if (!timedOut) executor.shutdownNow()
         }
 
         val cases = collected.map { r ->
@@ -217,8 +315,15 @@ object RunRellTests {
             } else if (databaseUrl == null) {
                 append(" No $DATABASE_URL_ENV set - tests touching entities/database fail without PostgreSQL; pure-logic tests are unaffected.")
             }
+            val leaked = leakedRunners.get()
+            if (leaked > 0) {
+                append(" $leaked abandoned runner thread(s) from earlier timed-out calls are still executing.")
+            }
         }
-        return Result(failed == 0 && cases.isNotEmpty(), cases.size, cases.size - failed, failed, cases, notes)
+        return ExecuteOutcome(
+            Result(failed == 0 && cases.isNotEmpty(), cases.size, cases.size - failed, failed, cases, notes),
+            cleanupDeferred = false
+        )
     }
 
     fun Result.toJson(): JsonObject = buildJsonObject {
