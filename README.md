@@ -40,6 +40,11 @@ can verify Rell code is 100% compilable *before* suggesting it — with no `chr`
 - **FT4 works out of the box**: the pinned FT4 v1.1.0r Rell sources are vendored into the server,
   so `import lib.ft4.accounts;` / `lib.ft4.auth` etc. compile in-process — no `chr install`.
   Applies to `rell_check`, `rell_security_check`, and `run_rell_tests` alike.
+- **Submitting your own `lib/ft4` tree**: if the `files` map contains any `lib/ft4/` path, the
+  vendored copy is skipped entirely and your tree is compiled instead (the result notes say so).
+  Scanning is hash-gated: a `lib/ft4/` file byte-identical to the vendored v1.1.0r copy (line
+  endings ignored) is exempt from import/security findings; a file that differs is scanned like
+  app code, with a differs-from-vendored note. App files are always fully scanned.
 - Module args declared in the code are not required for the check; nothing is deployed and no
   network is used — sources are compiled in-process in a temp directory and deleted afterwards
 
@@ -78,6 +83,9 @@ Heuristic static analysis — it does not replace a security audit. The agent lo
 - `CHROMIA_MCP_ALLOWED_ORIGINS=<origins>` — comma-separated list of browser origins allowed by
   CORS (e.g. `https://app.example.com,http://localhost:5173`). Unset or `*` allows any origin;
   credentials are never allowed cross-origin.
+- `CHROMIA_MCP_TEST_TIMEOUT_SECONDS=<1..90>` — tighten-only override of the per-call
+  `run_rell_tests` execution timeout (default 90s). Useful on small instances where a runaway
+  test pins a core; values outside 1..90 or non-numeric fall back to the default.
 - The SSE server warms the RAG store and embedding model at startup, eliminating the ~15s
   first-search latency measured on fresh instances.
 - `/health` and the MCP serverInfo report the real build version (git tag/commit), stamped by the
@@ -137,16 +145,18 @@ the process past 512MB and get the container OOM-killed. Either:
 
 ## Upstreaming
 
-[docs/UPSTREAM.md](docs/UPSTREAM.md) lists the seven bugs found here that also affect the
-official `chromaway/core-tools/chromia-mcp` (silent list-filter corruption, two live explorer
-schema drifts, swallowed tool errors, stdout log corruption, context-bomb docs, dead sorting) —
-patch-ready notes for a merge request from the company account.
+[docs/UPSTREAM.md](docs/UPSTREAM.md) lists the eleven findings from this fork that also affect
+the official `chromaway/core-tools/chromia-mcp` or its ecosystem (silent list-filter corruption,
+live explorer schema drifts and the testnet-400 regression, swallowed tool errors, stdout log
+corruption, context-bomb docs, dead sorting, the `make_gtv_gson` big_integer footgun, FT4's
+self-flagging security patterns) — patch-ready notes for a merge request from the company
+account.
 
 ## Testing Layers
 
 Every push runs the full pyramid — none of these can be skipped:
 
-1. **Unit + regression suite** (`./gradlew test`, 380+ tests) — includes `RellToolsFuzzTest`,
+1. **Unit + regression suite** (`./gradlew test`, 557 tests) — includes `RellToolsFuzzTest`,
    a seeded property-based fuzzer that throws generated/mutated Rell at the compiler tools and
    asserts they always return structured results, never crash or hang (found a real crash on
    its first run: unterminated `operation x() {` at EOF).

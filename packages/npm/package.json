@@ -1,6 +1,6 @@
 {
   "name": "chromia-mcp",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Chromia MCP server launcher - blockchain analytics, docs RAG, and the Rell agent loop (rell_check / rell_security_check / run_rell_tests) for AI assistants",
   "bin": {
     "chromia-mcp": "bin/chromia-mcp.mjs"

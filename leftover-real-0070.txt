@@ -1,7 +1,0 @@
-candidate_holes_from_buggy_finder 28
-encoded_urls 1254
-real_uncovered 0
-incomplete_count 1
-INCOMPLETE ('ChromiaRellLanguageHelp.kt', 'MODULES', True, False, False, 'https://docs.chromia.com/rell/language-features/modules/')
-live_docs_locs 384 live_learn_locs 247
-cached_docs_locs 384 cached_learn_locs 247

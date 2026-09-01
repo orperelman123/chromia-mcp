@@ -1,9 +1,11 @@
 # Fixes worth upstreaming to `gitlab.com/chromaway/core-tools/chromia-mcp`
 
-Bugs found in this fork on 2026-08-30 that also exist in the official upstream
-`chromia-mcp` (base of this tree). Each was verified against the live
-`explorer.chromia.com` API. Diffs reference this repo's commits; the upstream
-patches are small and mechanical.
+Bugs found in this fork on 2026-08-30 / 2026-09-01 that also exist in the
+official upstream `chromia-mcp` (base of this tree), plus ecosystem findings
+(postchain, FT4, explorer) any downstream tool will hit. Each was verified
+against the live `explorer.chromia.com` API or the published artifacts.
+Diffs reference this repo's commits; the upstream patches are small and
+mechanical.
 
 ## 1. GraphQL list variables serialized as `toString()` (silent wrong data)
 
@@ -63,3 +65,44 @@ silently broken until the explorer offers a non-browser API path.
 The GraphQL query declares `$sortBy`/`$sortDirection` but nothing binds them -
 sorting silently does nothing. Fix: thread `sortBy`/`sortDirection` through
 the filter model and strategy.
+
+## 8. postchain's `make_gtv_gson()` cannot serialize `big_integer` (default footgun)
+
+Discovered 2026-09-01: `net.postchain.gtv.make_gtv_gson()` - the obvious
+builder every client reaches for - registers a BIGINTEGER branch that
+**throws** (`big_integer cannot be serialized as JSON`). Any dapp query
+returning a `big_integer` (every FT4 balance / `total_supply` / amount field)
+appears to fail even though the chain answered successfully. The non-throwing
+builder is `GtvObjectMapper`-adjacent `makeStrictGtvGson()`, which encodes
+big integers as JSON strings; verified in postchain-gtv 3.49.18 that all
+other branches are bit-identical between the two builders. Upstream
+`chromia-mcp` (and any postchain-client consumer using the default builder)
+is affected. Fix: use `makeStrictGtvGson()` for response serialization
+(this repo: commit `a54408d`). Also worth an upstream postchain issue: the
+default builder failing on a core Rell type is a trap.
+
+## 9. Explorer API returns HTTP 400 for `network=testnet`
+
+Observed live 2026-09-01: `POST
+https://explorer.chromia.com/api/explorer-service?network=testnet` returns
+HTTP 400 for queries that succeed with `network=mainnet` (same body, 200).
+Upstream `chromia-mcp` advertises `'testnet'` as a valid `network` argument
+on every analytics tool, so all of those calls fail against the live
+explorer. Until the explorer serves testnet again (or documents its removal),
+downstream tools should expect and explain the 400 rather than surfacing an
+opaque error.
+
+## 10. FT4 v1.1.0r flags its own security rules (downstream scanners must exempt it)
+
+The official FT4 v1.1.0r zip itself contains the patterns a Rell security
+scanner must treat as findings in *app* code: the library **declares
+`operation ras_open`** (the open registration strategy) and its test helper
+**imports `lib.ft4.admin`**. Any scanner that bans `ras_open` / admin imports
+and walks a full source tree will therefore report CRITICALs *inside the
+library* whenever a project vendors FT4 - false alarms pointing at code the
+user cannot change. The exemption must not be path-string trust alone (code
+parked under `lib/ft4/` would dodge the scan): this repo exempts a
+`lib/ft4/` file only if it is byte-identical (modulo line endings) to the
+vendored v1.1.0r copy, and scans any file that differs, with a note (commits
+`b66f033`, `15dbaf8`). Relevant to upstream if it ever grows scanning, and
+to any other Rell security tooling.

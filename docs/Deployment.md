@@ -307,7 +307,7 @@ Deployment is **semi-automated** with manual tag creation:
 }
 ```
 
-`version` comes from Gradle `project.version` (generated `BuildInfo.VERSION` in `App.kt`). `gradle.properties` pins `0.2.2` (latest official GitLab tag). Tagged publish jobs pass `-Pversion=$CI_COMMIT_TAG`, so a released image reports the tag. This is not a hardcoded `0.0.1`.
+`version` comes from Gradle `project.version` (generated `BuildInfo.VERSION` in `App.kt`). `gradle.properties` holds this fork's release version (`0.5.0`) as the local-build fallback. Tagged release builds pass `-Pversion=${TAG#v}`, so a released jar reports the tag; CI builds report `git describe`. This is not a hardcoded `0.0.1`.
 
 **Use cases:**
 - Kubernetes liveness/readiness probes

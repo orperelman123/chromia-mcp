@@ -17,8 +17,8 @@ group = "com.chromia"
 version = project.findProperty("version")?.toString() ?: error("Version is not set")
 
 // Health / MCP Implementation.version. Gradle `project.version`:
-// gradle.properties pins 0.2.2 (latest official GitLab tag). Publish CI
-// overrides with -Pversion=$CI_COMMIT_TAG.
+// gradle.properties holds this fork's release version (fallback for local
+// builds). CI/release workflows override with -Pversion.
 val generateBuildInfo by tasks.registering {
     val outputDir = layout.buildDirectory.dir("generated/sources/buildInfo/kotlin")
     val projectVersion = project.version.toString()
@@ -33,8 +33,8 @@ val generateBuildInfo by tasks.registering {
 
             /**
              * Server version from Gradle `project.version`.
-             * Default is gradle.properties `version` (0.2.2, latest official GitLab tag).
-             * Publish jobs override with -Pversion and the CI commit tag.
+             * Default is gradle.properties `version` (this fork's release version).
+             * CI and release jobs override with -Pversion.
              */
             object BuildInfo {
                 const val VERSION = "$projectVersion"

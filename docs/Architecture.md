@@ -34,7 +34,7 @@ Chromia MCP Server follows a layered architecture pattern with clear separation 
 - `runSseMcpServer()`: Starts server in SSE mode (HTTP server on port 3001)
 - `installCors()`: Configures CORS for SSE mode
 - `installHealthEndpoint()`: Adds `/health` endpoint for monitoring (same JSON as `chromia://server/health`)
-- Health / MCP `Implementation.version` is Gradle `project.version` via generated `BuildInfo` (not hardcoded). `gradle.properties` pins `0.2.2` (latest official GitLab tag of chromaway/core-tools/chromia-mcp). Publish overrides with `-Pversion=$CI_COMMIT_TAG`.
+- Health / MCP `Implementation.version` is Gradle `project.version` via generated `BuildInfo` (not hardcoded). `gradle.properties` holds this fork's release version (`0.5.0`) as the local-build fallback. CI overrides with `-Pversion="$(git describe --tags --always)"` and the release workflow with the tag.
 - MCP capabilities: `tools` (`listChanged=false` — static registered set, no update notifications) and `resources` (`subscribe=false`, `listChanged=false` — static snapshots). `prompts` is not advertised; the catalog is the `get_prompts` tool plus `chromia://config/prompt-catalog`.
 
 **Why it matters:** Centralizes server configuration and transport layer setup. Single entry point for both stdio and SSE modes.

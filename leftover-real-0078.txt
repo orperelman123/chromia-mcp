@@ -1,9 +1,0 @@
-fire 0078 reused leftover-real-0077 (INDEX unchanged since batch 0066; leftover_eif dapp-build only)
-candidate_holes_from_buggy_finder 36
-encoded_urls 1254
-real_uncovered 0
-incomplete_count 1
-INCOMPLETE ('ChromiaRellLanguageHelp.kt', 'MODULES', True, False, False, 'https://docs.chromia.com/rell/language-features/modules/')
-fire0066_targets 8
-fire0066_covered 8
-fire0066_uncovered 0

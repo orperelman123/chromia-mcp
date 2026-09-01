@@ -44,9 +44,8 @@ class App(
          * MCP Implementation.version and /health "version".
          * Sourced from Gradle `project.version` via generated [BuildInfo]
          * (`generateBuildInfo` in `app/build.gradle.kts`).
-         * Default is gradle.properties `version` (0.2.2, latest official GitLab
-         * tag of chromaway/core-tools/chromia-mcp). Publish jobs override with
-         * `-Pversion=$CI_COMMIT_TAG`.
+         * Default is gradle.properties `version` (this fork's release
+         * version). CI and release jobs override with `-Pversion`.
          */
         val SERVER_VERSION: String = BuildInfo.VERSION
         val logger: Logger = LoggerFactory.getLogger(App::class.java)
