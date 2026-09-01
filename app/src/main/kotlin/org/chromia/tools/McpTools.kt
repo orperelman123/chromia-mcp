@@ -3244,6 +3244,120 @@ object McpTools {
         )
     )
 
+    fun deploymentPreflightTool() = Tool(
+        name = "deployment_preflight",
+        description = """
+            Catch every deployment problem BEFORE a human burns a lease step or signs anything.
+            Given chromia.yml text and a deployment target name (e.g. "testnet" / "mainnet"), checks:
+            (1) the deployments.<target> block - brid present/well-formed, url valid, container a real
+            lease id (not a placeholder), chains matching declared blockchains; (2) reachability - a
+            read-only height probe of the block's Directory Chain BRID against its own URL(s), with
+            classified failure hints; (3) network sanity - a testnet/mainnet target whose brid or url
+            points at the OTHER network is a HIGH blocker (wrong-network deploys are unrecoverable);
+            (4) the source gate when `rell` is supplied - code must compile, and for MAINNET targets
+            CRITICAL/HIGH security findings are blockers (warnings for testnet); (5) production pins
+            (rellVersion the CLI accepts, merkle_hash_version) - blockers for mainnet, warnings otherwise
+            (`strict` overrides). Returns {ready, target, network, findings, blockers, nextAction, notes};
+            ready=true only with zero blockers, and never for anything not actually checked - a mainnet
+            target without `rell` stays blocked until the source gate runs. When ready, nextAction is the
+            exact `chr deployment create|update --settings chromia.yml --network <target> --blockchain
+            <name>` command. Read-only: no keys, no signing, no network writes.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Full chromia.yml contents as a string (must contain the deployments.<target> block)"
+                            )
+                        )
+                    ),
+                    "target" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Deployment target name - a key under deployments in the yaml, e.g. \"testnet\" or \"mainnet\""
+                            )
+                        )
+                    ),
+                    "rell" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive(
+                                "Optional Rell sources for the compile + security gate: one source string " +
+                                    "(checked as main.rell) or an object of path -> source. Omitting it skips " +
+                                    "the source gate (noted; a mainnet target then stays blocked)."
+                            )
+                        )
+                    ),
+                    "strict" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Pin strictness: missing compile.rellVersion / merkle_hash_version become " +
+                                    "blockers. Default true for mainnet targets, false otherwise."
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf("yaml", "target")
+        ),
+        title = "Deployment preflight",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "ready" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "target" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "mainnet | testnet | custom | unknown - classified from the target name and Directory Chain BRID"
+                            )
+                        )
+                    ),
+                    "findings" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(
+                                mapOf(
+                                    "type" to JsonPrimitive("object"),
+                                    "properties" to JsonObject(
+                                        mapOf(
+                                            "severity" to JsonObject(
+                                                mapOf(
+                                                    "type" to JsonPrimitive("string"),
+                                                    "enum" to JsonArray(
+                                                        listOf("BLOCKER", "HIGH", "WARNING", "INFO").map { JsonPrimitive(it) }
+                                                    )
+                                                )
+                                            ),
+                                            "check" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                            "message" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                                            "fix" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    ),
+                    "blockers" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                        )
+                    ),
+                    "nextAction" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("ready", "target", "network", "findings", "blockers", "nextAction", "notes")
+        )
+    )
+
     /**
      * All advertised tools. `compact = true` (env `CHROMIA_MCP_COMPACT_TOOLS=true` via
      * [compactToolsMode]) drops the individual *_help schemas - their content stays
@@ -3341,6 +3455,7 @@ object McpTools {
         translateErrorTool(),
         onboardingNextStepTool(),
         verifyDeploymentTool(),
+        deploymentPreflightTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),

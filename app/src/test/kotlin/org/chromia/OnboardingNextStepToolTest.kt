@@ -208,6 +208,40 @@ class OnboardingNextStepToolTest {
         assertTrue(with.nextAction.how.contains("local_chain_up"), with.nextAction.how)
     }
 
+    @Test
+    fun deployStepReferencesDeploymentPreflightOnlyWhenRegistered() {
+        // Same dynamic-registry pattern as the local-chain step: the deploy step
+        // names deployment_preflight only when the tool is actually registered.
+        val readyToDeploy = built.copy(
+            hasTestnetKey = true, hasTestnetContainer = true, hasDeploymentConfig = true
+        )
+        val without = plan(readyToDeploy, registered = tools - "deployment_preflight")
+        assertFalse(without.nextAction.how.contains("deployment_preflight"), without.nextAction.how)
+        assertTrue(without.nextAction.how.contains("chr deployment create"), without.nextAction.how)
+
+        assertTrue(
+            "deployment_preflight" in tools,
+            "deployment_preflight is expected in the shipped registry"
+        )
+        val with = plan(readyToDeploy)
+        assertTrue(with.nextAction.how.contains("deployment_preflight"), with.nextAction.how)
+        // The preflight comes FIRST and the deploy command is still spelled out.
+        assertTrue(
+            with.nextAction.how.indexOf("deployment_preflight") <
+                with.nextAction.how.indexOf("chr deployment create"),
+            with.nextAction.how
+        )
+        assertTrue(
+            with.nextAction.how.contains(
+                "chr deployment create --settings chromia.yml --network testnet"
+            ),
+            with.nextAction.how
+        )
+
+        val mainnet = plan(readyToDeploy.copy(goal = "mainnet"))
+        assertTrue(mainnet.nextAction.how.contains("\"target\": \"mainnet\""), mainnet.nextAction.how)
+    }
+
     // ---- validation ----------------------------------------------------------
 
     @Test

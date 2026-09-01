@@ -286,11 +286,20 @@ object OnboardingNextStep {
     private fun deployStep(network: String) = Step(
         stage = "deploy_$network",
         done = { deployedRank(it.deployedTo) >= deployedRank(network) }
-    ) { _, _ ->
+    ) { _, tools ->
+        // Dynamic registry check, like the local-chain step: name the preflight
+        // tool only once it actually exists in this server's registry.
+        val preflight = if ("deployment_preflight" in tools) {
+            "First call deployment_preflight with {\"yaml\": <chromia.yml>, \"target\": \"$network\", " +
+                "\"rell\": {path -> source}} and clear every blocker - it catches wrong-network BRIDs, " +
+                "placeholder container ids, bad pins, and unreachable nodes BEFORE anything is signed. Then: "
+        } else {
+            ""
+        }
         NextAction(
             what = "Deploy the dapp to $network",
             who = "agent",
-            how = "Run `chr deployment create --settings chromia.yml --network $network " +
+            how = preflight + "Run `chr deployment create --settings chromia.yml --network $network " +
                 "--blockchain <name>` - fully headless, signed by the CONTAINER key; supply it via the " +
                 "POSTCHAIN_CLIENT_PUBKEY/POSTCHAIN_CLIENT_PRIVKEY environment variables (Chromia's " +
                 "documented CI pattern). The command writes the resulting BRID into chromia.yml. " +

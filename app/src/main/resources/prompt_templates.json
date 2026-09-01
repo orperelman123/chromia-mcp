@@ -751,6 +751,16 @@
                 "brid": "{brid}",
                 "network": "{network}"
             }
+        },
+        {
+            "title": "Deployment Preflight",
+            "description": "Catch every deployment problem before a human burns a lease step or signs anything: deployments.<target> validity, wrong-network BRID/URL (HIGH), reachability probe, compile + security source gate, production pins. Read-only; no keys, no signing, no network writes.",
+            "tool": "mcp_chromia-mcp_deployment_preflight",
+            "prompt": "Run a deployment preflight for target {target} on my chromia.yml before anyone signs a deployment",
+            "parameters": {
+                "yaml": "{yaml}",
+                "target": "{target}"
+            }
         }
     ]
 }

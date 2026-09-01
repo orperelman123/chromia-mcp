@@ -105,7 +105,8 @@ class ToolExecutor(
         "local_chain_up" to LocalChainStrategy(),
         "translate_error" to TranslateErrorStrategy(),
         "onboarding_next_step" to OnboardingNextStepStrategy(),
-        "verify_deployment" to VerifyDeploymentStrategy()
+        "verify_deployment" to VerifyDeploymentStrategy(),
+        "deployment_preflight" to DeploymentPreflightStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest): CallToolResult {
@@ -1731,5 +1732,30 @@ class VerifyDeploymentStrategy(
             ?: throw IllegalArgumentException(
                 "waitMs must be an integer number of milliseconds (0-${VerifyDeployment.MAX_WAIT_MS}); got \"$raw\""
             )
+    }
+}
+
+class DeploymentPreflightStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val yaml = requireParameter(args, "yaml")
+        val target = requireParameter(args, "target")
+        // Same shape as check_dapp_project's `rell`: one source string
+        // (checked as main.rell) or a map of path -> source.
+        val rell = extractStringMap(args, "rell")
+        val strict = extractBoolean(args, "strict")
+        return runCatching {
+            // Compile + security run blocking compiler work; the reachability
+            // probe is the repository's suspend height read (same seam as
+            // verify_deployment), so no live network in unit tests.
+            val result = withContext(Dispatchers.IO) {
+                DeploymentPreflight.run(yaml, target, rell, strict) { network, bridHex ->
+                    repository.getBlockchainHeight(network, BlockchainRid.buildFromHex(bridHex))
+                }
+            }
+            toolSuccessResult(result.toJson())
+        }.getOrElse { e ->
+            toolErrorResult("deployment_preflight failed: ${e.message}")
+        }
     }
 }
