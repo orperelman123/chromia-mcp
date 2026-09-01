@@ -268,4 +268,82 @@ class AuditSilentArgumentRegressionTest {
         assertEquals(Long.MAX_VALUE, args["big"])
         assertEquals("3.14", args["price"])
     }
+
+    // ------------------------------------- round 6 residuals (entries/strings)
+
+    @Test
+    fun objectListEntryIsValidationErrorNamingTheIndex() {
+        val error = assertThrows<IllegalArgumentException> {
+            runBlocking {
+                AssetDistributionStrategy().execute(
+                    CallToolRequest(
+                        name = "get_asset_distribution",
+                        arguments = buildJsonObject {
+                            put("assetId", "chr")
+                            put("brids", buildJsonArray {
+                                add(buildJsonObject { put("accountId", "3008") })
+                            })
+                        }
+                    ),
+                    repo
+                )
+            }
+        }
+        assertTrue(error.message!!.contains("brids[0] must be a string"), error.message)
+        assertTrue(error.message!!.contains("an object"), error.message)
+        assertNull(repo.lastAssetFilters, "the query must not run with a coerced JSON-text filter")
+    }
+
+    @Test
+    fun numberListEntryIsValidationError() {
+        val error = assertThrows<IllegalArgumentException> {
+            runBlocking {
+                AssetDistributionStrategy().execute(
+                    CallToolRequest(
+                        name = "get_asset_distribution",
+                        arguments = buildJsonObject {
+                            put("assetId", "chr")
+                            put("brids", buildJsonArray { add(123) })
+                        }
+                    ),
+                    repo
+                )
+            }
+        }
+        assertTrue(error.message!!.contains("brids[0] must be a string"), error.message)
+        assertTrue(error.message!!.contains("a number (123)"), error.message)
+    }
+
+    @Test
+    fun objectForStringParamIsValidationErrorNotLiteralJsonText() {
+        val error = assertThrows<IllegalArgumentException> {
+            runBlocking {
+                org.chromia.tools.FilterAssetsStrategy().execute(
+                    CallToolRequest(
+                        name = "filter_assets",
+                        arguments = buildJsonObject {
+                            put("searchQuery", buildJsonObject { put("q", "CHR") })
+                        }
+                    ),
+                    repo
+                )
+            }
+        }
+        assertTrue(error.message!!.contains("searchQuery must be a string"), error.message)
+        assertTrue(error.message!!.contains("an object"), error.message)
+    }
+
+    @Test
+    fun numericPrimitiveForStringParamStillCoerces() = runBlocking {
+        // Numeric-timestamp-as-string coercion is a documented reliance; only
+        // object/array values are rejected.
+        val result = org.chromia.tools.FilterAssetsStrategy().execute(
+            CallToolRequest(
+                name = "filter_assets",
+                arguments = buildJsonObject { put("searchQuery", 42) }
+            ),
+            repo
+        )
+        assertTrue(result.isError != true, "numeric primitive must coerce, not error")
+    }
 }

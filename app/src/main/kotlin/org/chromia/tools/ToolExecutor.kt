@@ -187,13 +187,23 @@ internal fun extractRellFilesMap(filesArg: Any?): Pair<LinkedHashMap<String, Str
 }
 
 abstract class BaseToolStrategy : ToolStrategy {
+    /**
+     * Absent and JSON-null mean "not provided". Primitive values coerce via
+     * their content (numeric timestamps as strings are relied on), but an
+     * object or array used to be silently serialized to its JSON text - so
+     * `searchQuery: {"q": "CHR"}` searched the literal `{"q":"CHR"}` and
+     * returned zero matches as success (audit round 6 F2). Now a validation
+     * error, consistent with the other extractors.
+     */
     protected fun extractString(arguments: Map<String, Any>, key: String): String? {
         val value = arguments[key] ?: return null
         return when (value) {
             is JsonNull -> null
             is String -> value
             is JsonPrimitive -> value.content
-            else -> value.toString()
+            else -> throw IllegalArgumentException(
+                "$key must be a string; got ${describeJsonValue(value)}"
+            )
         }
     }
 
@@ -316,13 +326,19 @@ abstract class BaseToolStrategy : ToolStrategy {
             )
         }
         return elements.mapIndexed { idx, item ->
-            val text = when (item) {
-                null, is JsonNull -> throw IllegalArgumentException(
+            val text = when {
+                item == null || item is JsonNull -> throw IllegalArgumentException(
                     "$key[$idx] is null; entries must be non-empty strings"
                 )
-                is String -> item
-                is JsonPrimitive -> item.content
-                else -> item.toString()
+                item is String -> item
+                item is JsonPrimitive && item.isString -> item.content
+                // A non-string entry used to coerce via toString(), so
+                // excludeAccounts: [{"accountId": ".."}] became the literal
+                // filter text {"accountId":".."} and matched nothing - wrong
+                // filtered-looking data as success (audit round 6 F1).
+                else -> throw IllegalArgumentException(
+                    "$key[$idx] must be a string; got ${describeJsonValue(item)}"
+                )
             }.trim()
             text.ifEmpty {
                 throw IllegalArgumentException("$key[$idx] is blank; entries must be non-empty strings")
