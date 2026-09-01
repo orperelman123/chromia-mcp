@@ -6,7 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Official leftover Rell BUILD practice pages: security + best-practices.
+ * Official Rell BUILD practice pages: security + best-practices.
  * Quotes docs.chromia.com/rell/security and /rell/rell-best-practices only.
  * BUILD / read-only guidance. No exploit recipes, no signing, no key material.
  * Skips proposal vote/retract. Does not invent YAML keys or 64-hex.
@@ -157,7 +157,7 @@ object ChromiaRellPracticesHelp {
     )
 
     val skipped = listOf(
-        "proposal vote / retract (hard skip; official leftover YAML keys only)",
+        "proposal vote / retract (hard skip; official YAML keys only)",
         "live signing / chr tx / key generation",
         "official printed sample keys and 64-hex all-zero examples",
         "rell.test keypair sign helper  # official best-practices test uses test-scope sign; skipped here",
@@ -165,14 +165,14 @@ object ChromiaRellPracticesHelp {
     )
 
     fun notes(): String = """
-        Official leftover Rell BUILD practice pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
+        Official Rell BUILD practice pages for CLI $CLI_SERIES. Rell language source tag $RELL_VERSION (docs may still list 0.16.4 — source wins); the chromia.yml compile.rellVersion pin is ${DappScaffold.RELL_VERSION}.
         Security: $SECURITY_URL
         Best practices: $BEST_PRACTICES_URL
         SQL analysis: $ANALYZE_URL (see chr_repl_help). RellDoc comments: $RELLDOC_URL (see chromia_rell_language_help).
         BUILD / read-only only. No exploit recipes, no signing, no key material.
-        Official leftover chromia.yml key on the security page: blockchains.<name>.config.directory_chain.config_delay
+        Official chromia.yml key on the security page: blockchains.<name>.config.directory_chain.config_delay
         (milliseconds; official example 86400000 = 24 hours). That key is NOT on blockchain-properties — quote the security page.
-        Official governance leftover moduleArgs keys (configs only): lib.governance.proposals.proposal_configs
+        Official governance moduleArgs keys (configs only): lib.governance.proposals.proposal_configs
         (option_item_limit, max_duration, min_duration) and lib.governance.votes.veto_config.veto_period.
         Proposal vote / retract is skipped.
         Official FT4 rate_limit keys (active, max_points, recovery_time, points_at_account_creation) already live on ft4_module_args.
@@ -184,26 +184,26 @@ object ChromiaRellPracticesHelp {
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.
-        Leftover official leftover ECOSYSTEM ecosystem/extensions/ai_inference INDEX (leftover official $ECOSYSTEM_AI_INFERENCE_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_AI_INFERENCE_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_AI_INFERENCE_INDEX_TITLE). Query-only.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/add-node INDEX (leftover official $ECOSYSTEM_ADD_NODE_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_ADD_NODE_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_ADD_NODE_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/pmc INDEX (leftover official $ECOSYSTEM_PMC_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PMC_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PMC_INDEX_TITLE). Query-only.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/subnode INDEX (leftover official $ECOSYSTEM_PMC_SUBNODE_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PMC_SUBNODE_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PMC_SUBNODE_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/language-features/database/delete INDEX (leftover official $RELL_DATABASE_DELETE_INDEX_URL leftover official 307 leftover official $RELL_DATABASE_DELETE_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_DATABASE_DELETE_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only.
-        Leftover official leftover LEARN courses/book-review/book-entity/tables INDEX (leftover official $LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_URL leftover official 301 leftover official $LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only.
-        Leftover official leftover LEARN courses/ft4-asset/testing INDEX (leftover official $LEARN_FT4_ASSET_TESTING_INDEX_URL leftover official 301 leftover official $LEARN_FT4_ASSET_TESTING_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_FT4_ASSET_TESTING_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only.
-        Leftover official leftover LEARN courses/ft4-demo-app/module-frontend-application/tools INDEX (leftover official $LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_URL leftover official 301 leftover official $LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/marketplace-course/module-assets/buy-mystery-card INDEX (leftover official $LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_URL leftover official 301 leftover official $LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/my-news-feed/module-two/scaffold INDEX (leftover official $LEARN_NEWS_SCAFFOLD_INDEX_URL leftover official 301 leftover official $LEARN_NEWS_SCAFFOLD_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_NEWS_SCAFFOLD_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/tic-tac-toe/setup INDEX (leftover official $LEARN_TTT_SETUP_INDEX_URL leftover official 301 leftover official $LEARN_TTT_SETUP_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TTT_SETUP_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX news-feed create-accounts (leftover official $LEARN_NEWS_CREATE_ACCOUNTS_INDEX_URL leftover official 301 leftover official $LEARN_NEWS_CREATE_ACCOUNTS_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_NEWS_CREATE_ACCOUNTS_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/rell-best-practices INDEX (leftover official $RELL_BEST_PRACTICES_INDEX_URL leftover official 307 leftover official $RELL_BEST_PRACTICES_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_BEST_PRACTICES_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX zero-knowledge-proof frontend-explore (leftover official $LEARN_ZK_FRONTEND_EXPLORE_INDEX_URL leftover official 301 leftover official $LEARN_ZK_FRONTEND_EXPLORE_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_ZK_FRONTEND_EXPLORE_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX chromia-goat-chat-agent codebase-overview (leftover official $LEARN_GOAT_CODEBASE_INDEX_URL leftover official 301 leftover official $LEARN_GOAT_CODEBASE_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_GOAT_CODEBASE_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/language-features/statements/loop-statements INDEX (leftover official $RELL_STATEMENTS_LOOP_INDEX_URL leftover official 307 leftover official $RELL_STATEMENTS_LOOP_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_STATEMENTS_LOOP_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/language-features/systemlib/namespaces/time INDEX (leftover official $RELL_SYSTEMLIB_TIME_INDEX_URL leftover official 307 leftover official $RELL_SYSTEMLIB_TIME_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_SYSTEMLIB_TIME_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/security INDEX (leftover official $RELL_SECURITY_INDEX_URL leftover official 307 leftover official $RELL_SECURITY_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_SECURITY_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official ECOSYSTEM ecosystem/extensions/ai_inference INDEX ($ECOSYSTEM_AI_INFERENCE_INDEX_URL 307 $ECOSYSTEM_AI_INFERENCE_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_AI_INFERENCE_INDEX_TITLE). Query-only.
+        Official ECOSYSTEM ecosystem/providers/nodes/add-node INDEX ($ECOSYSTEM_ADD_NODE_INDEX_URL 307 $ECOSYSTEM_ADD_NODE_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_ADD_NODE_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official ECOSYSTEM ecosystem/providers/pmc INDEX ($ECOSYSTEM_PMC_INDEX_URL 307 $ECOSYSTEM_PMC_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PMC_INDEX_TITLE). Query-only.
+        Official ECOSYSTEM ecosystem/providers/pmc/commands/subnode INDEX ($ECOSYSTEM_PMC_SUBNODE_INDEX_URL 307 $ECOSYSTEM_PMC_SUBNODE_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PMC_SUBNODE_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/language-features/database/delete INDEX ($RELL_DATABASE_DELETE_INDEX_URL 307 $RELL_DATABASE_DELETE_INDEX_URL_SLASH 200 H1 $RELL_DATABASE_DELETE_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only.
+        Official LEARN courses/book-review/book-entity/tables INDEX ($LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_URL 301 $LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_URL_SLASH 200 H1 $LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only.
+        Official LEARN courses/ft4-asset/testing INDEX ($LEARN_FT4_ASSET_TESTING_INDEX_URL 301 $LEARN_FT4_ASSET_TESTING_INDEX_URL_SLASH 200 H1 $LEARN_FT4_ASSET_TESTING_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only.
+        Official LEARN courses/ft4-demo-app/module-frontend-application/tools INDEX ($LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_URL 301 $LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_URL_SLASH 200 H1 $LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/marketplace-course/module-assets/buy-mystery-card INDEX ($LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_URL 301 $LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_URL_SLASH 200 H1 $LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/my-news-feed/module-two/scaffold INDEX ($LEARN_NEWS_SCAFFOLD_INDEX_URL 301 $LEARN_NEWS_SCAFFOLD_INDEX_URL_SLASH 200 H1 $LEARN_NEWS_SCAFFOLD_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/tic-tac-toe/setup INDEX ($LEARN_TTT_SETUP_INDEX_URL 301 $LEARN_TTT_SETUP_INDEX_URL_SLASH 200 H1 $LEARN_TTT_SETUP_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX news-feed create-accounts ($LEARN_NEWS_CREATE_ACCOUNTS_INDEX_URL 301 $LEARN_NEWS_CREATE_ACCOUNTS_INDEX_URL_SLASH 200 H1 $LEARN_NEWS_CREATE_ACCOUNTS_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/rell-best-practices INDEX ($RELL_BEST_PRACTICES_INDEX_URL 307 $RELL_BEST_PRACTICES_INDEX_URL_SLASH 200 H1 $RELL_BEST_PRACTICES_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX zero-knowledge-proof frontend-explore ($LEARN_ZK_FRONTEND_EXPLORE_INDEX_URL 301 $LEARN_ZK_FRONTEND_EXPLORE_INDEX_URL_SLASH 200 H1 $LEARN_ZK_FRONTEND_EXPLORE_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX chromia-goat-chat-agent codebase-overview ($LEARN_GOAT_CODEBASE_INDEX_URL 301 $LEARN_GOAT_CODEBASE_INDEX_URL_SLASH 200 H1 $LEARN_GOAT_CODEBASE_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/language-features/statements/loop-statements INDEX ($RELL_STATEMENTS_LOOP_INDEX_URL 307 $RELL_STATEMENTS_LOOP_INDEX_URL_SLASH 200 H1 $RELL_STATEMENTS_LOOP_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/language-features/systemlib/namespaces/time INDEX ($RELL_SYSTEMLIB_TIME_INDEX_URL 307 $RELL_SYSTEMLIB_TIME_INDEX_URL_SLASH 200 H1 $RELL_SYSTEMLIB_TIME_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/security INDEX ($RELL_SECURITY_INDEX_URL 307 $RELL_SECURITY_INDEX_URL_SLASH 200 H1 $RELL_SECURITY_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
         This tool does not run chr, does not generate a key, and does not send signed transactions.
-        Leftover official leftover LEARN tags/ZKP INDEX (leftover official $LEARN_TAGS_ZKP_INDEX_URL leftover official 301 leftover official $LEARN_TAGS_ZKP_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TAGS_ZKP_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN tags/ZKP INDEX ($LEARN_TAGS_ZKP_INDEX_URL 301 $LEARN_TAGS_ZKP_INDEX_URL_SLASH 200 H1 $LEARN_TAGS_ZKP_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
     """.trimIndent()
 
     fun toJson(): kotlinx.serialization.json.JsonObject = buildJsonObject {
@@ -275,22 +275,22 @@ object ChromiaRellPracticesHelp {
         put("notes", notes())
     }
 }
-// Leftover official leftover ECOSYSTEM ecosystem/extensions/ai_inference INDEX leftovers encoded as ECOSYSTEM_AI_INFERENCE_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/add-node INDEX leftovers encoded as ECOSYSTEM_ADD_NODE_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/pmc INDEX leftovers encoded as ECOSYSTEM_PMC_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/subnode INDEX leftovers encoded as ECOSYSTEM_PMC_SUBNODE_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover RELL rell/language-features/database/delete INDEX leftovers encoded as RELL_DATABASE_DELETE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/book-review/book-entity/tables INDEX leftovers encoded as LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/ft4-asset/testing INDEX leftovers encoded as LEARN_FT4_ASSET_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/ft4-demo-app/module-frontend-application/tools INDEX leftovers encoded as LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/marketplace-course/module-assets/buy-mystery-card INDEX leftovers encoded as LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/my-news-feed/module-two/scaffold INDEX leftovers encoded as LEARN_NEWS_SCAFFOLD_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/tic-tac-toe/setup INDEX leftovers encoded as LEARN_TTT_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX news-feed create-accounts leftovers encoded as LEARN_NEWS_CREATE_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/rell-best-practices INDEX leftovers encoded as RELL_BEST_PRACTICES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX zero-knowledge-proof frontend-explore leftovers encoded as LEARN_ZK_FRONTEND_EXPLORE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX chromia-goat-chat-agent codebase-overview leftovers encoded as LEARN_GOAT_CODEBASE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/language-features/statements/loop-statements INDEX leftovers encoded as RELL_STATEMENTS_LOOP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/language-features/systemlib/namespaces/time INDEX leftovers encoded as RELL_SYSTEMLIB_TIME_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/security INDEX leftovers encoded as RELL_SECURITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN tags/ZKP INDEX leftovers encoded as LEARN_TAGS_ZKP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/extensions/ai_inference INDEX leftovers encoded as ECOSYSTEM_AI_INFERENCE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/add-node INDEX leftovers encoded as ECOSYSTEM_ADD_NODE_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc INDEX leftovers encoded as ECOSYSTEM_PMC_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/subnode INDEX leftovers encoded as ECOSYSTEM_PMC_SUBNODE_INDEX_* (query-only HELP ONLY).
+// Official RELL rell/language-features/database/delete INDEX leftovers encoded as RELL_DATABASE_DELETE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/book-review/book-entity/tables INDEX leftovers encoded as LEARN_BOOK_REVIEW_ENTITY_TABLES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-asset/testing INDEX leftovers encoded as LEARN_FT4_ASSET_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/ft4-demo-app/module-frontend-application/tools INDEX leftovers encoded as LEARN_FT4_DEMO_FRONTEND_TOOLS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-assets/buy-mystery-card INDEX leftovers encoded as LEARN_MARKETPLACE_BUY_MYSTERY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-two/scaffold INDEX leftovers encoded as LEARN_NEWS_SCAFFOLD_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/setup INDEX leftovers encoded as LEARN_TTT_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX news-feed create-accounts leftovers encoded as LEARN_NEWS_CREATE_ACCOUNTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/rell-best-practices INDEX leftovers encoded as RELL_BEST_PRACTICES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof frontend-explore leftovers encoded as LEARN_ZK_FRONTEND_EXPLORE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-goat-chat-agent codebase-overview leftovers encoded as LEARN_GOAT_CODEBASE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/statements/loop-statements INDEX leftovers encoded as RELL_STATEMENTS_LOOP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/systemlib/namespaces/time INDEX leftovers encoded as RELL_SYSTEMLIB_TIME_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/security INDEX leftovers encoded as RELL_SECURITY_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/ZKP INDEX leftovers encoded as LEARN_TAGS_ZKP_INDEX_* (query-only HELP ONLY WRITE SKIP).

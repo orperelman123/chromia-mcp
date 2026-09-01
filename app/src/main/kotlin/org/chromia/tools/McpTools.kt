@@ -1478,7 +1478,7 @@ object McpTools {
         description = """
             Validate a chromia.yml string against production pins.
             Checks compile.rellVersion (required semver N.N.N), blockchains.*.module (module name, not a file path),
-            merkle_hash_version == 2, leftover official blockchain key webStatic is accepted, and forbids FT4 admin / ras_open modules in libs and moduleArgs.
+            merkle_hash_version == 2, blockchain key webStatic is accepted, and forbids FT4 admin / ras_open modules in libs and moduleArgs.
             Deployments: reserved names mainnet / testnet auto-fill Directory brid + url; custom names require both;
             a Directory Chain BRID that is not 64 hex is an error; official reserved BRIDs must match.
             require_mandatory_flags as a YAML / moduleArgs key is an error (main auth descriptor only).
@@ -1519,7 +1519,7 @@ object McpTools {
         description = """
             Return a production-correct FT4 v1.1.0r API 1 module_args + libs block for chromia.yml.
             require_mandatory_flags only on the main auth descriptor. DEFAULT_LOGIN_CONFIG_NAME is "default".
-            Leftover official /build/ft4/configuration-values + /setup/imports (200). Use auth_descriptor.max_rules, not stale max_auth_descriptor_rules.
+            Official /build/ft4/configuration-values + /setup/imports (200). Use auth_descriptor.max_rules, not stale max_auth_descriptor_rules.
             NEVER emits lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions. Confirm keys with fetch_docs.
         """.trimIndent(),
@@ -1827,7 +1827,7 @@ object McpTools {
         name = "chr_build_help",
         description = """
             Return official Chromia CLI 0.33.x install / build / test commands and the expected chromia.yml shape.
-            Leftover official /build/cli/introduction + /cli-release-notes (200): docs latest 0.30.0 vs source tags 0.33.x.
+            Official /build/cli/introduction + /cli-release-notes (200): docs latest 0.30.0 vs source tags 0.33.x.
             Does not shell out to chr and does not send signed transactions.
             Commands: chr install, chr build, chr code check, chr test. chr repl --sql-log (see chr_repl_help).
             Java 21+, Postgres 16+.
@@ -1860,7 +1860,7 @@ object McpTools {
             Includes -y, --key-id (reference only; does not generate a key), schema-compare DROP warning,
             and that create writes deployments.<net>.chains back. Optional container: field after a
             Vault/PMC lease — does not invent a lease id or BRID.
-            Also returns official chromia.yml database / test section snippets (Java 21+, Postgres 16+). Leftover official BUILD vault-listing read-only find_dapp_details query (skip leftover official chr tx writes and leftover official sample 64-hex). Leftover official BUILD testnet list-dapp-vault (200) leftover official checkmark / leftover official setUpMocks.ts / leftover official hardcoded vs db names. Leftover official intro/installation/postchain-clients is 404; leftover official /build/clients/overview wins. Leftover official BUILD testnet deploy-dapp / getting-started (200): leftover official create write-back wins; leftover official getting-started mainnet wording on leftover official TESTNET page is stale. Leftover official BUILD get-tchr-binance (200) leftover official BSC vs Chromia tCHR differences; leftover official deploy-dapp explorer verify leftover official explorer.chromia.com. Leftover official BUILD connect-client started (leftover official mainnet creatClient typo). Leftover official BUILD deploy-frontend-dapp webStatic (200).
+            Also returns official chromia.yml database / test section snippets (Java 21+, Postgres 16+). Official BUILD vault-listing read-only find_dapp_details query (skip chr tx writes and sample 64-hex). Official BUILD testnet list-dapp-vault (200) checkmark / setUpMocks.ts / hardcoded vs db names. Official intro/installation/postchain-clients is 404; /build/clients/overview wins. Official BUILD testnet deploy-dapp / getting-started (200): create write-back wins; getting-started mainnet wording on TESTNET page is stale. Official BUILD get-tchr-binance (200) BSC vs Chromia tCHR differences; deploy-dapp explorer verify explorer.chromia.com. Official BUILD connect-client started (mainnet creatClient typo). Official BUILD deploy-frontend-dapp webStatic (200).
             Does not shell out to chr and does not send signed transactions.
             Skips vote/propose/pause/resume/remove and hidden lease-info / remove-container.
         """.trimIndent(),
@@ -1925,7 +1925,7 @@ object McpTools {
             Official Chromia CLI 0.33.x read-only chr query flag help.
             Targets a local chr node start (default http://localhost:7740) or a named
             chromia.yml deployment / --mainnet / --testnet. Does not sign or execute a transaction.
-            Leftover official tx command page is HELP ONLY (official flags + URL; skip leftover official sample BRID hex).
+            Official tx command page is HELP ONLY (official flags + URL; skip sample BRID hex).
             Does not run chr, generate a key, send a signed tx, or invent a BRID.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -2072,7 +2072,7 @@ object McpTools {
             Official Chromia CLI 0.33.x chr repl flag help.
             Interactive Rell shell: --module, --blockchain, --sql-log, --use-db, -c/--command.
             CLI 0.31.0 removed chr test --sql-log; use chr repl --sql-log --use-db --module for entity SQL
-            (official leftover /rell/analyze-rell-dapp-code).
+            (official /rell/analyze-rell-dapp-code).
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -2233,9 +2233,9 @@ object McpTools {
         name = "chr_completion_help",
         description = """
             Official Chromia CLI 0.33.x chr help / chr version / --generate-completion help.
-            Leftover official pages /build/cli/introduction, /cli-release-notes, /commands/help and /version (200).
+            Official pages /build/cli/introduction, /cli-release-notes, /commands/help and /version (200).
             Docs-site latest listed CLI 0.30.0 (2026-02-27); source tags 0.33.x — state both.
-            Leftover official pages /build/cli/commands/help and /version (200): usage + -h/--help only.
+            Official pages /build/cli/commands/help and /version (200): usage + -h/--help only.
             bash|zsh|fish completion scripts and two-letter shortcuts (chr de cr).
             Documents skipped hidden verbs: fetch-config, deployment lease-info, remove-container.
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
@@ -2349,16 +2349,16 @@ object McpTools {
         description = """
             Official Chromia BUILD cookbook help for building a dapp: queries, client reads, and tests.
             Official pages only, including /rell/tests builders, asserts, and @disabled.
-            Leftover official cookbook run-queries is HELP ONLY (skip leftover official sample BRID hex).
-            Leftover official cookbook run-tests is HELP ONLY (skip leftover official sample BRID hex; leftover official chr test --sql-log removed).
-            Leftover official cookbook create-rell-dapp is HELP ONLY (skip leftover official sample BRID hex; leftover official --local skipped).
-            Leftover official cookbook overview is HELP ONLY (leftover official Welcome to the Chromia Cookbook; skip leftover official sample BRID hex).
-            Leftover official cookbook CLI is HELP ONLY (leftover official CLI; skip leftover official sample BRID hex; leftover official run-operations this signs).
-            Leftover official cookbook query-creation is HELP ONLY (leftover official Create queries; skip leftover official sample BRID hex; leftover official get-account-balance EVM key pair).
-            Leftover official cookbook get-account-balance is HELP ONLY (leftover official How to get account balance; leftover official EVM key pair).
-            Leftover official cookbook account-creation is HELP ONLY (leftover official Account creation; leftover official this signs).
-            Leftover official cookbook transaction-creation is HELP ONLY (leftover official Create & manage transactions; leftover official this signs).
-            Leftover official cookbook run-operations is HELP ONLY (leftover official How to run operations; leftover official this signs).
+            Official cookbook run-queries is HELP ONLY (skip sample BRID hex).
+            Official cookbook run-tests is HELP ONLY (skip sample BRID hex; chr test --sql-log removed).
+            Official cookbook create-rell-dapp is HELP ONLY (skip sample BRID hex; --local skipped).
+            Official cookbook overview is HELP ONLY (Welcome to the Chromia Cookbook; skip sample BRID hex).
+            Official cookbook CLI is HELP ONLY (CLI; skip sample BRID hex; run-operations this signs).
+            Official cookbook query-creation is HELP ONLY (Create queries; skip sample BRID hex; get-account-balance EVM key pair).
+            Official cookbook get-account-balance is HELP ONLY (How to get account balance; EVM key pair).
+            Official cookbook account-creation is HELP ONLY (Account creation; this signs).
+            Official cookbook transaction-creation is HELP ONLY (Create & manage transactions; this signs).
+            Official cookbook run-operations is HELP ONLY (How to run operations; this signs).
             Skips recipes that sign a live tx, cookbook-only flags, non-schema keys, and printed sample keys.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
@@ -2385,7 +2385,7 @@ object McpTools {
         name = "chr_key_id_help",
         description = """
             Official Chromia CLI 0.33.x existing-key reference only (--key-id / key.id precedence).
-            Leftover official keygen command page is HELP ONLY (official flags + URL).
+            Official keygen command page is HELP ONLY (official flags + URL).
             Does not generate a key, print a private key, print a sample key, run chr, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -2413,7 +2413,7 @@ object McpTools {
         description = """
             Official Chromia BUILD query-only C# / Go / Rust / React Kit / REST client wiring.
             Official pages only. JS/TS, Kotlin, Python, and FT4 local reads live on chr_generate_client_help.
-            Leftover official Filehub work getFile, leftover official MCP setup, leftover official bridge checkAllowance. Skips signed txs, key generation, FilehubAdministrator writes, leftover official MCP explorer-dump sample BRIDs, and invented package ids.
+            Official Filehub work getFile, MCP setup, bridge checkAllowance. Skips signed txs, key generation, FilehubAdministrator writes, MCP explorer-dump sample BRIDs, and invented package ids.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -2471,8 +2471,8 @@ object McpTools {
             plus namespace / mount / abstract / size-constraint-annotations / RellDoc / identifiers).
             Quotes docs.chromia.com/rell pages only. Rell pin 0.16.7 (docs may still list 0.16.4).
             Official Hello World query hello_world returns "Hello World!".
-            Official leftover /rell/rell-doc tags: @param @return @throws @see @since @author.
-            Official leftover /rell/releases: docs-site latest listed 0.16.4; source pin 0.16.7
+            Official /rell/rell-doc tags: @param @return @throws @see @since @author.
+            Official /rell/releases: docs-site latest listed 0.16.4; source pin 0.16.7
             (source notes 0.16.5 / 0.16.6 / 0.16.7). Official 0.14.5 T.hash() default is V1; production pin 2.
             Size-constraint applies to parameters, struct attributes, and entity/object attributes.
             Modules/imports/layouts live on chromia_project_structure_help.
@@ -2501,9 +2501,9 @@ object McpTools {
     fun chromiaRellPracticesHelpTool() = Tool(
         name = "chromia_rell_practices_help",
         description = """
-            Official leftover Rell BUILD practice pages (security + best-practices).
+            Official Rell BUILD practice pages (security + best-practices).
             Quotes docs.chromia.com/rell/security and /rell/rell-best-practices only.
-            Leftover chromia.yml key config.directory_chain.config_delay. FT4 rate_limit pointer.
+            chromia.yml key config.directory_chain.config_delay. FT4 rate_limit pointer.
             Composite keys, indexing, require validation, run_must_fail. BUILD / read-only.
             No exploit recipes, no signing, no key material, no proposal vote/retract.
             Does not run chr, generate a key, or send signed transactions.
@@ -2532,9 +2532,9 @@ object McpTools {
         description = """
             Official FT4 v1.1.0r / API 1 read-only query catalog (get_all_assets, get_assets_by_name,
             get_account_by_id, pagination page_size/page_cursor, does_account_require_memo).
-            Leftover official /build/ft4/prioritization (200): priority_check_v1 on gtx_api, not ft4.*.
-            Leftover official /build/ft4/terms + /intro + /setup/imports + /configuration-values + /releases/ft4 (200).
-            Official leftover /build/ft4/releases is 404. Changelog latest listed 1.1.0r; pin remains v1.1.0r / API 1.
+            Official /build/ft4/prioritization (200): priority_check_v1 on gtx_api, not ft4.*.
+            Official /build/ft4/terms + /intro + /setup/imports + /configuration-values + /releases/ft4 (200).
+            Official /build/ft4/releases is 404. Changelog latest listed 1.1.0r; pin remains v1.1.0r / API 1.
             Queries / config only. Never emits admin / ras_open / register / transfer / auth write paths.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
@@ -2563,7 +2563,7 @@ object McpTools {
         description = """
             Official Chromia BUILD integrations hub (read-only). Memo query does_account_require_memo.
             Official child page URLs only. Does not invent package ids (C# NuGet id unpublished).
-            Leftover official token-chain query shapes (get_token_chain_constants, get_proposals_by_proposer proposer=, get_all_bridges).
+            Official token-chain query shapes (get_token_chain_constants, get_proposals_by_proposer proposer=, get_all_bridges).
             Skips exchange account-creation / transfer / memo write operations.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
@@ -2589,10 +2589,10 @@ object McpTools {
     fun chromiaVectorSearchHelpTool() = Tool(
         name = "chromia_vector_search_help",
         description = """
-            Official leftover BUILD vector-search (read-only). Live leftover pages:
+            Official BUILD vector-search (read-only). Live pages:
             /build/vector-search/overview/ and /sample-workloads (200).
-            Leftover official /build/vector-search/ is 404. /build/extensions/ is 404.
-            Official leftover BUILD pages print no module names, yml keys, or query names.
+            Official /build/vector-search/ is 404. /build/extensions/ is 404.
+            Official BUILD pages print no module names, yml keys, or query names.
             Hard skip: ingest embeddings / ONNX. Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -2669,8 +2669,8 @@ object McpTools {
         description = """
             Official Rell database-language help (at / create / update / delete syntax).
             Quotes docs.chromia.com/rell database pages only. These constructs run inside operations.
-            Leftover official /build/database/getting-started + /overview (200). architecture/scaling 404.
-            Leftover getting-started says chromia start — NOT a chr command; official local loop is chr node start.
+            Official /build/database/getting-started + /overview (200). architecture/scaling 404.
+            getting-started says chromia start — NOT a chr command; official local loop is chr node start.
             Does not document chr tx or signed send. create-copy and /database/at are 404.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
@@ -2781,7 +2781,7 @@ object McpTools {
         description = """
             Read-only in-memory scan of one or more .rell file contents for forbidden FT4 production imports
             (lib.ft4.admin, admin.crosschain, ras_open, ras_transfer_open, and the rest of DappScaffold.forbiddenModules).
-            Leftover official /build/ft4/setup/imports (200): public vs core; leftover list label cross-chain is import lib.ft4.crosschain.
+            Official /build/ft4/setup/imports (200): public vs core; list label cross-chain is import lib.ft4.crosschain.
             Returns {ok, errors, warnings, hits, forbidden}. Used by check_dapp_project.
             Does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),

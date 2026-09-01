@@ -6,10 +6,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Official leftover BUILD vector-search (read-only).
- * Live leftover pages: /build/vector-search/overview/ and /sample-workloads (200).
+ * Official BUILD vector-search (read-only).
+ * Live pages: /build/vector-search/overview/ and /sample-workloads (200).
  * /build/vector-search/ is 404. /build/vector-search/overview (no slash) is 307.
- * /build/extensions/ is 404. Official leftover BUILD pages print no module names,
+ * /build/extensions/ is 404. Official BUILD pages print no module names,
  * yml keys, or query names — do not invent any.
  */
 object ChromiaVectorSearchHelp {
@@ -75,7 +75,7 @@ object ChromiaVectorSearchHelp {
     const val LEARN_TAGS_PYSPARK_INDEX_TITLE = "Courses tagged with: PySpark"  // official H1
     const val LEARN_TAGS_VECTOR_DB_INDEX_URL = "https://learn.chromia.com/tags/Vector%20DB"
     const val LEARN_TAGS_VECTOR_DB_INDEX_URL_SLASH = "https://learn.chromia.com/tags/Vector%20DB/"
-    const val LEARN_TAGS_VECTOR_DB_INDEX_TITLE = "Courses tagged with: Vector DB"  // leftover LEARN_TAGS_TAG pattern; official leftover tag URL currently 404
+    const val LEARN_TAGS_VECTOR_DB_INDEX_TITLE = "Courses tagged with: Vector DB"  // LEARN_TAGS_TAG pattern; official tag URL currently 404
 
     val pages = listOf(OVERVIEW_URL, WORKLOADS_URL)
 
@@ -86,15 +86,15 @@ object ChromiaVectorSearchHelp {
     )
 
     val concepts = listOf(
-        "Embeddings  # leftover official: store high-dimensional vectors per account, message, or object",
-        "Hybrid search  # leftover official: combine vector similarity with structured filters from the relational schema",
-        "Access control  # leftover official: use Rell to guard both writes and read access to sensitive embeddings"
+        "Embeddings  # official: store high-dimensional vectors per account, message, or object",
+        "Hybrid search  # official: combine vector similarity with structured filters from the relational schema",
+        "Access control  # official: use Rell to guard both writes and read access to sensitive embeddings"
     )
 
     val workloads = listOf(
-        "Recommendation feed  # leftover official: dedicated table; pgvector cosine_distance; cache table",
-        "AI-assisted search  # leftover official: off-chain text-embedding-3-small; Filehub API or backend worker; full-text indexing",
-        "RAG pipelines  # leftover official: Filehub binary refs; chunk embeddings; Postchain REST plus Rell ACL"
+        "Recommendation feed  # official: dedicated table; pgvector cosine_distance; cache table",
+        "AI-assisted search  # official: off-chain text-embedding-3-small; Filehub API or backend worker; full-text indexing",
+        "RAG pipelines  # official: Filehub binary refs; chunk embeddings; Postchain REST plus Rell ACL"
     )
 
     val skipped = listOf(
@@ -103,45 +103,45 @@ object ChromiaVectorSearchHelp {
         "/build/extensions/ is 404",
         "invented module names yml keys query names",
         "ingest embeddings and ONNX hard skip",
-        "leftover official BUILD Filehub client page prints no package id; leftover official configure and leftover official work print filehub",
+        "BUILD Filehub client page prints no package id; configure and work print filehub",
         "invented hex placeholders"
     )
 
     fun notes(): String = """
-        Official leftover Chromia BUILD vector-search. CLI $CLI_SERIES. Java 21+, Postgres 16+.
-        Leftover official overview (200 with trailing slash): $OVERVIEW_URL
-        Bare $OVERVIEW_REDIRECT is 307. Leftover official index $INDEX_404_URL is 404.
-        Leftover official sample workloads (200): $WORKLOADS_URL
-        Leftover official /build/extensions/ is 404 ($EXTENSIONS_404_URL).
-        Leftover official capabilities: pgvector; full-text indexes; deterministic ranking.
-        Leftover official concepts: embeddings; hybrid search; Rell access control for embeddings.
-        Leftover official workloads: recommendation feed (pgvector cosine_distance); AI-assisted search
+        Official Chromia BUILD vector-search. CLI $CLI_SERIES. Java 21+, Postgres 16+.
+        Official overview (200 with trailing slash): $OVERVIEW_URL
+        Bare $OVERVIEW_REDIRECT is 307. Official index $INDEX_404_URL is 404.
+        Official sample workloads (200): $WORKLOADS_URL
+        Official /build/extensions/ is 404 ($EXTENSIONS_404_URL).
+        Official capabilities: pgvector; full-text indexes; deterministic ranking.
+        Official concepts: embeddings; hybrid search; Rell access control for embeddings.
+        Official workloads: recommendation feed (pgvector cosine_distance); AI-assisted search
         (off-chain text-embedding-3-small plus Filehub API); RAG (Filehub binary plus Postchain REST plus Rell ACL).
-        Leftover official BUILD pages print no module names, yml keys, or query names — do not invent any.
-        Leftover official Filehub client pointer: $FILEHUB_CLIENT_URL — TypeScript; peer deps @chromia/ft4 and postchain-client; leftover official BUILD page prints no package id. Leftover official configure and leftover official work print package id filehub (see chromia_language_clients_help).
-        Leftover official sample-workloads says continue via CLI cookbook templates ($COOKBOOK_URL).
+        Official BUILD pages print no module names, yml keys, or query names — do not invent any.
+        Official Filehub client pointer: $FILEHUB_CLIENT_URL — TypeScript; peer deps @chromia/ft4 and postchain-client; BUILD page prints no package id. Official configure and work print package id filehub (see chromia_language_clients_help).
+        Official sample-workloads says continue via CLI cookbook templates ($COOKBOOK_URL).
         Hard skip: ingest embeddings, ONNX, invented query names.
-        Leftover official leftover BUILD vector-search/overview (leftover official $OVERVIEW_INDEX_URL leftover official 307 leftover official $OVERVIEW_INDEX_URL_SLASH leftover official 200 leftover official $OVERVIEW_INDEX_TITLE): leftover official leftover Query-only leftover official leftover WRITE SKIP leftover official leftover no leftover official leftover signed leftover official leftover txs leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover no leftover official leftover keygen leftover official leftover leftover official leftover BUILD leftover official leftover pages leftover official leftover print leftover official leftover no leftover official leftover module leftover official leftover names leftover official leftover yml leftover official leftover keys leftover official leftover or leftover official leftover query leftover official leftover names leftover official leftover do leftover official leftover not leftover official leftover invent leftover official leftover any leftover official leftover leftover official leftover $INDEX_404_URL leftover official leftover is leftover official leftover 404.
-        Leftover official leftover BUILD vector-search/sample-workloads (leftover official $WORKLOADS_INDEX_URL leftover official 307 leftover official $WORKLOADS_INDEX_URL_SLASH leftover official 200 leftover official $WORKLOADS_INDEX_TITLE): leftover official leftover Query-only leftover official leftover WRITE SKIP leftover official leftover no leftover official leftover signed leftover official leftover txs leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover no leftover official leftover keygen leftover official leftover leftover official leftover BUILD leftover official leftover pages leftover official leftover print leftover official leftover no leftover official leftover module leftover official leftover names leftover official leftover yml leftover official leftover keys leftover official leftover or leftover official leftover query leftover official leftover names leftover official leftover do leftover official leftover not leftover official leftover invent leftover official leftover any.
-        Leftover official leftover GET-STARTED get-started/use-cases/ai-on-chain/vector-db INDEX (leftover official $GET_STARTED_VECTOR_DB_INDEX_URL leftover official 307 leftover official $GET_STARTED_VECTOR_DB_INDEX_URL_SLASH leftover official 200 leftover official $GET_STARTED_VECTOR_DB_INDEX_TITLE): leftover official leftover slash leftover official leftover title leftover official leftover WRITE SKIP leftover official leftover HELP ONLY leftover official leftover Origin parked leftover official leftover Query-only leftover official leftover skip leftover official leftover signed leftover official leftover txs leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover BRIDs leftover official leftover no leftover official leftover chr leftover official leftover keygen leftover official leftover no leftover official leftover sign leftover official leftover recipe.
-        Leftover official leftover GET-STARTED get-started/use-cases/ai-on-chain INDEX (leftover official $GET_STARTED_AI_ON_CHAIN_INDEX_URL leftover official 307 leftover official $GET_STARTED_AI_ON_CHAIN_INDEX_URL_SLASH leftover official 200 leftover official $GET_STARTED_AI_ON_CHAIN_INDEX_TITLE): leftover official leftover slash leftover official leftover title leftover official leftover WRITE SKIP leftover official leftover HELP ONLY leftover official leftover Origin parked leftover official leftover Query-only leftover official leftover skip leftover official leftover signed leftover official leftover txs leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover BRIDs leftover official leftover no leftover official leftover chr leftover official leftover keygen leftover official leftover no leftover official leftover sign leftover official leftover recipe.
-        Leftover official leftover GET-STARTED get-started/use-cases/ai-on-chain/ai_inference INDEX (leftover official $GET_STARTED_AI_INFERENCE_INDEX_URL leftover official 307 leftover official $GET_STARTED_AI_INFERENCE_INDEX_URL_SLASH leftover official 200 leftover official $GET_STARTED_AI_INFERENCE_INDEX_TITLE): leftover official leftover slash leftover official leftover title leftover official leftover WRITE SKIP leftover official leftover HELP ONLY leftover official leftover Origin parked leftover official leftover Query-only leftover official leftover skip leftover official leftover signed leftover official leftover txs leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover BRIDs leftover official leftover no leftover official leftover chr leftover official leftover keygen leftover official leftover no leftover official leftover sign leftover official leftover recipe.
-        Leftover official leftover ECOSYSTEM ecosystem/extensions/overview INDEX (leftover official $ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_TITLE). Query-only.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/install-pmc INDEX (leftover official $ECOSYSTEM_NODES_INSTALL_PMC_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_NODES_INSTALL_PMC_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_NODES_INSTALL_PMC_INDEX_TITLE). Query-only.
-        Leftover official leftover docs/updates INDEX (leftover official $DOCS_UPDATES_INDEX_URL leftover official 307 leftover official $DOCS_UPDATES_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $DOCS_UPDATES_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/big-data/project-launch INDEX (leftover official $LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_URL leftover official 301 leftover official $LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/chromia-for-evm-developers/compare-authentication INDEX (leftover official $LEARN_EVM_AUTHENTICATION_INDEX_URL leftover official 301 leftover official $LEARN_EVM_AUTHENTICATION_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_EVM_AUTHENTICATION_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official BUILD vector-search/overview ($OVERVIEW_INDEX_URL 307 $OVERVIEW_INDEX_URL_SLASH 200 $OVERVIEW_INDEX_TITLE): Query-only WRITE SKIP no signed txs no sample keys no invented 64-hex no keygen BUILD pages print no module names yml keys or query names do not invent any $INDEX_404_URL is 404.
+        Official BUILD vector-search/sample-workloads ($WORKLOADS_INDEX_URL 307 $WORKLOADS_INDEX_URL_SLASH 200 $WORKLOADS_INDEX_TITLE): Query-only WRITE SKIP no signed txs no sample keys no invented 64-hex no keygen BUILD pages print no module names yml keys or query names do not invent any.
+        Official GET-STARTED get-started/use-cases/ai-on-chain/vector-db INDEX ($GET_STARTED_VECTOR_DB_INDEX_URL 307 $GET_STARTED_VECTOR_DB_INDEX_URL_SLASH 200 $GET_STARTED_VECTOR_DB_INDEX_TITLE): slash title WRITE SKIP HELP ONLY Origin parked Query-only skip signed txs no sample keys no invented 64-hex BRIDs no keygen no sign recipe.
+        Official GET-STARTED get-started/use-cases/ai-on-chain INDEX ($GET_STARTED_AI_ON_CHAIN_INDEX_URL 307 $GET_STARTED_AI_ON_CHAIN_INDEX_URL_SLASH 200 $GET_STARTED_AI_ON_CHAIN_INDEX_TITLE): slash title WRITE SKIP HELP ONLY Origin parked Query-only skip signed txs no sample keys no invented 64-hex BRIDs no keygen no sign recipe.
+        Official GET-STARTED get-started/use-cases/ai-on-chain/ai_inference INDEX ($GET_STARTED_AI_INFERENCE_INDEX_URL 307 $GET_STARTED_AI_INFERENCE_INDEX_URL_SLASH 200 $GET_STARTED_AI_INFERENCE_INDEX_TITLE): slash title WRITE SKIP HELP ONLY Origin parked Query-only skip signed txs no sample keys no invented 64-hex BRIDs no keygen no sign recipe.
+        Official ECOSYSTEM ecosystem/extensions/overview INDEX ($ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_URL 307 $ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_TITLE). Query-only.
+        Official ECOSYSTEM ecosystem/providers/nodes/install-pmc INDEX ($ECOSYSTEM_NODES_INSTALL_PMC_INDEX_URL 307 $ECOSYSTEM_NODES_INSTALL_PMC_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_NODES_INSTALL_PMC_INDEX_TITLE). Query-only.
+        Official docs/updates INDEX ($DOCS_UPDATES_INDEX_URL 307 $DOCS_UPDATES_INDEX_URL_SLASH 200 H1 $DOCS_UPDATES_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/big-data/project-launch INDEX ($LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_URL 301 $LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_URL_SLASH 200 H1 $LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/chromia-for-evm-developers/compare-authentication INDEX ($LEARN_EVM_AUTHENTICATION_INDEX_URL 301 $LEARN_EVM_AUTHENTICATION_INDEX_URL_SLASH 200 H1 $LEARN_EVM_AUTHENTICATION_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
         Official page is a docs changelog (2025 UI/nav, deployment restructure, getting-started, key management centralization, token chain, installation). HELP ONLY. Skip signed txs, sample keys, invented 64-hex.
         See chromia_rell_database_help (Postgres 16+), chromia_language_clients_help, chromia_integrations_help.
         This tool does not run chr, does not generate a key, and does not send signed transactions.
-        Leftover official leftover LEARN courses/vector-db-movie-demo/setup INDEX (leftover official $LEARN_VECTOR_DB_SETUP_INDEX_URL leftover official 301 leftover official $LEARN_VECTOR_DB_SETUP_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_VECTOR_DB_SETUP_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP. leftover official leftover first leftover official leftover module leftover official leftover configure leftover official leftover environment leftover official leftover Vector leftover official leftover DB leftover official leftover Movie leftover official leftover Demo leftover official leftover sentence leftover official leftover embedding leftover official leftover model leftover official leftover dimensionality leftover official leftover vector_db_extension leftover official leftover Rell leftover official leftover backend leftover official leftover Chromia leftover official leftover testnet leftover official leftover Python leftover official leftover environment.
-        Leftover official leftover LEARN courses/icmf-course/factory-chain INDEX (leftover official $LEARN_ICMF_FACTORY_CHAIN_INDEX_URL leftover official 301 leftover official $LEARN_ICMF_FACTORY_CHAIN_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_ICMF_FACTORY_CHAIN_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/my-news-feed/module-two/summary-and-tests INDEX (leftover official $LEARN_NEWS_SUMMARY_TESTS_INDEX_URL leftover official 301 leftover official $LEARN_NEWS_SUMMARY_TESTS_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_NEWS_SUMMARY_TESTS_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN docs/install/cli-installation INDEX (leftover official $LEARN_INSTALL_CLI_INDEX_URL leftover official 301 leftover official $LEARN_INSTALL_CLI_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_INSTALL_CLI_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/zero-knowledge-proof/architecture-overview INDEX (leftover official $LEARN_ZK_ARCHITECTURE_INDEX_URL leftover official 301 leftover official $LEARN_ZK_ARCHITECTURE_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_ZK_ARCHITECTURE_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/language-features/expressions/values INDEX (leftover official $RELL_EXPRESSIONS_VALUES_INDEX_URL leftover official 307 leftover official $RELL_EXPRESSIONS_VALUES_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_EXPRESSIONS_VALUES_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN tags/PySpark INDEX (leftover official $LEARN_TAGS_PYSPARK_INDEX_URL leftover official 301 leftover official $LEARN_TAGS_PYSPARK_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TAGS_PYSPARK_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN tags/Vector DB INDEX (leftover official $LEARN_TAGS_VECTOR_DB_INDEX_URL leftover official 404 leftover official $LEARN_TAGS_VECTOR_DB_INDEX_URL_SLASH leftover official 404 leftover official leftover official leftover tag leftover official leftover URL leftover official leftover currently leftover official leftover 404 leftover official leftover TITLE leftover official leftover $LEARN_TAGS_VECTOR_DB_INDEX_TITLE leftover official leftover live leftover official leftover Vector leftover official leftover DB leftover official leftover INDEX leftover official leftover is leftover official leftover leftover leftover official leftover learn leftover official leftover vector-db leftover official leftover course leftover official leftover $LEARN_VECTOR_DB_SETUP_INDEX_TITLE leftover official leftover ${ChromiaRellExpressionsHelp.LEARN_VECTOR_DB_USE_CASES_INDEX_TITLE} leftover official leftover HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/vector-db-movie-demo/setup INDEX ($LEARN_VECTOR_DB_SETUP_INDEX_URL 301 $LEARN_VECTOR_DB_SETUP_INDEX_URL_SLASH 200 H1 $LEARN_VECTOR_DB_SETUP_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP. first module configure environment Vector DB Movie Demo sentence embedding model dimensionality vector_db_extension Rell backend Chromia testnet Python environment.
+        Official LEARN courses/icmf-course/factory-chain INDEX ($LEARN_ICMF_FACTORY_CHAIN_INDEX_URL 301 $LEARN_ICMF_FACTORY_CHAIN_INDEX_URL_SLASH 200 H1 $LEARN_ICMF_FACTORY_CHAIN_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/my-news-feed/module-two/summary-and-tests INDEX ($LEARN_NEWS_SUMMARY_TESTS_INDEX_URL 301 $LEARN_NEWS_SUMMARY_TESTS_INDEX_URL_SLASH 200 H1 $LEARN_NEWS_SUMMARY_TESTS_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN docs/install/cli-installation INDEX ($LEARN_INSTALL_CLI_INDEX_URL 301 $LEARN_INSTALL_CLI_INDEX_URL_SLASH 200 H1 $LEARN_INSTALL_CLI_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/zero-knowledge-proof/architecture-overview INDEX ($LEARN_ZK_ARCHITECTURE_INDEX_URL 301 $LEARN_ZK_ARCHITECTURE_INDEX_URL_SLASH 200 H1 $LEARN_ZK_ARCHITECTURE_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/language-features/expressions/values INDEX ($RELL_EXPRESSIONS_VALUES_INDEX_URL 307 $RELL_EXPRESSIONS_VALUES_INDEX_URL_SLASH 200 H1 $RELL_EXPRESSIONS_VALUES_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN tags/PySpark INDEX ($LEARN_TAGS_PYSPARK_INDEX_URL 301 $LEARN_TAGS_PYSPARK_INDEX_URL_SLASH 200 H1 $LEARN_TAGS_PYSPARK_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN tags/Vector DB INDEX ($LEARN_TAGS_VECTOR_DB_INDEX_URL 404 $LEARN_TAGS_VECTOR_DB_INDEX_URL_SLASH 404 tag URL currently 404 TITLE $LEARN_TAGS_VECTOR_DB_INDEX_TITLE live Vector DB INDEX is learn vector-db course $LEARN_VECTOR_DB_SETUP_INDEX_TITLE ${ChromiaRellExpressionsHelp.LEARN_VECTOR_DB_USE_CASES_INDEX_TITLE} HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
     """.trimIndent()
 
     fun toJson(): kotlinx.serialization.json.JsonObject = buildJsonObject {
@@ -210,20 +210,20 @@ object ChromiaVectorSearchHelp {
         put("notes", notes())
     }
 }
-// Leftover official leftover BUILD vector-search/sample-workloads leftovers encoded as WORKLOADS_INDEX_* (query-only).
-// Leftover official leftover GET-STARTED get-started/use-cases/ai-on-chain/vector-db INDEX leftovers encoded as GET_STARTED_VECTOR_DB_INDEX_* (query-only).
-// Leftover official leftover GET-STARTED get-started/use-cases/ai-on-chain INDEX leftovers encoded as GET_STARTED_AI_ON_CHAIN_INDEX_* (query-only).
-// Leftover official leftover GET-STARTED get-started/use-cases/ai-on-chain/ai_inference INDEX leftovers encoded as GET_STARTED_AI_INFERENCE_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/extensions/overview INDEX leftovers encoded as ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/install-pmc INDEX leftovers encoded as ECOSYSTEM_NODES_INSTALL_PMC_INDEX_* (query-only).
-// Leftover official leftover docs/updates INDEX leftovers encoded as DOCS_UPDATES_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover LEARN courses/big-data/project-launch INDEX leftovers encoded as LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/chromia-for-evm-developers/compare-authentication INDEX leftovers encoded as LEARN_EVM_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/vector-db-movie-demo/setup INDEX leftovers encoded as LEARN_VECTOR_DB_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/icmf-course/factory-chain INDEX leftovers encoded as LEARN_ICMF_FACTORY_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/my-news-feed/module-two/summary-and-tests INDEX leftovers encoded as LEARN_NEWS_SUMMARY_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN docs/install/cli-installation INDEX leftovers encoded as LEARN_INSTALL_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/zero-knowledge-proof/architecture-overview INDEX leftovers encoded as LEARN_ZK_ARCHITECTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/language-features/expressions/values INDEX leftovers encoded as RELL_EXPRESSIONS_VALUES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN tags/PySpark INDEX leftovers encoded as LEARN_TAGS_PYSPARK_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN tags/Vector DB INDEX leftovers encoded as LEARN_TAGS_VECTOR_DB_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD vector-search/sample-workloads leftovers encoded as WORKLOADS_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/ai-on-chain/vector-db INDEX leftovers encoded as GET_STARTED_VECTOR_DB_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/ai-on-chain INDEX leftovers encoded as GET_STARTED_AI_ON_CHAIN_INDEX_* (query-only).
+// Official GET-STARTED get-started/use-cases/ai-on-chain/ai_inference INDEX leftovers encoded as GET_STARTED_AI_INFERENCE_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/extensions/overview INDEX leftovers encoded as ECOSYSTEM_EXTENSIONS_OVERVIEW_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/install-pmc INDEX leftovers encoded as ECOSYSTEM_NODES_INSTALL_PMC_INDEX_* (query-only).
+// Official docs/updates INDEX leftovers encoded as DOCS_UPDATES_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/big-data/project-launch INDEX leftovers encoded as LEARN_BIG_DATA_PROJECT_LAUNCH_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/chromia-for-evm-developers/compare-authentication INDEX leftovers encoded as LEARN_EVM_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/setup INDEX leftovers encoded as LEARN_VECTOR_DB_SETUP_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/factory-chain INDEX leftovers encoded as LEARN_ICMF_FACTORY_CHAIN_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/module-two/summary-and-tests INDEX leftovers encoded as LEARN_NEWS_SUMMARY_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN docs/install/cli-installation INDEX leftovers encoded as LEARN_INSTALL_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/zero-knowledge-proof/architecture-overview INDEX leftovers encoded as LEARN_ZK_ARCHITECTURE_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/expressions/values INDEX leftovers encoded as RELL_EXPRESSIONS_VALUES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/PySpark INDEX leftovers encoded as LEARN_TAGS_PYSPARK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Vector DB INDEX leftovers encoded as LEARN_TAGS_VECTOR_DB_INDEX_* (query-only HELP ONLY WRITE SKIP).

@@ -88,7 +88,7 @@ object ChromiaYmlValidator {
                 }
                 val webStatic = chain.entries["webStatic"]
                 if (webStatic is YamlNode.Scalar) {
-                    warnings += "blockchains.$name.webStatic leftover official deploy-frontend-dapp prints a directory path (out)"
+                    warnings += "blockchains.$name.webStatic deploy-frontend-dapp prints a directory path (out)"
                 }
             }
         }
@@ -118,7 +118,7 @@ object ChromiaYmlValidator {
                 errors += "$path: require_mandatory_flags is not a chromia.yml / moduleArgs key; it belongs only on the main auth descriptor"
             }
             if (key.equals("max_auth_descriptor_rules", ignoreCase = true)) {
-                warnings += "$path: leftover official /build/ft4/configuration-values sibling key; source binds auth_descriptor.max_rules (default 8)"
+                warnings += "$path: /build/ft4/configuration-values sibling key; source binds auth_descriptor.max_rules (default 8)"
             }
             if (key == "merkle_hash_version") {
                 val value = when (node) {

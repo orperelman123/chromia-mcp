@@ -6,9 +6,9 @@ import kotlinx.serialization.json.put
 /**
  * Official Chromia CLI 0.33.x existing-key reference only.
  * Source: docs.chromia.com/build/cli/key-pair-management (read / lookup flow).
- * Leftover official keygen command page is HELP ONLY (flags + URL).
+ * Official keygen command page is HELP ONLY (flags + URL).
  * Does not generate a key, print a private key, print a sample key, or send a signed tx.
- * Leftover official leftover BUILD cli/key-pair-management index slash/title leftovers live here (query-only).
+ * Official BUILD cli/key-pair-management index slash/title leftovers live here (query-only).
  */
 object ChrKeyIdHelp {
     const val CLI_SERIES = DappScaffold.CLI_SERIES
@@ -53,7 +53,7 @@ object ChrKeyIdHelp {
         Chromia CLI $CLI_SERIES existing-key reference only. Java 21+, Postgres 16+.
         Official page: $DOCS_URL
         This tool documents how chr finds an *existing* key id. It does not generate a key
-        and does not print a private key. Leftover official keygen is HELP ONLY (flags + URL).
+        and does not print a private key. Official keygen is HELP ONLY (flags + URL).
         Official lookup precedence (highest to lowest):
         1. `--secret=<path>` — path to an existing secret file (this tool does not write one).
         2. `--key-id=<key_id>` — existing key id; keys are still read from ~/.chromia.
@@ -61,20 +61,20 @@ object ChrKeyIdHelp {
         4. project `<project-path>/.chromia/config` property `key.id`.
         5. global `~/.chromia/config` property `key.id`.
         Getting-started default id *name* is chromia_key (reference an existing id; do not generate).
-        Skipped: key generation, leftover official --file write, leftover official --dry (prints keys), and private-key file contents.
-        Leftover official BUILD keygen command page (leftover official $KEYGEN_DOCS_URL leftover official 200): leftover official HELP ONLY leftover official flags leftover official --key-id leftover official --file leftover official --get-pubkey leftover official --dry leftover official this tool does not generate a key leftover official does not print a private key leftover official does not run leftover official keygen leftover official skip leftover official --dry leftover official skip leftover official sample leftover official keys leftover official no leftover official invented leftover official 64-hex.
-        Leftover official BUILD cli/key-pair-management (leftover official $KEY_PAIR_INDEX_URL leftover official 307 leftover official $KEY_PAIR_INDEX_URL_SLASH leftover official 200 leftover official $KEY_PAIR_INDEX_TITLE): leftover official leftover intro leftover official leftover This document describes how key pairs are read and managed within the Chromia CLI for various commands leftover official leftover Key pair reading flow leftover official leftover The Chromia CLI follows a specific precedence order when determining which key pair to use for operations leftover official leftover Secret file option leftover official leftover Key ID option leftover official leftover Explicit configuration path leftover official leftover Project-specific configuration leftover official leftover Global configuration leftover official leftover Key storage leftover official leftover Keys are stored in the ~/.chromia directory by default leftover official leftover WRITE SKIP leftover official leftover generate leftover official leftover keygen leftover official leftover sign leftover official leftover pubkey leftover official leftover sample leftover official leftover keys leftover official leftover leftover official leftover admin leftover official leftover leftover official leftover pubkey leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex.
-        Leftover official leftover BUILD cli/commands/keygen (leftover official $KEYGEN_INDEX_URL leftover official 307 leftover official $KEYGEN_INDEX_URL_SLASH leftover official 200 leftover official $KEYGEN_INDEX_TITLE): leftover official leftover intro leftover official leftover keygen command page leftover official leftover HELP ONLY leftover official leftover flags leftover official leftover --key-id leftover official leftover --file leftover official leftover --get-pubkey leftover official leftover --dry leftover official leftover skipped leftover official leftover this tool does not generate a key leftover official leftover Query-only leftover official leftover WRITE SKIP leftover official leftover skip leftover official leftover --dry leftover official leftover skip leftover official leftover --file leftover official leftover write leftover official leftover skip leftover official leftover signed leftover official leftover txs leftover official leftover leftover official leftover sample leftover official leftover leftover official leftover admin leftover official leftover leftover official leftover pubkey leftover official leftover keygen leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover HELP ONLY leftover official leftover flags leftover official leftover keygen command page leftover official leftover this tool does not generate a key leftover official leftover Query-only leftover official leftover WRITE SKIP leftover official leftover skip leftover official leftover --dry leftover official leftover prints leftover official leftover keys leftover official leftover skip leftover official leftover --file leftover official leftover write leftover official leftover no leftover official leftover sample leftover official leftover keys leftover official leftover no leftover official leftover invented leftover official leftover 64-hex leftover official leftover skip leftover official leftover private leftover official leftover key leftover official leftover this tool does not generate a key.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/nodes INDEX (leftover official $ECOSYSTEM_PROVIDERS_NODES_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PROVIDERS_NODES_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PROVIDERS_NODES_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/marketplace-course/module-assets/test-cli INDEX (leftover official $LEARN_MARKETPLACE_TEST_CLI_INDEX_URL leftover official 301 leftover official $LEARN_MARKETPLACE_TEST_CLI_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_MARKETPLACE_TEST_CLI_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/tic-tac-toe/module-two/connecting-the-client INDEX (leftover official $LEARN_TTT_CONNECT_CLIENT_INDEX_URL leftover official 301 leftover official $LEARN_TTT_CONNECT_CLIENT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TTT_CONNECT_CLIENT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/vector-db-movie-demo/code-deep-dive/python-client INDEX (leftover official $LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_URL leftover official 301 leftover official $LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/tic-tac-toe/module-one/create-accounts/authentication INDEX (leftover official $LEARN_TTT_AUTHENTICATION_INDEX_URL leftover official 301 leftover official $LEARN_TTT_AUTHENTICATION_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TTT_AUTHENTICATION_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX zero-knowledge-proof course (leftover official $LEARN_ZK_PROOF_INDEX_URL leftover official 301 leftover official $LEARN_ZK_PROOF_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_ZK_PROOF_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX web3-for-web2-devs chromia-web3-stack (leftover official $LEARN_WEB3_CHROMIA_STACK_INDEX_URL leftover official 301 leftover official $LEARN_WEB3_CHROMIA_STACK_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_WEB3_CHROMIA_STACK_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX chromia-comparisons etherum (official leftover URL typo leftover official $LEARN_COMPARISONS_ETHEREUM_INDEX_URL leftover official 301 leftover official $LEARN_COMPARISONS_ETHEREUM_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_COMPARISONS_ETHEREUM_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Skipped: key generation, --file write, --dry (prints keys), and private-key file contents.
+        Official BUILD keygen command page ($KEYGEN_DOCS_URL 200): HELP ONLY flags --key-id --file --get-pubkey --dry this tool does not generate a key does not print a private key does not run keygen skip --dry skip sample keys no invented 64-hex.
+        Official BUILD cli/key-pair-management ($KEY_PAIR_INDEX_URL 307 $KEY_PAIR_INDEX_URL_SLASH 200 $KEY_PAIR_INDEX_TITLE): intro This document describes how key pairs are read and managed within the Chromia CLI for various commands Key pair reading flow The Chromia CLI follows a specific precedence order when determining which key pair to use for operations Secret file option Key ID option Explicit configuration path Project-specific configuration Global configuration Key storage Keys are stored in the ~/.chromia directory by default WRITE SKIP generate keygen sign pubkey sample keys admin pubkey no sample keys no invented 64-hex.
+        Official BUILD cli/commands/keygen ($KEYGEN_INDEX_URL 307 $KEYGEN_INDEX_URL_SLASH 200 $KEYGEN_INDEX_TITLE): intro keygen command page HELP ONLY flags --key-id --file --get-pubkey --dry skipped this tool does not generate a key Query-only WRITE SKIP skip --dry skip --file write skip signed txs sample admin pubkey keygen no sample keys no invented 64-hex HELP ONLY flags keygen command page this tool does not generate a key Query-only WRITE SKIP skip --dry prints keys skip --file write no sample keys no invented 64-hex skip private key this tool does not generate a key.
+        Official ECOSYSTEM ecosystem/providers/nodes INDEX ($ECOSYSTEM_PROVIDERS_NODES_INDEX_URL 307 $ECOSYSTEM_PROVIDERS_NODES_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PROVIDERS_NODES_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/marketplace-course/module-assets/test-cli INDEX ($LEARN_MARKETPLACE_TEST_CLI_INDEX_URL 301 $LEARN_MARKETPLACE_TEST_CLI_INDEX_URL_SLASH 200 H1 $LEARN_MARKETPLACE_TEST_CLI_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/tic-tac-toe/module-two/connecting-the-client INDEX ($LEARN_TTT_CONNECT_CLIENT_INDEX_URL 301 $LEARN_TTT_CONNECT_CLIENT_INDEX_URL_SLASH 200 H1 $LEARN_TTT_CONNECT_CLIENT_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/vector-db-movie-demo/code-deep-dive/python-client INDEX ($LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_URL 301 $LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_URL_SLASH 200 H1 $LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/tic-tac-toe/module-one/create-accounts/authentication INDEX ($LEARN_TTT_AUTHENTICATION_INDEX_URL 301 $LEARN_TTT_AUTHENTICATION_INDEX_URL_SLASH 200 H1 $LEARN_TTT_AUTHENTICATION_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX zero-knowledge-proof course ($LEARN_ZK_PROOF_INDEX_URL 301 $LEARN_ZK_PROOF_INDEX_URL_SLASH 200 H1 $LEARN_ZK_PROOF_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX web3-for-web2-devs chromia-web3-stack ($LEARN_WEB3_CHROMIA_STACK_INDEX_URL 301 $LEARN_WEB3_CHROMIA_STACK_INDEX_URL_SLASH 200 H1 $LEARN_WEB3_CHROMIA_STACK_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX chromia-comparisons etherum (official URL typo $LEARN_COMPARISONS_ETHEREUM_INDEX_URL 301 $LEARN_COMPARISONS_ETHEREUM_INDEX_URL_SLASH 200 H1 $LEARN_COMPARISONS_ETHEREUM_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
         This tool does not run chr and does not send signed transactions.
-        Leftover official leftover LEARN tags/Chatbot INDEX (leftover official $LEARN_TAGS_CHATBOT_INDEX_URL leftover official 301 leftover official $LEARN_TAGS_CHATBOT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TAGS_CHATBOT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN tags/Chatbot INDEX ($LEARN_TAGS_CHATBOT_INDEX_URL 301 $LEARN_TAGS_CHATBOT_INDEX_URL_SLASH 200 H1 $LEARN_TAGS_CHATBOT_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
     """.trimIndent()
 
     fun toJson(): kotlinx.serialization.json.JsonObject = buildJsonObject {
@@ -123,17 +123,17 @@ object ChrKeyIdHelp {
             buildJsonObject {
                 put(
                     "key_id",
-                    "--key-id=<value>  # leftover official keygen flag; this tool does not generate a key"
+                    "--key-id=<value>  # keygen flag; this tool does not generate a key"
                 )
                 put(
                     "file",
-                    "-f, --file=<path>  # leftover official keygen flag; this tool does not write a key"
+                    "-f, --file=<path>  # keygen flag; this tool does not write a key"
                 )
                 put(
                     "get_pubkey",
-                    "--get-pubkey[=<key-id>]  # leftover official existing-key public key lookup"
+                    "--get-pubkey[=<key-id>]  # existing-key public key lookup"
                 )
-                put("dry", "--dry  # leftover official; skipped (prints keys)")
+                put("dry", "--dry  # official; skipped (prints keys)")
             }
         )
         put("skipped", "key generation, --file write, --dry, private-key contents")
@@ -159,13 +159,13 @@ object ChrKeyIdHelp {
     }
 }
 
-// Leftover official leftover BUILD cli/commands/keygen leftovers encoded as KEYGEN_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/nodes INDEX leftovers encoded as ECOSYSTEM_PROVIDERS_NODES_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover LEARN courses/marketplace-course/module-assets/test-cli INDEX leftovers encoded as LEARN_MARKETPLACE_TEST_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/tic-tac-toe/module-two/connecting-the-client INDEX leftovers encoded as LEARN_TTT_CONNECT_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/vector-db-movie-demo/code-deep-dive/python-client INDEX leftovers encoded as LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/tic-tac-toe/module-one/create-accounts/authentication INDEX leftovers encoded as LEARN_TTT_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX zero-knowledge-proof course leftovers encoded as LEARN_ZK_PROOF_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX web3-for-web2-devs chromia-web3-stack leftovers encoded as LEARN_WEB3_CHROMIA_STACK_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX chromia-comparisons etherum leftovers encoded as LEARN_COMPARISONS_ETHEREUM_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN tags/Chatbot INDEX leftovers encoded as LEARN_TAGS_CHATBOT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/keygen leftovers encoded as KEYGEN_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/nodes INDEX leftovers encoded as ECOSYSTEM_PROVIDERS_NODES_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/marketplace-course/module-assets/test-cli INDEX leftovers encoded as LEARN_MARKETPLACE_TEST_CLI_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-two/connecting-the-client INDEX leftovers encoded as LEARN_TTT_CONNECT_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/vector-db-movie-demo/code-deep-dive/python-client INDEX leftovers encoded as LEARN_VECTOR_DB_PYTHON_CLIENT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/tic-tac-toe/module-one/create-accounts/authentication INDEX leftovers encoded as LEARN_TTT_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof course leftovers encoded as LEARN_ZK_PROOF_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs chromia-web3-stack leftovers encoded as LEARN_WEB3_CHROMIA_STACK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-comparisons etherum leftovers encoded as LEARN_COMPARISONS_ETHEREUM_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/Chatbot INDEX leftovers encoded as LEARN_TAGS_CHATBOT_INDEX_* (query-only HELP ONLY WRITE SKIP).

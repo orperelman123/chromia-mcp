@@ -47,20 +47,20 @@ object ChromiaYmlSections {
     fun notes(): String = """
         Official chromia.yml database / test sections (CLI ${DappScaffold.CLI_SERIES}).
         Schema: $PROJECT_CONFIG_URL. Local Postgres defaults: $DATABASE_OVERVIEW_URL.
-        Official leftover BUILD getting-started (200): $DATABASE_GETTING_STARTED_URL
-        Official leftover BUILD overview (200): $DATABASE_OVERVIEW_URL
-        Official leftover $DATABASE_ARCHITECTURE_404_URL is 404. Official leftover $DATABASE_SCALING_404_URL is 404.
-        Official leftover getting-started says `chromia start` — that is NOT a chr command. Official local dapp loop is `chr node start` (Postgres 16+).
+        Official BUILD getting-started (200): $DATABASE_GETTING_STARTED_URL
+        Official BUILD overview (200): $DATABASE_OVERVIEW_URL
+        Official $DATABASE_ARCHITECTURE_404_URL is 404. Official $DATABASE_SCALING_404_URL is 404.
+        Official getting-started says `chromia start` — that is NOT a chr command. Official local dapp loop is `chr node start` (Postgres 16+).
         Source-observed dapp table names (Postchain SQLDatabaseAccess / official sql-log): $TABLE_NAME_SOURCE in the current schema. Do not invent a SQL schema.
         Java 21+, Postgres 16+. Driver must be $DRIVER.
         Official local defaults: database/user/password all `$DEFAULT_DB` (install docs).
-        Leftover official leftover 0.33.2 `chr create-rell-dapp` default chromia.yml only sets leftover database.schema schema_my_rell_dapp (leftover no host/user/password); leftover local node still uses leftover postchain database/user/password defaults / leftover CHR_DB_*.
+        Official 0.33.2 `chr create-rell-dapp` default chromia.yml only sets database.schema schema_my_rell_dapp (no host/user/password); local node still uses postchain database/user/password defaults / CHR_DB_*.
         Env overrides win over YAML: CHR_DB_URL, CHR_DB_USER, CHR_DB_PASSWORD, CHR_DB_SCHEMA.
         Do not commit production DB passwords. Substitution: ${'$'}{MY_VAR:-default}.
         test.modules are module names (e.g. test.main_test), not file paths.
         failOnError is overridable by `chr test --fail-on-error`.
         Cookbook-only keys test.timeout, test.parallel, database.schema_version are not on the official schema — do not use them.
-        Leftover official deploy-frontend-dapp (200) blockchain key webStatic (printed value out) is leftover official and accepted by validate_chromia_yml. Leftover official project-config does not list webStatic. Do not invent siblings.
+        Official deploy-frontend-dapp (200) blockchain key webStatic (printed value out) is and accepted by validate_chromia_yml. Official project-config does not list webStatic. Do not invent siblings.
         This helper does not run chr and does not send signed transactions.
     """.trimIndent()
 }

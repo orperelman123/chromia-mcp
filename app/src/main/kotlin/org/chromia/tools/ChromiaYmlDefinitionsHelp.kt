@@ -119,19 +119,19 @@ object ChromiaYmlDefinitionsHelp {
         Official ICMF course also puts YAML anchors under `definitions:` as a sequence (`&sender`, `&receiver`, `&sender_receiver`) using official ICMF GTX modules from blockchain-properties. That course does not add include rules.
         validate_chromia_yml / SimpleYaml do not resolve aliases or !include — they parse a subset (maps, lists, scalars). Use chr / the official loader for resolved config.
         This tool does not run chr, does not generate a key, and does not send signed transactions.
-        Leftover official leftover ECOSYSTEM ecosystem/bridge/bridge-troubleshooting INDEX (leftover official $ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_TITLE). Query-only.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/provider-keypair INDEX (leftover official $ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/provider INDEX (leftover official $ECOSYSTEM_PMC_PROVIDER_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PMC_PROVIDER_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PMC_PROVIDER_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/ft4-asset/asset-operations INDEX (leftover official $LEARN_FT4_ASSET_OPERATIONS_INDEX_URL leftover official 301 leftover official $LEARN_FT4_ASSET_OPERATIONS_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_FT4_ASSET_OPERATIONS_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/icmf-course/manual-testing INDEX (leftover official $LEARN_ICMF_MANUAL_TESTING_INDEX_URL leftover official 301 leftover official $LEARN_ICMF_MANUAL_TESTING_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_ICMF_MANUAL_TESTING_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/my-news-feed/what-next INDEX (leftover official $LEARN_NEWS_WHAT_NEXT_INDEX_URL leftover official 301 leftover official $LEARN_NEWS_WHAT_NEXT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_NEWS_WHAT_NEXT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN docs/install/database-setup INDEX (leftover official $LEARN_INSTALL_POSTGRES_INDEX_URL leftover official 301 leftover official $LEARN_INSTALL_POSTGRES_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_INSTALL_POSTGRES_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX news-feed authentication (leftover official $LEARN_NEWS_AUTHENTICATION_INDEX_URL leftover official 301 leftover official $LEARN_NEWS_AUTHENTICATION_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_NEWS_AUTHENTICATION_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX zero-knowledge-proof frontend-test (leftover official $LEARN_ZK_FRONTEND_TEST_INDEX_URL leftover official 301 leftover official $LEARN_ZK_FRONTEND_TEST_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_ZK_FRONTEND_TEST_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX web3-for-web2-devs introduction (leftover official $LEARN_WEB3_INTRO_INDEX_URL leftover official 301 leftover official $LEARN_WEB3_INTRO_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_WEB3_INTRO_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN INDEX chromia-comparisons cosmos (leftover official $LEARN_COMPARISONS_COSMOS_INDEX_URL leftover official 301 leftover official $LEARN_COMPARISONS_COSMOS_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_COMPARISONS_COSMOS_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover RELL rell/tests INDEX (leftover official $RELL_TESTS_INDEX_URL leftover official 307 leftover official $RELL_TESTS_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_TESTS_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN tags/MetaMask INDEX (leftover official $LEARN_TAGS_METAMASK_INDEX_URL leftover official 301 leftover official $LEARN_TAGS_METAMASK_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TAGS_METAMASK_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official ECOSYSTEM ecosystem/bridge/bridge-troubleshooting INDEX ($ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_URL 307 $ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_TITLE). Query-only.
+        Official ECOSYSTEM ecosystem/providers/nodes/provider-keypair INDEX ($ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_URL 307 $ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official ECOSYSTEM ecosystem/providers/pmc/commands/provider INDEX ($ECOSYSTEM_PMC_PROVIDER_INDEX_URL 307 $ECOSYSTEM_PMC_PROVIDER_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PMC_PROVIDER_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/ft4-asset/asset-operations INDEX ($LEARN_FT4_ASSET_OPERATIONS_INDEX_URL 301 $LEARN_FT4_ASSET_OPERATIONS_INDEX_URL_SLASH 200 H1 $LEARN_FT4_ASSET_OPERATIONS_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/icmf-course/manual-testing INDEX ($LEARN_ICMF_MANUAL_TESTING_INDEX_URL 301 $LEARN_ICMF_MANUAL_TESTING_INDEX_URL_SLASH 200 H1 $LEARN_ICMF_MANUAL_TESTING_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/my-news-feed/what-next INDEX ($LEARN_NEWS_WHAT_NEXT_INDEX_URL 301 $LEARN_NEWS_WHAT_NEXT_INDEX_URL_SLASH 200 H1 $LEARN_NEWS_WHAT_NEXT_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN docs/install/database-setup INDEX ($LEARN_INSTALL_POSTGRES_INDEX_URL 301 $LEARN_INSTALL_POSTGRES_INDEX_URL_SLASH 200 H1 $LEARN_INSTALL_POSTGRES_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX news-feed authentication ($LEARN_NEWS_AUTHENTICATION_INDEX_URL 301 $LEARN_NEWS_AUTHENTICATION_INDEX_URL_SLASH 200 H1 $LEARN_NEWS_AUTHENTICATION_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX zero-knowledge-proof frontend-test ($LEARN_ZK_FRONTEND_TEST_INDEX_URL 301 $LEARN_ZK_FRONTEND_TEST_INDEX_URL_SLASH 200 H1 $LEARN_ZK_FRONTEND_TEST_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX web3-for-web2-devs introduction ($LEARN_WEB3_INTRO_INDEX_URL 301 $LEARN_WEB3_INTRO_INDEX_URL_SLASH 200 H1 $LEARN_WEB3_INTRO_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN INDEX chromia-comparisons cosmos ($LEARN_COMPARISONS_COSMOS_INDEX_URL 301 $LEARN_COMPARISONS_COSMOS_INDEX_URL_SLASH 200 H1 $LEARN_COMPARISONS_COSMOS_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/tests INDEX ($RELL_TESTS_INDEX_URL 307 $RELL_TESTS_INDEX_URL_SLASH 200 H1 $RELL_TESTS_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN tags/MetaMask INDEX ($LEARN_TAGS_METAMASK_INDEX_URL 301 $LEARN_TAGS_METAMASK_INDEX_URL_SLASH 200 H1 $LEARN_TAGS_METAMASK_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
     """.trimIndent()
 
     fun toJson(): kotlinx.serialization.json.JsonObject = buildJsonObject {
@@ -178,16 +178,16 @@ object ChromiaYmlDefinitionsHelp {
     }
 }
 
-// Leftover official leftover ECOSYSTEM ecosystem/bridge/bridge-troubleshooting INDEX leftovers encoded as ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/provider-keypair INDEX leftovers encoded as ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/provider INDEX leftovers encoded as ECOSYSTEM_PMC_PROVIDER_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover LEARN courses/ft4-asset/asset-operations INDEX leftovers encoded as LEARN_FT4_ASSET_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/icmf-course/manual-testing INDEX leftovers encoded as LEARN_ICMF_MANUAL_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/my-news-feed/what-next INDEX leftovers encoded as LEARN_NEWS_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN docs/install/database-setup INDEX leftovers encoded as LEARN_INSTALL_POSTGRES_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX news-feed authentication leftovers encoded as LEARN_NEWS_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX zero-knowledge-proof frontend-test leftovers encoded as LEARN_ZK_FRONTEND_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX web3-for-web2-devs introduction leftovers encoded as LEARN_WEB3_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN INDEX chromia-comparisons cosmos leftovers encoded as LEARN_COMPARISONS_COSMOS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/tests INDEX leftovers encoded as RELL_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN tags/MetaMask INDEX leftovers encoded as LEARN_TAGS_METAMASK_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official ECOSYSTEM ecosystem/bridge/bridge-troubleshooting INDEX leftovers encoded as ECOSYSTEM_BRIDGE_TROUBLESHOOTING_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/provider-keypair INDEX leftovers encoded as ECOSYSTEM_PROVIDER_KEYPAIR_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/provider INDEX leftovers encoded as ECOSYSTEM_PMC_PROVIDER_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/ft4-asset/asset-operations INDEX leftovers encoded as LEARN_FT4_ASSET_OPERATIONS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/icmf-course/manual-testing INDEX leftovers encoded as LEARN_ICMF_MANUAL_TESTING_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/my-news-feed/what-next INDEX leftovers encoded as LEARN_NEWS_WHAT_NEXT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN docs/install/database-setup INDEX leftovers encoded as LEARN_INSTALL_POSTGRES_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX news-feed authentication leftovers encoded as LEARN_NEWS_AUTHENTICATION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX zero-knowledge-proof frontend-test leftovers encoded as LEARN_ZK_FRONTEND_TEST_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX web3-for-web2-devs introduction leftovers encoded as LEARN_WEB3_INTRO_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN INDEX chromia-comparisons cosmos leftovers encoded as LEARN_COMPARISONS_COSMOS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/tests INDEX leftovers encoded as RELL_TESTS_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/MetaMask INDEX leftovers encoded as LEARN_TAGS_METAMASK_INDEX_* (query-only HELP ONLY WRITE SKIP).

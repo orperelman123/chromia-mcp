@@ -99,14 +99,14 @@ object Ft4ModuleArgs {
         auth_flags.mandatory default is [A, T]. require_mandatory_flags runs only on the main auth descriptor
         (create_account_with_auth / update_main_auth_descriptor), not on login/disposable descriptors.
         DEFAULT_LOGIN_CONFIG_NAME is "$DEFAULT_LOGIN_CONFIG_NAME" (source constant; narrative docs omit the string).
-        Official leftover configuration-values (200): $CONFIG_VALUES_URL
-        Official leftover imports (200): $IMPORTS_URL
-        Official leftover releases (200): $RELEASES_URL  Official leftover $RELEASES_404_URL is 404.
-        Official leftover changelog latest listed $DOCS_LATEST_FT4 ($DOCS_LATEST_FT4_DATE). Official docs pin remains ${DappScaffold.FT4_VERSION} / API ${DappScaffold.FT4_API}.
-        Official leftover table defaults (source wins): rate_limit.active true, max_points 10, recovery_time 5000, points_at_account_creation 1; auth_descriptor.max_number_per_account 10.
-        Official leftover example uses max_points: 20 — that is an example, not the table default (10).
-        Use auth_descriptor.max_rules (not the stale leftover sibling key max_auth_descriptor_rules).
-        Official leftover configuration-values / imports print a sample admin pubkey — NEVER emit it. NEVER emit lib.ft4.core.admin.
+        Official configuration-values (200): $CONFIG_VALUES_URL
+        Official imports (200): $IMPORTS_URL
+        Official releases (200): $RELEASES_URL  Official $RELEASES_404_URL is 404.
+        Official changelog latest listed $DOCS_LATEST_FT4 ($DOCS_LATEST_FT4_DATE). Official docs pin remains ${DappScaffold.FT4_VERSION} / API ${DappScaffold.FT4_API}.
+        Official table defaults (source wins): rate_limit.active true, max_points 10, recovery_time 5000, points_at_account_creation 1; auth_descriptor.max_number_per_account 10.
+        Official example uses max_points: 20 — that is an example, not the table default (10).
+        Use auth_descriptor.max_rules (not the stale sibling key max_auth_descriptor_rules).
+        Official configuration-values / imports print a sample admin pubkey — NEVER emit it. NEVER emit lib.ft4.core.admin.
         NEVER import or configure ${DappScaffold.forbiddenModules.joinToString(", ")}.
         Prefer ras_transfer_fee / ras_transfer_subscription if you add a registration strategy.
         Paste moduleArgs under blockchains.$name and merge libs at the project root. Then `chr install`.

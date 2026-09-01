@@ -416,8 +416,8 @@ class DappBuildToolsTest {
         assertEquals("code", payload["code_index_title"]!!.jsonPrimitive.content)
         assertTrue(notes.contains("chr build [<options>]"))
         assertTrue(notes.contains("https://docs.chromia.com/build/cli/commands/build/"))
-        assertTrue(notes.contains("Leftover official leftover BUILD cli/commands/build"))
-        assertTrue(notes.contains("Leftover official leftover BUILD cli/commands/code"))
+        assertTrue(notes.contains("Official BUILD cli/commands/build"))
+        assertTrue(notes.contains("Official BUILD cli/commands/code"))
         assertTrue(notes.contains("https://docs.chromia.com/build/cli/commands/code/"))
         assertFalse(notes.contains("execute_transaction"))
         assertEquals(payload, result.structuredContent)
@@ -516,7 +516,7 @@ class DappBuildToolsTest {
         assertTrue(notes.contains("does not run chr"))
         assertTrue(notes.contains("validate-config"))
         assertTrue(notes.contains("lib-model"))
-        assertTrue(notes.contains("Leftover official leftover BUILD cli/commands/tools"))
+        assertTrue(notes.contains("Official BUILD cli/commands/tools"))
         assertTrue(notes.contains("https://docs.chromia.com/build/cli/commands/tools/"))
         assertFalse(notes.contains("execute_transaction"))
         assertFalse(allText.contains("chr keygen"))
@@ -662,7 +662,7 @@ class DappBuildToolsTest {
         assertTrue(notes.contains("does not send signed"))
         assertTrue(notes.contains("does not run chr"))
         assertTrue(notes.contains("generate-events-config"))
-        assertTrue(notes.contains("Leftover official leftover BUILD cli/commands/eif"))
+        assertTrue(notes.contains("Official BUILD cli/commands/eif"))
         assertTrue(notes.contains("https://docs.chromia.com/build/cli/commands/eif/"))
         assertFalse(notes.contains("execute_transaction"))
         assertFalse(allText.contains("chr keygen"))
@@ -1478,7 +1478,7 @@ class DappBuildToolsTest {
             payload["mainnet_deploy_dapp_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("Deploy your dapp to Mainnet", payload["mainnet_deploy_dapp_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD deployment/mainnet/deploy-dapp"))
+        assertTrue(notes.contains("Official BUILD deployment/mainnet/deploy-dapp"))
         assertEquals(
             "https://docs.chromia.com/build/deployment/testnet/list-dapp-vault",
             payload["testnet_list_dapp_vault_index_docs"]!!.jsonPrimitive.content
@@ -1488,7 +1488,7 @@ class DappBuildToolsTest {
             payload["testnet_list_dapp_vault_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("List your dapp on the Chromia Testnet Vault", payload["testnet_list_dapp_vault_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD deployment/testnet/list-dapp-vault"))
+        assertTrue(notes.contains("Official BUILD deployment/testnet/list-dapp-vault"))
         assertEquals(
             "https://docs.chromia.com/build/deployment/vault-listing/quick-vault-listing",
             payload["quick_vault_listing_index_docs"]!!.jsonPrimitive.content
@@ -1498,7 +1498,7 @@ class DappBuildToolsTest {
             payload["quick_vault_listing_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("Quick Vault listing (hardcoded metadata)", payload["quick_vault_listing_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD deployment/vault-listing/quick-vault-listing"))
+        assertTrue(notes.contains("Official BUILD deployment/vault-listing/quick-vault-listing"))
         assertEquals(
             "https://docs.chromia.com/build/deployment/vault-listing/dynamic-vault-listing",
             payload["dynamic_vault_listing_index_docs"]!!.jsonPrimitive.content
@@ -1508,7 +1508,7 @@ class DappBuildToolsTest {
             payload["dynamic_vault_listing_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("Dynamic Vault listing (database-based metadata)", payload["dynamic_vault_listing_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD deployment/vault-listing/dynamic-vault-listing"))
+        assertTrue(notes.contains("Official BUILD deployment/vault-listing/dynamic-vault-listing"))
         assertEquals(
             "https://docs.chromia.com/build/deployment/testnet-tokens/get-tchr-chromia",
             payload["get_tchr_chromia_index_docs"]!!.jsonPrimitive.content
@@ -1518,7 +1518,7 @@ class DappBuildToolsTest {
             payload["get_tchr_chromia_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("Get Chromia test tokens (tCHR) on the Chromia Testnet", payload["get_tchr_chromia_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD deployment/testnet-tokens/get-tchr-chromia"))
+        assertTrue(notes.contains("Official BUILD deployment/testnet-tokens/get-tchr-chromia"))
         assertEquals(
             "https://docs.chromia.com/build/deployment/testnet-tokens/get-tchr-binance",
             payload["get_tchr_binance_index_docs"]!!.jsonPrimitive.content
@@ -1528,14 +1528,14 @@ class DappBuildToolsTest {
             payload["get_tchr_binance_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("Get Chromia test tokens (tCHR) on Binance Smart Chain Testnet", payload["get_tchr_binance_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD deployment/testnet-tokens/get-tchr-binance"))
+        assertTrue(notes.contains("Official BUILD deployment/testnet-tokens/get-tchr-binance"))
         val deployNote = payload["testnet_deploy_dapp_note"]!!.jsonPrimitive.content
         assertTrue(deployNote.contains("node0.testnet.chromia.com:7740"))
         assertTrue(deployNote.contains("five minutes"))
         assertTrue(deployNote.contains("--network testnet"))
         assertTrue(deployNote.contains("add the chains key by hand"))
         assertTrue(deployNote.contains("Specify your network (mainnet)"))
-        assertTrue(deployNote.contains("auto-configures leftover official brid and url") || deployNote.contains("reserved name mainnet"))
+        assertTrue(deployNote.contains("auto-configures brid and url") || deployNote.contains("reserved name mainnet"))
         assertTrue(deployNote.contains("0.29.8"))
         assertTrue(deployNote.contains("/build/deployment/mainnet/deploy-dapp"))
         assertTrue(notes.contains("deploy-dapp"))
@@ -1594,9 +1594,9 @@ class DappBuildToolsTest {
         assertTrue(payload["scu_note"]!!.jsonPrimitive.content.contains("90 USD"))
         assertFalse(getContainer.contains("chr keygen"))
         val multi = payload["multi_deployment_note"]!!.jsonPrimitive.content
-        assertTrue(multi.contains("fraction of leftover official total members") || multi.contains("fraction of"))
+        assertTrue(multi.contains("fraction of total members") || multi.contains("fraction of"))
         assertTrue(multi.contains("voterset list"))
-        assertTrue(multi.contains("Skip leftover official voterset add-dapp-provider"))
+        assertTrue(multi.contains("Skip voterset add-dapp-provider"))
         assertTrue(connectNote.contains("npmjs.com/package/postchain-client"))
         assertTrue(connectNote.contains("hello-world-quickstart"))
         assertTrue(connectNote.contains("Directory Chain"))
@@ -1609,7 +1609,7 @@ class DappBuildToolsTest {
             payload["commands_deployment_index_url_slash"]!!.jsonPrimitive.content
         )
         assertEquals("deployment", payload["commands_deployment_index_title"]!!.jsonPrimitive.content)
-        assertTrue(notes.contains("Leftover official leftover BUILD cli/commands/deployment"))
+        assertTrue(notes.contains("Official BUILD cli/commands/deployment"))
         assertEquals(payload, result.structuredContent)
         assertEquals(ChrDeployHelp.toJson(), result.structuredContent)
     }
@@ -1725,7 +1725,7 @@ class DappBuildToolsTest {
         assertTrue(notes.contains("does not start a node"), notes)
         assertTrue(notes.contains("does not generate a key"), notes)
         assertTrue(notes.contains("does not send signed"), notes)
-        assertTrue(notes.contains("Leftover official leftover BUILD cli/commands/node"), notes)
+        assertTrue(notes.contains("Official BUILD cli/commands/node"), notes)
         assertTrue(notes.contains("https://docs.chromia.com/build/cli/commands/node/"), notes)
         assertFalse(notes.contains("execute_transaction"))
         assertFalse(allText.contains("chr keygen"))

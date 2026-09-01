@@ -7,7 +7,7 @@ import kotlinx.serialization.json.put
  * Official Chromia CLI 0.33.x `chr repl` flag help.
  * Does not run chr, generate a key, invent a BRID, or send signed transactions.
  * Source: docs.chromia.com/build/cli/commands/repl (0.33.x)
- * plus leftover official /rell/analyze-rell-dapp-code.
+ * plus /rell/analyze-rell-dapp-code.
  * CLI 0.31.0 removed `chr test --sql-log`; use `chr repl --sql-log`.
  * REAL bug: entity SQL analysis needs --sql-log --use-db --module together, not --sql-log alone.
  */
@@ -60,7 +60,7 @@ object ChrReplHelp {
         Queries/operations that depend on entities need `--use-db` and a module from the start.
         Official local operation wrapper is `rell.test.tx(<operation>...).run()` — a test transaction, not a network signed tx.
         CLI 0.31.0 removed `chr test --sql-log` ($TEST_DOCS_URL); use `chr repl --sql-log`.
-        Official leftover analyze page ($ANALYZE_URL): entity SQL logging is
+        Official analyze page ($ANALYZE_URL): entity SQL logging is
         `chr repl --sql-log --use-db --module main` then run a query. `--sql-log` alone does not load entities.
         Official optimization: fields in WHERE should be `key`; fields in JOIN should be `index`.
         Put the most selective predicate first. Put traversed entities in the FROM list instead of walking a.b.c
@@ -69,18 +69,18 @@ object ChrReplHelp {
         `-r, --raw-output` is deprecated; use `-f, --output-format=(pretty|raw|JSON|XML|YAML)`.
         `<script> [<args>...]` runs a Rell script file (`-` = stdin). Args become `args: list<text>`.
         Scripts cannot be combined with `-c, --command`. Script support is experimental.
-        Leftover official leftover BUILD cli/commands/repl (leftover official $REPL_INDEX_URL leftover official 307 leftover official $REPL_INDEX_URL_SLASH leftover official 200 leftover official $REPL_INDEX_TITLE): leftover official leftover intro leftover official leftover Usage leftover official leftover chr repl [<options>] [<script>] [<args>]... leftover official leftover Query-only leftover official leftover WRITE SKIP leftover official leftover skip leftover official leftover signed leftover official leftover txs.
-        Leftover official leftover BUILD cli/commands/test INDEX (leftover official $TEST_INDEX_URL leftover official 307 leftover official $TEST_INDEX_URL_SLASH leftover official 200 leftover official $TEST_INDEX_TITLE): leftover official leftover CLI 0.31.0 leftover official leftover removed leftover official leftover chr test --sql-log leftover official leftover use leftover official leftover chr repl --sql-log leftover official leftover Query-only leftover official leftover Origin parked leftover official leftover WRITE SKIP leftover official leftover skip leftover official leftover signed leftover official leftover txs.
-        Leftover official leftover ECOSYSTEM ecosystem/bridge/bridge-client INDEX (leftover official $ECOSYSTEM_BRIDGE_CLIENT_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_BRIDGE_CLIENT_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_BRIDGE_CLIENT_INDEX_TITLE). Query-only.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/logging INDEX (leftover official $ECOSYSTEM_NODES_LOGGING_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_NODES_LOGGING_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_NODES_LOGGING_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/version INDEX (leftover official $ECOSYSTEM_PMC_VERSION_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PMC_VERSION_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PMC_VERSION_INDEX_TITLE). Query-only.
-        Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/keygen INDEX (leftover official $ECOSYSTEM_PMC_KEYGEN_INDEX_URL leftover official 307 leftover official $ECOSYSTEM_PMC_KEYGEN_INDEX_URL_SLASH leftover official 200 leftover official H1 $ECOSYSTEM_PMC_KEYGEN_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/rell-masterclass/select INDEX (leftover official $LEARN_RELL_MASTERCLASS_SELECT_INDEX_URL leftover official 301 leftover official $LEARN_RELL_MASTERCLASS_SELECT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_RELL_MASTERCLASS_SELECT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). leftover official leftover The most common way to select a record from the database is by using the at-operator leftover official leftover The operator is separated into five parts: FROM, CARDINALITY, WHERE, WHAT, and TAIL leftover official leftover FROM represents the table from where to make the query. Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/monetize-dapp/transfer INDEX (leftover official $LEARN_MONETIZE_TRANSFER_INDEX_URL leftover official 301 leftover official $LEARN_MONETIZE_TRANSFER_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_MONETIZE_TRANSFER_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN courses/marketplace-course/module-nft INDEX (leftover official $LEARN_MARKETPLACE_NFT_INDEX_URL leftover official 301 leftover official $LEARN_MARKETPLACE_NFT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_MARKETPLACE_NFT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official BUILD cli/commands/repl ($REPL_INDEX_URL 307 $REPL_INDEX_URL_SLASH 200 $REPL_INDEX_TITLE): intro Usage chr repl [<options>] [<script>] [<args>]... Query-only WRITE SKIP skip signed txs.
+        Official BUILD cli/commands/test INDEX ($TEST_INDEX_URL 307 $TEST_INDEX_URL_SLASH 200 $TEST_INDEX_TITLE): CLI 0.31.0 removed chr test --sql-log use chr repl --sql-log Query-only Origin parked WRITE SKIP skip signed txs.
+        Official ECOSYSTEM ecosystem/bridge/bridge-client INDEX ($ECOSYSTEM_BRIDGE_CLIENT_INDEX_URL 307 $ECOSYSTEM_BRIDGE_CLIENT_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_BRIDGE_CLIENT_INDEX_TITLE). Query-only.
+        Official ECOSYSTEM ecosystem/providers/nodes/logging INDEX ($ECOSYSTEM_NODES_LOGGING_INDEX_URL 307 $ECOSYSTEM_NODES_LOGGING_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_NODES_LOGGING_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official ECOSYSTEM ecosystem/providers/pmc/commands/version INDEX ($ECOSYSTEM_PMC_VERSION_INDEX_URL 307 $ECOSYSTEM_PMC_VERSION_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PMC_VERSION_INDEX_TITLE). Query-only.
+        Official ECOSYSTEM ecosystem/providers/pmc/commands/keygen INDEX ($ECOSYSTEM_PMC_KEYGEN_INDEX_URL 307 $ECOSYSTEM_PMC_KEYGEN_INDEX_URL_SLASH 200 H1 $ECOSYSTEM_PMC_KEYGEN_INDEX_TITLE). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/rell-masterclass/select INDEX ($LEARN_RELL_MASTERCLASS_SELECT_INDEX_URL 301 $LEARN_RELL_MASTERCLASS_SELECT_INDEX_URL_SLASH 200 H1 $LEARN_RELL_MASTERCLASS_SELECT_INDEX_TITLE HELP ONLY WRITE SKIP). The most common way to select a record from the database is by using the at-operator The operator is separated into five parts: FROM, CARDINALITY, WHERE, WHAT, and TAIL FROM represents the table from where to make the query. Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/monetize-dapp/transfer INDEX ($LEARN_MONETIZE_TRANSFER_INDEX_URL 301 $LEARN_MONETIZE_TRANSFER_INDEX_URL_SLASH 200 H1 $LEARN_MONETIZE_TRANSFER_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN courses/marketplace-course/module-nft INDEX ($LEARN_MARKETPLACE_NFT_INDEX_URL 301 $LEARN_MARKETPLACE_NFT_INDEX_URL_SLASH 200 H1 $LEARN_MARKETPLACE_NFT_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
         This tool does not run chr, does not generate a key, and does not send signed transactions.
-        Leftover official leftover RELL rell/language-features/modules/function INDEX (leftover official $RELL_MODULE_FUNCTION_INDEX_URL leftover official 307 leftover official $RELL_MODULE_FUNCTION_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $RELL_MODULE_FUNCTION_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
-        Leftover official leftover LEARN tags/GOAT INDEX (leftover official $LEARN_TAGS_GOAT_INDEX_URL leftover official 301 leftover official $LEARN_TAGS_GOAT_INDEX_URL_SLASH leftover official 200 leftover official H1 leftover official $LEARN_TAGS_GOAT_INDEX_TITLE leftover official HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official RELL rell/language-features/modules/function INDEX ($RELL_MODULE_FUNCTION_INDEX_URL 307 $RELL_MODULE_FUNCTION_INDEX_URL_SLASH 200 H1 $RELL_MODULE_FUNCTION_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
+        Official LEARN tags/GOAT INDEX ($LEARN_TAGS_GOAT_INDEX_URL 301 $LEARN_TAGS_GOAT_INDEX_URL_SLASH 200 H1 $LEARN_TAGS_GOAT_INDEX_TITLE HELP ONLY WRITE SKIP). Query-only. HELP ONLY WRITE SKIP.
     """.trimIndent()
 
     fun toJson(): kotlinx.serialization.json.JsonObject = buildJsonObject {
@@ -166,14 +166,14 @@ object ChrReplHelp {
     }
 }
 
-// Leftover official leftover BUILD cli/commands/repl leftovers encoded as REPL_INDEX_* (query-only).
-// Leftover official leftover BUILD cli/commands/test leftovers encoded as TEST_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/bridge/bridge-client INDEX leftovers encoded as ECOSYSTEM_BRIDGE_CLIENT_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/nodes/logging INDEX leftovers encoded as ECOSYSTEM_NODES_LOGGING_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/version INDEX leftovers encoded as ECOSYSTEM_PMC_VERSION_INDEX_* (query-only).
-// Leftover official leftover ECOSYSTEM ecosystem/providers/pmc/commands/keygen INDEX leftovers encoded as ECOSYSTEM_PMC_KEYGEN_INDEX_* (query-only HELP ONLY).
-// Leftover official leftover LEARN courses/rell-masterclass/select INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_SELECT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/monetize-dapp/transfer INDEX leftovers encoded as LEARN_MONETIZE_TRANSFER_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN courses/marketplace-course/module-nft INDEX leftovers encoded as LEARN_MARKETPLACE_NFT_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover RELL rell/language-features/modules/function INDEX leftovers encoded as RELL_MODULE_FUNCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
-// Leftover official leftover LEARN tags/GOAT INDEX leftovers encoded as LEARN_TAGS_GOAT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official BUILD cli/commands/repl leftovers encoded as REPL_INDEX_* (query-only).
+// Official BUILD cli/commands/test leftovers encoded as TEST_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/bridge/bridge-client INDEX leftovers encoded as ECOSYSTEM_BRIDGE_CLIENT_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/nodes/logging INDEX leftovers encoded as ECOSYSTEM_NODES_LOGGING_INDEX_* (query-only HELP ONLY).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/version INDEX leftovers encoded as ECOSYSTEM_PMC_VERSION_INDEX_* (query-only).
+// Official ECOSYSTEM ecosystem/providers/pmc/commands/keygen INDEX leftovers encoded as ECOSYSTEM_PMC_KEYGEN_INDEX_* (query-only HELP ONLY).
+// Official LEARN courses/rell-masterclass/select INDEX leftovers encoded as LEARN_RELL_MASTERCLASS_SELECT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/monetize-dapp/transfer INDEX leftovers encoded as LEARN_MONETIZE_TRANSFER_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN courses/marketplace-course/module-nft INDEX leftovers encoded as LEARN_MARKETPLACE_NFT_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official RELL rell/language-features/modules/function INDEX leftovers encoded as RELL_MODULE_FUNCTION_INDEX_* (query-only HELP ONLY WRITE SKIP).
+// Official LEARN tags/GOAT INDEX leftovers encoded as LEARN_TAGS_GOAT_INDEX_* (query-only HELP ONLY WRITE SKIP).

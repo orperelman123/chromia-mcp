@@ -20,21 +20,21 @@ object Ft4ImportCheck {
     const val CROSSCHAIN_LIST_LABEL = "cross-chain"
     val leftoverOfficialModules = listOf(
         "accounts",
-        "admin  # leftover official list; NEVER import in production",
-        "admin.crosschain  # leftover official list; NEVER import in production",
+        "admin  # list; NEVER import in production",
+        "admin.crosschain  # list; NEVER import in production",
         "assets",
         "auth",
-        "cross-chain  # leftover official list label; official import is lib.ft4.crosschain",
+        "cross-chain  # list label; official import is lib.ft4.crosschain",
         "prioritization",
         "test  # tests only; exposes no external functions",
         "utils  # pagination; exposes no external functions"
     )
     val leftoverOfficialImports = listOf(
-        "import lib.ft4.<module_name>  # leftover official public import (entities + mounted ops/queries)",
-        "import lib.ft4.core.<module_name>  # leftover official core import (no externals)",
+        "import lib.ft4.<module_name>  # public import (entities + mounted ops/queries)",
+        "import lib.ft4.core.<module_name>  # core import (no externals)",
         "import lib.ft4.assets",
         "import lib.ft4.core.assets",
-        "import lib.ft4.crosschain;  # leftover official hyphenated list name is not the import"
+        "import lib.ft4.crosschain;  # hyphenated list name is not the import"
     )
     val forbidden = DappScaffold.forbiddenModules
 
@@ -97,13 +97,13 @@ object Ft4ImportCheck {
 
     fun notes(): String = """
         FT4 ${DappScaffold.FT4_VERSION} API ${DappScaffold.FT4_API} import check.
-        Official leftover imports (200): $IMPORTS_URL
-        Official leftover configuration-values (200): $CONFIG_VALUES_URL
-        Official leftover releases (200): $RELEASES_URL  Official leftover $RELEASES_404_URL is 404.
-        Official leftover modules: accounts, assets, auth, cross-chain (import $CROSSCHAIN_IMPORT), prioritization, test, utils.
-        Official leftover admin / admin.crosschain: NEVER import in production. Official leftover printed sample admin pubkey is skipped.
-        Official leftover public vs core: `import lib.ft4.<module>` mounts user ops/queries; `import lib.ft4.core.<module>` does not.
-        Leftover official list label `$CROSSCHAIN_LIST_LABEL` is not an import path — official import is `$CROSSCHAIN_IMPORT`.
+        Official imports (200): $IMPORTS_URL
+        Official configuration-values (200): $CONFIG_VALUES_URL
+        Official releases (200): $RELEASES_URL  Official $RELEASES_404_URL is 404.
+        Official modules: accounts, assets, auth, cross-chain (import $CROSSCHAIN_IMPORT), prioritization, test, utils.
+        Official admin / admin.crosschain: NEVER import in production. Official printed sample admin pubkey is skipped.
+        Official public vs core: `import lib.ft4.<module>` mounts user ops/queries; `import lib.ft4.core.<module>` does not.
+        Official list label `$CROSSCHAIN_LIST_LABEL` is not an import path — official import is `$CROSSCHAIN_IMPORT`.
         NEVER import ${forbidden.joinToString(", ")} in production dApps.
         require_mandatory_flags only on the main auth descriptor.
         Comments (`//`, `/* */`) are ignored. This tool does not run chr
@@ -127,7 +127,7 @@ object Ft4ImportCheck {
                 }
             }
             if (line.contains("lib.ft4.cross-chain")) {
-                warnings += "line ${index + 1}: leftover official list label 'cross-chain' is not an import; official import is $CROSSCHAIN_IMPORT"
+                warnings += "line ${index + 1}: list label 'cross-chain' is not an import; official import is $CROSSCHAIN_IMPORT"
             }
         }
         val unique = hits.distinctBy { it.module to it.line }
