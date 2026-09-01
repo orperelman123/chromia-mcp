@@ -129,6 +129,7 @@ class ToolExecutorTest {
         assertEquals(McpTools.allTools().map { it.name }.toSet(), names)
         assertTrue("get_prompts" in names)
         assertTrue("chromia_dapp_query" in names)
+        assertTrue("translate_error" in names)
         assertTrue("not_a_real_tool" !in names)
     }
 
