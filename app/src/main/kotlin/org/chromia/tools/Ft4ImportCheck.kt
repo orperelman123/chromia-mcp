@@ -45,7 +45,11 @@ object Ft4ImportCheck {
         val errors: List<String>,
         val warnings: List<String>,
         val hits: List<Hit>,
-        val exemptedLibFiles: Int = 0
+        val exemptedLibFiles: Int = 0,
+        /** Files under lib/ with no vendored copy, skipped as third-party code. */
+        val skippedThirdPartyLibFiles: Int = 0,
+        /** @test module files exempt from the forbidden-module scan. */
+        val exemptedTestModules: Int = 0
     ) {
         fun toJson() = buildJsonObject {
             put("ok", ok)
@@ -86,10 +90,16 @@ object Ft4ImportCheck {
             )
             put(
                 "notes",
-                if (exemptedLibFiles > 0) {
-                    RellLibs.exemptedFt4Note(exemptedLibFiles) + "\n" + notes()
-                } else {
-                    notes()
+                buildString {
+                    if (exemptedLibFiles > 0) appendLine(RellLibs.exemptedFt4Note(exemptedLibFiles))
+                    if (skippedThirdPartyLibFiles > 0) appendLine(RellLibs.thirdPartyLibNote(skippedThirdPartyLibFiles))
+                    if (exemptedTestModules > 0) {
+                        appendLine(
+                            "$exemptedTestModules @test module file(s) exempt from the forbidden-module scan - " +
+                                "test code legitimately exercises admin modules and registration strategies."
+                        )
+                    }
+                    append(notes())
                 }
             )
         }
@@ -170,20 +180,33 @@ object Ft4ImportCheck {
         val warnings = mutableListOf<String>()
         val hits = mutableListOf<Hit>()
         var exempted = 0
+        var thirdParty = 0
+        var testModules = 0
         rellFiles.forEach { (path, content) ->
             // FT4's own library files legitimately contain `operation ras_open(`
             // and `import lib.ft4.admin;` - scanning a submitted lib/ft4 tree
             // reported forbidden-module errors pointing INTO the library (audit
             // F2 follow-up). Skip vendored-library files; app files stay scanned.
             // Content-gated: only a file bit-identical (modulo line endings) to
-            // the vendored FT4 copy is trusted - a differing lib/ft4 file could
-            // be planted code and is scanned like app code, with a warning why.
-            if (RellLibs.isSubmittedFt4Path(path)) {
+            // the vendored copy is trusted - a differing lib file could be
+            // planted code and is scanned like app code, with a warning why.
+            if (RellLibs.isVendoredLibraryPath(path)) {
                 if (RellLibs.matchesVendoredFt4(path, content)) {
                     exempted++
                     return@forEach
                 }
                 warnings += RellLibs.modifiedFt4Note(path)
+            } else if (RellLibs.isThirdPartyLibPath(path)) {
+                // lib/** with no vendored copy to compare (lib/ft3, lib/icmf,
+                // ...): third-party library code, skipped (real-world round 2 D5).
+                thirdParty++
+                return@forEach
+            }
+            // @test modules legitimately exercise admin modules and registration
+            // strategies (real-world round 2 D4) - exempt, noted below.
+            if (RunRellTests.isTestModuleSource(content)) {
+                testModules++
+                return@forEach
             }
             val label = path.trim().ifEmpty { "rell" }
             val one = scan(content, allowAdminModules)
@@ -196,7 +219,9 @@ object Ft4ImportCheck {
             errors = errors,
             warnings = warnings,
             hits = hits,
-            exemptedLibFiles = exempted
+            exemptedLibFiles = exempted,
+            skippedThirdPartyLibFiles = thirdParty,
+            exemptedTestModules = testModules
         )
     }
 

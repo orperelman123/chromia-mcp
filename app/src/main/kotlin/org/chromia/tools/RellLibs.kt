@@ -5,14 +5,21 @@ import java.nio.file.Path
 
 /**
  * Vendored Rell libraries for in-process compilation. FT4 sources are the
- * pinned production release (see AGENTS.md pins), packed at build time from
- * gitlab.com/chromaway/ft4-lib tag v1.1.0r (`rell/src/lib/ft4`), so agents can
- * rell_check / run_rell_tests real FT4 dapp code without `chr install`.
+ * pinned production release (see AGENTS.md pins), packed from
+ * gitlab.com/chromaway/ft4-lib tag v1.1.0r (`rell/src/lib`): `ft4` plus its
+ * sibling libraries `iccf` and `iccf_test` (FT4's crosschain/test-helper
+ * modules import lib.iccf, which `chr` resolves via chromia.yml libs - without
+ * it, any dapp touching lib.ft4.test.core failed with "Module 'lib.iccf' not
+ * found"; real-world round 2 D1). So agents can rell_check / run_rell_tests
+ * real FT4 dapp code without `chr install`.
  */
 object RellLibs {
     const val FT4_VERSION = "v1.1.0r"
     private const val FT4_RESOURCE = "rell-libs/ft4-v1.1.0r.zip"
-    private val FT4_IMPORT_REGEX = Regex("""\blib\.ft4\b""")
+    private val FT4_IMPORT_REGEX = Regex("""\blib\.(ft4|iccf)\b""")
+
+    /** Top-level lib/ directories the vendored zip provides. */
+    val VENDORED_LIB_ROOTS = setOf("ft4", "iccf", "iccf_test")
 
     fun needsFt4(files: Map<String, String>): Boolean =
         // Masked source: a `lib.ft4` mention in a comment or string is not an import.
@@ -24,7 +31,7 @@ object RellLibs {
      * truncate-overwrite the user's files, so an agent submitting its own
      * chr-installed FT4 got results computed against a silently substituted
      * mixed-version tree (audit F2). Compile with exactly what was sent instead
-     * and say so via [submittedFt4Note].
+     * and say so via [submittedVendoredNote].
      */
     /**
      * True for a submitted file that lives under the vendored-library root
@@ -45,6 +52,33 @@ object RellLibs {
      */
     fun isSubmittedFt4Path(path: String): Boolean =
         normalizeFt4Path(path).startsWith("lib/ft4/")
+
+    /**
+     * True for a submitted file under any lib/ root the server vendors
+     * (lib/ft4, lib/iccf, lib/iccf_test). Such paths get the hash-gated
+     * scanning exemption: identical-to-vendored files are library code the
+     * user does not own; differing ones are scanned like app code.
+     */
+    fun isVendoredLibraryPath(path: String): Boolean {
+        val normalized = normalizeFt4Path(path)
+        if (!normalized.startsWith("lib/")) return false
+        val root = normalized.removePrefix("lib/").substringBefore('/')
+        return root in VENDORED_LIB_ROOTS && normalized.length > "lib/$root/".length
+    }
+
+    /**
+     * True for a submitted lib/ file with NO vendored counterpart root
+     * (lib/ft3, lib/icmf, ...). There is nothing to hash-compare against, so
+     * scanners skip these as third-party library code the user does not own -
+     * chromunity's vendored lib/ft3 produced findings inside library code
+     * (real-world round 2 D5). The note says how to opt back in.
+     */
+    fun isThirdPartyLibPath(path: String): Boolean =
+        isVendoredLibPath(path) && !isVendoredLibraryPath(path)
+
+    fun thirdPartyLibNote(count: Int): String =
+        "$count file(s) under lib/ skipped as third-party library code (no vendored copy to " +
+            "verify against); submit them outside lib/ to have them scanned."
 
     private fun normalizeFt4Path(path: String): String =
         path.trim().replace('\\', '/').removePrefix("./").removePrefix("src/")
@@ -92,14 +126,27 @@ object RellLibs {
     fun modifiedFt4Note(path: String): String =
         "${normalizeFt4Path(path)} differs from vendored FT4 $FT4_VERSION - scanned as user code."
 
-    fun submittedFt4FileCount(files: Map<String, String>): Int =
-        files.keys.count { isSubmittedFt4Path(it) }
+    /**
+     * Files submitted under a vendored lib root (lib/ft4, lib/iccf,
+     * lib/iccf_test). When ANY are present the vendored zip must NOT be
+     * provisioned - it would truncate-overwrite the user's files (audit F2);
+     * compile with exactly what was sent and say so via [submittedVendoredNote].
+     */
+    fun submittedVendoredLibFileCount(files: Map<String, String>): Int =
+        files.keys.count { isVendoredLibraryPath(it) }
 
-    fun submittedFt4Note(count: Int): String =
-        "Using your submitted lib/ft4 sources ($count file(s)) instead of the vendored FT4 $FT4_VERSION."
+    fun submittedVendoredNote(files: Map<String, String>): String {
+        val roots = files.keys.filter { isVendoredLibraryPath(it) }
+            .map { normalizeFt4Path(it).removePrefix("lib/").substringBefore('/') }
+            .distinct()
+            .sorted()
+        val count = submittedVendoredLibFileCount(files)
+        val where = roots.joinToString(" + ") { "lib/$it" }
+        return "Using your submitted $where sources ($count file(s)) instead of the vendored FT4 $FT4_VERSION."
+    }
 
     fun exemptedFt4Note(count: Int): String =
-        "$count vendored-library file(s) under lib/ft4/ excluded from import/security scanning; " +
+        "$count vendored-library file(s) under lib/ excluded from import/security scanning; " +
             "your app files are still fully scanned."
 
     /** Unpacks the vendored FT4 sources (entries under lib/ft4/...) into [root]. */

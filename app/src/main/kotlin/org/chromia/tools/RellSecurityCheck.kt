@@ -333,22 +333,32 @@ object RellSecurityCheck {
         val mutatingFunctions = mutatingFunctionNames(fullyMasked)
 
         var exemptedLibFiles = 0
+        var thirdPartyLibFiles = 0
+        var exemptedTestModules = 0
         val modifiedLibNotes = mutableListOf<String>()
         files.forEach { (path, content) ->
-            // A submitted lib/ft4 tree is FT4's own code: v1.1.0r itself contains
-            // `operation ras_open(` and `import lib.ft4.admin;`, so per-file rules
-            // reported CRITICALs pointing INTO the library (audit F2 follow-up).
-            // Library files still feed the auth/mutation call graphs above; the
-            // user's app files (where a forbidden import matters) stay scanned.
+            // A submitted lib/ft4 (or lib/iccf) tree is the library's own code:
+            // FT4 v1.1.0r itself contains `operation ras_open(` and
+            // `import lib.ft4.admin;`, so per-file rules reported CRITICALs
+            // pointing INTO the library (audit F2 follow-up). Library files
+            // still feed the auth/mutation call graphs above; the user's app
+            // files (where a forbidden import matters) stay scanned.
             // The exemption is content-gated: only a file bit-identical (modulo
-            // line endings) to the vendored FT4 copy is trusted - a differing
-            // lib/ft4 file could be planted code and is scanned like app code.
-            if (RellLibs.isSubmittedFt4Path(path)) {
+            // line endings) to the vendored copy is trusted - a differing
+            // lib file could be planted code and is scanned like app code.
+            if (RellLibs.isVendoredLibraryPath(path)) {
                 if (RellLibs.matchesVendoredFt4(path, content)) {
                     exemptedLibFiles++
                     return@forEach
                 }
                 modifiedLibNotes += RellLibs.modifiedFt4Note(path)
+            } else if (RellLibs.isThirdPartyLibPath(path)) {
+                // lib/** with no vendored copy to hash-compare (lib/ft3,
+                // lib/icmf, ...): third-party library code the user does not
+                // own - findings inside it are noise (real-world round 2 D5).
+                // It still feeds the call graphs above.
+                thirdPartyLibFiles++
+                return@forEach
             }
             // Comment-masked: string contents kept (hex key material lives in x"..."
             // literals) but comments cannot hide or fake findings.
@@ -356,7 +366,15 @@ object RellSecurityCheck {
             val masked = fullyMasked.getValue(path)
             // Banned-module/strategy rules run on fully masked text: a banned name
             // inside a string literal (e.g. a require() message) is not an import.
-            findings += bannedModuleFindings(path, masked, allowAdminModules)
+            // @test modules are exempt: exercising admin modules and registration
+            // strategies is exactly what test code does (crc2-lib false reds,
+            // real-world round 2 D4) - matching the test-surface downgrade
+            // precedent, but these rules are exempt+noted rather than downgraded.
+            if (RunRellTests.isTestModuleSource(content)) {
+                exemptedTestModules++
+            } else {
+                findings += bannedModuleFindings(path, masked, allowAdminModules)
+            }
             findings += hardcodedSecretFindings(path, commentMasked)
             val authMarkers = authMarkersFor(masked)
             val ops = scanOperations(path, masked)
@@ -381,9 +399,18 @@ object RellSecurityCheck {
 
         val blocking = adjusted.any { it.severity == "CRITICAL" || it.severity == "HIGH" }
         val notes = buildString {
-            append("Scanned ${files.size - exemptedLibFiles} file(s), $operationsScanned operation(s). ")
+            append("Scanned ${files.size - exemptedLibFiles - thirdPartyLibFiles} file(s), $operationsScanned operation(s). ")
             if (exemptedLibFiles > 0) {
                 append(RellLibs.exemptedFt4Note(exemptedLibFiles) + " ")
+            }
+            if (thirdPartyLibFiles > 0) {
+                append(RellLibs.thirdPartyLibNote(thirdPartyLibFiles) + " ")
+            }
+            if (exemptedTestModules > 0) {
+                append(
+                    "$exemptedTestModules @test module file(s) exempt from the banned-module/open-strategy " +
+                        "scan - test code legitimately exercises admin modules and registration strategies. "
+                )
             }
             modifiedLibNotes.forEach { append("$it ") }
             append(

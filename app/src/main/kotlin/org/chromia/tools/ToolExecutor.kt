@@ -1088,7 +1088,11 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
-        return toolSuccessResult(ChromiaYmlValidator.validate(yaml).toJson())
+        // strict=true turns missing production pins (compile.rellVersion,
+        // merkle_hash_version) into errors; the default warns, since chr
+        // builds official configs that omit them (real-world round 2 D3).
+        val strict = extractBoolean(args, "strict") ?: false
+        return toolSuccessResult(ChromiaYmlValidator.validate(yaml, strict).toJson())
     }
 }
 

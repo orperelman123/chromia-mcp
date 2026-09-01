@@ -140,7 +140,7 @@ class DappBuildToolsTest {
     }
 
     @Test
-    fun missingMerkleHashVersionIsError() {
+    fun missingMerkleHashVersionWarnsByDefaultAndErrorsInStrict() {
         val yaml = """
             blockchains:
               hello:
@@ -148,9 +148,15 @@ class DappBuildToolsTest {
             compile:
               rellVersion: 0.16.1
         """.trimIndent()
+        // Round 2 D3: chr builds official configs without the pin - warning by
+        // default, error only under strict.
         val result = ChromiaYmlValidator.validate(yaml)
-        assertFalse(result.ok)
-        assertTrue(result.errors.any { it.contains("merkle_hash_version") }, result.errors.toString())
+        assertTrue(result.ok, result.errors.toString())
+        assertTrue(result.warnings.any { it.contains("merkle_hash_version") }, result.warnings.toString())
+
+        val strict = ChromiaYmlValidator.validate(yaml, strict = true)
+        assertFalse(strict.ok)
+        assertTrue(strict.errors.any { it.contains("merkle_hash_version") }, strict.errors.toString())
     }
 
     @Test
@@ -176,7 +182,10 @@ class DappBuildToolsTest {
     }
 
     @Test
-    fun forbiddenAdminModuleArgsIsError() = runBlocking {
+    fun adminModuleArgsKeyIsAccepted() = runBlocking {
+        // Round 2 D3: a moduleArgs KEY names the module being CONFIGURED, not
+        // imported - setting lib.ft4.core.admin's admin_pubkey is standard
+        // documented practice and must validate clean.
         val yaml = """
             blockchains:
               hello:
@@ -198,9 +207,9 @@ class DappBuildToolsTest {
             RecordingRepository()
         )
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
-        assertEquals(false, payload["ok"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(true, payload["ok"]!!.jsonPrimitive.content.toBoolean(), payload.toString())
         val errors = payload["errors"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertTrue(errors.any { it.contains("lib.ft4.core.admin") }, errors.toString())
+        assertTrue(errors.none { it.contains("lib.ft4.core.admin") }, errors.toString())
     }
 
     @Test
@@ -1285,13 +1294,16 @@ class DappBuildToolsTest {
                 url: https://node0.testnet.chromia.com:7740
                 brid: x"${WriteDeploymentConfig.TESTNET_DIRECTORY_BRID}"
         """.trimIndent()
+        // Round 2 D3: a missing merkle pin is ONE warning by default (chr
+        // builds such configs) - not a global error plus a per-chain warning.
         val result = ChromiaYmlValidator.validate(yaml)
-        assertFalse(result.ok)
-        assertTrue(result.errors.any { it.contains("merkle_hash_version") }, result.errors.toString())
-        assertTrue(
-            result.warnings.any { it.contains("blockchains.hello.config.features.merkle_hash_version") },
-            result.warnings.toString()
+        assertTrue(result.ok, result.errors.toString())
+        assertEquals(
+            1,
+            (result.errors + result.warnings).count { it.contains("merkle_hash_version") },
+            "one finding, not a global+per-chain double report: ${result.warnings} ${result.errors}"
         )
+        assertTrue(result.warnings.any { it.contains("merkle_hash_version") }, result.warnings.toString())
     }
 
     @Test

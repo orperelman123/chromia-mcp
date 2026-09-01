@@ -108,8 +108,8 @@ object RunRellTests {
 
     private val TEST_MODULE_REGEX = Regex("""(^|\n)\s*@test\s+module\b""")
 
-    /** "lib/ft4/....rell(12:3) Warning: ..." - FT4 library noise, not user code. */
-    private val FT4_WARNING_REGEX = Regex("""^lib[/\\]ft4[/\\].+\(\d+:\d+\)\s+Warning:""")
+    /** "lib/ft4/....rell(12:3) Warning: ..." - vendored-library noise (ft4/iccf), not user code. */
+    private val FT4_WARNING_REGEX = Regex("""^lib[/\\](ft4|iccf|iccf_test)[/\\].+\(\d+:\d+\)\s+Warning:""")
 
     internal fun isVendoredFt4Warning(line: String): Boolean =
         FT4_WARNING_REGEX.containsMatchIn(line.trim())
@@ -263,7 +263,7 @@ object RunRellTests {
             // A submission with its OWN lib/ft4 tree runs against exactly what
             // was sent - provisioning used to truncate-overwrite those files,
             // silently substituting a mixed-version tree (audit F2).
-            val submittedFt4 = RellLibs.submittedFt4FileCount(sources)
+            val submittedFt4 = RellLibs.submittedVendoredLibFileCount(sources)
             val appModules = when {
                 submittedFt4 > 0 ->
                     (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
@@ -276,7 +276,7 @@ object RunRellTests {
             val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
             cleanupDeferred = outcome.cleanupDeferred
             if (submittedFt4 > 0) {
-                outcome.result.copy(notes = outcome.result.notes + " " + RellLibs.submittedFt4Note(submittedFt4))
+                outcome.result.copy(notes = outcome.result.notes + " " + RellLibs.submittedVendoredNote(sources))
             } else {
                 outcome.result
             }

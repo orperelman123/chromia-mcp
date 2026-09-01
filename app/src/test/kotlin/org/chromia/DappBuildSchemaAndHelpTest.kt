@@ -119,8 +119,12 @@ class DappBuildSchemaAndHelpTest {
                 """.trimIndent(),
                 "merkle_hash_version"
             ),
+            // A MISSING rellVersion is a warning since round 2 D3 (official
+            // configs omit it and chr builds them); a rellVersion NEWER than
+            // the CLI-bundled compiler genuinely breaks `chr build` and stays
+            // an error.
             Triple(
-                "missing rellVersion",
+                "too-new rellVersion",
                 """
                 blockchains:
                   hello:
@@ -128,6 +132,8 @@ class DappBuildSchemaAndHelpTest {
                     config:
                       features:
                         merkle_hash_version: 2
+                compile:
+                  rellVersion: 9.9.9
                 """.trimIndent(),
                 "rellVersion"
             ),

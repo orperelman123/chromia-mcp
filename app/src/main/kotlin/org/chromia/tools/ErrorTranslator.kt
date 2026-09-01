@@ -107,6 +107,37 @@ object ErrorTranslator {
             likelyCause = "An attempt to fetch everything in one call instead of paginating.",
             nextAction = "Lower `limit` (schemas default to 10-50) and page with `offset`/timestamps instead.",
         ),
+        // Validator/security findings this server itself emits (the tool
+        // advertises coverage of its own messages - real-world round 2 D6b).
+        // Must precede ft4_open_registration: a finding text quoting ras_open
+        // would otherwise match that broader rule first.
+        rule(
+            id = "own_forbidden_module",
+            family = "mcp-server",
+            pattern = "forbidden ft4 production module|banned-module",
+            meaning = "This server's validator flagged an FT4 admin module or open registration strategy that must never ship in a production dApp.",
+            likelyCause = "App code imports lib.ft4.admin / admin.crosschain (or references ras_open / an open strategy module), or chromia.yml pulls an admin module via libs. moduleArgs KEYS naming admin modules (admin_pubkey configuration) are legitimate and are not flagged; @test modules are exempt.",
+            nextAction = "Remove the admin/open-strategy import from production modules (use a gated registration strategy). Deliberately building admin/ops tooling? Pass allowAdminModules:true to check_dapp_project / rell_security_check / check_ft4_imports to downgrade these findings.",
+            relatedTools = listOf("check_ft4_imports", "check_dapp_project", "rell_security_check")
+        ),
+        rule(
+            id = "own_unauthenticated_mutation",
+            family = "mcp-server",
+            pattern = "unauthenticated-mutation",
+            meaning = "This server's security scan found an operation that creates/updates/deletes state without any authentication check.",
+            likelyCause = "The operation body (and its helper call chain) contains no auth marker - no ft4 auth.authenticate(), op_context.is_signer, require_signer, or ICCF require_valid_proof.",
+            nextAction = "Authenticate the caller before mutating (ft4 auth.authenticate() or an explicit signer check). If auth lives in a helper the scan missed, submit the helper's file too - the call graph spans all submitted files. Test-only code is downgraded automatically (-test-surface).",
+            relatedTools = listOf("rell_security_check", "chromia_rell_practices_help")
+        ),
+        rule(
+            id = "own_hardcoded_key_material",
+            family = "mcp-server",
+            pattern = "hardcoded-key-material",
+            meaning = "This server's security scan found a 64+ char hex literal that looks like key material or a chain RID embedded in source.",
+            likelyCause = "A private/public key, BRID, or similar secret pasted into a .rell file instead of arriving via module args or configuration.",
+            nextAction = "Move the value to chromia.yml moduleArgs (or test setup) and read it from module_args; never commit key material in source. If it is a well-known public constant, keep it but expect the finding.",
+            relatedTools = listOf("rell_security_check", "ft4_module_args")
+        ),
         rule(
             id = "own_source_too_large",
             family = "mcp-server",
@@ -319,6 +350,18 @@ object ErrorTranslator {
             likelyCause = "A typo near that position - missing semicolon/brace/paren, a keyword misuse, or non-Rell syntax pasted in.",
             nextAction = "Fix the code at the reported position and iterate with rell_check until it compiles; see chromia_rell_statements_help for statement syntax.",
             relatedTools = listOf("rell_check", "chromia_rell_statements_help")
+        ),
+        // Before rell_unknown_module: a lib.* module is an external LIBRARY
+        // dependency, not a mislaid file - the path-vs-import advice sent
+        // agents chasing a nonexistent bug in their own code (round 2 D6a).
+        rule(
+            id = "rell_lib_module_not_found",
+            family = "rell-compiler",
+            pattern = "module ['\"‘“]?lib\\.[\\w.]+['\"’”]? not found",
+            meaning = "The compiler cannot resolve a lib.* module - a missing external library dependency, not a typo in your own module paths.",
+            likelyCause = "The library was never installed: real projects declare it under chromia.yml `libs:` and run `chr install`, which vendors it under src/lib/. This server vendors FT4 v1.1.0r plus its lib.iccf sibling in-process; any OTHER library (lib.icmf, lib.ft3, ...) must be submitted in the files map under lib/. For lib.ft4.* specifically, a module that exists in one FT4 version may not exist in another - check your tagOrBranch pin.",
+            nextAction = "Locally: add the library to chromia.yml libs and run `chr install`. Through this server: include the library's sources in the files map (lib/<name>/...), or for lib.ft4.*/lib.iccf just import them - they are vendored. If a lib.ft4 module is 'not found' although FT4 is vendored, suspect an FT4 version mismatch.",
+            relatedTools = listOf("rell_check", "check_dapp_project", "chr_library_help", "validate_chromia_yml")
         ),
         rule(
             id = "rell_unknown_module",

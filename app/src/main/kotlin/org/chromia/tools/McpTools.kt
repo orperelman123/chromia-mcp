@@ -1491,12 +1491,17 @@ object McpTools {
         name = "validate_chromia_yml",
         description = """
             Validate a chromia.yml string against production pins.
-            Checks compile.rellVersion (required semver N.N.N), blockchains.*.module (module name, not a file path),
-            merkle_hash_version == 2, blockchain key webStatic is accepted, and forbids FT4 admin / ras_open modules in libs and moduleArgs.
+            Checks compile.rellVersion (semver N.N.N), blockchains.*.module (module name, not a file path),
+            merkle_hash_version == 2, blockchain key webStatic is accepted, and forbids FT4 admin / ras_open modules
+            in libs and code; moduleArgs KEYS naming admin modules (e.g. lib.ft4.core.admin for admin_pubkey) are
+            legitimate configuration and are NOT flagged.
+            MISSING production pins (compile.rellVersion, merkle_hash_version) are warnings by default - chr builds
+            official configs that omit them; pass strict:true to make missing pins errors. A rellVersion newer than
+            the CLI-bundled compiler or a present-but-wrong merkle value is always an error.
             Deployments: reserved names mainnet / testnet auto-fill Directory brid + url; custom names require both;
             a Directory Chain BRID that is not 64 hex is an error; official reserved BRIDs must match.
             require_mandatory_flags as a YAML / moduleArgs key is an error (main auth descriptor only).
-            Warns if merkle_hash_version is missing on a chain config, deployments.*.container is missing,
+            Warns if a chain config lacks merkle_hash_version while others set it, deployments.*.container is missing,
             or libs.*.insecure is true (skips RID check; not for production).
             Returns structured {ok, errors[], warnings[]}. Does not run chr or send signed transactions.
         """.trimIndent(),
@@ -1507,6 +1512,15 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Full chromia.yml text to validate")
+                        )
+                    ),
+                    "strict" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default false. true makes MISSING production pins (compile.rellVersion, " +
+                                    "merkle_hash_version) errors instead of warnings - use for release gates."
+                            )
                         )
                     )
                 )
@@ -1752,7 +1766,11 @@ object McpTools {
             - MEDIUM: operations with parameters but no require(...) input validation
             HIGH findings in test-only code (@test modules, files under test/ or tests/, and
             modules imported only from @test modules) are reported as MEDIUM with a
-            "-test-surface" rule suffix; CRITICAL findings never downgrade.
+            "-test-surface" rule suffix. @test modules are fully exempt from the banned-module/
+            open-strategy rules (test code legitimately exercises admin modules and registration
+            strategies); in non-test code CRITICAL findings never downgrade. Submitted lib/** files
+            are library code: vendored-identical lib/ft4 and lib/iccf files are exempt, differing
+            ones are scanned and noted, and other lib/* trees are skipped as third-party code.
             allowAdminModules:true (default false) downgrades banned-module findings from
             CRITICAL to MEDIUM - for admin/ops tooling only, never for production dApps.
             Returns line-anchored findings with a concrete fix per finding. ok=true means no
@@ -2759,9 +2777,14 @@ object McpTools {
             (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted in the output.
             allowAdminModules:true (default false) downgrades banned admin-module findings from errors
             to warnings - for admin/ops tooling only, never for production dApps.
-            Submitted lib/ft4/ files identical to the vendored FT4 sources compile but are exempt from the
-            import/security scanners (FT4's own sources legitimately contain e.g. ras_open); notes says so.
-            A lib/ft4/ file whose content differs from the vendored copy is scanned like app code and noted.
+            When the yaml declares multiple blockchains whose modules match submitted files, each chain's
+            module set is compiled separately (like chr build) so per-chain alternative modules do not
+            false-red with mount-name conflicts; notes says so.
+            Submitted lib/ft4/ or lib/iccf/ files identical to the vendored sources compile but are exempt
+            from the import/security scanners (FT4's own sources legitimately contain e.g. ras_open); a
+            file differing from the vendored copy is scanned like app code and noted. Other lib/** files
+            (lib/ft3, lib/icmf, ...) are skipped as third-party library code and noted. @test modules are
+            exempt from the forbidden-module scan (test code legitimately exercises admin modules).
             Use this as the single pre-deploy gate instead of calling the four tools separately.
             Read-only: does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
@@ -2829,6 +2852,9 @@ object McpTools {
             Read-only in-memory scan of one or more .rell file contents for forbidden FT4 production imports
             (lib.ft4.admin, admin.crosschain, ras_open, ras_transfer_open, and the rest of DappScaffold.forbiddenModules).
             Official /build/ft4/setup/imports (200): public vs core; list label cross-chain is import lib.ft4.crosschain.
+            @test modules are exempt (test code legitimately exercises admin modules and strategies);
+            vendored-identical lib/ft4 and lib/iccf files are exempt; other lib/* files are skipped as
+            third-party library code - all counted in notes.
             Returns {ok, errors, warnings, hits, forbidden}. Used by check_dapp_project.
             allowAdminModules:true (default false) downgrades forbidden-module findings from errors
             to warnings - for admin/ops tooling only, never for production dApps.

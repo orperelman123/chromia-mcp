@@ -43,9 +43,19 @@ object ChromiaYmlValidator {
         }
     }
 
-    fun validate(yaml: String): Result {
+    /**
+     * @param strict when true, missing production pins (compile.rellVersion,
+     * merkle_hash_version) are ERRORS; by default they are warnings - official
+     * Chromia configs (crc2-lib, directory1-example, vector-db-extension) omit
+     * them and `chr build` accepts that (real-world round 2 D3). Genuinely
+     * build-breaking findings (a rellVersion newer than the CLI's compiler, a
+     * present-but-wrong merkle value, malformed values) stay errors regardless.
+     */
+    fun validate(yaml: String, strict: Boolean = false): Result {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
+        // Missing-pin findings: errors only in strict mode.
+        val pinFindings = if (strict) errors else warnings
         val trimmed = yaml.trim()
         if (trimmed.isEmpty()) {
             return Result(false, listOf("chromia.yml is empty"), emptyList())
@@ -96,7 +106,9 @@ object ChromiaYmlValidator {
         val compile = mapping.mapping("compile")
         val rellVersion = compile?.scalar("rellVersion")
         if (rellVersion.isNullOrBlank()) {
-            errors += "compile.rellVersion is required (production pin $RELL_VERSION; the newest Rell the installed CLI ${DappScaffold.CLI_SERIES} accepts)"
+            // chr builds fine without the pin (official configs omit it) - a
+            // missing production pin is a warning unless strict (round 2 D3).
+            pinFindings += "compile.rellVersion is missing (production pin $RELL_VERSION; the newest Rell the installed CLI ${DappScaffold.CLI_SERIES} accepts)"
         } else if (!RELL_VERSION_FORMAT.matches(rellVersion)) {
             errors += "compile.rellVersion must be a semver string N.N.N (found $rellVersion); production pin $RELL_VERSION"
         } else {
@@ -129,7 +141,9 @@ object ChromiaYmlValidator {
             }
         }
         if (merkleHits.isEmpty()) {
-            errors += "merkle_hash_version must be $MERKLE_HASH_VERSION under blockchains.<name>.config.features (do not ship version 1)"
+            // Missing pin: warning unless strict (chr builds without it; round 2
+            // D3). A present-but-WRONG value below stays an error.
+            pinFindings += "merkle_hash_version is missing - production pin is $MERKLE_HASH_VERSION under blockchains.<name>.config.features (do not ship version 1)"
         } else {
             merkleHits.forEach { (path, value) ->
                 val n = value.toIntOrNull()
@@ -157,13 +171,18 @@ object ChromiaYmlValidator {
             }
         }
 
-        // moduleArgs live under each chain; admin / ras_open must not ship in production.
+        // moduleArgs KEYS name the module being CONFIGURED, not imported: setting
+        // e.g. lib.ft4.core.admin's admin_pubkey is standard documented practice,
+        // and applying the code-import blacklist to these keys false-flagged
+        // official configs (real-world round 2 D3). Admin modules are dropped
+        // from the KEY check; open-strategy names stay flagged, and importing an
+        // admin module in code or pulling it via libs is still an error.
         if (blockchains != null) {
             blockchains.entries.forEach { (name, node) ->
                 val chain = node as? YamlNode.Mapping ?: return@forEach
                 val moduleArgs = chain.mapping("moduleArgs") ?: return@forEach
                 moduleArgs.entries.keys.forEach { key ->
-                    forbiddenHit(key)?.let { hit ->
+                    forbiddenHit(key)?.takeIf { it !in ADMIN_MODULES }?.let { hit ->
                         errors += "blockchains.$name.moduleArgs.$key: forbidden FT4 production module $hit"
                     }
                 }
@@ -175,7 +194,10 @@ object ChromiaYmlValidator {
             warnings += "database.driver must be org.postgresql.Driver (found $driver)"
         }
 
-        if (blockchains != null) {
+        // Per-chain missing-merkle warnings only when the key exists SOMEWHERE:
+        // with no key anywhere the global finding above already says so, and
+        // reporting both double-counted one omission (real-world round 2 D3).
+        if (blockchains != null && merkleHits.isNotEmpty()) {
             blockchains.entries.forEach { (name, node) ->
                 val chain = node as? YamlNode.Mapping ?: return@forEach
                 val merkle = chain.mapping("config")?.mapping("features")?.scalar("merkle_hash_version")
@@ -229,6 +251,9 @@ object ChromiaYmlValidator {
 
         return Result(errors.isEmpty(), errors, warnings)
     }
+
+    /** Admin modules: banned as code imports / libs, but VALID as moduleArgs keys (configuring admin_pubkey). */
+    internal val ADMIN_MODULES = setOf("lib.ft4.admin", "lib.ft4.core.admin", "admin.crosschain")
 
     internal const val DIRECTORY_BRID_HEX_LENGTH = WriteDeploymentConfig.DIRECTORY_BRID_HEX_LENGTH
     internal val RESERVED_DEPLOYMENT_NAMES = setOf("mainnet", "testnet")

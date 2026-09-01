@@ -72,7 +72,7 @@ object RellCheck {
             // used to truncate-overwrite those files, silently substituting a
             // mixed-version tree (audit F2). Compile exactly what was sent and
             // surface a note so errors are correctly attributed.
-            val submittedFt4 = RellLibs.submittedFt4FileCount(sources)
+            val submittedFt4 = RellLibs.submittedVendoredLibFileCount(sources)
             val provisionedFt4 = submittedFt4 == 0 && RellLibs.needsFt4(sources)
             if (provisionedFt4) RellLibs.provisionFt4(tempDir)
             // Test modules are not app modules: without passing them explicitly a
@@ -85,9 +85,13 @@ object RellCheck {
             // module's name - subtract so it is never passed as an app module.
             val effectiveModules = modules
                 ?: (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
-            val result = compile(tempDir, effectiveModules, testModules)
+            val result = appendMountConflictHint(
+                compile(tempDir, effectiveModules, testModules),
+                sources,
+                autoScoped = modules == null
+            )
             val annotated = if (submittedFt4 > 0) {
-                result.copy(notes = result.notes + " " + RellLibs.submittedFt4Note(submittedFt4))
+                result.copy(notes = result.notes + " " + RellLibs.submittedVendoredNote(sources))
             } else {
                 // Warnings INSIDE the provisioned FT4 library are pinned-library
                 // noise the agent cannot act on: a one-line FT4 dapp came back
@@ -174,6 +178,75 @@ object RellCheck {
         }
     }
 
+    /** The compiler's mount-name collision diagnostics ("Mount name conflict: ..." / mnt_conflict codes). */
+    private val MOUNT_CONFLICT_REGEX = Regex("""mount name conflict|mnt_conflict""", RegexOption.IGNORE_CASE)
+
+    /** `import name;` / `import alias: name;` - the dotted module path. */
+    private val IMPORT_REGEX = Regex("""\bimport\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*:\s*)?([A-Za-z_][A-Za-z0-9_.]*)""")
+
+    /**
+     * Multi-chain repos (vector-db-extension, zkp-extension, extension-example)
+     * keep sibling modules that are SEPARATE chains in chromia.yml - both mount
+     * e.g. `__icmf_message`. `chr build` compiles one blockchain's module set at
+     * a time, so it never sees the collision, but the default all-modules
+     * compile here force-combined them and false-redded with a mount conflict
+     * (real-world round 2 D2). When the compile was auto-scoped, failed with a
+     * mount-name conflict, and the submission has at least two app modules that
+     * do not import each other (per-chain alternatives, not one app), explain
+     * and point at the `modules` argument / per-blockchain checking.
+     */
+    internal fun appendMountConflictHint(result: Result, sources: Map<String, String>, autoScoped: Boolean): Result {
+        if (result.ok || !autoScoped) return result
+        if (result.errors.none { MOUNT_CONFLICT_REGEX.containsMatchIn(it.raw) }) return result
+        val appModules = RellLibs.userAppModules(sources).filter { it.isNotEmpty() }
+        if (appModules.size < 2 || !hasIndependentModulePair(sources, appModules)) return result
+        return result.copy(
+            notes = result.notes +
+                " Note: all submitted modules were compiled together (${appModules.joinToString(", ")})." +
+                " A mount-name conflict between sibling modules that do not import each other usually means" +
+                " they are per-chain alternatives - chr compiles each blockchain's module set separately, so" +
+                " `chr build` would not see this conflict. Re-run with the `modules` argument listing one" +
+                " chain's module (e.g. [\"${appModules.first()}\"]), or use check_dapp_project with your" +
+                " multi-chain chromia.yml to compile per blockchain."
+        )
+    }
+
+    /** True when some pair of [appModules] has no import path between them in either direction. */
+    private fun hasIndependentModulePair(sources: Map<String, String>, appModules: List<String>): Boolean {
+        val moduleSet = appModules.toSet()
+        val imports = mutableMapOf<String, MutableSet<String>>()
+        sources.forEach { (path, content) ->
+            val module = RunRellTests.moduleNameForPath(path, content)
+            if (module !in moduleSet) return@forEach
+            val masked = maskRellSource(content, maskStrings = true)
+            IMPORT_REGEX.findAll(masked).forEach { m ->
+                val target = m.groupValues[1].trimEnd('.')
+                if (target in moduleSet && target != module) {
+                    imports.getOrPut(module) { mutableSetOf() }.add(target)
+                }
+            }
+        }
+        fun reaches(from: String, to: String): Boolean {
+            val seen = mutableSetOf<String>()
+            val queue = ArrayDeque(listOf(from))
+            while (queue.isNotEmpty()) {
+                val m = queue.removeFirst()
+                if (!seen.add(m)) continue
+                if (m == to) return true
+                imports[m]?.forEach { queue.addLast(it) }
+            }
+            return false
+        }
+        for (i in appModules.indices) {
+            for (j in i + 1 until appModules.size) {
+                val a = appModules[i]
+                val b = appModules[j]
+                if (!reaches(a, b) && !reaches(b, a)) return true
+            }
+        }
+        return false
+    }
+
     /** "Module 'lib.ft4.<something>' not found" - the FT4-version-mismatch signature. */
     private val FT4_MODULE_NOT_FOUND_REGEX = Regex("""Module '(lib\.ft4[^']*)' not found""")
 
@@ -198,10 +271,10 @@ object RellCheck {
         )
     }
 
-    /** Drops warnings located in provisioned lib/ft4 files; says so in notes. */
+    /** Drops warnings located in provisioned lib/ft4 (+ iccf sibling) files; says so in notes. */
     internal fun suppressVendoredFt4Warnings(result: Result): Result {
         val (vendored, user) = result.warnings.partition {
-            it.file?.replace('\\', '/')?.startsWith("lib/ft4/") == true
+            it.file != null && RellLibs.isVendoredLibraryPath(it.file)
         }
         if (vendored.isEmpty()) return result
         return result.copy(

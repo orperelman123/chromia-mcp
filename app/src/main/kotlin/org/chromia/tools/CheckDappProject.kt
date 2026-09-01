@@ -66,20 +66,33 @@ object CheckDappProject {
             errors += "missing .rell file contents"
         }
         var exemptedLibFiles = 0
+        var thirdPartyLibFiles = 0
+        var exemptedTestModules = 0
         rellFiles.forEach { (path, content) ->
             // FT4's own library files contain `operation ras_open(` and
             // `import lib.ft4.admin;` - scanning a submitted lib/ft4 tree
             // reported forbidden-module errors pointing INTO the library (audit
             // F2 follow-up). Skip vendored-library files; app files stay scanned.
             // Content-gated: only a file bit-identical (modulo line endings) to
-            // the vendored FT4 copy is trusted - a differing lib/ft4 file could
-            // be planted code and is scanned like app code, with a note why.
-            if (RellLibs.isSubmittedFt4Path(path)) {
+            // the vendored copy is trusted - a differing lib file could be
+            // planted code and is scanned like app code, with a note why.
+            if (RellLibs.isVendoredLibraryPath(path)) {
                 if (RellLibs.matchesVendoredFt4(path, content)) {
                     exemptedLibFiles++
                     return@forEach
                 }
                 notes += RellLibs.modifiedFt4Note(path)
+            } else if (RellLibs.isThirdPartyLibPath(path)) {
+                // lib/** with no vendored copy to compare (lib/ft3, lib/icmf,
+                // ...): third-party library code, skipped (real-world round 2 D5).
+                thirdPartyLibFiles++
+                return@forEach
+            }
+            // @test modules legitimately exercise admin modules and registration
+            // strategies (real-world round 2 D4) - exempt from the forbidden scan.
+            if (RunRellTests.isTestModuleSource(content)) {
+                exemptedTestModules++
+                return@forEach
             }
             // Same normalized path and "<path>:<line>: ..." shape as the compile
             // and security findings below - FT4 findings used to say
@@ -91,6 +104,13 @@ object CheckDappProject {
         }
         if (exemptedLibFiles > 0) {
             notes += RellLibs.exemptedFt4Note(exemptedLibFiles)
+        }
+        if (thirdPartyLibFiles > 0) {
+            notes += RellLibs.thirdPartyLibNote(thirdPartyLibFiles)
+        }
+        if (exemptedTestModules > 0) {
+            notes += "$exemptedTestModules @test module file(s) exempt from the forbidden-module scan - " +
+                "test code legitimately exercises admin modules and registration strategies."
         }
 
         if (compile && rellFiles.isNotEmpty()) {
@@ -113,32 +133,82 @@ object CheckDappProject {
                 errors += "rell: no compilable .rell files - key each source by a path ending in .rell " +
                     "(e.g. {\"main.rell\": \"module; ...\"}) so the compile and security checks can run."
             } else if (collisions.isEmpty()) {
-                runCatching { RellCheck.check(compilable, null) }.fold(
-                    onSuccess = { result ->
-                        // Compile notes carry load-bearing context (e.g. "Using your
-                        // submitted lib/ft4 sources ...") that was silently dropped
-                        // (audit F1 follow-up).
-                        if (result.notes.isNotBlank()) notes += result.notes
-                        result.errors.forEach { d ->
-                            val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
-                            errors += if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
-                        }
-                        result.warnings.forEach { d ->
-                            val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
-                            warnings += if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
-                        }
-                        if (result.ok) {
-                            val sec = RellSecurityCheck.analyze(compilable, allowAdminModules)
-                            sec.findings.forEach { f ->
-                                val line = "${f.file}:${f.line}: [${f.severity}] ${f.rule} - ${f.text}. Fix: ${f.fix}"
-                                if (f.severity == "CRITICAL" || f.severity == "HIGH") errors += line else warnings += line
+                // Multi-chain repos keep sibling modules that are SEPARATE chains
+                // in chromia.yml (both mounting e.g. __icmf_message); chr compiles
+                // per blockchain, so an all-modules compile false-reds with a
+                // mount conflict (real-world round 2 D2). When the yaml declares
+                // several chains whose modules all match submitted modules,
+                // compile each chain's module set separately, like chr does.
+                val perChain = perBlockchainModules(yaml, compilable)
+                val moduleScopes: List<List<String>?> =
+                    if (perChain.size >= 2) {
+                        notes += "Multiple blockchains in chromia.yml - compiled per blockchain: " +
+                            perChain.entries.joinToString(", ") { (chain, module) -> "$chain (module $module)" } + "."
+                        perChain.values.distinct().map { listOf(it) }
+                    } else {
+                        listOf(null)
+                    }
+                var allOk = true
+                val seenErrors = mutableSetOf<String>()
+                val seenWarnings = mutableSetOf<String>()
+                moduleScopes.forEach { scope ->
+                    runCatching { RellCheck.check(compilable, scope) }.fold(
+                        onSuccess = { result ->
+                            // Compile notes carry load-bearing context (e.g. "Using your
+                            // submitted lib/ft4 sources ...") that was silently dropped
+                            // (audit F1 follow-up).
+                            if (result.notes.isNotBlank() && result.notes !in notes) notes += result.notes
+                            result.errors.forEach { d ->
+                                val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
+                                val line = if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
+                                if (seenErrors.add(line)) errors += line
                             }
+                            result.warnings.forEach { d ->
+                                val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
+                                val line = if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
+                                if (seenWarnings.add(line)) warnings += line
+                            }
+                            if (!result.ok) allOk = false
+                        },
+                        onFailure = { e ->
+                            allOk = false
+                            errors += "rell: compile check failed: ${e.message}"
                         }
-                    },
-                    onFailure = { e -> errors += "rell: compile check failed: ${e.message}" }
-                )
+                    )
+                }
+                if (allOk) {
+                    val sec = RellSecurityCheck.analyze(compilable, allowAdminModules)
+                    sec.findings.forEach { f ->
+                        val line = "${f.file}:${f.line}: [${f.severity}] ${f.rule} - ${f.text}. Fix: ${f.fix}"
+                        if (f.severity == "CRITICAL" || f.severity == "HIGH") errors += line else warnings += line
+                    }
+                }
             }
         }
         return Result(ok = errors.isEmpty(), errors = errors, warnings = warnings, notes = notes)
+    }
+
+    /**
+     * chain name -> its chromia.yml `module`, for per-blockchain compilation
+     * (real-world round 2 D2). Empty (= fall back to the single all-modules
+     * compile) unless the yaml parses, declares 2+ chains, and EVERY chain's
+     * module matches a submitted module - a partial submission must keep the
+     * old behavior rather than fail each chain with "module not found".
+     */
+    internal fun perBlockchainModules(yaml: String, rellFiles: Map<String, String>): Map<String, String> {
+        val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return emptyMap()
+        val blockchains = root.mapping("blockchains") ?: return emptyMap()
+        val chainModules = linkedMapOf<String, String>()
+        blockchains.entries.forEach { (chain, node) ->
+            val module = (node as? YamlNode.Mapping)?.scalar("module")?.trim().orEmpty()
+            if (module.isEmpty()) return emptyMap()
+            chainModules[chain] = module
+        }
+        if (chainModules.size < 2) return emptyMap()
+        val submittedModules = rellFiles.map { (path, content) ->
+            RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(path), content)
+        }.toSet()
+        if (!chainModules.values.all { it in submittedModules }) return emptyMap()
+        return chainModules
     }
 }

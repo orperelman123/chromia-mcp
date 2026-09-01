@@ -324,13 +324,23 @@ class ProbeImprovementsRegressionTest {
 
     @Test
     fun criticalInTestModuleStaysCritical() {
+        // Round 2 D4 updated the policy: @test modules are EXEMPT from the
+        // banned-module scan (FT4's own test helpers import lib.ft4.admin, and
+        // exercising admin modules is what test code does) - with a note. The
+        // same import in a NON-test module stays CRITICAL.
         val files = mapOf(
             "main_test.rell" to "@test module;\nimport lib.ft4.admin;\nfunction test_x() {}\n"
         )
         val result = RellSecurityCheck.analyze(files)
-        val finding = result.findings.single { it.rule == "banned-module" }
+        assertTrue(result.findings.none { it.rule == "banned-module" }, result.findings.toString())
+        assertTrue(result.notes.contains("@test module"), result.notes)
+
+        val production = RellSecurityCheck.analyze(
+            mapOf("main.rell" to "module;\nimport lib.ft4.admin;\n")
+        )
+        val finding = production.findings.single { it.rule == "banned-module" }
         assertEquals("CRITICAL", finding.severity)
-        assertFalse(result.ok)
+        assertFalse(production.ok)
     }
 
     // ---- item 7: get_chr_aggregates size control -----------------------
