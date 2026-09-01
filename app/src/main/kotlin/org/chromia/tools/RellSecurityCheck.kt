@@ -111,7 +111,16 @@ object RellSecurityCheck {
     private val REQUIRE_REGEX = Regex("""\brequire(_not_empty)?\s*\(""")
     private val HEX_SECRET_REGEX = Regex("""x?["']([0-9a-fA-F]{64,})["']""")
 
-    private fun callRegex(fn: String) = Regex("""\b${Regex.escape(fn)}\s*\(""")
+    // One generic pass extracts every `name(` call site per body; closure and
+    // per-operation checks then use set lookups. Compiling a regex per
+    // (function, candidate) pair per fixed-point pass was O(N^3) regex compiles
+    // and effectively hung the tool on a long call chain (audit F3). Matching a
+    // qualified call `ns.fn(` still yields `fn`, like the old \bfn\s*\( regex.
+    private val CALL_SITE_REGEX = Regex("""([A-Za-z_][A-Za-z0-9_]*)\s*\(""")
+
+    /** Names of the functions a (masked) body calls, e.g. {"fn"} for `ns.fn (x)`. */
+    internal fun calledNames(maskedBody: String): Set<String> =
+        CALL_SITE_REGEX.findAll(maskedBody).mapTo(mutableSetOf()) { it.groupValues[1] }
 
     /** Auth markers for one (masked) file: the globals plus its FT4 auth aliases. */
     internal fun authMarkersFor(masked: String): List<String> =
@@ -147,12 +156,13 @@ object RellSecurityCheck {
 
     /** Fixed point: a function is in the set if seeded or if it calls one that is. */
     private fun closeOverCalls(functions: Map<String, String>, seed: Set<String>): Set<String> {
+        val callSites = functions.mapValues { (_, body) -> calledNames(body) }
         val result = seed.toMutableSet()
         var changed = true
         while (changed) {
             changed = false
-            functions.forEach { (name, body) ->
-                if (name !in result && result.any { fn -> callRegex(fn).containsMatchIn(body) }) {
+            callSites.forEach { (name, calls) ->
+                if (name !in result && calls.any { it in result }) {
                     result.add(name)
                     changed = true
                 }
@@ -337,11 +347,12 @@ object RellSecurityCheck {
         authMarkers: List<String> = AUTH_MARKERS
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
+        val calls = calledNames(op.body)
         val hasAuth = containsAuthMarker(op.body, authMarkers) ||
-            authFunctions.any { fn -> callRegex(fn).containsMatchIn(op.body) }
+            authFunctions.any { it in calls }
         val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body)
         val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
-            mutatingFunctions.any { fn -> callRegex(fn).containsMatchIn(op.body) }
+            mutatingFunctions.any { it in calls }
 
         if (mutates && !hasAuth) {
             findings.add(

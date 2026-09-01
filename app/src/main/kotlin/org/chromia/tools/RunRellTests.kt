@@ -24,12 +24,44 @@ object RunRellTests {
     const val DATABASE_URL_ENV = "CHROMIA_TEST_DATABASE_URL"
     const val EXECUTION_TIMEOUT_SECONDS = 90L
 
+    // Cap on captured print()/log() output (chars). Without our own printers the
+    // dependency default is Rt_OutPrinter = System.out.println, which corrupts
+    // the JSON-RPC stream in --stdio mode - possibly mid-frame from the runner
+    // thread (audit F1). Captured output is surfaced in the result instead.
+    const val MAX_PRINT_CAPTURE_CHARS = 16_384
+
+    // Refuse new runs once this many abandoned runner threads are still spinning:
+    // each pins a core, and beyond a few the server is effectively degraded.
+    internal const val MAX_LEAKED_RUNNERS = 4
+
+    /** Thread-safe print()/log() sink, bounded so a print loop cannot grow the heap. */
+    private class BoundedPrinter(private val maxChars: Int) : net.postchain.rell.base.runtime.Rt_Printer {
+        private val buffer = StringBuilder()
+        var truncated = false
+            private set
+
+        @Synchronized
+        override fun print(str: String) {
+            if (truncated) return
+            val remaining = maxChars - buffer.length
+            if (str.length >= remaining) {
+                buffer.append(str, 0, remaining.coerceAtLeast(0))
+                truncated = true
+            } else {
+                buffer.append(str).append('\n')
+            }
+        }
+
+        @Synchronized
+        fun text(): String = buffer.toString().trimEnd('\n')
+    }
+
     // Runner threads abandoned by timed-out calls that have not yet terminated.
     // A tight loop in user test code does not poll interrupts and Thread.stop is
     // unsafe (the Rell API exposes no cancellation hook), so an abandoned runner
     // spins until its loop ends - each one pinning a core meanwhile. The count is
     // surfaced in the result notes; daemon threads never block JVM shutdown.
-    private val leakedRunners = java.util.concurrent.atomic.AtomicInteger()
+    internal val leakedRunners = java.util.concurrent.atomic.AtomicInteger()
 
     // Database-backed runs share one schema in CHROMIA_TEST_DATABASE_URL: two
     // concurrent runs see each other's chain tables and fail with "Missing
@@ -139,7 +171,9 @@ object RunRellTests {
         val passed: Int,
         val failed: Int,
         val cases: List<CaseResult>,
-        val notes: String
+        val notes: String,
+        /** print()/log() output captured from the tests (capped), "" when none. */
+        val prints: String = ""
     )
 
     fun run(
@@ -150,6 +184,7 @@ object RunRellTests {
         timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS
     ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
+        RellCheck.requireTotalSizeWithinCap(files)
         files.keys.forEach { relPath ->
             require(!relPath.contains("..") && !Path.of(relPath).isAbsolute) { "Path must be relative without '..': $relPath" }
             require(relPath.endsWith(".rell")) { "Only .rell files are supported: $relPath" }
@@ -239,10 +274,21 @@ object RunRellTests {
         moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap(),
         timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS
     ): ExecuteOutcome {
+        val leakedBefore = leakedRunners.get()
+        if (leakedBefore >= MAX_LEAKED_RUNNERS) {
+            throw IllegalStateException(
+                "$leakedBefore abandoned test runner thread(s) from timed-out calls are still executing - " +
+                    "each pins a core and cannot be stopped safely. The server needs a restart; " +
+                    "fix the runaway loop in the test code before re-running."
+            )
+        }
         // Capture compiler/runner messages so a test-compile failure reports
         // file/line diagnostics instead of a bare "Compilation failed".
         val messages = java.util.concurrent.CopyOnWriteArrayList<String>()
         val quietEnv = PrinterRellCliEnv({ messages.add(it) }, { messages.add(it) })
+        // Rell print()/log() must never reach System.out (the dependency default):
+        // in --stdio mode that is the JSON-RPC stream (audit F1). Capture instead.
+        val printer = BoundedPrinter(MAX_PRINT_CAPTURE_CHARS)
         // Written by the runner thread, read by the caller thread on timeout.
         val collected = java.util.concurrent.CopyOnWriteArrayList<UnitTestCaseResult>()
         val config = RellApiRunTests.Config.Builder()
@@ -256,6 +302,8 @@ object RunRellTests {
                     .build()
             )
             .cliEnv(quietEnv)
+            .outPrinter(printer)
+            .logPrinter(printer)
             .databaseUrl(databaseUrl)
             .printTestCases(false)
             .onTestCaseFinished { collected.add(it) }
@@ -293,22 +341,28 @@ object RunRellTests {
                 if (usesDb) dbRunPermit.release()
             }
             executor.shutdown()
-            val finished = collected.size
+            // Snapshot once: the runner thread may still be appending, and mixing
+            // live reads made total/passed/failed mutually inconsistent (audit).
+            val snapshot = collected.toList()
+            val finished = snapshot.size
+            val passed = snapshot.count { it.res.error == null }
             val leaked = leakedRunners.get()
             return ExecuteOutcome(
                 Result(
                     ok = false,
                     total = finished,
-                    passed = collected.count { it.res.error == null },
-                    failed = finished - collected.count { it.res.error == null },
-                    cases = collected.map { r ->
+                    passed = passed,
+                    failed = finished - passed,
+                    cases = snapshot.map { r ->
                         val error = r.res.error
                         CaseResult(r.case.name, error == null, error?.message)
                     },
                     notes = "Test execution exceeded ${timeoutSeconds}s and was abandoned - " +
                         "check for an infinite loop or unbounded work in a test. $finished case(s) finished before the timeout." +
                         " $leaked abandoned runner thread(s) from timed-out calls may still be executing " +
-                        "(daemon threads; they cannot be stopped safely and each pins a core until their loop ends)."
+                        "(daemon threads; they cannot be stopped safely and each pins a core until their loop ends)." +
+                        printsNote(printer),
+                    prints = printer.text()
                 ),
                 cleanupDeferred = true
             )
@@ -351,11 +405,19 @@ object RunRellTests {
             if (leaked > 0) {
                 append(" $leaked abandoned runner thread(s) from earlier timed-out calls are still executing.")
             }
+            append(printsNote(printer))
         }
         return ExecuteOutcome(
-            Result(failed == 0 && cases.isNotEmpty(), cases.size, cases.size - failed, failed, cases, notes),
+            Result(failed == 0 && cases.isNotEmpty(), cases.size, cases.size - failed, failed, cases, notes, printer.text()),
             cleanupDeferred = false
         )
+    }
+
+    private fun printsNote(printer: BoundedPrinter): String = when {
+        printer.truncated ->
+            " Captured print()/log() output was truncated at $MAX_PRINT_CAPTURE_CHARS chars (see `prints`)."
+        printer.text().isNotEmpty() -> " print()/log() output captured in `prints`."
+        else -> ""
     }
 
     fun Result.toJson(): JsonObject = buildJsonObject {
@@ -378,6 +440,7 @@ object RunRellTests {
                 }
             }
         )
+        if (prints.isNotEmpty()) put("prints", prints)
         put("notes", notes)
     }
 }

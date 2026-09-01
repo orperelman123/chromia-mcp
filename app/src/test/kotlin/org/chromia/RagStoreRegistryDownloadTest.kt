@@ -57,9 +57,11 @@ class RagStoreRegistryDownloadTest {
             CallToolRequest(name = "search", arguments = buildJsonObject { put("query", "FT4 tokens") }),
             ChromiaRepositoryImpl()
         )
-        assertTrue(search.isError != true)
+        // Unavailable index is an explicit, retryable error - not silent emptiness (audit F5).
+        assertEquals(true, search.isError)
         val searchText = (search.content.first() as TextContent).text!!
-        assertEquals(0, Json.parseToJsonElement(searchText).jsonObject["results"]!!.jsonArray.size)
+        assertTrue(searchText.contains("index is unavailable"), searchText)
+        assertEquals(0, search.structuredContent!!["results"]!!.jsonArray.size)
         assertFalse(searchText.contains("docs.chromia.com"))
 
         val fetch = FetchDocumentStrategy(deferred).execute(

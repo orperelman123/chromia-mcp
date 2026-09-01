@@ -13,6 +13,7 @@ import io.ktor.http.isSuccess
 import org.chromia.App.Companion.logger
 import java.io.File
 import kotlin.io.path.createTempFile
+import kotlin.io.path.deleteIfExists
 import kotlin.io.path.outputStream
 
 const val USAGE_HELP = """
@@ -65,10 +66,16 @@ suspend fun HttpClient.downloadFile(url: String) = runCatching {
     when (response.status) {
         HttpStatusCode.OK -> {
             val tempFile = createTempFile("embedding")
-            tempFile.outputStream().use { output ->
-                response.body<ByteArray>().let { output.write(it) }
+            try {
+                tempFile.outputStream().use { output ->
+                    response.body<ByteArray>().let { output.write(it) }
+                }
+                tempFile
+            } catch (t: Throwable) {
+                // A failed body read/write must not leave the temp file behind.
+                runCatching { tempFile.deleteIfExists() }
+                throw t
             }
-            tempFile
         }
         HttpStatusCode.NotFound -> {
             logger.info("Embeddings not found in registry")

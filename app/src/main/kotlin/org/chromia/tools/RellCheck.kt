@@ -93,9 +93,14 @@ object RellCheck {
      * "Module 'main' not found" (audit 2026-09-01). Same normalization as
      * [CheckDappProject]. Two inputs collapsing to one path is an error, like
      * the case-insensitive collision check.
+     *
+     * Backslash separators are normalized to / first: a Windows-style key like
+     * src\main.rell used to dodge the prefix stripping and, on Linux, produced
+     * a literal file named 'src\main.rell' while the module name derived to
+     * src.main - a platform-dependent phantom module (audit F4).
      */
     internal fun normalizeSourceRoot(path: String): String =
-        path.trim().removePrefix("./").removePrefix("src/")
+        path.trim().replace('\\', '/').removePrefix("./").removePrefix("src/")
 
     internal fun normalizeSourceRoots(files: Map<String, String>): LinkedHashMap<String, String> {
         val collisions = files.keys
@@ -110,8 +115,26 @@ object RellCheck {
         return out
     }
 
+    /**
+     * Total-input ceiling for the three Rell tools (rell_check,
+     * rell_security_check via its compile gate, run_rell_tests): unbounded
+     * submissions have no legitimate use through an MCP tool call and feed
+     * quadratic scanners downstream (audit F3).
+     */
+    internal const val MAX_TOTAL_SOURCE_CHARS = 2 * 1024 * 1024
+
+    internal fun requireTotalSizeWithinCap(files: Map<String, String>) {
+        var total = 0L
+        files.values.forEach { total += it.length }
+        require(total <= MAX_TOTAL_SOURCE_CHARS) {
+            "Total Rell source size ($total chars across ${files.size} file(s)) exceeds the " +
+                "$MAX_TOTAL_SOURCE_CHARS-char (~2 MB) limit - submit a smaller project."
+        }
+    }
+
     private fun validateFileMap(files: Map<String, String>) {
         require(files.isNotEmpty()) { "Provide `source` or a non-empty `files` map" }
+        requireTotalSizeWithinCap(files)
         files.keys.forEach { relPath ->
             require(relPath.isNotBlank()) { "Empty file path" }
             require(!relPath.contains("..")) { "Path must not contain '..': $relPath" }

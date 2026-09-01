@@ -47,6 +47,7 @@ open class RagStore(
         const val EMBEDDINGS_PATH_ENV = "CHROMIA_EMBEDDINGS_PATH"
         const val REGISTRY_REQUEST_TIMEOUT_MS = 10_000L
         const val REGISTRY_CONNECT_TIMEOUT_MS = 5_000L
+        const val LOAD_RETRY_COOLDOWN_MS = 60_000L
 
         fun downloadFromRegistry(
             client: HttpClient? = null
@@ -88,17 +89,46 @@ open class RagStore(
             rebuildSegmentIndex(value)
         }
 
-    init {
-        embeddingStore = initialStore ?: if (loadFromRegistry) {
-            loadLocalEmbeddings(localEmbeddingsPath)
-                ?: runCatching {
-                    (registryLoader ?: { downloadFromRegistry() })()
-                }.onFailure { error ->
-                    logger.warn("GitLab registry embeddings load skipped: ${error.message}")
-                }.getOrNull()
+    // A transient local/registry load failure at startup used to leave
+    // embeddingStore null until redeploy - every search/fetch_docs answered
+    // "not found" forever (audit F5). Keep the load recipe and retry it on use,
+    // at most once per cooldown window.
+    private val storeLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? =
+        if (loadFromRegistry && initialStore == null) {
+            { loadLocalEmbeddings(localEmbeddingsPath) ?: (registryLoader ?: { downloadFromRegistry() })() }
         } else {
             null
         }
+    internal var loadRetryCooldownMs: Long = LOAD_RETRY_COOLDOWN_MS
+    internal var clock: () -> Long = { System.currentTimeMillis() }
+    private var nextLoadRetryAtMs = 0L
+
+    private fun tryLoadStore(): InMemoryEmbeddingStore<TextSegment>? {
+        val load = storeLoader ?: return null
+        nextLoadRetryAtMs = clock() + loadRetryCooldownMs
+        return runCatching(load).onFailure { error ->
+            logger.warn("GitLab registry embeddings load skipped: ${error.message}")
+        }.getOrNull()
+    }
+
+    /**
+     * The loaded store, or a cooldown-limited reload attempt when the initial
+     * load failed. Null while the index stays unavailable.
+     */
+    @Synchronized
+    private fun storeOrRetry(): InMemoryEmbeddingStore<TextSegment>? {
+        embeddingStore?.let { return it }
+        if (storeLoader == null || clock() < nextLoadRetryAtMs) return null
+        val loaded = tryLoadStore()
+        if (loaded != null) {
+            logger.info("Embeddings index loaded on retry")
+            embeddingStore = loaded
+        }
+        return loaded
+    }
+
+    init {
+        embeddingStore = initialStore ?: tryLoadStore()
     }
 
     /**
@@ -119,7 +149,7 @@ open class RagStore(
     }
 
     open fun query(query: String): List<TextSegment>? {
-        val store = embeddingStore ?: return null
+        val store = storeOrRetry() ?: return null
         val model = resolvedEmbeddingModel
         if (model == null) {
             logger.info("Skipping embedding search for '$query'; no embedding model is configured")
@@ -147,7 +177,10 @@ open class RagStore(
         }
     }
 
-    open fun fetchById(id: String): TextSegment? = segmentsById[normalizeSegmentId(id)]
+    open fun fetchById(id: String): TextSegment? {
+        storeOrRetry() // repopulates the id index if the initial load failed
+        return segmentsById[normalizeSegmentId(id)]
+    }
 
     private fun rebuildSegmentIndex(store: InMemoryEmbeddingStore<TextSegment>?) {
         segmentsById.clear()

@@ -21,8 +21,73 @@ fun interface BlockchainQueryClient {
 
 class PostchainClientService(
     private val config: ChromiaConfig,
+    /** Test seam for the client cache; production uses [createRealClient]. */
+    private val clientFactory: ((List<String>, BlockchainRid) -> CachedQueryClient)? = null,
+    // Last so existing trailing-lambda test callers keep SAM-converting to it.
     private val queryClient: BlockchainQueryClient? = null
 ) {
+
+    /** A per-chain query client plus how to release it when evicted. */
+    class CachedQueryClient(
+        val client: net.postchain.client.core.PostchainQuery,
+        val close: () -> Unit
+    )
+
+    companion object {
+        internal const val MAX_CACHED_CLIENTS = 32
+    }
+
+    // Every chromia_dapp_query used to build a fresh StandardChromiaClient (whose
+    // constructor eagerly creates a directory-chain PostchainClientImpl with its
+    // own Apache HC5 connection pool) plus a second per-chain PostchainClientImpl
+    // via getClient(), and close neither - a 24/7 server accrued sockets and heap
+    // on every call (audit F2; the default request strategy's close() is even a
+    // no-op, so per-call closing could not release the pools). Cache and reuse:
+    // one StandardChromiaClient per endpoint pool, one per-chain client per
+    // (endpoint pool, brid) in a bounded LRU whose evictees are closed.
+    private val chromiaClients =
+        java.util.concurrent.ConcurrentHashMap<String, StandardChromiaClient>()
+
+    // Access-order LRU; guarded by its own monitor (LinkedHashMap is not thread-safe).
+    private val cachedClients =
+        object : LinkedHashMap<String, CachedQueryClient>(16, 0.75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, CachedQueryClient>
+            ): Boolean {
+                if (size <= MAX_CACHED_CLIENTS) return false
+                runCatching { eldest.value.close() }
+                return true
+            }
+        }
+
+    internal fun cachedClientCount(): Int = synchronized(cachedClients) { cachedClients.size }
+
+    private fun queryClientFor(
+        urls: List<String>,
+        blockchainRid: BlockchainRid
+    ): net.postchain.client.core.PostchainQuery {
+        val key = "${urls.joinToString(",")}|${blockchainRid.toHex()}"
+        synchronized(cachedClients) { cachedClients[key] }?.let { return it.client }
+        // Creation performs signer-node discovery over the network - keep it
+        // outside the lock so a slow node does not stall unrelated cached calls.
+        val created = (clientFactory ?: ::createRealClient)(urls, blockchainRid)
+        synchronized(cachedClients) {
+            cachedClients[key]?.let { raced ->
+                runCatching { created.close() }
+                return raced.client
+            }
+            cachedClients[key] = created
+            return created.client
+        }
+    }
+
+    private fun createRealClient(urls: List<String>, blockchainRid: BlockchainRid): CachedQueryClient {
+        val chromiaClient = chromiaClients.computeIfAbsent(urls.joinToString(",")) {
+            StandardChromiaClient(EndpointPool.default(urls))
+        }
+        val client = chromiaClient.getClient(blockchainRid)
+        return CachedQueryClient(client) { client.close() }
+    }
 
     fun executeBlockchainQuery(
         network: String?,
@@ -38,7 +103,7 @@ class PostchainClientService(
 
         val gtvArgs = listMapAndPrimitivesToGtv(arguments)
         val queryResult = queryClient?.query(blockchainRid, query, gtvArgs)
-            ?: StandardChromiaClient(EndpointPool.default(urls)).getClient(blockchainRid).query(query, gtvArgs)
+            ?: queryClientFor(urls, blockchainRid).query(query, gtvArgs)
 
         val gsonJsonElement = make_gtv_gson().toJsonTree(queryResult)
 

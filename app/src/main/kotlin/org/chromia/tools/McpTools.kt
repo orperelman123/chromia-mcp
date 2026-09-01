@@ -1711,6 +1711,12 @@ object McpTools {
                     "passed" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
                     "failed" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
                     "cases" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "prints" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("print()/log() output captured from the tests (capped); omitted when the tests print nothing.")
+                        )
+                    ),
                     "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                 )
             ),

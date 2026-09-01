@@ -51,7 +51,8 @@ class SearchFetchToolsTest {
                 segment.text().contains(query, ignoreCase = true) ||
                     (segment.metadata()?.getString("file_name")?.contains(query, ignoreCase = true) == true)
             }
-            return hits.ifEmpty { null }?.also { rememberQueryHits(it) }
+            // Empty = no match; null is reserved for "index unavailable" (audit F5).
+            return hits.also { rememberQueryHits(it) }
         }
     }
 
@@ -673,7 +674,7 @@ class SearchFetchToolsTest {
     }
 
     @Test
-    fun defaultConstructWithoutEmbeddingsSearchFetchAreHonestEmpty(@TempDir tempDir: Path) = runBlocking {
+    fun defaultConstructWithoutEmbeddingsReportsIndexUnavailable(@TempDir tempDir: Path) = runBlocking {
         val store = RagStore(
             loadFromRegistry = true,
             localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
@@ -691,10 +692,10 @@ class SearchFetchToolsTest {
             ),
             ChromiaRepositoryImpl()
         )
-        assertTrue(search.isError != true)
+        // Index unavailable is now an explicit error, not silent emptiness (audit F5).
+        assertEquals(true, search.isError)
         val searchText = (search.content.first() as TextContent).text!!
-        val searchPayload = Json.parseToJsonElement(searchText).jsonObject
-        assertEquals(0, searchPayload["results"]!!.jsonArray.size)
+        assertTrue(searchText.contains("index is unavailable"), searchText)
         assertEquals(0, search.structuredContent!!["results"]!!.jsonArray.size)
         assertFalse(searchText.contains("docs.chromia.com"))
         assertFalse(searchText.contains("https://docs.chromia.com"))
@@ -725,7 +726,7 @@ class SearchFetchToolsTest {
         )
         assertEquals(true, fetchDocs.isError)
         val docsText = (fetchDocs.content.first() as TextContent).text!!
-        assertTrue(docsText.contains("Documentation not found"))
+        assertTrue(docsText.contains("index is unavailable"), docsText)
         assertEquals(0, fetchDocs.structuredContent!!["hits"]!!.jsonArray.size)
         assertFalse(docsText.contains("https://docs.chromia.com/intro"))
     }

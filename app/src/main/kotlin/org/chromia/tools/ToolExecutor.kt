@@ -785,7 +785,9 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
 
         return runCatching {
             val ragStore = ragStoreDeferred.await()
-            val hits = ragStore.query(query)?.takeIf { it.isNotEmpty() }
+            val queried = ragStore.query(query)
+                ?: return docsIndexUnavailableResult("hits") // null = index missing, not "no match"
+            val hits = queried.takeIf { it.isNotEmpty() }
             if (hits == null) {
                 val notFound = "Documentation not found for requested query!"
                 CallToolResult(
@@ -839,7 +841,8 @@ class SearchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Bas
 
         return runCatching {
             val ragStore = ragStoreDeferred.await()
-            val segments = ragStore.query(query).orEmpty()
+            val segments = ragStore.query(query)
+                ?: return docsIndexUnavailableResult("results") // null = index missing, not "no match"
             val results = buildJsonArray {
                 segments.forEach { segment ->
                     add(
@@ -906,6 +909,24 @@ class FetchDocumentStrategy(private val ragStoreDeferred: Deferred<RagStore>) : 
             )
         }
     }
+}
+
+/**
+ * Docs index unavailable (embeddings never loaded - e.g. the GitLab download
+ * failed at startup). RagStore retries the load with a cooldown (audit F5);
+ * until then the tools must say so instead of a misleading "not found".
+ */
+internal fun docsIndexUnavailableResult(emptyArrayField: String): CallToolResult {
+    val message = "Documentation index is unavailable (embeddings could not be loaded); " +
+        "the server retries loading periodically - try again shortly."
+    return CallToolResult(
+        content = listOf(TextContent(message)),
+        structuredContent = buildJsonObject {
+            put("text", message)
+            put(emptyArrayField, buildJsonArray {})
+        },
+        isError = true
+    )
 }
 
 /**
