@@ -2817,6 +2817,62 @@ object McpTools {
         )
     )
 
+    fun translateErrorTool() = Tool(
+        name = "translate_error",
+        description = """
+            Translate a cryptic error from ANYWHERE in the Chromia stack into plain terms: what it
+            means, the most likely cause, and the concrete next action (which MCP tool to call or
+            what to change). Covers Rell compiler diagnostics, chr CLI, postchain runtime, the
+            postgres under postchain, explorer/GraphQL, FT4, and this server's own messages.
+            Engine: a curated ordered rule table mined from verified failures - NO LLM, NO network.
+            Returns {matched, meaning, likelyCause, nextAction, relatedTools, searchTerms, notes};
+            when no rule matches it says so (matched=false) and returns triage guidance plus
+            docs-search terms extracted from the error - it never pretends to know.
+            Paste the error verbatim (up to ~8 KB); add optional `context` like "during chr build".
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "error" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "The error text, pasted verbatim (max 8192 chars - for huge logs, paste the first diagnostic or the final 'Caused by')"
+                            )
+                        )
+                    ),
+                    "context" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Optional free text about what you were doing, e.g. 'during chr build' or 'calling run_rell_tests'"
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf("error")
+        ),
+        title = "Translate Chromia Error",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "matched" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "ruleId" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "family" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "meaning" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "likelyCause" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "nextAction" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "relatedTools" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "searchTerms" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("matched", "meaning", "likelyCause", "nextAction")
+        )
+    )
+
     /**
      * All advertised tools. `compact = true` (env `CHROMIA_MCP_COMPACT_TOOLS=true` via
      * [compactToolsMode]) drops the individual *_help schemas - their content stays
@@ -2869,6 +2925,7 @@ object McpTools {
         rellCheckTool(),
         rellSecurityCheckTool(),
         runRellTestsTool(),
+        translateErrorTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),

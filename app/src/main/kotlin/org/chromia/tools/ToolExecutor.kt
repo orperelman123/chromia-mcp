@@ -101,7 +101,8 @@ class ToolExecutor(
         "check_ft4_imports" to CheckFt4ImportsStrategy(),
         "rell_check" to RellCheckStrategy(),
         "rell_security_check" to RellSecurityCheckStrategy(),
-        "run_rell_tests" to RunRellTestsStrategy()
+        "run_rell_tests" to RunRellTestsStrategy(),
+        "translate_error" to TranslateErrorStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest): CallToolResult {
@@ -1383,6 +1384,15 @@ class CheckFt4ImportsStrategy : BaseToolStrategy() {
         val rellFiles = extractStringMap(args, "rell")
             ?: throw IllegalArgumentException("Missing required parameter: rell")
         return toolSuccessResult(Ft4ImportCheck.scanFiles(rellFiles).toJson())
+    }
+}
+
+class TranslateErrorStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val error = requireParameter(args, "error")
+        val context = extractString(args, "context")
+        return toolSuccessResult(ErrorTranslator.translate(error, context).toJson())
     }
 }
 

@@ -685,6 +685,18 @@
             "parameters": {}
         }
     ],
+    "debugging": [
+        {
+            "title": "Translate a Chromia error",
+            "description": "Explain a cryptic error from anywhere in the Chromia stack (Rell compiler, chr CLI, postchain, postgres, explorer/GraphQL, FT4) - what it means, the likely cause, and the concrete next action. Curated offline rule table; no LLM, no network.",
+            "tool": "mcp_chromia-mcp_translate_error",
+            "prompt": "I got this error from the Chromia stack: {error}. Context: {context}. Call translate_error with the error text verbatim - it returns {matched, meaning, likelyCause, nextAction, relatedTools}. If matched is false, follow its triage guidance (rell_check first, then search with the extracted terms) instead of guessing.",
+            "parameters": {
+                "error": "{error}",
+                "context": "{context}"
+            }
+        }
+    ],
     "dapp_query": [
         {
             "title": "Discover dApp Structure",

@@ -23,6 +23,7 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - dApp deployment information
 - **Documentation retrieval and search**
 - **In-process Rell compilation (`rell_check`)** — the agent feedback loop
+- **Error translation (`translate_error`)** — paste any cryptic Chromia-stack error (Rell compiler, chr CLI, postchain, postgres, explorer/GraphQL, FT4) and get its meaning, likely cause, and concrete next action from a curated offline rule table (no LLM, no network)
 
 ## Documentation Tools
 
