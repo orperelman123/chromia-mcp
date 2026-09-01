@@ -319,18 +319,50 @@ class App(
      * the session it creates, and the SDK's tools/list and tools/call share one
      * registry, so this is the only way to gate calls without also advertising
      * stubs in tools/list.
+     *
+     * One deliberate divergence: the SDK plugin removes a transport from its
+     * map only via `server.onClose`, which fires only on an explicit
+     * `server.close()` - never when the client disconnects - so it leaks one
+     * transport (plus the Server closure it holds) per connection for the
+     * lifetime of the process (e2e transport probe 2026-09-01). Two pieces fix
+     * that here:
+     *  - the keepalive loop: CIO only notices a dead client when it WRITES
+     *    (the SDK's `awaitCancellation` alone never ends - TCP half-close is
+     *    invisible to a silent server), so the handler sends an SSE comment
+     *    every [heartbeatMillis]; the send to a dead socket throws, ending the
+     *    handler. Bonus: the comments keep proxy idle timeouts (e.g. hosted
+     *    load balancers) from silently killing quiet sessions.
+     *  - the `finally`: removes the map entry however the handler ends, so a
+     *    POST to a dead session 404s like any unknown session.
+     *
+     * [transports] and [heartbeatMillis] are injectable so tests can observe
+     * that cleanup quickly.
      */
-    internal fun Application.installMcpSse(compact: Boolean, disabled: Set<String>) {
+    internal fun Application.installMcpSse(
+        compact: Boolean,
+        disabled: Set<String>,
+        transports: java.util.concurrent.ConcurrentHashMap<String, SseServerTransport> =
+            java.util.concurrent.ConcurrentHashMap(),
+        heartbeatMillis: Long = 15_000
+    ) {
         install(io.ktor.server.sse.SSE)
-        val transports = java.util.concurrent.ConcurrentHashMap<String, SseServerTransport>()
         routing {
             sse {
                 val transport = SseServerTransport("", this)
                 transports[transport.sessionId] = transport
-                val server = createMcpServer(compact, disabled)
-                server.onClose { transports.remove(transport.sessionId) }
-                createGatedSession(server, transport, disabled)
-                kotlinx.coroutines.awaitCancellation()
+                try {
+                    val server = createMcpServer(compact, disabled)
+                    server.onClose { transports.remove(transport.sessionId) }
+                    createGatedSession(server, transport, disabled)
+                    while (true) {
+                        kotlinx.coroutines.delay(heartbeatMillis)
+                        send(io.ktor.sse.ServerSentEvent(comments = "keepalive"))
+                    }
+                } catch (e: java.io.IOException) {
+                    logger.debug("SSE session ${transport.sessionId} ended: ${e.message}")
+                } finally {
+                    transports.remove(transport.sessionId)
+                }
             }
             post {
                 val sessionId = call.request.queryParameters["sessionId"]
