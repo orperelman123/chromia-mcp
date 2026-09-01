@@ -129,9 +129,16 @@ object RellSecurityCheck {
     private fun containsAuthMarker(text: String, markers: List<String>): Boolean =
         markers.any { text.contains(it) } || AUTH_HANDLER_REGEX.containsMatchIn(text)
 
-    /** name -> masked body for every function definition in the (masked) source. */
-    internal fun functionBodies(maskedContent: String): Map<String, String> {
-        val functions = mutableMapOf<String, String>()
+    /**
+     * (name, masked body) for EVERY function definition in the (masked) source.
+     * A name-keyed map here let same-named functions in different namespaces of
+     * ONE file clobber each other (last definition won), so a benign body could
+     * hide a mutating or non-auth sibling from the per-name conservative merge
+     * that only saw cross-file duplicates (audit 2026-09-01). Callers must
+     * merge per name over all definitions, never assume the name is unique.
+     */
+    internal fun functionBodies(maskedContent: String): List<Pair<String, String>> {
+        val functions = mutableListOf<Pair<String, String>>()
         FUNCTION_REGEX.findAll(maskedContent).forEach { match ->
             val name = match.groupValues[1]
             val parenStart = maskedContent.indexOf('(', match.range.first)
@@ -149,7 +156,7 @@ object RellSecurityCheck {
                 }
                 else -> return@forEach
             }
-            functions[name] = body
+            functions.add(name to body)
         }
         return functions
     }

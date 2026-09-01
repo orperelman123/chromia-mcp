@@ -197,17 +197,6 @@ abstract class BaseToolStrategy : ToolStrategy {
         }
     }
 
-    protected fun extractInt(arguments: Map<String, Any>, key: String): Int? {
-        val value = arguments[key] ?: return null
-        return when (value) {
-            is JsonNull -> null
-            is Int -> value
-            is JsonPrimitive -> value.intOrNull
-            is String -> value.toIntOrNull()
-            else -> value.toString().toIntOrNull()
-        }
-    }
-
     /**
      * Absent and JSON-null mean "not provided". A present value of any other
      * JSON type used to be silently ignored, so `system: "yes"` returned the
@@ -233,7 +222,7 @@ abstract class BaseToolStrategy : ToolStrategy {
      * forwarded to the explorer, which answers with an opaque
      * "GraphQL Error: INTERNAL_ERROR for <uuid>" (QA finding). Fail locally
      * with an actionable message instead. Malformed values (non-numeric,
-     * out of range) used to be silently dropped by [extractInt], returning
+     * out of range) used to be silently dropped by the old extractInt helper, returning
      * unpaginated results with no hint the argument was ignored (QA finding);
      * a present-but-invalid value is now a validation error.
      */
@@ -307,32 +296,38 @@ abstract class BaseToolStrategy : ToolStrategy {
      * any non-array JSON type used to be silently ignored, so `brids: "XYZ"`
      * dropped the filter and returned network-wide data as success (audit
      * round 4 F1) - it is now a validation error, consistent with
-     * [extractPagination] and [extractStringMap].
+     * [extractPagination] and [extractStringMap]. A present-but-empty array
+     * (`brids: []`, or one whose entries are all null/blank) used to collapse
+     * to null the same silent way - network-wide data as filtered success - and
+     * null/blank ENTRIES were silently dropped, shortening the filter. Both are
+     * now validation errors: omit the parameter to mean "no filter", and every
+     * entry must be a non-empty string.
      */
     protected fun extractStringList(arguments: Map<String, Any>, key: String): List<String>? {
         val raw = arguments[key] ?: return null
         if (raw is JsonNull) return null
-        val items = when (raw) {
-            is List<*> -> raw.mapNotNull { item ->
-                when (item) {
-                    null, is JsonNull -> null
-                    is String -> item
-                    is JsonPrimitive -> item.content
-                    else -> item.toString()
-                }?.trim()?.takeIf { it.isNotEmpty() }
-            }
-            is JsonArray -> raw.mapNotNull { element ->
-                when (element) {
-                    is JsonNull -> null
-                    is JsonPrimitive -> element.content
-                    else -> element.toString()
-                }?.trim()?.takeIf { it.isNotEmpty() }
-            }
-            else -> throw IllegalArgumentException(
-                "$key must be an array of strings; got ${describeJsonValue(raw)}"
+        // JsonArray is a List<JsonElement>, so one branch covers both shapes.
+        val elements = raw as? List<*> ?: throw IllegalArgumentException(
+            "$key must be an array of strings; got ${describeJsonValue(raw)}"
+        )
+        if (elements.isEmpty()) {
+            throw IllegalArgumentException(
+                "$key is an empty array; omit the parameter entirely to mean no filter"
             )
         }
-        return items.takeIf { it.isNotEmpty() }
+        return elements.mapIndexed { idx, item ->
+            val text = when (item) {
+                null, is JsonNull -> throw IllegalArgumentException(
+                    "$key[$idx] is null; entries must be non-empty strings"
+                )
+                is String -> item
+                is JsonPrimitive -> item.content
+                else -> item.toString()
+            }.trim()
+            text.ifEmpty {
+                throw IllegalArgumentException("$key[$idx] is blank; entries must be non-empty strings")
+            }
+        }
     }
 
     /** Human-readable JSON type of a wrong-typed argument, for validation errors. */
@@ -776,6 +771,12 @@ class DappInteractionStrategy : BaseToolStrategy() {
      * They used to be silently dropped, which made a Rell parameter with a
      * default (`filter: text? = "active"`) use the default instead of null,
      * and shortened arrays ([1,null,2] -> [1,2]) (audit round 4 F2).
+     *
+     * A wrong-typed `arguments` value (a JSON-encoded STRING of the object -
+     * the classic agent mistake - or an array) used to map to emptyMap()
+     * silently, running the query with NO arguments: wrong-but-plausible
+     * results whenever the Rell query has parameter defaults. It is now a
+     * validation error, consistent with the sibling extract helpers.
      */
     private fun extractArgumentsMap(arguments: Map<String, Any>, key: String): Map<String, Any?> {
         val raw = arguments[key] ?: return emptyMap()
@@ -789,7 +790,13 @@ class DappInteractionStrategy : BaseToolStrategy() {
                 }
                 stringMap
             }
-            else -> emptyMap()
+            else -> {
+                val hint =
+                    if (raw is String || (raw is JsonPrimitive && raw.isString)) " - do not JSON-encode it" else ""
+                throw IllegalArgumentException(
+                    "$key must be an object mapping parameter names to values; got ${describeJsonValue(raw)}$hint"
+                )
+            }
         }
     }
 
@@ -802,7 +809,17 @@ class DappInteractionStrategy : BaseToolStrategy() {
                     value.booleanOrNull != null -> value.boolean
                     value.intOrNull != null -> value.int
                     value.longOrNull != null -> value.long
-                    value.doubleOrNull != null -> value.double
+                    // GTV has no float type: a bare decimal or an integer past
+                    // Long range used to be forwarded as a Double and die in
+                    // postchain with the opaque "Cannot convert object of type
+                    // Double to GTV". Fail locally with an actionable message.
+                    value.doubleOrNull != null -> throw IllegalArgumentException(
+                        if (value.content.contains('.') || value.content.contains('e', ignoreCase = true)) {
+                            "numeric argument ${value.content} is not an integer; send decimals as strings (e.g. \"${value.content}\")"
+                        } else {
+                            "numeric argument ${value.content} does not fit a 64-bit integer; send it as a string"
+                        }
+                    )
                     else -> value.content
                 }
             }

@@ -226,36 +226,42 @@ class ToolExecutorStrategiesTest {
     }
 
     @Test
-    fun blankOptionalListItemsAreTreatedAsAbsent() = runBlocking {
+    fun blankOptionalListItemsAreValidationErrors() {
+        // Blank entries used to be silently dropped (shortening the filter),
+        // and an all-blank list collapsed to "no filter" - both now fail fast,
+        // consistent with the strictness convention for wrong-typed filters.
         val repo = RecordingRepository()
-        AssetTopHoldersStrategy().execute(
-            CallToolRequest(
-                name = "get_asset_top_holders",
-                arguments = buildJsonObject {
-                    put("assetId", "chr")
-                    put("excludeAccounts", buildJsonArray { add(""); add("   "); add("keep") })
-                }
-            ),
-            repo
-        )
-        assertEquals("getAssetTopHolders", repo.lastCall)
-        assertEquals(listOf("keep"), repo.lastAssetFilters?.excludeAccounts)
+        val blankEntry = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                AssetTopHoldersStrategy().execute(
+                    CallToolRequest(
+                        name = "get_asset_top_holders",
+                        arguments = buildJsonObject {
+                            put("assetId", "chr")
+                            put("excludeAccounts", buildJsonArray { add(""); add("   "); add("keep") })
+                        }
+                    ),
+                    repo
+                )
+            }
+        }
+        assertTrue(blankEntry.message!!.contains("excludeAccounts[0] is blank"), blankEntry.message)
 
-        AssetDistributionStrategy().execute(
-            CallToolRequest(
-                name = "get_asset_distribution",
-                arguments = buildJsonObject {
-                    put("assetId", "chr")
-                    put("excludeAccounts", buildJsonArray { add(""); add("  ") })
-                }
-            ),
-            repo
-        )
-        assertEquals("getAssetDistribution", repo.lastCall)
-        assertNull(
-            repo.lastAssetFilters?.excludeAccounts,
-            "all-blank excludeAccounts must be omitted, not sent as empty strings"
-        )
+        val allBlank = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                AssetDistributionStrategy().execute(
+                    CallToolRequest(
+                        name = "get_asset_distribution",
+                        arguments = buildJsonObject {
+                            put("assetId", "chr")
+                            put("excludeAccounts", buildJsonArray { add(""); add("  ") })
+                        }
+                    ),
+                    repo
+                )
+            }
+        }
+        assertTrue(allBlank.message!!.contains("excludeAccounts[0] is blank"), allBlank.message)
     }
 
     @Test
