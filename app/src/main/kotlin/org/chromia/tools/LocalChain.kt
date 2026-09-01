@@ -245,8 +245,10 @@ object LocalChain {
                 Files.createDirectories(target.parent)
                 Files.writeString(target, RellCheck.stripBom(content))
             }
-            val submittedFt4 = RellLibs.submittedFt4FileCount(sources)
-            if (submittedFt4 == 0 && RellLibs.needsFt4(sources)) {
+            // Skip provisioning when the caller submitted their own vendored
+            // library tree (lib/ft4, lib/iccf), same policy as rell_check.
+            val submittedVendored = RellLibs.submittedVendoredLibFileCount(sources)
+            if (submittedVendored == 0 && RellLibs.needsFt4(sources)) {
                 RellLibs.provisionFt4(tempDir)
             }
             val appModules = (RellLibs.userAppModules(sources) - testModules).distinct()

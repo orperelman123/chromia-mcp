@@ -194,13 +194,15 @@ class OnboardingNextStepToolTest {
 
     @Test
     fun localChainStepNamesLocalChainUpOnlyWhenRegistered() {
-        // Registry check is dynamic: today's registry has no local_chain_up (a
-        // separate lane is building it) - the fallback must be a plain "start a
-        // local node" instruction.
-        val without = plan(built.copy(goal = "local"), registered = tools)
-        assertFalse("local_chain_up" in tools, "spec: this lane must not create local_chain_up")
+        // Registry check is dynamic. local_chain_up now ships (it landed from a
+        // parallel lane), but the fallback still has to work for deployments
+        // that disable it - so drive both branches explicitly rather than
+        // depending on what the live registry happens to contain.
+        val without = plan(built.copy(goal = "local"), registered = tools - "local_chain_up")
         assertFalse(without.nextAction.how.contains("local_chain_up"), without.nextAction.how)
         assertTrue(without.nextAction.how.contains("chr node start"), without.nextAction.how)
+
+        assertTrue("local_chain_up" in tools, "local_chain_up is expected in the shipped registry")
 
         val with = plan(built.copy(goal = "local"), registered = tools + "local_chain_up")
         assertTrue(with.nextAction.how.contains("local_chain_up"), with.nextAction.how)
