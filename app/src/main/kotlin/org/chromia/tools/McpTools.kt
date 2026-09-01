@@ -2835,6 +2835,24 @@ object McpTools {
         env["CHROMIA_MCP_DISABLE_TOOLS"]?.split(',')
             ?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
 
+    /**
+     * The RAG-backed docs tools - the only tools that touch the embeddings
+     * index. Compact mode ([compactToolsMode]) never hides these (it drops
+     * only [HELP_TOOL_NAMES]), so the index is unreachable exactly when ALL
+     * of them are in the [disabledTools] set.
+     */
+    val DOCS_TOOL_NAMES: Set<String> = setOf("search", "fetch_docs", "fetch")
+
+    /**
+     * True when every RAG-backed docs tool is disabled, so the startup index
+     * warmup must be skipped: a lite hosted config (e.g. a 512MB instance
+     * with docs tools off) must never pay the embeddings download/parse
+     * memory spike. RagStore lazy-init is untouched - if a client still
+     * calls an unadvertised docs tool by name, the index loads on demand.
+     */
+    fun docsToolsDisabled(disabled: Set<String> = disabledTools()): Boolean =
+        disabled.containsAll(DOCS_TOOL_NAMES)
+
     fun allTools(compact: Boolean = false, disabled: Set<String> = emptySet()): List<Tool> {
         val all = fullToolList()
         val afterCompact = if (compact) all.filter { it.name !in HELP_TOOL_NAMES } else all

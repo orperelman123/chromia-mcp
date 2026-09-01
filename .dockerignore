@@ -27,7 +27,10 @@ jdeploy-bundle/
 scratch-qa/
 *.log
 
-# Local RAG embeddings snapshots (the runtime downloads or generates them)
+# Local RAG embeddings snapshots stay out of the build context: the image
+# bakes a FRESH embeddings.json by downloading from the GitLab registry
+# during the build (see Dockerfile), so a stale local snapshot must never
+# leak into the image, and local dev contexts stay slim (~140MB file).
 embeddings.json
 
 # Secrets - never ship these into a build context

@@ -4,6 +4,13 @@
 # NOTE: the server needs ~1.5GB RAM (embedding model + RAG store). The
 # 512MB starter plan idles at ~98% memory (measured live 2026-09-01) and
 # OOMs under real load - standard (2GB) is the minimum that actually fits.
+# Since embeddings.json is baked into the Docker image at build time, boot
+# no longer downloads it from GitLab (the download+parse spike crash-looped
+# 512MB instances ~6x per deploy); parsing the baked file still happens at
+# warmup, so the steady-state sizing above is unchanged. A 512MB "lite"
+# config additionally needs the docs tools off
+# (CHROMIA_MCP_DISABLE_TOOLS=search,fetch_docs,fetch,...) - the server then
+# skips the RAG warmup entirely and never loads the index.
 services:
   - type: web
     name: chromia-mcp

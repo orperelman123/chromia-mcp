@@ -196,7 +196,21 @@ class App(
         }
     }
 
-    suspend fun warmUpDocs() = toolExecutor.warmUpDocs()
+    /**
+     * Startup docs-index warmup. A no-op when every RAG-backed docs tool
+     * (search/fetch_docs/fetch) is disabled via CHROMIA_MCP_DISABLE_TOOLS:
+     * the index can never be queried, so a lite hosted config must not pay
+     * the embeddings load memory spike at boot (512MB instances crash-looped
+     * on it). RagStore stays lazy for the enabled case - this only decides
+     * whether to trigger the existing warmup, never how the store loads.
+     */
+    suspend fun warmUpDocs(docsToolsDisabled: Boolean = McpTools.docsToolsDisabled()) {
+        if (docsToolsDisabled) {
+            logger.info("docs tools disabled - skipping index warmup")
+            return
+        }
+        toolExecutor.warmUpDocs()
+    }
 
     fun runSseMcpServer(
         host: String,

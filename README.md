@@ -131,6 +131,18 @@ or Deep Research MCP):
 `Dockerfile` (multi-stage, runs `--sse` on `$PORT`, `/health` endpoint) plus `render.yaml`
 Blueprint for a one-click Render deploy.
 
+**Embeddings are baked into the image at build time:** the Docker build downloads
+`embeddings.json` from the GitLab package registry (same URL as the runtime fallback;
+`DockerfileEmbeddingsBakeTest` keeps the two in sync) and sets `CHROMIA_EMBEDDINGS_PATH`
+so boot loads the index from disk instead of downloading it — the boot-time download+parse
+spike used to OOM-crash-loop 512MB containers. If GitLab is unreachable during the image
+build, the build still succeeds with a loud warning and the runtime GitLab download fallback
+applies as before. To pick up refreshed embeddings, redeploy (rebuild the image).
+
+**Skipping RAG entirely (lite config):** when `search`, `fetch_docs`, and `fetch` are ALL in
+`CHROMIA_MCP_DISABLE_TOOLS`, startup logs `docs tools disabled - skipping index warmup` and
+never loads the embeddings index, so a small instance pays no RAG memory at all.
+
 **Memory sizing (measured in production):** docs + analytics + RAG fit in a 512MB instance, but
 the in-process Rell compiler tools (`rell_check`, `rell_security_check`, `run_rell_tests`) push
 the process past 512MB and get the container OOM-killed. Either:
