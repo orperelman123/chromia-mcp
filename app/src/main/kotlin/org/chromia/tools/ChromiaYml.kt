@@ -362,14 +362,16 @@ internal sealed class YamlNode {
 }
 
 /**
- * Indent-based YAML subset used by chromia.yml (maps, lists, scalars, flow lists).
- * Not a full YAML 1.1 engine: no aliases, no !include resolution, no multiline blocks.
+ * Indent-based YAML subset used by chromia.yml (maps, lists, scalars, flow lists,
+ * anchors/aliases/merge keys, multi-key mappings in sequence items).
+ * Not a full YAML 1.1 engine: no !include resolution, no multiline blocks.
  */
 internal object SimpleYaml {
     fun parse(text: String): YamlNode {
         val lines = preprocess(text)
         if (lines.isEmpty()) return YamlNode.Mapping()
-        val (node, next) = parseBlock(lines, 0, 0)
+        // Anchors are per-parse state (this is a shared object; no globals).
+        val (node, next) = parseBlock(lines, 0, 0, mutableMapOf())
         if (next < lines.size) {
             throw IllegalArgumentException("unexpected content at line ${lines[next].number}")
         }
@@ -419,19 +421,57 @@ internal object SimpleYaml {
         return line
     }
 
-    private fun parseBlock(lines: List<Line>, start: Int, minIndent: Int): Pair<YamlNode, Int> {
+    private fun parseBlock(
+        lines: List<Line>,
+        start: Int,
+        minIndent: Int,
+        anchors: MutableMap<String, YamlNode>
+    ): Pair<YamlNode, Int> {
         if (start >= lines.size) return YamlNode.Mapping() to start
         val first = lines[start]
         if (first.indent < minIndent) return YamlNode.Mapping() to start
         return if (first.content.startsWith("- ") || first.content == "-") {
-            parseSequence(lines, start, first.indent)
+            parseSequence(lines, start, first.indent, anchors)
         } else {
-            parseMapping(lines, start, first.indent)
+            parseMapping(lines, start, first.indent, anchors)
         }
     }
 
-    private fun parseMapping(lines: List<Line>, start: Int, indent: Int): Pair<YamlNode, Int> {
+    /** `&name rest` -> (name, "rest"); no anchor -> (null, value). */
+    private val ANCHOR_REGEX = Regex("""^&([^\s\[\]{},*&]+)\s*(.*)$""")
+
+    private fun stripAnchor(value: String): Pair<String?, String> {
+        val m = ANCHOR_REGEX.find(value.trim()) ?: return null to value.trim()
+        return m.groupValues[1] to m.groupValues[2].trim()
+    }
+
+    private fun resolveAlias(value: String, lineNumber: Int, anchors: Map<String, YamlNode>): YamlNode {
+        val name = value.removePrefix("*").trim()
+        return anchors[name]
+            ?: throw IllegalArgumentException("unknown alias *$name at line $lineNumber (anchors must be defined before use)")
+    }
+
+    /**
+     * YAML merge key `<<: *anchor` (or `<<: [*a, *b]`): merge the referenced
+     * mapping's entries in; keys explicitly present in the mapping win, and for
+     * multiple merges the earlier merge wins (YAML merge-key semantics).
+     * Production chromia.yml files build per-network chain configs this way
+     * (filehub's `config: <<: *gtx` - real-world round 1).
+     */
+    private fun mergeInto(merged: LinkedHashMap<String, YamlNode>, node: YamlNode, lineNumber: Int) {
+        val mapping = node as? YamlNode.Mapping
+            ?: throw IllegalArgumentException("merge key << references a non-mapping at line $lineNumber")
+        mapping.entries.forEach { (k, v) -> merged.putIfAbsent(k, v) }
+    }
+
+    private fun parseMapping(
+        lines: List<Line>,
+        start: Int,
+        indent: Int,
+        anchors: MutableMap<String, YamlNode>
+    ): Pair<YamlNode, Int> {
         val entries = LinkedHashMap<String, YamlNode>()
+        val merged = LinkedHashMap<String, YamlNode>()
         var i = start
         while (i < lines.size) {
             val line = lines[i]
@@ -445,34 +485,60 @@ internal object SimpleYaml {
             val colon = splitKeyValue(line.content)
                 ?: throw IllegalArgumentException("expected key: value at line ${line.number}")
             val key = unquote(colon.first)
-            val rest = colon.second
+            // `moduleArgs: &name` anchors the nested block that follows;
+            // `moduleArgs: *name` reuses one (dapp-aggregator - real-world round 1).
+            val (anchorName, rest) = stripAnchor(colon.second)
             if (rest.isEmpty()) {
                 val next = i + 1
+                val child: YamlNode
                 if (next < lines.size && lines[next].indent > indent) {
-                    val (child, after) = parseBlock(lines, next, indent + 1)
-                    entries[key] = child
+                    val (node, after) = parseBlock(lines, next, indent + 1, anchors)
+                    child = node
                     i = after
                 } else if (
                     next < lines.size && lines[next].indent == indent &&
                     (lines[next].content.startsWith("- ") || lines[next].content == "-")
                 ) {
                     // Legal YAML: sequence items may sit at the same indent as their parent key.
-                    val (child, after) = parseSequence(lines, next, indent)
-                    entries[key] = child
+                    val (node, after) = parseSequence(lines, next, indent, anchors)
+                    child = node
                     i = after
                 } else {
-                    entries[key] = YamlNode.Mapping()
+                    child = YamlNode.Mapping()
                     i++
                 }
+                anchorName?.let { anchors[it] = child }
+                entries[key] = child
+            } else if (rest.startsWith("*")) {
+                val node = resolveAlias(rest, line.number, anchors)
+                anchorName?.let { anchors[it] = node }
+                if (key == "<<") mergeInto(merged, node, line.number) else entries[key] = node
+                i++
+            } else if (key == "<<" && rest.startsWith("[")) {
+                // `<<: [*a, *b]` - flow list of aliases; earlier aliases win.
+                val inner = rest.removePrefix("[").removeSuffix("]")
+                inner.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { part ->
+                    mergeInto(merged, resolveAlias(part, line.number, anchors), line.number)
+                }
+                i++
             } else {
-                entries[key] = parseScalarOrFlow(rest)
+                val node = parseScalarOrFlow(rest)
+                anchorName?.let { anchors[it] = node }
+                entries[key] = node
                 i++
             }
         }
+        // Explicit keys override merged ones regardless of position (YAML spec).
+        merged.forEach { (k, v) -> entries.putIfAbsent(k, v) }
         return YamlNode.Mapping(entries) to i
     }
 
-    private fun parseSequence(lines: List<Line>, start: Int, indent: Int): Pair<YamlNode, Int> {
+    private fun parseSequence(
+        lines: List<Line>,
+        start: Int,
+        indent: Int,
+        anchors: MutableMap<String, YamlNode>
+    ): Pair<YamlNode, Int> {
         val items = mutableListOf<YamlNode>()
         var i = start
         while (i < lines.size) {
@@ -485,43 +551,54 @@ internal object SimpleYaml {
                 // Sequence ended; a sibling key at the same indent continues the parent mapping.
                 break
             }
-            val rest = if (line.content == "-") "" else line.content.removePrefix("- ").trim()
+            val rawRest = if (line.content == "-") "" else line.content.removePrefix("- ").trim()
+            // `- &gtx` anchors the block item that follows (filehub filechain -
+            // real-world round 1); `- *alias` reuses an anchored node.
+            val (anchorName, rest) = stripAnchor(rawRest)
             if (rest.isEmpty()) {
                 val next = i + 1
+                val child: YamlNode
                 if (next < lines.size && lines[next].indent > indent) {
-                    val (child, after) = parseBlock(lines, next, indent + 1)
-                    items += child
+                    val (node, after) = parseBlock(lines, next, indent + 1, anchors)
+                    child = node
                     i = after
                 } else {
-                    items += YamlNode.Scalar("")
+                    child = YamlNode.Scalar("")
                     i++
                 }
-            } else if (rest.contains(':') && !rest.startsWith("[") && !rest.startsWith("{") && !isQuoted(rest)) {
+                anchorName?.let { anchors[it] = child }
+                items += child
+            } else if (rest.startsWith("*")) {
+                items += resolveAlias(rest, line.number, anchors)
+                i++
+            } else if (
+                rest.contains(':') && !rest.startsWith("[") && !rest.startsWith("{") &&
+                !isQuoted(rest) && splitKeyValue(rest) != null
+            ) {
                 // `{` must route to parseScalarOrFlow below: without the guard,
                 // `- { require_mandatory_flags: true }` split at the colon into a
                 // mangled Mapping("{ require_mandatory_flags" -> "true }"), so
                 // collectKeys rules never saw keys inside flow mappings in block
                 // sequences (audit F3 follow-up).
-                val colon = splitKeyValue(rest)
-                if (colon != null && colon.second.isEmpty()) {
-                    val next = i + 1
-                    if (next < lines.size && lines[next].indent > indent) {
-                        val (nested, afterNested) = parseBlock(lines, next, indent + 1)
-                        items += YamlNode.Mapping(linkedMapOf(unquote(colon.first) to nested))
-                        i = afterNested
-                    } else {
-                        items += YamlNode.Mapping(linkedMapOf(unquote(colon.first) to YamlNode.Mapping()))
-                        i++
-                    }
-                } else if (colon != null) {
-                    items += YamlNode.Mapping(linkedMapOf(unquote(colon.first) to parseScalarOrFlow(colon.second)))
-                    i++
-                } else {
-                    items += parseScalarOrFlow(rest)
-                    i++
-                }
+                //
+                // A block mapping starting on the dash line may continue with
+                // sibling keys on the following lines (`- topic: x` then
+                // `bc-rid: y` two columns in) - every production chromia.yml
+                // with FT4 transfer rules or ICMF receivers uses this shape,
+                // and the old single-key special case mis-reported it as "bad
+                // indent" (real-world round 1). Re-parse the item as a mapping
+                // whose first line is the content after "- ".
+                val itemIndent = line.indent + 2
+                val sub = ArrayList(lines)
+                sub[i] = Line(line.number, itemIndent, rest)
+                val (child, after) = parseMapping(sub, i, itemIndent, anchors)
+                anchorName?.let { anchors[it] = child }
+                items += child
+                i = after
             } else {
-                items += parseScalarOrFlow(rest)
+                val node = parseScalarOrFlow(rest)
+                anchorName?.let { anchors[it] = node }
+                items += node
                 i++
             }
         }

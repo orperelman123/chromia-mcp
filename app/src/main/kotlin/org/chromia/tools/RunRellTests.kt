@@ -108,6 +108,12 @@ object RunRellTests {
 
     private val TEST_MODULE_REGEX = Regex("""(^|\n)\s*@test\s+module\b""")
 
+    /** "lib/ft4/....rell(12:3) Warning: ..." - FT4 library noise, not user code. */
+    private val FT4_WARNING_REGEX = Regex("""^lib[/\\]ft4[/\\].+\(\d+:\d+\)\s+Warning:""")
+
+    internal fun isVendoredFt4Warning(line: String): Boolean =
+        FT4_WARNING_REGEX.containsMatchIn(line.trim())
+
     /** True when the (masked) source declares a `@test module`. */
     internal fun isTestModuleSource(content: String): Boolean =
         TEST_MODULE_REGEX.containsMatchIn(maskRellSource(content, maskStrings = true))
@@ -434,7 +440,17 @@ object RunRellTests {
         } catch (e: java.util.concurrent.ExecutionException) {
             val cause = e.cause
             if (cause is net.postchain.rell.api.base.RellCliException) {
-                val diagnostics = messages.filter { it.isNotBlank() }.joinToString("\n")
+                // Warnings inside the FT4 library are pinned-library noise that
+                // drowned the actual errors for real FT4 dapps (filehub,
+                // real-world round 1); keep errors, drop lib/ft4 warnings.
+                // Some failures (e.g. module_args binding) raise RellCliException
+                // without printing through cliEnv - falling back to the exception
+                // message beats an empty diagnostics block (price-oracle,
+                // real-world round 1).
+                val diagnostics = messages
+                    .filter { it.isNotBlank() && !isVendoredFt4Warning(it) }
+                    .joinToString("\n")
+                    .ifBlank { cause.message ?: "no compiler diagnostics captured" }
                 throw IllegalArgumentException(
                     "Rell test sources do not compile:\n$diagnostics".trimEnd()
                 )

@@ -125,10 +125,25 @@ object RellLibs {
      * App (non-test) module names for the user's files - passed explicitly to the
      * compiler so vendored library modules compile only when imported, instead of
      * `null` ("all modules") sweeping the whole vendored tree in.
+     *
+     * Submitted files under lib/ (the `chr install` vendoring root) are library
+     * code too and get the same treatment: compiled only when imported. `chr
+     * build` compiles the modules reachable from the configured entry module, so
+     * a vendored library shipping ALTERNATIVE modules (lib.icmf's receiver vs
+     * metadata_receiver both mount `__icmf_message`) builds fine for chr but
+     * false-redded here with a mount-name conflict when every submitted module
+     * was force-compiled (price-oracle, real-world round 1). The existing
+     * ifEmpty-null fallback at the call sites keeps lib-only submissions (e.g.
+     * checking a library project itself) compiling everything, as before.
      */
     fun userAppModules(files: Map<String, String>): List<String> =
         files.filterValues { !RunRellTests.isTestModuleSource(it) }
+            .filterKeys { !isVendoredLibPath(it) }
             .map { (path, content) -> RunRellTests.moduleNameForPath(path, content) }
             .filter { it.isNotEmpty() }
             .distinct()
+
+    /** lib/... after the same ./ and src/ prefix normalization as source roots. */
+    fun isVendoredLibPath(path: String): Boolean =
+        normalizeFt4Path(path).startsWith("lib/")
 }

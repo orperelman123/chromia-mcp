@@ -1,8 +1,9 @@
 // Fuzz marathon: many random seeds against the live MCP compiler tools, far
 // beyond the CI suite's time budget. Any crash/hang/malformed result is a bug.
-// Usage: node scratch-qa/fuzz-marathon.mjs http://127.0.0.1:3001 [iterations]
+// Usage: node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 [iterations] [seedBase]
 const BASE = process.argv[2] || 'http://127.0.0.1:3001';
 const ITERS = Number(process.argv[3] || 120);
+const SEED_BASE = Number(process.argv[4] || 1000); // new seeds per marathon: pass a fresh base
 
 let session = null, nextId = 1;
 async function openSession() {
@@ -62,9 +63,9 @@ function gen(rand) {
 
 const findings = [];
 await openSession();
-console.log(`fuzz marathon: ${ITERS} iterations against ${BASE}`);
+console.log(`fuzz marathon: ${ITERS} iterations against ${BASE} (seeds ${SEED_BASE}..${SEED_BASE + ITERS - 1})`);
 for (let i = 0; i < ITERS; i++) {
-  const seed = 1000 + i;
+  const seed = SEED_BASE + i;
   const rand = prng(seed);
   const src = gen(rand);
   const tool = ['rell_check', 'rell_security_check', 'run_rell_tests'][i % 3];

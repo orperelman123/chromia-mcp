@@ -19,8 +19,14 @@ import java.nio.file.Path
  */
 object RellCheck {
 
-    /** "main.rell(3:9) ERROR: ..." / "lib/util.rell(1:1) WARNING: ..." */
-    private val MESSAGE_REGEX = Regex("""^(.+?)\((\d+):(\d+)\)\s+(ERROR|WARNING)[:\s]\s*(.*)$""")
+    /**
+     * "main.rell(3:9) ERROR: ..." / "lib/util.rell(1:1) Warning: ...".
+     * The compiler prints "Warning:" in mixed case - matching only WARNING left
+     * every warning unparsed (file=null), so they lost their file/line structure
+     * and dodged the vendored-FT4 suppression (ft4-demo, real-world round 1).
+     */
+    private val MESSAGE_REGEX =
+        Regex("""^(.+?)\((\d+):(\d+)\)\s+(ERROR|WARNING)[:\s]\s*(.*)$""", RegexOption.IGNORE_CASE)
 
     data class Diagnostic(
         val file: String?,
@@ -82,7 +88,13 @@ object RellCheck {
             if (submittedFt4 > 0) {
                 result.copy(notes = result.notes + " " + RellLibs.submittedFt4Note(submittedFt4))
             } else {
-                result
+                // Warnings INSIDE the provisioned FT4 library are pinned-library
+                // noise the agent cannot act on: a one-line FT4 dapp came back
+                // with ~30 lib/ft4 nullability warnings drowning its own output
+                // (ft4-demo, real-world round 1). Errors in lib/ft4 still
+                // surface - they indicate real problems (e.g. a missing
+                // dependency the library needs).
+                suppressVendoredFt4Warnings(result)
             }
         } finally {
             runCatching { tempDir.toFile().deleteRecursively() }
@@ -160,6 +172,19 @@ object RellCheck {
         }
     }
 
+    /** Drops warnings located in provisioned lib/ft4 files; says so in notes. */
+    internal fun suppressVendoredFt4Warnings(result: Result): Result {
+        val (vendored, user) = result.warnings.partition {
+            it.file?.replace('\\', '/')?.startsWith("lib/ft4/") == true
+        }
+        if (vendored.isEmpty()) return result
+        return result.copy(
+            warnings = user,
+            notes = result.notes +
+                " ${vendored.size} compiler warning(s) inside vendored FT4 ${RellLibs.FT4_VERSION} suppressed."
+        )
+    }
+
     private fun compile(sourceDir: Path, modules: List<String>?, testModules: List<String> = emptyList()): Result {
         val captured = mutableListOf<String>()
         val cliEnv = PrinterRellCliEnv({ captured.add(it) }, { captured.add(it) })
@@ -206,7 +231,7 @@ object RellCheck {
         val match = MESSAGE_REGEX.find(raw.trim())
         return if (match != null) {
             val (file, line, col, severity, text) = match.destructured
-            Diagnostic(file, line.toIntOrNull(), col.toIntOrNull(), severity, text, raw)
+            Diagnostic(file, line.toIntOrNull(), col.toIntOrNull(), severity.uppercase(), text, raw)
         } else {
             val severity = if (raw.contains("ERROR", ignoreCase = true)) "ERROR" else "WARNING"
             Diagnostic(null, null, null, severity, raw, raw)

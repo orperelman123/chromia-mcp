@@ -91,7 +91,16 @@ object RellSecurityCheck {
         "ft4.auth",
         "op_context.is_signer",
         "is_signer(",
-        "require_signer"
+        "require_signer",
+        // ICCF cross-chain proof validation IS the auth mechanism for
+        // proof-carrying operations: lib.iccf's require_valid_proof aborts the
+        // op on an invalid proof. Production filechain/iccf-example ops using
+        // this documented pattern were false-flagged HIGH (real-world round 1).
+        "require_valid_proof",
+        // Reading the actual transaction signers to derive the mutation
+        // (create x(signer) for op_context.get_signers()) ties the write to
+        // whoever REALLY signed - same trust level as is_signer( above.
+        "op_context.get_signers("
     )
     // "auth_handler" as a bare substring matched identifiers like auth_handlers_cfg;
     // require the call/definition paren (add_auth_handler(...) still matches).
