@@ -247,4 +247,73 @@ class ChromiaYmlValidatorRegressionTest {
         val opaque = SimpleYaml.parse("a: {not yaml}") as YamlNode.Mapping
         assertTrue(opaque.entries["a"] is YamlNode.Scalar, opaque.entries["a"].toString())
     }
+
+    // Audit F3 follow-up: a flow mapping as a block-SEQUENCE item was split at
+    // its colon into a mangled Mapping("{ require_mandatory_flags" -> "true }"),
+    // so collectKeys rules never fired on it.
+    @Test
+    fun flowMappingInsideBlockSequenceExposesKeysToValidation() {
+        val yaml = baseYml().replace(
+            "module: main",
+            "module: main\n    signers:\n    - { require_mandatory_flags: true }"
+        )
+        val result = ChromiaYmlValidator.validate(yaml)
+        assertTrue(
+            result.errors.any { it.contains("require_mandatory_flags is not a chromia.yml") },
+            result.errors.toString()
+        )
+    }
+
+    @Test
+    fun flowMappingInsideBlockSequenceParsesAsMapping() {
+        val root = SimpleYaml.parse("a:\n- { x: 1, y: 2 }") as YamlNode.Mapping
+        val seq = root.entries["a"] as YamlNode.Sequence
+        val item = seq.items.single() as YamlNode.Mapping
+        assertEquals("1", item.scalar("x"))
+        assertEquals("2", item.scalar("y"))
+    }
+
+    // Audit F4: `\"` inside a double-quoted flow scalar toggled the quote state,
+    // swallowing subsequent keys - a crafted moduleArgs hid ras_open from the
+    // forbidden-module scan.
+    @Test
+    fun escapedQuoteInFlowScalarDoesNotHideForbiddenModuleArgs() {
+        val yaml = baseYml().replace(
+            "module: main",
+            "module: main\n    moduleArgs: { a: \"x\\\"y\", ras_open: { b: 1 } }"
+        )
+        val result = ChromiaYmlValidator.validate(yaml)
+        assertTrue(
+            result.errors.any { it.contains("forbidden FT4 production module") },
+            result.errors.toString()
+        )
+    }
+
+    // Audit F4: a benign value containing \" still parses, with every sibling
+    // key visible and the escaped quote preserved in the scalar.
+    @Test
+    fun escapedQuoteInFlowScalarParsesBenignValue() {
+        val root = SimpleYaml.parse("a: { k: \"x\\\"y\", m: 2 }") as YamlNode.Mapping
+        val a = root.entries["a"] as YamlNode.Mapping
+        assertEquals("x\\\"y", a.scalar("k"))
+        assertEquals("2", a.scalar("m"))
+    }
+
+    // Audit F4: `\"` must not close the double quote for the comment stripper
+    // either - a ` #` after it used to truncate the value mid-string.
+    @Test
+    fun escapedQuoteDoesNotTruncateValueAtHash() {
+        val root = SimpleYaml.parse("a: \"x\\\" #y\"") as YamlNode.Mapping
+        assertEquals("x\\\" #y", root.scalar("a"))
+    }
+
+    // Audit F4: '' doubling inside single-quoted flow scalars keeps protecting
+    // depth-0 commas (regression guard for the close/reopen toggle).
+    @Test
+    fun singleQuoteDoublingKeepsCommaProtected() {
+        val root = SimpleYaml.parse("a: { k: 'it''s, ok', m: 2 }") as YamlNode.Mapping
+        val a = root.entries["a"] as YamlNode.Mapping
+        assertEquals("2", a.scalar("m"))
+        assertEquals("it''s, ok", a.scalar("k"))
+    }
 }

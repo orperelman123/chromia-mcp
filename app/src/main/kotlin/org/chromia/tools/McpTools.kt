@@ -2724,8 +2724,10 @@ object McpTools {
         description = """
             One-call project gate. Takes a chromia.yml string plus one or more .rell file contents and runs
             the FULL check: validate_chromia_yml + check_ft4_imports + rell_check (real compilation, FT4
-            imports included) + rell_security_check when it compiles. Returns combined {ok, errors, warnings};
+            imports included) + rell_security_check when it compiles. Returns combined {ok, errors, warnings, notes};
             ok=true means the project parses, compiles, and has no CRITICAL/HIGH security findings.
+            Submitted vendored-library files under lib/ft4/ compile but are exempt from the
+            import/security scanners (FT4's own sources legitimately contain e.g. ras_open); notes says so.
             Use this as the single pre-deploy gate instead of calling the four tools separately.
             Read-only: does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
@@ -2766,10 +2768,11 @@ object McpTools {
                             "type" to JsonPrimitive("array"),
                             "items" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                         )
-                    )
+                    ),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                 )
             ),
-            required = listOf("ok", "errors", "warnings")
+            required = listOf("ok", "errors", "warnings", "notes")
         )
     )
 

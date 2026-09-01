@@ -26,11 +26,27 @@ object RellLibs {
      * mixed-version tree (audit F2). Compile with exactly what was sent instead
      * and say so via [submittedFt4Note].
      */
+    /**
+     * True for a submitted file that lives under the vendored-library root
+     * lib/ft4/ (same ./ and src/ prefix normalization as RellCheck source
+     * roots). Such files are FT4's own code, so the forbidden-import and
+     * banned-module scanners must not report findings INSIDE them: FT4 v1.1.0r
+     * itself contains `operation ras_open(` and `import lib.ft4.admin;`, so a
+     * chr-installed tree submitted whole tripped CRITICALs against the library
+     * (audit F2 follow-up). The user's app files stay fully scanned.
+     */
+    fun isSubmittedFt4Path(path: String): Boolean =
+        path.trim().replace('\\', '/').removePrefix("./").removePrefix("src/").startsWith("lib/ft4/")
+
     fun submittedFt4FileCount(files: Map<String, String>): Int =
-        files.keys.count { it.replace('\\', '/').startsWith("lib/ft4/") }
+        files.keys.count { isSubmittedFt4Path(it) }
 
     fun submittedFt4Note(count: Int): String =
         "Using your submitted lib/ft4 sources ($count file(s)) instead of the vendored FT4 $FT4_VERSION."
+
+    fun exemptedFt4Note(count: Int): String =
+        "$count vendored-library file(s) under lib/ft4/ excluded from import/security scanning; " +
+            "your app files are still fully scanned."
 
     /** Unpacks the vendored FT4 sources (entries under lib/ft4/...) into [root]. */
     fun provisionFt4(root: Path) {

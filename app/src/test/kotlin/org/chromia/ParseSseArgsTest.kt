@@ -38,6 +38,19 @@ class ParseSseArgsTest {
         }
     }
 
+    // Audit F5: unknown option keys were silently ignored - `--sse --prot 8080`
+    // started on the default port 3001 with no warning. The error must name the
+    // unknown option and the valid set.
+    @Test
+    fun unknownOptionIsRejectedNamingItAndTheValidSet() {
+        val e = assertThrows(IllegalArgumentException::class.java) {
+            parseSseArgs(listOf("--prot", "8080"))
+        }
+        assertTrue(e.message!!.contains("--prot"), e.message)
+        assertTrue(e.message!!.contains("--host"), e.message)
+        assertTrue(e.message!!.contains("--port"), e.message)
+    }
+
     @Test
     fun usageHelpDocumentsJarEmbeddingsLookup() {
         assertTrue(USAGE_HELP.contains("CHROMIA_EMBEDDINGS_PATH"))

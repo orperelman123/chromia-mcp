@@ -44,6 +44,12 @@ fun parseSseArgs(args: List<String>): SseOption {
     val options = args.chunked(2).associate {
         it[0].removePrefix("--") to it[1]
     }
+    // Unknown keys used to be silently ignored: `--sse --prot 8080` started on
+    // the default port 3001 with no warning (audit F5). Fail startup instead.
+    val unknown = options.keys - setOf("host", "port")
+    require(unknown.isEmpty()) {
+        "Unknown option(s): ${unknown.joinToString(", ") { "--$it" }}. Valid options: --host, --port"
+    }
     val host = options["host"] ?: "127.0.0.1"
     val port = try {
         options["port"]?.toInt() ?: 3001

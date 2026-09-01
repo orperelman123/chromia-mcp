@@ -25,12 +25,14 @@ object CheckDappProject {
     data class Result(
         val ok: Boolean,
         val errors: List<String>,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val notes: List<String> = emptyList()
     ) {
         fun toJson() = buildJsonObject {
             put("ok", ok)
             put("errors", buildJsonArray { errors.forEach { add(JsonPrimitive(it)) } })
             put("warnings", buildJsonArray { warnings.forEach { add(JsonPrimitive(it)) } })
+            put("notes", notes.joinToString(" "))
         }
     }
 
@@ -43,11 +45,21 @@ object CheckDappProject {
         val yml = ChromiaYmlValidator.validate(yaml)
         val errors = mutableListOf<String>()
         val warnings = yml.warnings.map { "$YAML_PATH: $it" }.toMutableList()
+        val notes = mutableListOf<String>()
         yml.errors.forEach { errors += "$YAML_PATH: $it" }
         if (rellFiles.isEmpty()) {
             errors += "missing .rell file contents"
         }
+        var exemptedLibFiles = 0
         rellFiles.forEach { (path, content) ->
+            // FT4's own library files contain `operation ras_open(` and
+            // `import lib.ft4.admin;` - scanning a submitted lib/ft4 tree
+            // reported forbidden-module errors pointing INTO the library (audit
+            // F2 follow-up). Skip vendored-library files; app files stay scanned.
+            if (RellLibs.isSubmittedFt4Path(path)) {
+                exemptedLibFiles++
+                return@forEach
+            }
             // Same normalized path and "<path>:<line>: ..." shape as the compile
             // and security findings below - FT4 findings used to say
             // "src/main.rell: line 3: ..." for the same file (audit 2026-09-01).
@@ -55,6 +67,9 @@ object CheckDappProject {
             val one = Ft4ImportCheck.scan(content)
             one.errors.forEach { err -> errors += locate(label, err) }
             one.warnings.forEach { warn -> warnings += locate(label, warn) }
+        }
+        if (exemptedLibFiles > 0) {
+            notes += RellLibs.exemptedFt4Note(exemptedLibFiles)
         }
 
         if (compile && rellFiles.isNotEmpty()) {
@@ -79,6 +94,10 @@ object CheckDappProject {
             } else if (collisions.isEmpty()) {
                 runCatching { RellCheck.check(compilable, null) }.fold(
                     onSuccess = { result ->
+                        // Compile notes carry load-bearing context (e.g. "Using your
+                        // submitted lib/ft4 sources ...") that was silently dropped
+                        // (audit F1 follow-up).
+                        if (result.notes.isNotBlank()) notes += result.notes
                         result.errors.forEach { d ->
                             val where = listOfNotNull(d.file, d.line?.toString()).joinToString(":")
                             errors += if (where.isEmpty()) "rell: ${d.text}" else "$where: ${d.text}"
@@ -99,6 +118,6 @@ object CheckDappProject {
                 )
             }
         }
-        return Result(ok = errors.isEmpty(), errors = errors, warnings = warnings)
+        return Result(ok = errors.isEmpty(), errors = errors, warnings = warnings, notes = notes)
     }
 }

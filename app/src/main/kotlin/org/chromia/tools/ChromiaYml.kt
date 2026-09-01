@@ -394,16 +394,27 @@ internal object SimpleYaml {
     private fun stripComment(line: String): String {
         var inSingle = false
         var inDouble = false
-        line.forEachIndexed { i, c ->
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
             val prev = if (i > 0) line[i - 1] else null
             val opensQuote = prev == null || prev == ' ' || prev == '[' || prev == ','
             when {
+                // `\"` inside a double-quoted scalar must not close the quote:
+                // a ` #` after it was treated as a comment and truncated the
+                // value mid-string (audit F4). `''` doubling in single quotes is
+                // handled by the plain close/reopen toggle.
+                inDouble && c == '\\' && i + 1 < line.length -> {
+                    i += 2
+                    continue
+                }
                 inSingle -> if (c == '\'') inSingle = false
                 inDouble -> if (c == '"') inDouble = false
                 c == '\'' && opensQuote -> inSingle = true
                 c == '"' && opensQuote -> inDouble = true
                 c == '#' && (prev == null || prev == ' ') -> return line.substring(0, i)
             }
+            i++
         }
         return line
     }
@@ -485,7 +496,12 @@ internal object SimpleYaml {
                     items += YamlNode.Scalar("")
                     i++
                 }
-            } else if (rest.contains(':') && !rest.startsWith("[") && !isQuoted(rest)) {
+            } else if (rest.contains(':') && !rest.startsWith("[") && !rest.startsWith("{") && !isQuoted(rest)) {
+                // `{` must route to parseScalarOrFlow below: without the guard,
+                // `- { require_mandatory_flags: true }` split at the colon into a
+                // mangled Mapping("{ require_mandatory_flags" -> "true }"), so
+                // collectKeys rules never saw keys inside flow mappings in block
+                // sequences (audit F3 follow-up).
                 val colon = splitKeyValue(rest)
                 if (colon != null && colon.second.isEmpty()) {
                     val next = i + 1
@@ -552,7 +568,22 @@ internal object SimpleYaml {
         val trimmed = part.trim()
         val quote = trimmed.firstOrNull()
         if (quote == '"' || quote == '\'') {
-            val end = trimmed.indexOf(quote, 1)
+            // Honor `\"` escapes when scanning for the closing double quote
+            // (audit F4) - `"a\"b": v` must not end the key at the escaped quote.
+            var end = -1
+            var j = 1
+            while (j < trimmed.length) {
+                val c = trimmed[j]
+                if (quote == '"' && c == '\\' && j + 1 < trimmed.length) {
+                    j += 2
+                    continue
+                }
+                if (c == quote) {
+                    end = j
+                    break
+                }
+                j++
+            }
             if (end > 0 && trimmed.getOrNull(end + 1) == ':') {
                 return trimmed.substring(0, end + 1) to trimmed.substring(end + 2).trim()
             }
@@ -568,8 +599,20 @@ internal object SimpleYaml {
         // Nested flow nodes ([a, b] / {k: v}) must not be split at their inner
         // commas - only depth-0 commas separate entries (audit F3).
         var depth = 0
-        inner.forEach { c ->
+        var i = 0
+        while (i < inner.length) {
+            val c = inner[i]
             when {
+                // YAML double-quoted scalars escape with backslash: `\"` must not
+                // toggle the quote state, or everything after it leaks outside the
+                // string and swallows subsequent entries (audit F4). Single-quoted
+                // scalars escape by doubling `''`, which the plain toggle already
+                // handles (close + immediate reopen).
+                inDouble && c == '\\' && i + 1 < inner.length -> {
+                    buf.append(c).append(inner[i + 1])
+                    i += 2
+                    continue
+                }
                 c == '\'' && !inDouble -> { inSingle = !inSingle; buf.append(c) }
                 c == '"' && !inSingle -> { inDouble = !inDouble; buf.append(c) }
                 inSingle || inDouble -> buf.append(c)
@@ -581,6 +624,7 @@ internal object SimpleYaml {
                 }
                 else -> buf.append(c)
             }
+            i++
         }
         if (buf.isNotBlank()) out += buf.toString().trim()
         return out
@@ -589,9 +633,17 @@ internal object SimpleYaml {
     private fun splitKeyValue(content: String): Pair<String, String>? {
         var inSingle = false
         var inDouble = false
-        content.forEachIndexed { i, c ->
+        var i = 0
+        while (i < content.length) {
+            val c = content[i]
             val next = content.getOrNull(i + 1)
             when {
+                // `\"` inside a double-quoted scalar must not toggle the quote
+                // state (audit F4); `''` doubling is handled by the plain toggle.
+                inDouble && c == '\\' && next != null -> {
+                    i += 2
+                    continue
+                }
                 c == '\'' && !inDouble -> inSingle = !inSingle
                 c == '"' && !inSingle -> inDouble = !inDouble
                 // YAML: ':' separates key and value only when followed by whitespace or end of line,
@@ -603,6 +655,7 @@ internal object SimpleYaml {
                     return key to value
                 }
             }
+            i++
         }
         return null
     }

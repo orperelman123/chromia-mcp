@@ -44,7 +44,8 @@ object Ft4ImportCheck {
         val ok: Boolean,
         val errors: List<String>,
         val warnings: List<String>,
-        val hits: List<Hit>
+        val hits: List<Hit>,
+        val exemptedLibFiles: Int = 0
     ) {
         fun toJson() = buildJsonObject {
             put("ok", ok)
@@ -83,7 +84,14 @@ object Ft4ImportCheck {
                 "leftover_official_imports",
                 buildJsonArray { leftoverOfficialImports.forEach { add(JsonPrimitive(it)) } }
             )
-            put("notes", notes())
+            put(
+                "notes",
+                if (exemptedLibFiles > 0) {
+                    RellLibs.exemptedFt4Note(exemptedLibFiles) + "\n" + notes()
+                } else {
+                    notes()
+                }
+            )
         }
     }
 
@@ -146,7 +154,16 @@ object Ft4ImportCheck {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
         val hits = mutableListOf<Hit>()
+        var exempted = 0
         rellFiles.forEach { (path, content) ->
+            // FT4's own library files legitimately contain `operation ras_open(`
+            // and `import lib.ft4.admin;` - scanning a submitted lib/ft4 tree
+            // reported forbidden-module errors pointing INTO the library (audit
+            // F2 follow-up). Skip vendored-library files; app files stay scanned.
+            if (RellLibs.isSubmittedFt4Path(path)) {
+                exempted++
+                return@forEach
+            }
             val label = path.trim().ifEmpty { "rell" }
             val one = scan(content)
             one.errors.forEach { err -> errors += "$label: $err" }
@@ -157,7 +174,8 @@ object Ft4ImportCheck {
             ok = errors.isEmpty(),
             errors = errors,
             warnings = warnings,
-            hits = hits
+            hits = hits,
+            exemptedLibFiles = exempted
         )
     }
 

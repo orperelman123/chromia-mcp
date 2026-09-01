@@ -255,7 +255,17 @@ object RellSecurityCheck {
         val authFunctions = authFunctionNames(fullyMasked)
         val mutatingFunctions = mutatingFunctionNames(fullyMasked)
 
+        var exemptedLibFiles = 0
         files.forEach { (path, content) ->
+            // A submitted lib/ft4 tree is FT4's own code: v1.1.0r itself contains
+            // `operation ras_open(` and `import lib.ft4.admin;`, so per-file rules
+            // reported CRITICALs pointing INTO the library (audit F2 follow-up).
+            // Library files still feed the auth/mutation call graphs above; the
+            // user's app files (where a forbidden import matters) stay scanned.
+            if (RellLibs.isSubmittedFt4Path(path)) {
+                exemptedLibFiles++
+                return@forEach
+            }
             // Comment-masked: string contents kept (hex key material lives in x"..."
             // literals) but comments cannot hide or fake findings.
             val commentMasked = maskRellSource(content, maskStrings = false)
@@ -274,7 +284,10 @@ object RellSecurityCheck {
 
         val blocking = findings.any { it.severity == "CRITICAL" || it.severity == "HIGH" }
         val notes = buildString {
-            append("Scanned ${files.size} file(s), $operationsScanned operation(s). ")
+            append("Scanned ${files.size - exemptedLibFiles} file(s), $operationsScanned operation(s). ")
+            if (exemptedLibFiles > 0) {
+                append(RellLibs.exemptedFt4Note(exemptedLibFiles) + " ")
+            }
             append(
                 if (findings.isEmpty()) "No findings from the static rules. "
                 else "${findings.size} finding(s); fix CRITICAL/HIGH before deploying. "

@@ -1146,7 +1146,14 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
                         put("operationsScanned", 0)
                         put("findings", buildJsonArray {})
                         put("compileErrors", compileJson.getValue("errors"))
-                        put("notes", "Code does not compile - fix rell_check errors first, then re-run the security check.")
+                        // Compile notes carry load-bearing context (e.g. "Using your
+                        // submitted lib/ft4 sources ...") - dropping them misattributed
+                        // errors to the vendored tree (audit F1 follow-up).
+                        put(
+                            "notes",
+                            "Code does not compile - fix rell_check errors first, then re-run the security check. " +
+                                compile.notes
+                        )
                     }
                 )
             }
