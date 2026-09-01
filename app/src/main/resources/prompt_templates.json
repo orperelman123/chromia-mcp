@@ -430,6 +430,15 @@
             }
         },
         {
+            "title": "Run a local Chromia chain",
+            "description": "Stand up a real local chain from Rell sources on the embedded Postchain engine (needs CHROMIA_TEST_DATABASE_URL); returns BRID + REST apiUrl for live queries and transactions. The last step after rell_check, rell_security_check and run_rell_tests.",
+            "tool": "mcp_chromia-mcp_local_chain_up",
+            "prompt": "Start a local chain from these sources and tell me the BRID and API URL, then show how to query it: {files}",
+            "parameters": {
+                "files": "{files}"
+            }
+        },
+        {
             "title": "FT4 module_args",
             "description": "Return FT4 v1.1.0r API 1 module_args / libs. require_mandatory_flags main-only. DEFAULT_LOGIN_CONFIG_NAME default. Never emits admin / ras_open.",
             "tool": "mcp_chromia-mcp_ft4_module_args",

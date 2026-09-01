@@ -102,6 +102,7 @@ class ToolExecutor(
         "rell_check" to RellCheckStrategy(),
         "rell_security_check" to RellSecurityCheckStrategy(),
         "run_rell_tests" to RunRellTestsStrategy(),
+        "local_chain_up" to LocalChainStrategy(),
         "translate_error" to TranslateErrorStrategy(),
         "onboarding_next_step" to OnboardingNextStepStrategy(),
         "verify_deployment" to VerifyDeploymentStrategy()
@@ -1283,6 +1284,84 @@ class RunRellTestsStrategy : BaseToolStrategy() {
         }.getOrElse { e ->
             toolErrorResult("run_rell_tests failed: ${e.message}")
         }
+    }
+}
+
+class LocalChainStrategy : BaseToolStrategy() {
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val action = (extractString(args, "action") ?: "up").lowercase()
+        return runCatching {
+            when (action) {
+                "down" -> toolSuccessResult(with(LocalChain) { down().toJson() })
+                "status" -> toolSuccessResult(with(LocalChain) { status().toJson() })
+                "up" -> executeUp(args)
+                else -> toolErrorResult("action must be one of: up, down, status (got \"$action\")")
+            }
+        }.getOrElse { e ->
+            toolErrorResult("local_chain_up failed: ${e.message}")
+        }
+    }
+
+    private suspend fun executeUp(args: Map<String, Any>): CallToolResult {
+        val (files, invalidKeys) = extractRellFilesMap(args["files"])
+        if (invalidKeys.isNotEmpty()) {
+            return toolErrorResult(
+                "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
+            )
+        }
+        if (files.isEmpty()) {
+            return toolErrorResult(
+                "action \"up\" needs a `files` map with at least one app module, e.g. {\"main.rell\": \"module; ...\"}"
+            )
+        }
+        val moduleArgs = when (val moduleArgsArg = args["moduleArgs"]) {
+            null, is JsonNull -> emptyMap()
+            is JsonObject -> {
+                val badModules = moduleArgsArg.filterValues { it !is JsonObject }.keys
+                if (badModules.isNotEmpty()) {
+                    return toolErrorResult(
+                        "moduleArgs value for module(s) ${badModules.joinToString(", ")} must be an args object - got a non-object value. Do not JSON-encode the args."
+                    )
+                }
+                moduleArgsArg.mapValues { (_, v) -> (v as JsonObject).toMap() }
+            }
+            else -> return toolErrorResult(
+                "moduleArgs must be an object mapping module name -> args object (e.g. {\"lib.ft4.core.accounts\": {...}})"
+            )
+        }
+        val ttlSeconds = extractLong(args, "ttlSeconds")
+        val apiPort = extractLong(args, "apiPort")?.let {
+            if (it !in 1..65535) return toolErrorResult("apiPort must be in 1..65535 (got $it)") else it.toInt()
+        }
+        val databaseUrl = extractString(args, "databaseUrl")?.also {
+            if (!it.startsWith("jdbc:postgresql://")) {
+                return toolErrorResult("databaseUrl must be a PostgreSQL JDBC URL (jdbc:postgresql://...)")
+            }
+        } ?: System.getenv(LocalChain.DATABASE_URL_ENV)
+        val result = withContext(Dispatchers.IO) {
+            LocalChain.up(
+                files = files,
+                databaseUrl = databaseUrl,
+                moduleArgs = moduleArgs,
+                ttlSeconds = ttlSeconds,
+                apiPort = apiPort
+            )
+        }
+        return if (result.ok) {
+            toolSuccessResult(with(LocalChain) { result.toJson() })
+        } else {
+            toolErrorResult(result.notes)
+        }
+    }
+
+    /** Absent/JSON-null -> null; anything else must parse as a whole number. */
+    private fun extractLong(arguments: Map<String, Any>, key: String): Long? {
+        val value = arguments[key] ?: return null
+        if (value is JsonNull) return null
+        val raw = if (value is JsonPrimitive) value.content else value.toString()
+        return raw.toLongOrNull()
+            ?: throw IllegalArgumentException("$key must be an integer; got $raw")
     }
 }
 
