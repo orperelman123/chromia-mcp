@@ -1738,6 +1738,95 @@ object McpTools {
         )
     )
 
+    fun localChainUpTool() = Tool(
+        name = "local_chain_up",
+        description = """
+            Stand up a REAL local Chromia chain from Rell sources - in-process, zero keys, zero
+            funds, zero human steps. Compiles the sources into a blockchain configuration and runs
+            it on the embedded Postchain engine (the same engine `chr node start` wraps) against
+            the server's PostgreSQL, then serves the standard Postchain REST API on 127.0.0.1.
+            This is the last step of the agent loop: rell_check (compiles) -> rell_security_check
+            (secure) -> run_rell_tests (tests pass) -> local_chain_up (runs against a live chain).
+            Returns the BRID and apiUrl; then query with
+            POST {apiUrl}/query/{brid} {"type":"<query>", ...args} (start with type=rell.get_app_structure),
+            and submit transactions with any postchain client against apiUrl + BRID, signed with the
+            public Chromia CLI dev key (privkey 42 repeated 32 times - local only, never a secret).
+            actions: "up" (default; requires `files`), "status", "down".
+            Bounded by design: one chain at a time, auto-stops after ttlSeconds (default 1800, max
+            7200), runs in a dedicated PostgreSQL schema that is wiped on every start. Calling up
+            again with identical sources returns the running chain (TTL refreshed); different
+            sources restart it. Needs PostgreSQL via CHROMIA_TEST_DATABASE_URL on the server (or
+            `databaseUrl`); @test modules are excluded from the chain like `chr build`.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Map of relative .rell paths to contents (same convention as rell_check), e.g. {\"main.rell\": \"module; ...\"}. Required for action \"up\". Paths are relative to the Rell source root - a leading ./ or src/ is normalized away.")
+                        )
+                    ),
+                    "action" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "enum" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("up"), JsonPrimitive("down"), JsonPrimitive("status"))),
+                            "description" to JsonPrimitive("\"up\" starts (or returns) the chain (default), \"status\" reports the running chain, \"down\" stops it now.")
+                        )
+                    ),
+                    "moduleArgs" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml, e.g. {\"lib.ft4.core.accounts\": {...}} - required for FT4 dapps (use ft4_module_args for production-correct values).")
+                        )
+                    ),
+                    "ttlSeconds" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive("Auto-stop after this many seconds (default 1800, clamped to 30..7200). Call up again to extend.")
+                        )
+                    ),
+                    "apiPort" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive("REST API port on 127.0.0.1 (default: first free port in 7741..7999).")
+                        )
+                    ),
+                    "databaseUrl" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional PostgreSQL JDBC URL override (jdbc:postgresql://host:port/db?user=...&password=...); defaults to the server's CHROMIA_TEST_DATABASE_URL.")
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Run a local Chromia chain",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "status" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("started | already_running | running | stopped | not_running | error")
+                        )
+                    ),
+                    "brid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "apiUrl" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "chainId" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "nodePubkey" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "expiresInSeconds" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("ok", "status", "notes")
+        )
+    )
+
     fun rellSecurityCheckTool() = Tool(
         name = "rell_security_check",
         description = """
@@ -2960,6 +3049,7 @@ object McpTools {
         "rell_check" to CHECK_DAPP_PROJECT_ALTERNATIVE,
         "rell_security_check" to CHECK_DAPP_PROJECT_ALTERNATIVE,
         "run_rell_tests" to CHECK_DAPP_PROJECT_ALTERNATIVE,
+        "local_chain_up" to "verify behavior with run_rell_tests if available, or compile-check with check_dapp_project",
         "chromia_dapp_query" to "use the explorer analytics tools on this server " +
             "(filter_blockchains, get_blockchain_details, get_all_transactions, ...) for on-chain data"
     )
@@ -3018,6 +3108,7 @@ object McpTools {
         rellCheckTool(),
         rellSecurityCheckTool(),
         runRellTestsTool(),
+        localChainUpTool(),
         translateErrorTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),

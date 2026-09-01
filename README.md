@@ -23,6 +23,7 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - dApp deployment information
 - **Documentation retrieval and search**
 - **In-process Rell compilation (`rell_check`)** — the agent feedback loop
+- **Local chain (`local_chain_up`)** — a real queryable Chromia chain from Rell sources: embedded Postchain node + PostgreSQL, REST API on localhost, zero keys, bounded TTL
 - **Error translation (`translate_error`)** — paste any cryptic Chromia-stack error (Rell compiler, chr CLI, postchain, postgres, explorer/GraphQL, FT4) and get its meaning, likely cause, and concrete next action from a curated offline rule table (no LLM, no network)
 
 ## Documentation Tools
@@ -62,6 +63,21 @@ Pure-logic tests run with no setup. Tests that touch entities/database need Post
 set `CHROMIA_TEST_DATABASE_URL` (jdbc url) on the server. Database-backed runs share one
 schema, so one server serializes them internally; give each server *instance* its own
 database (or schema) — two servers pointed at the same URL can still collide.
+
+## Local Chain (`local_chain_up`)
+
+Stands up a **real, queryable local Chromia chain** from Rell sources — in-process, zero keys,
+zero funds, zero human steps. Compiles the sources into a blockchain configuration and runs it
+on the embedded Postchain engine (the same engine `chr node start` wraps) against
+`CHROMIA_TEST_DATABASE_URL`, then serves the standard Postchain REST subset on `127.0.0.1`
+(`/brid/iid_0`, `/query/{brid}` GET+POST, `/query_gtv/{brid}`, `/tx/{brid}`,
+`/tx/{brid}/{txRid}/status`) — usable with curl or any postchain client. The final step of the
+agent loop: compile → secure → tested → **running**. Returns the BRID and API URL; transactions
+are signed with the public Chromia CLI dev key (privkey `42`×32 — local only, never a secret).
+Bounded by design: one chain at a time, auto-stop TTL (default 30 min, max 2 h), a dedicated
+PostgreSQL schema (`chromia_mcp_local_chain`) wiped on every start, and shutdown with the server.
+Actions: `up` (default), `status`, `down`. The database must use a byte-order collation
+(`LC_COLLATE 'C.UTF-8'`, or `LC_COLLATE 'C'` + `LC_CTYPE 'en-US'` on Windows).
 
 ## Rell Security Check (`rell_security_check`)
 

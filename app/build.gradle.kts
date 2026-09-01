@@ -53,6 +53,11 @@ kotlin {
 // postchain 3.49 (via rell-api-gtx) also constrains http4k to 6.53.x, which breaks
 // postchain-client 3.36's runtime ABI (ClientFilters.AcceptGZip signature) - pin the
 // whole http4k group to the version postchain-client is compiled against.
+// NOTE (local_chain_up, 2026-09-02): the reverse also holds - postchain 3.49's own
+// REST API (RestApi/ServerFilters.GZip) hard-crashes on 6.0.1.0 with NoSuchMethodError,
+// and BOTH ABIs cannot be satisfied at once. The embedded local-chain node therefore
+// runs with api.port disabled and LocalChain serves the REST subset itself over ktor
+// (see LocalChain.kt) - do not re-enable postchain's RestApi while this pin stands.
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
