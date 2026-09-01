@@ -53,7 +53,9 @@ Executes `@test module;` Rell tests in-process with the embedded runner (the sam
 3. `run_rell_tests` — it behaves correctly
 
 Pure-logic tests run with no setup. Tests that touch entities/database need PostgreSQL —
-set `CHROMIA_TEST_DATABASE_URL` (jdbc url) on the server.
+set `CHROMIA_TEST_DATABASE_URL` (jdbc url) on the server. Database-backed runs share one
+schema, so one server serializes them internally; give each server *instance* its own
+database (or schema) — two servers pointed at the same URL can still collide.
 
 ## Rell Security Check (`rell_security_check`)
 

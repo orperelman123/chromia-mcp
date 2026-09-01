@@ -31,6 +31,14 @@ object RunRellTests {
     // surfaced in the result notes; daemon threads never block JVM shutdown.
     private val leakedRunners = java.util.concurrent.atomic.AtomicInteger()
 
+    // Database-backed runs share one schema in CHROMIA_TEST_DATABASE_URL: two
+    // concurrent runs see each other's chain tables and fail with "Missing
+    // metadata entities for existing tables: c0.<entity>" (e2e finding
+    // 2026-09-01). Serialize them; fair so queued calls run in arrival order.
+    // Released only after the runner task truly ends - on timeout the release
+    // is queued behind the runaway task on its own executor (see execute).
+    private val dbRunPermit = java.util.concurrent.Semaphore(1, true)
+
     private fun newRunnerExecutor() =
         // One dedicated thread per call: an unstoppable runaway runner must not
         // poison a shared pool, and queueing follow-up work on the same thread
@@ -248,6 +256,15 @@ object RunRellTests {
             .onTestCaseFinished { collected.add(it) }
             .build()
 
+        // The shared test database admits one run at a time (see dbRunPermit).
+        val usesDb = databaseUrl != null
+        if (usesDb && !dbRunPermit.tryAcquire(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)) {
+            throw IllegalStateException(
+                "The test database ($DATABASE_URL_ENV) is still in use by another run_rell_tests call " +
+                    "after ${timeoutSeconds}s (database-backed runs share one schema and are serialized). " +
+                    "Retry shortly."
+            )
+        }
         // User test code executes in-process; bound it so an infinite loop in a
         // test returns a clear failure instead of hanging the tool call forever.
         val executor = newRunnerExecutor()
@@ -267,6 +284,8 @@ object RunRellTests {
             executor.submit {
                 leakedRunners.decrementAndGet()
                 runCatching { sourceDir.toFile().deleteRecursively() }
+                // The runaway may have kept using the database until now.
+                if (usesDb) dbRunPermit.release()
             }
             executor.shutdown()
             val finished = collected.size
@@ -298,7 +317,10 @@ object RunRellTests {
             }
             throw cause ?: e
         } finally {
-            if (!timedOut) executor.shutdownNow()
+            if (!timedOut) {
+                executor.shutdownNow()
+                if (usesDb) dbRunPermit.release()
+            }
         }
 
         val cases = collected.map { r ->
