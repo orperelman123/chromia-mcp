@@ -357,6 +357,7 @@ object RellSecurityCheck {
         // closures already walk helpers, so an op-body-only require() scan
         // false-flagged every validate_x() helper pattern (gate fatigue).
         val requireFunctions = functionNamesMatchingSeed(fullyMasked, REQUIRE_REGEX)
+        val quorumTermPresent = submissionHasQuorumTerm(fullyMasked)
         val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
 
         var exemptedLibFiles = 0
@@ -412,6 +413,7 @@ object RellSecurityCheck {
                     path, op, authFunctions, mutatingFunctions, authMarkers,
                     valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
                 )
+                findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
             }
         }
 
@@ -816,6 +818,79 @@ object RellSecurityCheck {
                     "if a full wipe really is intended, it belongs behind an explicit admin gate."
             )
         }.toList()
+
+    // ---- economic-invariant advisories (MEDIUM, never blocking) ----
+    // The adversary round proved the drainable dApps were drainable by DESIGN:
+    // quorumless governance and unbacked oracle conversion both shipped with
+    // every operation authenticated and validated. None of these shapes is
+    // statically provable - whether a DAO needs a quorum is a design decision,
+    // and conservation cannot be decided from syntax - so every rule in this
+    // section reports MEDIUM and can never make ok=false. A gate that blocks
+    // on a heuristic trains agents to route around it (observed); an advisory
+    // names the invariant the developer must consciously own.
+
+    /** `yes_votes > no_votes` - two vote-tally terms compared to each other. */
+    private val MAJORITY_COMPARISON_REGEX = Regex(
+        """[\w.]*(?:vote|tally|ballot)\w*\s*>=?\s*[\w.]*(?:vote|tally|ballot)\w*""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Evidence the governance thought about participation or weighting: a
+     * quorum/threshold identifier, or membership/supply/stake/weight terms.
+     * Any of these anywhere in the submission's own (non-lib) code silences
+     * the rule - a stake-weighted DAO's execute operation is textually
+     * IDENTICAL to an unweighted one (the weighting lives in cast_vote), so
+     * only a submission-wide scan can tell them apart. The bias is deliberate:
+     * prefer missing a quorumless DAO in a codebase that uses these words
+     * elsewhere over advising a designer who demonstrably weighed votes.
+     */
+    private val QUORUM_TERM_REGEX = Regex(
+        """quorum|threshold|min_votes|min_yes|total_members|member_count|total_votes|total_supply|voting_power|weight|stake""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** True when any non-library file of the submission contains a quorum/weight term. */
+    internal fun submissionHasQuorumTerm(fullyMasked: Map<String, String>): Boolean =
+        fullyMasked.any { (path, masked) ->
+            !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
+                QUORUM_TERM_REGEX.containsMatchIn(masked)
+        }
+
+    /**
+     * MEDIUM when an operation moves value gated by a bare vote-majority
+     * comparison and no quorum, threshold, or weight term exists anywhere in
+     * the submission. The adversary DAO drain is exactly this: one account
+     * with zero contribution proposes paying itself, votes 1-0 on its own
+     * proposal, and executes. Advisory, never blocking: a two-party escrow
+     * where 1-0 is a legitimate outcome exists, and only the designer knows
+     * which one they built.
+     */
+    private fun majorityWithoutQuorumFindings(
+        path: String,
+        op: OperationBlock,
+        valueMutatingFunctions: Set<String>,
+        quorumTermPresent: Boolean
+    ): List<Finding> {
+        if (quorumTermPresent) return emptyList()
+        if (!MAJORITY_COMPARISON_REGEX.containsMatchIn(op.body)) return emptyList()
+        val calls = calledNames(op.body)
+        val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
+        if (!movesValue) return emptyList()
+        return listOf(
+            Finding(
+                "MEDIUM", "majority-without-quorum", path, op.line,
+                "operation ${op.name} moves value gated only by a bare vote majority (yes > no) - " +
+                    "no quorum, participation threshold, or vote-weight term anywhere in the check, so " +
+                    "a single account voting 1-0 on its own proposal satisfies it",
+                "Add a participation floor and/or weight votes: require(yes_votes + no_votes >= quorum) " +
+                    "with quorum derived from membership or supply, or accumulate voting_power per voter " +
+                    "instead of 1. Advisory: whether this governance needs a quorum is a design decision " +
+                    "static analysis cannot prove - if a bare majority is intended (e.g. 2-party escrow), " +
+                    "document it and ignore this finding."
+            )
+        )
+    }
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
