@@ -1,0 +1,48 @@
+From 60b4dbc71d8ca4c751370989620539b63909782e Mon Sep 17 00:00:00 2001
+From: Or Perelman <or.perelman@chromaway.com>
+Date: Wed, 2 Sep 2026 08:16:33 +0300
+Subject: [PATCH 1/9] fix: send GraphQL list variables as JSON arrays, not
+ toString()
+
+---
+ .../kotlin/org/chromia/domain/GraphQLQuery.kt | 20 ++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/app/src/main/kotlin/org/chromia/domain/GraphQLQuery.kt b/app/src/main/kotlin/org/chromia/domain/GraphQLQuery.kt
+index 684d798..9044f41 100644
+--- a/app/src/main/kotlin/org/chromia/domain/GraphQLQuery.kt
++++ b/app/src/main/kotlin/org/chromia/domain/GraphQLQuery.kt
+@@ -1,6 +1,8 @@
+ package org.chromia.domain
+ 
++import kotlinx.serialization.json.JsonArray
+ import kotlinx.serialization.json.JsonObject
++import kotlinx.serialization.json.JsonPrimitive
+ import kotlinx.serialization.json.buildJsonObject
+ import kotlinx.serialization.json.put
+ 
+@@ -19,7 +21,23 @@ data class GraphQLQuery(
+                             is String -> put(key, value)
+                             is Int -> put(key, value)
+                             is Boolean -> put(key, value)
+-                            is List<*> -> put(key, value.toString())
++                            // Lists must be sent as JSON arrays. value.toString()
++                            // produces e.g. "[FT4_USER]" (a single string), which the
++                            // GraphQL list-input coercion wraps into ["[FT4_USER]"] -
++                            // the server answers 200 with an empty result set, so every
++                            // list filter silently returns nothing.
++                            is List<*> -> put(
++                                key,
++                                JsonArray(
++                                    value.map { item ->
++                                        when (item) {
++                                            is Number -> JsonPrimitive(item)
++                                            is Boolean -> JsonPrimitive(item)
++                                            else -> JsonPrimitive(item.toString())
++                                        }
++                                    }
++                                )
++                            )
+                             else -> put(key, value.toString())
+                         }
+                     }

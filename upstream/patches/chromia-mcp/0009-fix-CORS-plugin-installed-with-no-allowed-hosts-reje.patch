@@ -1,0 +1,26 @@
+From 66bb217196b56e385740331e5dccb99aef9c1b12 Mon Sep 17 00:00:00 2001
+From: Or Perelman <or.perelman@chromaway.com>
+Date: Wed, 2 Sep 2026 08:17:52 +0300
+Subject: [PATCH 9/9] fix: CORS plugin installed with no allowed hosts rejected
+ all browser clients
+
+---
+ app/src/main/kotlin/org/chromia/App.kt | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/app/src/main/kotlin/org/chromia/App.kt b/app/src/main/kotlin/org/chromia/App.kt
+index 0255102..00e69bf 100644
+--- a/app/src/main/kotlin/org/chromia/App.kt
++++ b/app/src/main/kotlin/org/chromia/App.kt
+@@ -103,6 +103,11 @@ class App(
+             allowMethod(HttpMethod.Post)
+             allowMethod(HttpMethod.Delete)
+             allowNonSimpleContentTypes = true
++            // Without any allowed host the ktor CORS plugin rejects every
++            // cross-origin request, so browser-based MCP clients could never
++            // connect to the SSE server. Narrow this to specific origins if
++            // the deployment needs it.
++            anyHost()
+         }
+     }
+ 

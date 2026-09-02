@@ -1,0 +1,25 @@
+From 8cf672bc7ef197f9b8e74712efb9c85627f2929d Mon Sep 17 00:00:00 2001
+From: Or Perelman <or.perelman@chromaway.com>
+Date: Wed, 2 Sep 2026 08:17:27 +0300
+Subject: [PATCH 5/9] fix: route console logging to stderr - stdout corrupts
+ MCP stdio JSON-RPC
+
+---
+ app/src/main/resources/log4j2.properties | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/app/src/main/resources/log4j2.properties b/app/src/main/resources/log4j2.properties
+index 500ce8b..2b0d78f 100644
+--- a/app/src/main/resources/log4j2.properties
++++ b/app/src/main/resources/log4j2.properties
+@@ -20,6 +20,10 @@ appender.rolling.strategy.max=10
+ # Console appender configuration
+ appender.console.type=Console
+ appender.console.name=ConsoleLogger
++# Console must target SYSTEM_ERR: in stdio mode MCP JSON-RPC owns stdout, and
++# the Console appender's default SYSTEM_OUT target corrupts the protocol
++# (every tool request/response is logged at info level).
++appender.console.target=SYSTEM_ERR
+ appender.console.layout.type=PatternLayout
+ appender.console.layout.pattern=%-5level %d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %c{1} - %msg%n
+ appender.console.filter.threshold.type=ThresholdFilter

@@ -1,0 +1,33 @@
+From 984b89ed58e0768aaa24347303f4e535668d1e80 Mon Sep 17 00:00:00 2001
+From: Or Perelman <or.perelman@chromaway.com>
+Date: Wed, 2 Sep 2026 08:17:51 +0300
+Subject: [PATCH 8/9] fix: stdio server never exited when its client
+ disconnected
+
+---
+ app/src/main/kotlin/org/chromia/App.kt | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/app/src/main/kotlin/org/chromia/App.kt b/app/src/main/kotlin/org/chromia/App.kt
+index 5750880..0255102 100644
+--- a/app/src/main/kotlin/org/chromia/App.kt
++++ b/app/src/main/kotlin/org/chromia/App.kt
+@@ -114,11 +114,17 @@ class App(
+         )
+ 
+         runBlocking {
+-            server.createSession(transport)
+             val done = Job()
++            // Server.onClose only fires on an explicit close(). When the client
++            // disconnects (stdin EOF) only the transport closes, so done.join()
++            // waited forever and every disconnect left an orphaned JVM behind.
++            transport.onClose {
++                done.complete()
++            }
+             server.onClose {
+                 done.complete()
+             }
++            server.createSession(transport)
+             done.join()
+         }
+     }

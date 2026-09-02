@@ -1,0 +1,29 @@
+From 8e5d30c8ee260503e872cf04e414e6ec7dc8a0cd Mon Sep 17 00:00:00 2001
+From: Or Perelman <or.perelman@chromaway.com>
+Date: Wed, 2 Sep 2026 08:17:49 +0300
+Subject: [PATCH 7/9] fix: big_integer dapp-query responses - use
+ makeStrictGtvGson
+
+---
+ .../org/chromia/data/client/PostchainClientService.kt     | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/app/src/main/kotlin/org/chromia/data/client/PostchainClientService.kt b/app/src/main/kotlin/org/chromia/data/client/PostchainClientService.kt
+index 68b48c9..89e82b1 100644
+--- a/app/src/main/kotlin/org/chromia/data/client/PostchainClientService.kt
++++ b/app/src/main/kotlin/org/chromia/data/client/PostchainClientService.kt
+@@ -33,7 +33,13 @@ class PostchainClientService(private val config: ChromiaConfig) {
+ 
+         val queryResult = dcClient.query(query, listMapAndPrimitivesToGtv(arguments))
+ 
+-        val gsonJsonElement = make_gtv_gson().toJsonTree(queryResult)
++        // makeStrictGtvGson, not make_gtv_gson: the plain builder's BIGINTEGER
++        // branch throws "big_integer cannot be serialized as JSON", so any dapp
++        // query returning a big_integer (FT4 balances, total_supply, amounts)
++        // reported an error even though the chain answered successfully. The
++        // strict builder serializes big_integer as a JSON string; all other
++        // branches are identical.
++        val gsonJsonElement = makeStrictGtvGson().toJsonTree(queryResult)
+ 
+         val kotlinxJsonElement = gsonJsonElement.toKotlinxJson()
+ 

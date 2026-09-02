@@ -1,0 +1,42 @@
+From 60ad6c5f393d7c81bc62606736b5854340813912 Mon Sep 17 00:00:00 2001
+From: Or Perelman <or.perelman@chromaway.com>
+Date: Wed, 2 Sep 2026 08:17:06 +0300
+Subject: [PATCH 4/9] fix: tool errors were swallowed - return the failure
+ message to the caller
+
+---
+ .../main/kotlin/org/chromia/tools/ToolExecutor.kt  | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/app/src/main/kotlin/org/chromia/tools/ToolExecutor.kt b/app/src/main/kotlin/org/chromia/tools/ToolExecutor.kt
+index 3d7907b..98fefe6 100644
+--- a/app/src/main/kotlin/org/chromia/tools/ToolExecutor.kt
++++ b/app/src/main/kotlin/org/chromia/tools/ToolExecutor.kt
+@@ -52,20 +52,20 @@ class ToolExecutor(
+         "chromia_dapp_query" to DappInteractionStrategy()
+     )
+ 
+-    suspend fun executeTool(request: CallToolRequest) = runCatching {
++    suspend fun executeTool(request: CallToolRequest): CallToolResult = runCatching {
+         val strategy = strategies[request.name]
+             ?: return CallToolResult(
+                 content = listOf(TextContent("Unknown tool: ${request.name}"))
+             )
+         strategy.execute(request, repository)
+-    }.onFailure {
++    }.getOrElse { e ->
++        // getOrElse, not onFailure: onFailure returns the receiver, so the
++        // CallToolResult built inside it was discarded and every failure
++        // surfaced as a generic "Tool execution failed" with no reason.
+         CallToolResult(
+-            content = listOf(TextContent("Tool execution failed: ${it.message}"))
+-        )
+-    }.getOrNull()
+-        ?: CallToolResult(
+-            content = listOf(TextContent("Tool execution failed"))
++            content = listOf(TextContent("Tool execution failed: ${e.message}"))
+         )
++    }
+ }
+ 
+ abstract class BaseToolStrategy : ToolStrategy {
