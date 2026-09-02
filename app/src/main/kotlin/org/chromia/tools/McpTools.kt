@@ -1736,7 +1736,7 @@ object McpTools {
                     "moduleArgs" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
-                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml, e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests (use ft4_module_args to get production-correct values).")
+                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml (its moduleArgs AND test.moduleArgs blocks), e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) ALSO pass the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys; scaffold_dapp template=ft4 writes a working set into chromia.yml test.moduleArgs). Without them every tx fails with 'Unable to create GTX module'.")
                         )
                     )
                 )
