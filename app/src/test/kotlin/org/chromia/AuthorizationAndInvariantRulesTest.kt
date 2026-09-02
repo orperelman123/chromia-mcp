@@ -628,6 +628,137 @@ class AuthorizationAndInvariantRulesTest {
         )
     }
 
+    /**
+     * The rule must decide on TYPE and USE, never on the parameter's NAME:
+     * the attacker chooses the identifier, so when a name allowlist was the
+     * gate the identical drain was HIGH as `from` and SILENT as `victim`
+     * (verified against the built jar, adversary round 2). A rename must
+     * never reopen this - every name here is the same drain and must flag.
+     */
+    @Test
+    fun renamedDrainParamAlwaysFlags() {
+        val names = listOf("victim", "target", "beneficiary", "recipient", "debtor", "payee", "dest", "acct", "borrower")
+        names.forEach { name ->
+            val result = RellSecurityCheck.analyze(
+                mapOf(
+                    "main.rell" to """
+                        module;
+                        import lib.ft4.auth;
+                        entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                        operation transfer($name: byte_array, amount: integer) {
+                            val account = auth.authenticate();
+                            require(amount > 0, "positive");
+                            val src = wallet @ { .owner == $name };
+                            require(src.balance >= amount, "insufficient");
+                            update src ( .balance -= amount );
+                        }
+                    """.trimIndent()
+                )
+            )
+            val hit = result.findings.filter { it.rule == "authorization-not-bound-to-caller" }
+            assertTrue(
+                hit.isNotEmpty() && hit.first().severity == "HIGH",
+                "drain with param renamed '$name' must still be HIGH - a name is not a security boundary; " +
+                    "got ${result.findings}"
+            )
+        }
+    }
+
+    /** pubkey is an identity type too - `is_signer` shapes aside, keying a drain with one must flag. */
+    @Test
+    fun pubkeyTypedDrainParamFlags() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: pubkey; mutable balance: integer = 0; }
+                    operation seize(subject: pubkey, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        update wallet @ { .owner == subject } ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.any { it.rule == "authorization-not-bound-to-caller" && it.severity == "HIGH" },
+            "pubkey-typed unbound drain param must flag; got ${result.findings}"
+        )
+    }
+
+    /** Credit-only recipients are the receiving half of every transfer - clean whatever the type. */
+    @Test
+    fun creditOnlyRecipientParamStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    operation transfer(recipient: byte_array, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        val src = wallet @ { .owner == account.id };
+                        require(src.balance >= amount, "insufficient");
+                        update src ( .balance -= amount );
+                        update wallet @ { .owner == recipient } ( .balance += amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "authorization-not-bound-to-caller" },
+            "credit-only recipient must stay clean under the type-based rule; got ${result.findings}"
+        )
+    }
+
+    /** Binding a renamed param to the caller clears it - the binding check is name-agnostic. */
+    @Test
+    fun renamedParamBoundToCallerStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    operation close(victim: byte_array) {
+                        val account = auth.authenticate();
+                        require(victim == account.id, "not your wallet");
+                        delete wallet @ { .owner == victim };
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "authorization-not-bound-to-caller" },
+            "require(param == account.id) must clear a renamed param; got ${result.findings}"
+        )
+    }
+
+    /** A byte_array that keys nothing harmful (content hash, payload) is not an identity in use. */
+    @Test
+    fun nonIdentityByteArrayParamStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity document { key hash: byte_array; owner: byte_array; mutable pinned: boolean = false; }
+                    operation store(content_hash: byte_array) {
+                        val account = auth.authenticate();
+                        require(content_hash.size() == 32, "bad hash");
+                        create document(hash = content_hash, owner = account.id);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "authorization-not-bound-to-caller" },
+            "byte_array keying no debit/delete must stay clean; got ${result.findings}"
+        )
+    }
+
     /** The same shape, but bound to the caller, must stay clean. */
     @Test
     fun localSelectedByBoundParamStaysClean() {

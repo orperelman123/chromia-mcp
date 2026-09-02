@@ -357,6 +357,13 @@ object RellSecurityCheck {
         // closures already walk helpers, so an op-body-only require() scan
         // false-flagged every validate_x() helper pattern (gate fatigue).
         val requireFunctions = functionNamesMatchingSeed(fullyMasked, REQUIRE_REGEX)
+        val quorumTermPresent = submissionHasQuorumTerm(fullyMasked)
+        val allEntityNames = entityNames(fullyMasked)
+        val entityHelperReturns = helperEntityReturns(fullyMasked, allEntityNames)
+        val priceReadFunctions = functionNamesMatchingSeed(
+            fullyMasked.mapValues { (_, m) -> CHAIN_ARGS_REF_REGEX.replace(m, " ") },
+            PRICE_STATE_READ_REGEX
+        )
         val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
 
         var exemptedLibFiles = 0
@@ -412,8 +419,13 @@ object RellSecurityCheck {
                     path, op, authFunctions, mutatingFunctions, authMarkers,
                     valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
                 )
+                findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
+                findings += unboundedTimeWindowFindings(path, op, requireFunctions)
+                findings += unbackedConversionFindings(path, op, allEntityNames, entityHelperReturns, priceReadFunctions)
             }
         }
+
+        findings += valueSinkFindings(files, fullyMasked, allEntityNames, entityHelperReturns)
 
         // HIGH findings on the test surface downgrade to MEDIUM with a rule
         // suffix; CRITICALs (banned modules, open strategies) never downgrade
@@ -461,7 +473,9 @@ object RellSecurityCheck {
                 "Heuristic static checks only (authentication AND authorization binding, signer-gate " +
                     "integrity, auth-handler flags, mass mutations, require() validation, banned FT4 " +
                     "admin modules, hardcoded secrets) - a clean report does not replace a security " +
-                    "audit, and economic invariants (conservation, quorum) are not checked."
+                    "audit. Economic invariants (quorum, voting windows, reserve backing, locked value " +
+                    "sinks) get ADVISORY MEDIUM findings only: they are design judgments no static rule " +
+                    "can prove, they never block, and their absence does not certify sound economics."
             )
         }
         return Result(!blocking, adjusted.sortedWith(compareBy({ severityRank(it.severity) }, { it.file }, { it.line })), operationsScanned, notes)
@@ -558,11 +572,32 @@ object RellSecurityCheck {
     // adversary round drained a vault through exactly that shape: authenticate,
     // then mutate rows SELECTED by a caller-supplied account parameter that is
     // never related to the authenticated identity. Anyone drains anyone.
-    /** Parameter names that denote an account/identity being acted UPON. */
+    /**
+     * Parameter names that denote an account/identity being acted UPON.
+     * ADDITIVE trigger only - it can widen the account-param set for unusual
+     * types, never narrow it. The security boundary is [isAccountTypedParam]:
+     * the attacker chooses parameter names, so when this list WAS the gate the
+     * identical drain was HIGH as `from` and silent as `victim`/`target`/
+     * `beneficiary`/... (verified against the built jar, adversary round 2).
+     */
     private val ACCOUNT_PARAM_NAME_REGEX = Regex(
         """(?:^|_)(account|owner|from|sender|user|holder|wallet|member|spender|payer)(?:$|_)""",
         RegexOption.IGNORE_CASE
     )
+
+    /**
+     * Account-ish by TYPE and use, not by name: byte_array / pubkey / *account*
+     * types are how identities travel in Rell. Whether such a parameter is
+     * DANGEROUS is decided downstream by use ([harmfulMutationKindKeyedBy]:
+     * it must key a debit/delete and never be bound to the caller) - so a
+     * hash/blob byte_array that keys nothing harmful stays clean, whatever
+     * it is called.
+     */
+    private fun isAccountTypedParam(name: String, type: String): Boolean {
+        val t = type.trim().trimEnd('?').trim().lowercase()
+        return t == "byte_array" || t == "pubkey" || t.contains("account") ||
+            ACCOUNT_PARAM_NAME_REGEX.containsMatchIn(name)
+    }
 
     /** `val x = something(` - candidate bindings of the authenticated identity. */
     private val VAL_CALL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\(""")
@@ -672,9 +707,7 @@ object RellSecurityCheck {
         // pattern (require(account.id == chain_context.args.admin, ...)).
         if (body.contains("chain_context.args")) return emptyList()
         val accountParams = parseParams(op.params)
-            .filter { (name, type) ->
-                ACCOUNT_PARAM_NAME_REGEX.containsMatchIn(name) || type.lowercase().contains("account")
-            }
+            .filter { (name, type) -> isAccountTypedParam(name, type) }
             .map { it.first }
         if (accountParams.isEmpty()) return emptyList()
         val authVars = VAL_CALL_REGEX.findAll(body)
@@ -816,6 +849,368 @@ object RellSecurityCheck {
                     "if a full wipe really is intended, it belongs behind an explicit admin gate."
             )
         }.toList()
+
+    // ---- economic-invariant advisories (MEDIUM, never blocking) ----
+    // The adversary round proved the drainable dApps were drainable by DESIGN:
+    // quorumless governance and unbacked oracle conversion both shipped with
+    // every operation authenticated and validated. None of these shapes is
+    // statically provable - whether a DAO needs a quorum is a design decision,
+    // and conservation cannot be decided from syntax - so every rule in this
+    // section reports MEDIUM and can never make ok=false. A gate that blocks
+    // on a heuristic trains agents to route around it (observed); an advisory
+    // names the invariant the developer must consciously own.
+
+    /** `yes_votes > no_votes` - two vote-tally terms compared to each other. */
+    private val MAJORITY_COMPARISON_REGEX = Regex(
+        """[\w.]*(?:vote|tally|ballot)\w*\s*>=?\s*[\w.]*(?:vote|tally|ballot)\w*""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Evidence the governance thought about participation or weighting: a
+     * quorum/threshold identifier, or membership/supply/stake/weight terms.
+     * Any of these anywhere in the submission's own (non-lib) code silences
+     * the rule - a stake-weighted DAO's execute operation is textually
+     * IDENTICAL to an unweighted one (the weighting lives in cast_vote), so
+     * only a submission-wide scan can tell them apart. The bias is deliberate:
+     * prefer missing a quorumless DAO in a codebase that uses these words
+     * elsewhere over advising a designer who demonstrably weighed votes.
+     */
+    private val QUORUM_TERM_REGEX = Regex(
+        """quorum|threshold|min_votes|min_yes|total_members|member_count|total_votes|total_supply|voting_power|weight|stake""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** True when any non-library file of the submission contains a quorum/weight term. */
+    internal fun submissionHasQuorumTerm(fullyMasked: Map<String, String>): Boolean =
+        fullyMasked.any { (path, masked) ->
+            !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
+                QUORUM_TERM_REGEX.containsMatchIn(masked)
+        }
+
+    /**
+     * MEDIUM when an operation moves value gated by a bare vote-majority
+     * comparison and no quorum, threshold, or weight term exists anywhere in
+     * the submission. The adversary DAO drain is exactly this: one account
+     * with zero contribution proposes paying itself, votes 1-0 on its own
+     * proposal, and executes. Advisory, never blocking: a two-party escrow
+     * where 1-0 is a legitimate outcome exists, and only the designer knows
+     * which one they built.
+     */
+    private fun majorityWithoutQuorumFindings(
+        path: String,
+        op: OperationBlock,
+        valueMutatingFunctions: Set<String>,
+        quorumTermPresent: Boolean
+    ): List<Finding> {
+        if (quorumTermPresent) return emptyList()
+        if (!MAJORITY_COMPARISON_REGEX.containsMatchIn(op.body)) return emptyList()
+        val calls = calledNames(op.body)
+        val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
+        if (!movesValue) return emptyList()
+        return listOf(
+            Finding(
+                "MEDIUM", "majority-without-quorum", path, op.line,
+                "operation ${op.name} moves value gated only by a bare vote majority (yes > no) - " +
+                    "no quorum, participation threshold, or vote-weight term anywhere in the check, so " +
+                    "a single account voting 1-0 on its own proposal satisfies it",
+                "Add a participation floor and/or weight votes: require(yes_votes + no_votes >= quorum) " +
+                    "with quorum derived from membership or supply, or accumulate voting_power per voter " +
+                    "instead of 1. Advisory: whether this governance needs a quorum is a design decision " +
+                    "static analysis cannot prove - if a bare majority is intended (e.g. 2-party escrow), " +
+                    "document it and ignore this finding."
+            )
+        )
+    }
+
+    /** Parameter names that set the length of some time window. */
+    private val TIME_WINDOW_PARAM_REGEX = Regex("""period|window|duration""", RegexOption.IGNORE_CASE)
+
+    /** The statement actually uses the parameter as a time offset/deadline. */
+    private val TIME_ANCHOR_REGEX = Regex(
+        """last_block_time|block_time|deadline|expires|expiry|ends_at|closes_at""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * MEDIUM when a caller-supplied period/window/duration parameter feeds a
+     * deadline and its only lower bound is `> 0`. The adversary DAO accepted
+     * voting_period_ms = 1: `require(voting_period_ms > 0)` reads like
+     * validation but permits a voting window that is over before anyone else
+     * can vote, turning governance into a race the proposer always wins.
+     * Advisory, never blocking: the right minimum is a design number the gate
+     * cannot know, and some windows (short auctions, heartbeats) are
+     * legitimately tiny.
+     */
+    private fun unboundedTimeWindowFindings(
+        path: String,
+        op: OperationBlock,
+        requireFunctions: Set<String>
+    ): List<Finding> {
+        val findings = mutableListOf<Finding>()
+        val statements = op.body.split(';')
+        parseParams(op.params).forEach { (name, type) ->
+            if (!TIME_WINDOW_PARAM_REGEX.containsMatchIn(name)) return@forEach
+            if (!type.lowercase().contains("integer")) return@forEach
+            val paramRef = Regex("""\b${Regex.escape(name)}\b""")
+            val timed = statements.any { paramRef.containsMatchIn(it) && TIME_ANCHOR_REGEX.containsMatchIn(it) }
+            if (!timed) return@forEach
+            // Lower bounds on the parameter: `p > X` / `p >= X` / `X < p` / `X <= p`.
+            val lowerBounds =
+                Regex("""\b${Regex.escape(name)}\b\s*>=?\s*([\w.]+)""").findAll(op.body).map { it.groupValues[1] } +
+                    Regex("""([\w.]+)\s*<=?\s*\b${Regex.escape(name)}\b""").findAll(op.body).map { it.groupValues[1] }
+            if (lowerBounds.any { it != "0" }) return@forEach
+            // Validation delegated to a require()-bearing helper the param is
+            // passed to may bound it where this scan cannot see - stay quiet.
+            val delegated = requireFunctions.any { fn ->
+                Regex("""\b${Regex.escape(fn)}\s*\([^)]*\b${Regex.escape(name)}\b""").containsMatchIn(op.body)
+            }
+            if (delegated) return@forEach
+            findings.add(
+                Finding(
+                    "MEDIUM", "unbounded-voting-period", path, op.line,
+                    "operation ${op.name} sets a time window from caller-supplied '$name' with no minimum " +
+                        "(only compared against 0, or not at all) - $name = 1 closes the window in the same " +
+                        "block it opens, e.g. a voting period nobody but the proposer can act in",
+                    "Enforce a real minimum: require($name >= min_period) with the floor from module args " +
+                        "or a named constant. Advisory: the right minimum is a design decision - if a " +
+                        "near-zero window is intended here, document why and ignore this finding."
+                )
+            )
+        }
+        return findings
+    }
+
+    // ---- unbacked-conversion-credit (oracle mint) ----
+    // The adversary oracle vault (dapp_d_oracle, certified ok:true) turns
+    // 100 USD into 200,000,000: buy tokens at a transient low price, sell
+    // back at the restored fair price. sell_tokens credits USD that no
+    // reserve ever held - the credited entity is never debited, so value is
+    // created from nothing at whatever rate the price feed says.
+
+    private val ENTITY_DEF_REGEX = Regex("""\bentity\s+([A-Za-z_]\w*)""")
+
+    /** All entity names declared anywhere in the (masked) submission. */
+    internal fun entityNames(maskedFiles: Map<String, String>): Set<String> =
+        maskedFiles.values.flatMapTo(mutableSetOf()) { m ->
+            ENTITY_DEF_REGEX.findAll(m).map { it.groupValues[1] }
+        }
+
+    /** `function get_or_create_x(...): some_entity` - helper name to entity it returns. */
+    private val FUNCTION_RETURN_REGEX = Regex("""\bfunction\s+([A-Za-z_]\w*)\s*\([^()]*\)\s*:\s*([A-Za-z_]\w*)""")
+
+    internal fun helperEntityReturns(maskedFiles: Map<String, String>, entities: Set<String>): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        maskedFiles.values.forEach { m ->
+            FUNCTION_RETURN_REGEX.findAll(m).forEach { f ->
+                if (f.groupValues[2] in entities) out[f.groupValues[1]] = f.groupValues[2]
+            }
+        }
+        return out
+    }
+
+    /**
+     * One textual write to an entity field. [entity] is null when the update
+     * target could not be resolved (dotted path, unknown local) - callers must
+     * treat null conservatively for their direction of the argument.
+     */
+    internal data class ValueWrite(val entity: String?, val field: String, val kind: String)
+
+    private val ALIAS_AT_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*@""")
+    private val ALIAS_CALL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\(""")
+    private val FIELD_WRITE_REGEX = Regex("""\.\s*([A-Za-z_]\w*)\s*(\+=|-=|=(?!=))""")
+    private val CREATE_STMT_REGEX = Regex("""\bcreate\s+([A-Za-z_]\w*)\s*\(""")
+    private val UPDATE_KEYWORD_REGEX = Regex("""\bupdate\b""")
+    private val CREATE_ARG_REGEX = Regex("""([A-Za-z_]\w*)\s*=(?!=)\s*([^,]+)""")
+
+    /**
+     * Every `update`/`create` field write in a (masked) body, with the target
+     * entity resolved through the three shapes real code uses: direct
+     * (`update wallet @ {...} (...)`), select-into-local
+     * (`val w = wallet @ {...}; update w (...)`), and helper-returned
+     * (`val t = get_or_create_treasury(); update t (...)`).
+     */
+    internal fun valueWrites(
+        body: String,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): List<ValueWrite> {
+        val alias = mutableMapOf<String, String>()
+        ALIAS_AT_REGEX.findAll(body).forEach { m ->
+            if (m.groupValues[2] in entities) alias[m.groupValues[1]] = m.groupValues[2]
+        }
+        ALIAS_CALL_REGEX.findAll(body).forEach { m ->
+            helperReturns[m.groupValues[2].substringAfterLast('.')]?.let { alias[m.groupValues[1]] = it }
+        }
+        val writes = mutableListOf<ValueWrite>()
+        UPDATE_KEYWORD_REGEX.findAll(body).forEach { m ->
+            val end = body.indexOf(';', m.range.first).let { if (it < 0) body.length else it }
+            val stmt = body.substring(m.range.last + 1, end)
+            val head = stmt.takeWhile { it !in "@({" }.trim()
+            val rest = stmt.dropWhile { it !in "@({" }
+            val entity: String? = when {
+                rest.startsWith("@") -> head.takeIf { it in entities }
+                head.isNotEmpty() -> alias[head]
+                rest.startsWith("(") -> rest.substring(1).substringBefore(')').trim()
+                    .let { alias[it] ?: it.takeIf { t -> t in entities } }
+                else -> null
+            }
+            FIELD_WRITE_REGEX.findAll(stmt).forEach { f ->
+                writes.add(ValueWrite(entity, f.groupValues[1], f.groupValues[2]))
+            }
+        }
+        CREATE_STMT_REGEX.findAll(body).forEach { m ->
+            val entityName = m.groupValues[1]
+            if (entityName !in entities) return@forEach
+            val parenStart = body.indexOf('(', m.range.first)
+            val parenEnd = matchDelimiter(body, parenStart, '(', ')') ?: return@forEach
+            CREATE_ARG_REGEX.findAll(body.substring(parenStart + 1, parenEnd)).forEach { a ->
+                if (a.groupValues[2].trim() != "0") {
+                    writes.add(ValueWrite(entityName, a.groupValues[1], "create"))
+                }
+            }
+        }
+        return writes
+    }
+
+    /**
+     * A read of a price/rate field: `price` may appear anywhere in the name,
+     * `rate` must be a whole underscore-separated token (fee_rate yes,
+     * generated/migrated no). Assignments (`.price = x`) are writes, not reads.
+     */
+    private val PRICE_STATE_READ_REGEX = Regex(
+        """\.\s*(?:\w*price\w*|(?:[a-z0-9]+_)*rates?(?:_[a-z0-9]+)*)(?!\w)(?!\s*=(?!=))""",
+        RegexOption.IGNORE_CASE
+    )
+    private val CHAIN_ARGS_REF_REGEX = Regex("""\bchain_context\s*\.\s*args\s*\.\s*\w+""")
+
+    /** `a * b` / `a / b` - real arithmetic, not `@*` or comment residue. */
+    private val ARITHMETIC_REGEX = Regex("""[\w)\]]\s*[*/]\s*[\w(]""")
+
+    /** Field names that hold value (mirrors VALUE_MUTATION_REGEX's name list). */
+    private val VALUE_FIELD_NAME_REGEX = Regex(
+        """balance|amount|credit|fund|supply|share|debt|stake|reward|coin|token""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * MEDIUM when an operation converts at a state-read price (a price/rate
+     * field read from an entity, directly or via a helper), does arithmetic
+     * with it, and credits a value field of an entity that the operation never
+     * debits. That credited asset comes from nowhere: nothing guarantees a
+     * reserve holds it, so one transient oracle price mints unbacked balance.
+     * Config-sourced rates (chain_context.args.fee_bps) do not count - the
+     * exploit needs a MUTABLE price. Advisory, never blocking: conservation
+     * is not decidable from syntax (an intentional emission schedule has the
+     * same shape), only the designer knows whether a reserve exists off-op.
+     */
+    private fun unbackedConversionFindings(
+        path: String,
+        op: OperationBlock,
+        entities: Set<String>,
+        helperReturns: Map<String, String>,
+        priceReadFunctions: Set<String>
+    ): List<Finding> {
+        val body = CHAIN_ARGS_REF_REGEX.replace(op.body, " ")
+        val calls = calledNames(body)
+        val readsPrice = PRICE_STATE_READ_REGEX.containsMatchIn(body) || calls.any { it in priceReadFunctions }
+        if (!readsPrice) return emptyList()
+        if (!ARITHMETIC_REGEX.containsMatchIn(body)) return emptyList()
+        val writes = valueWrites(op.body, entities, helperReturns)
+        val debitedEntities = writes.filter { it.kind == "-=" }.mapNotNull { it.entity }.toSet()
+        val credit = writes.firstOrNull { w ->
+            (w.kind == "+=" || w.kind == "create") &&
+                VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
+                w.entity != null && w.entity !in debitedEntities
+        } ?: return emptyList()
+        return listOf(
+            Finding(
+                "MEDIUM", "unbacked-conversion-credit", path, op.line,
+                "operation ${op.name} credits ${credit.entity}.${credit.field} at a price/rate read from " +
+                    "mutable state, but never debits any ${credit.entity} row - the credited value is " +
+                    "backed by nothing, so a transient oracle price mints unbacked balance " +
+                    "(100 -> 200,000,000 in the adversary corpus)",
+                "Make the conversion conserve value: pay the credit out of a reserve/vault row of the " +
+                    "same asset (require(reserve.balance >= out) then update reserve ( .balance -= out )), " +
+                    "and bound price updates (max move per update, staleness check). Advisory: " +
+                    "conservation cannot be proven statically - if this credit is an intentional emission " +
+                    "backed elsewhere, document it and ignore this finding."
+            )
+        )
+    }
+
+    // ---- value-sink-without-withdrawal (locked funds) ----
+    // Both adversary fee sinks shipped this way (dapp_a_points `treasury`,
+    // dapp_b_market `fee_pot`, both certified ok:true): every transfer skims
+    // a fee into a balance that is only ever incremented - no operation can
+    // pay it out, so the value is permanently locked at deploy time.
+
+    /** Entity/field names that suggest the row HOLDS collected value. */
+    private val SINK_NAME_REGEX = Regex("""fee|pot|treasury|vault|reserve|escrow|pool""", RegexOption.IGNORE_CASE)
+    private val MUTABLE_FIELD_REGEX = Regex("""\bmutable\s+([A-Za-z_]\w*)""")
+
+    /**
+     * MEDIUM, once per sink field, when a value-holding field on a
+     * fee/pot/treasury-named entity is credited (`+=`, or created non-zero)
+     * somewhere in the app and NO app code ever decrements or reassigns it.
+     * The name gate keeps monotonic statistics counters out; an unresolvable
+     * write (dotted target, unknown local) to a same-named field is treated
+     * as a possible withdrawal and silences the rule - conservative in the
+     * quiet direction, because an advisory that cries wolf trains agents to
+     * ignore the gate. Advisory, never blocking: a lock-forever sink can be
+     * intended (burn-style), and only the designer knows.
+     */
+    internal fun valueSinkFindings(
+        files: Map<String, String>,
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): List<Finding> {
+        val eligible = files.keys.filter { path ->
+            !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
+                !RunRellTests.isTestModuleSource(files.getValue(path))
+        }
+        data class SinkField(val entity: String, val field: String, val file: String, val line: Int)
+        val candidates = mutableListOf<SinkField>()
+        eligible.forEach { path ->
+            val masked = fullyMasked.getValue(path)
+            ENTITY_DEF_REGEX.findAll(masked).forEach { m ->
+                val name = m.groupValues[1]
+                val braceStart = masked.indexOf('{', m.range.last)
+                if (braceStart < 0) return@forEach
+                val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
+                val block = masked.substring(braceStart + 1, braceEnd)
+                val line = masked.substring(0, m.range.first).count { it == '\n' } + 1
+                MUTABLE_FIELD_REGEX.findAll(block).forEach { f ->
+                    val field = f.groupValues[1]
+                    if (!VALUE_FIELD_NAME_REGEX.containsMatchIn(field)) return@forEach
+                    if (!SINK_NAME_REGEX.containsMatchIn(name) && !SINK_NAME_REGEX.containsMatchIn(field)) return@forEach
+                    candidates.add(SinkField(name, field, path, line))
+                }
+            }
+        }
+        if (candidates.isEmpty()) return emptyList()
+        val writes = eligible.flatMap { valueWrites(fullyMasked.getValue(it), entities, helperReturns) }
+        return candidates.mapNotNull { c ->
+            val fieldWrites = writes.filter { it.field == c.field && it.entity == c.entity }
+            val credited = fieldWrites.any { it.kind == "+=" || it.kind == "create" }
+            val drained = fieldWrites.any { it.kind == "-=" || it.kind == "=" }
+            val unresolvedOut = writes.any {
+                it.entity == null && it.field == c.field && (it.kind == "-=" || it.kind == "=")
+            }
+            if (!credited || drained || unresolvedOut) return@mapNotNull null
+            Finding(
+                "MEDIUM", "value-sink-without-withdrawal", c.file, c.line,
+                "${c.entity}.${c.field} is only ever incremented - fees/value accumulate here and no " +
+                    "operation in the app can ever pay them out, so everything credited is permanently " +
+                    "locked at deploy time",
+                "Add a withdrawal path behind an explicit gate (e.g. an admin operation keyed to " +
+                    "chain_context.args that debits ${c.entity}.${c.field}), or route fees to an owned " +
+                    "account. Advisory: if locking value forever is intended (burn sink), document it " +
+                    "and ignore this finding."
+            )
+        }
+    }
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
