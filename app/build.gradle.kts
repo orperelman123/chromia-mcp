@@ -1,4 +1,6 @@
 import java.time.Duration
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -171,6 +173,39 @@ tasks.named<Test>("test") {
         props.stringPropertyNames()
             .filter { System.getenv(it) == null }
             .forEach { environment(it, props.getProperty(it)) }
+
+        // Self-heal the local test database. WSL stops with the session that
+        // started it, taking the C.UTF-8 PostgreSQL with it - after a restart
+        // every DB-backed test fails "connection refused" (12 failures on
+        // 2026-09-02, all environmental) and "zero skips is structural" is only
+        // true until the next reboot. If the properties file names a command
+        // that brings the database up, run it once when the port is closed and
+        // wait for the port. Opt-in and dev-local: the key only exists in the
+        // gitignored file, so CI and plain clones are untouched.
+        val ensureCmd = props.getProperty("CHROMIA_TEST_DB_ENSURE_CMD")
+        val dbUrl = System.getenv("CHROMIA_TEST_DATABASE_URL") ?: props.getProperty("CHROMIA_TEST_DATABASE_URL")
+        if (ensureCmd != null && dbUrl != null) {
+            doFirst {
+                val m = Regex("""//([^:/?]+):(\d+)""").find(dbUrl)
+                val host = m?.groupValues?.get(1) ?: "localhost"
+                val port = m?.groupValues?.get(2)?.toInt() ?: 5432
+                fun open() = runCatching {
+                    Socket().use { it.connect(InetSocketAddress(host, port), 1500) }
+                    true
+                }.getOrDefault(false)
+                if (!open()) {
+                    logger.lifecycle("test database $host:$port is down - running CHROMIA_TEST_DB_ENSURE_CMD")
+                    ProcessBuilder("cmd", "/c", ensureCmd).inheritIO().start()
+                    var waited = 0
+                    while (!open() && waited < 90_000) { Thread.sleep(3000); waited += 3000 }
+                    if (!open()) throw GradleException(
+                        "test database $host:$port still unreachable ${waited / 1000}s after the ensure command - " +
+                            "DB-backed tests would fail 'connection refused', not skip"
+                    )
+                    logger.lifecycle("test database $host:$port is up")
+                }
+            }
+        }
     }
 }
 
