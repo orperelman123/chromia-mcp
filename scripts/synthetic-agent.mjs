@@ -2,8 +2,11 @@
 // Chromia dapp using ONLY the MCP tools and their outputs. It validates the
 // agent contract end-to-end: discovery -> docs -> scaffold -> break the code ->
 // read diagnostics -> repair FROM the diagnostics -> security -> tests ->
-// validate -> deploy config. If any tool output lacks what an agent needs to
-// act next, this script fails.
+// validate -> deploy config -> ask onboarding what's next -> run the dapp on a
+// LIVE local chain (real query over the returned REST URL) -> deployment
+// preflight -> chain down. If any tool output lacks what an agent needs to act
+// next, this script fails. Steps that need PostgreSQL behind the server (the
+// local chain) or a loopback target skip with a stated reason.
 //   node scripts/synthetic-agent.mjs http://127.0.0.1:3001
 const BASE = process.argv[2] || 'http://127.0.0.1:3001';
 console.log('SYNTHETIC AGENT TARGET:', BASE);
@@ -46,7 +49,9 @@ const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?
 const parse = m => { try { return JSON.parse(text(m)); } catch { return {}; } };
 
 const steps = [];
+let skipped = 0;
 function step(label, ok, detail) { steps.push([label, ok]); console.log(`${ok ? 'PASS' : 'FAIL'} agent: ${label} ${detail ?? ''}`); if (!ok) throw new Error(`agent blocked at: ${label} - ${detail}`); }
+function skip(label, reason) { skipped++; console.log(`SKIP agent: ${label} (${reason})`); }
 
 try {
   await openSession();
@@ -96,7 +101,78 @@ try {
   const dep = parse(await call('write_deployment_config', { network: 'testnet', name: 'agent_dapp' }));
   step('deployment config produced', (dep.yaml ?? dep.chromia_yml ?? '').includes('testnet'), null);
 
-  console.log(`\n=== SYNTHETIC AGENT JOURNEY: ${steps.length}/${steps.length} steps completed ===`);
+  // 9. Ask the server what to do next. The agent has a compiling, secure,
+  //    tested project and wants to run it: the plan must name the local chain.
+  const plan = parse(await call('onboarding_next_step', {
+    hasProject: true, compiles: true, securityClean: true, testsPass: true, goal: 'local',
+  }));
+  step('onboarding points at the local chain', plan.stage === 'local_chain' &&
+    /local_chain_up|chr node start/.test(plan.nextAction?.how ?? ''),
+  JSON.stringify({ stage: plan.stage, how: (plan.nextAction?.how ?? '').slice(0, 80) }));
+
+  // 10. Follow the plan: bring the dapp up on a LIVE local chain and exercise
+  //     it over the REST URL the tool returned. Needs PostgreSQL behind the
+  //     server and a loopback target (the bridge binds 127.0.0.1 server-side).
+  let chainWasUp = false;
+  const loopback = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(BASE);
+  if (!tools.includes('local_chain_up')) {
+    skip('live local chain', 'local_chain_up is disabled on this deployment');
+  } else if (!loopback) {
+    skip('live local chain', 'target is remote; its local-chain REST bridge is loopback-only');
+  } else {
+    // A DB-less server answers with a plain-text tool error, not JSON.
+    const upRaw = text(await call('local_chain_up', { files: { 'main.rell': repaired }, ttlSeconds: 300 }, 300000));
+    if (/No PostgreSQL configured/i.test(upRaw)) {
+      skip('live local chain', 'server has no CHROMIA_TEST_DATABASE_URL - a real chain needs PostgreSQL');
+    } else {
+      const up = (() => { try { return JSON.parse(upRaw); } catch { return {}; } })();
+      step('local chain comes up', up.ok === true && !!up.brid && !!up.apiUrl, JSON.stringify(up).slice(0, 200));
+      chainWasUp = true;
+      // 11. The dapp answers a REAL query over the returned REST URL.
+      const q = await fetch(`${up.apiUrl}/query/${up.brid}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'hello_world' }),
+      });
+      const qBody = await q.text();
+      step('dapp answers over the live chain', q.status === 200 && qBody.includes('Hello'),
+        `POST ${up.apiUrl}/query -> ${q.status} ${qBody.slice(0, 80)}`);
+    }
+  }
+
+  // 12. Preflight the deployment config the server just wrote. The placeholder
+  //     container MUST block (that lease is a human Vault step)...
+  const pf1 = parse(await call('deployment_preflight', {
+    yaml: dep.chromia_yml, target: 'testnet', rell: { 'main.rell': repaired },
+  }, 240000));
+  step('preflight blocks the placeholder container', pf1.ready === false &&
+    (pf1.findings || []).some(f => f.check === 'container' && f.severity === 'BLOCKER'),
+  JSON.stringify({ ready: pf1.ready, blockers: pf1.blockers }).slice(0, 200));
+  // ...and with a real-looking lease id that blocker is gone. ready then hinges
+  // only on the LIVE testnet reachability probe - upstream latency is warned,
+  // never failed (same policy as the e2e sweep's live checks).
+  const pf2 = parse(await call('deployment_preflight', {
+    yaml: dep.chromia_yml.replace('<containerIID>', 'agentlease1234567890'),
+    target: 'testnet', rell: { 'main.rell': repaired },
+  }, 240000));
+  const pf2Blocking = (pf2.findings || []).filter(f => f.severity === 'BLOCKER' || f.severity === 'HIGH');
+  step('real lease id clears the container blocker', !pf2Blocking.some(f => f.check === 'container'),
+    JSON.stringify(pf2.blockers).slice(0, 200));
+  if (pf2.ready === true) {
+    step('preflight hands the exact deploy command', (pf2.nextAction ?? '').includes('chr deployment create'),
+      (pf2.nextAction ?? '').slice(0, 120));
+  } else if (pf2Blocking.length && pf2Blocking.every(f => f.check === 'reachability')) {
+    console.log('WARN agent: preflight not ready due to upstream testnet reachability only - tolerated');
+  } else {
+    step('preflight ready (or reachability-only)', false, JSON.stringify(pf2.blockers).slice(0, 200));
+  }
+
+  // 13. Leave nothing running.
+  if (chainWasUp) {
+    const down = parse(await call('local_chain_up', { action: 'down' }));
+    step('local chain down', down.ok === true && down.status === 'stopped', JSON.stringify(down).slice(0, 120));
+  }
+
+  const skippedNote = skipped ? ` (${skipped} step(s) skipped with reasons above)` : '';
+  console.log(`\n=== SYNTHETIC AGENT JOURNEY: ${steps.length}/${steps.length} steps completed${skippedNote} ===`);
   try { session.controller.abort(); } catch {}
   process.exit(0);
 } catch (e) {

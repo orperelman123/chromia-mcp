@@ -1,7 +1,10 @@
 // End-to-end sweep of a running chromia-mcp SSE server: every tool category,
 // error paths, and the full agent journey (scaffold -> compile -> security ->
-// tests -> validate -> deploy config). Tools disabled on the target deployment
-// (CHROMIA_MCP_DISABLE_TOOLS) are reported as SKIP, not FAIL.
+// tests -> validate -> deploy config -> preflight -> verify -> local chain).
+// Tools disabled on the target deployment (CHROMIA_MCP_DISABLE_TOOLS) are
+// reported as SKIP, not FAIL; so are checks whose prerequisites are absent on
+// the target (no PostgreSQL behind the server, or a non-loopback target for
+// the local-chain REST probes).
 //   node scripts/e2e-sweep.mjs http://127.0.0.1:3001
 //   node scripts/e2e-sweep.mjs https://chromia-mcp.onrender.com
 const BASE = process.argv[2] || 'https://chromia-mcp.onrender.com';
@@ -53,6 +56,8 @@ const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?
 
 const results = [];
 const RETRYABLE = /timeout|fetch failed|no endpoint event|ECONNRESET|socket/i;
+/** Thrown by a check to degrade to SKIP (prerequisite absent, never a failure). */
+class Skip extends Error {}
 async function check(label, fn, requiresTool) {
   if (requiresTool && toolNames.length && !toolNames.includes(requiresTool)) {
     results.push([label, true, 'SKIP (tool disabled on this deployment)']);
@@ -64,6 +69,11 @@ async function check(label, fn, requiresTool) {
     results.push([label, true, detail]); console.log(`PASS ${label} ${detail ?? ''}`);
     return;
   } catch (e) {
+    if (e instanceof Skip) {
+      results.push([label, true, `SKIP (${e.message})`]);
+      console.log(`SKIP ${label} (${e.message})`);
+      return;
+    }
     if (!RETRYABLE.test(e.message ?? '')) {
       results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message}`);
       return;
@@ -75,6 +85,11 @@ async function check(label, fn, requiresTool) {
     const detail = await fn();
     results.push([label, true, `${detail ?? ''} (after retry)`.trim()]); console.log(`PASS ${label} ${detail ?? ''} (after retry)`);
   } catch (e) {
+    if (e instanceof Skip) {
+      results.push([label, true, `SKIP (${e.message})`]);
+      console.log(`SKIP ${label} (${e.message})`);
+      return;
+    }
     results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message} (after retry)`);
     try { await openSession(); } catch { /* next check will surface it */ }
   }
@@ -212,6 +227,159 @@ await check('write_deployment_config', async () => {
   const j = JSON.parse(text(await call('write_deployment_config', { network: 'testnet', name: 'notes' })));
   expect((j.yaml || j.chromia_yml || '').includes('testnet'), JSON.stringify(j).slice(0, 120)); return null;
 });
+// --- The five newest tools: real behavior, not clean refusals ----------------
+
+await check('translate_error: real errors map to the right rules', async () => {
+  // Both inputs are REAL error texts produced by this very server in-sweep.
+  const unknownToolText = text(await call('definitely_no_such_tool', {}));
+  const t1 = JSON.parse(text(await call('translate_error', { error: unknownToolText })));
+  expect(t1.matched === true && t1.ruleId === 'own_unknown_tool',
+    `unknown-tool text "${unknownToolText.slice(0, 60)}" -> ${JSON.stringify(t1).slice(0, 120)}`);
+  const missingParamText = text(await call('get_blockchain_details', {}));
+  const t2 = JSON.parse(text(await call('translate_error', { error: missingParamText })));
+  expect(t2.matched === true && t2.ruleId === 'own_missing_parameter',
+    `missing-param text "${missingParamText.slice(0, 60)}" -> ${JSON.stringify(t2).slice(0, 120)}`);
+  let extra = '';
+  if (toolNames.includes('rell_check')) {
+    // A real compiler diagnostic, straight from rell_check on broken code.
+    const diag = JSON.parse(text(await call('rell_check', { source: 'module;\nquery broken() = nope;' }, 120000)));
+    expect(diag.ok === false && diag.errors?.length > 0, 'no compiler diagnostic to translate');
+    const t3 = JSON.parse(text(await call('translate_error', { error: diag.errors[0].text })));
+    expect(t3.matched === true && t3.ruleId === 'rell_unknown_name',
+      `compiler text "${diag.errors[0].text.slice(0, 60)}" -> ${JSON.stringify(t3).slice(0, 120)}`);
+    extra = ' + rell_unknown_name';
+  }
+  return `own_unknown_tool + own_missing_parameter${extra}`;
+}, 'translate_error');
+
+await check('onboarding_next_step: 3-step walk to testnet', async () => {
+  // Empty state: the very first step is scaffolding, an agent task.
+  const s1 = JSON.parse(text(await call('onboarding_next_step', {})));
+  expect(s1.stage === 'scaffold_project' && s1.nextAction?.who === 'agent',
+    JSON.stringify({ stage: s1.stage, who: s1.nextAction?.who }).slice(0, 150));
+  expect((s1.blockers || []).length > 0, 'empty state must list the pending human steps as blockers');
+  // Built + keyed: next is the container lease, a HUMAN step that must carry
+  // the actual Vault/faucet URLs (an agent can only relay them).
+  const built = { hasProject: true, compiles: true, securityClean: true, testsPass: true, hasTestnetKey: true };
+  const s2 = JSON.parse(text(await call('onboarding_next_step', built)));
+  expect(s2.stage === 'testnet_container' && s2.nextAction?.who === 'human',
+    JSON.stringify({ stage: s2.stage, who: s2.nextAction?.who }).slice(0, 150));
+  expect(/https?:\/\//.test(s2.nextAction?.how ?? ''),
+    'human container step carries no URL: ' + (s2.nextAction?.how ?? '').slice(0, 120));
+  // Deployed: nothing remains; the closing action is verify_deployment.
+  const s3 = JSON.parse(text(await call('onboarding_next_step', {
+    ...built, hasTestnetContainer: true, hasDeploymentConfig: true, deployedTo: 'testnet',
+  })));
+  expect(s3.stage === 'done' && (s3.remainingSteps || []).length === 0 && (s3.blockers || []).length === 0,
+    JSON.stringify({ stage: s3.stage, remaining: s3.remainingSteps }).slice(0, 150));
+  expect(/verify_deployment/.test(s3.nextAction?.verify ?? ''), 'done stage must point at verify_deployment');
+  return 'scaffold_project -> testnet_container (human, with URLs) -> done';
+}, 'onboarding_next_step');
+
+const blocking = j => (j.findings || []).filter(f => f.severity === 'BLOCKER' || f.severity === 'HIGH');
+
+await check('preflight: files alias gates flawed rell (shipped-bug regression)', async () => {
+  // The bug that shipped silently: `files` (the rell_check/run_rell_tests
+  // param name) was dropped, the source gate never ran, and a testnet target
+  // with flawed code reported ready:true. The alias must run the gate.
+  const cfg = JSON.parse(text(await call('write_deployment_config', { network: 'testnet', name: 'sweep_dapp' })));
+  const yaml = cfg.chromia_yml.replace('<containerIID>', 'abc123containerlease');
+  const insecure = 'module;\nentity vault { key owner: text; mutable amount: integer; }\n' +
+    'operation transfer(owner: text, amount: integer) { update vault @ { .owner == owner } ( .amount -= amount ); }';
+  const j = JSON.parse(text(await call('deployment_preflight', { yaml, target: 'testnet', files: { 'main.rell': insecure } }, 240000)));
+  expect((j.findings || []).some(f => f.check === 'security' && /unauthenticated-mutation/.test(f.message)),
+    'security finding missing - the aliased source gate did not run: ' + JSON.stringify(j.findings).slice(0, 200));
+  expect((j.notes || '').includes('`files` was accepted as an alias'), 'alias note missing: ' + (j.notes || '').slice(0, 200));
+  expect(!(j.notes || '').includes('Source gate SKIPPED'), 'source gate reported as skipped despite the alias');
+  // Broken code through the alias must flip ready to false via a source BLOCKER
+  // (on a testnet target security findings are warnings by design - they only
+  // block mainnet - so the ready:false regression proof uses a compile error).
+  const j2 = JSON.parse(text(await call('deployment_preflight', {
+    yaml, target: 'testnet', files: { 'main.rell': 'module;\nquery broken() = nope;' },
+  }, 240000)));
+  expect(j2.ready === false && (j2.findings || []).some(f => f.check === 'source' && f.severity === 'BLOCKER'),
+    JSON.stringify({ ready: j2.ready, blockers: j2.blockers }).slice(0, 250));
+  return 'alias runs the gate: security finding surfaced, broken code -> ready:false';
+}, 'deployment_preflight');
+
+await check('preflight: clean testnet config is ready with the chr command', async () => {
+  const cfg = JSON.parse(text(await call('write_deployment_config', { network: 'testnet', name: 'sweep_dapp' })));
+  const yaml = cfg.chromia_yml.replace('<containerIID>', 'abc123containerlease');
+  const j = JSON.parse(text(await call('deployment_preflight', {
+    yaml, target: 'testnet', rell: { 'main.rell': 'module;\n\nquery hello_world() = "hello";\n' },
+  }, 240000)));
+  const blockers = blocking(j);
+  if (!j.ready && blockers.length && blockers.every(f => f.check === 'reachability')) {
+    // Same classification as the sweep's other live checks: our gates all
+    // passed, only the live testnet height probe failed upstream.
+    console.log('WARN preflight: testnet reachability probe failed upstream (all local gates clean)');
+    return 'WARN: upstream testnet latency (reachability probe only)';
+  }
+  expect(j.ready === true, JSON.stringify(j.blockers ?? j).slice(0, 250));
+  expect((j.nextAction || '').includes(
+    'chr deployment create --settings chromia.yml --network testnet --blockchain sweep_dapp'),
+  'nextAction lacks the exact chr command: ' + (j.nextAction || '').slice(0, 200));
+  return null;
+}, 'deployment_preflight');
+
+await check('verify_deployment: live mainnet chain + bogus brid', async () => {
+  // The same chain the dapp_query check exercises live in this sweep.
+  const ALICE = 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2';
+  const live = JSON.parse(text(await call('verify_deployment', { brid: ALICE, network: 'mainnet', waitMs: 0 }, 240000)));
+  if (live.live !== true && /timed out|timeout|unavailable|refused|reset|503|502/i.test(live.notes || '')) {
+    console.log('WARN verify_deployment: upstream mainnet latency (error path is clean)');
+    return 'WARN: upstream mainnet latency';
+  }
+  expect(live.live === true && live.blockHeight > 0, JSON.stringify(live).slice(0, 250));
+  const bogus = JSON.parse(text(await call('verify_deployment', { brid: 'AB'.repeat(32), network: 'mainnet', waitMs: 0 }, 240000)));
+  expect(bogus.live === false, JSON.stringify(bogus).slice(0, 200));
+  expect(/Height probe failed/.test(bogus.notes || '') &&
+    /check the BRID|could not be reached|translate_error/.test(bogus.notes || ''),
+  'bogus brid answer lacks the actionable hint: ' + (bogus.notes || '').slice(0, 250));
+  return `live at height ${live.blockHeight}`;
+}, 'verify_deployment');
+
+const BASE_IS_LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(BASE);
+
+await check('local_chain_up: up -> HTTP answers -> status -> down -> port closed', async () => {
+  if (!BASE_IS_LOOPBACK) {
+    throw new Skip('target is remote; the local-chain REST bridge binds 127.0.0.1 on the server');
+  }
+  const files = { 'main.rell': 'module;\n\nquery ping() = "pong";\n' };
+  // A DB-less server answers with a plain-text tool error, not JSON.
+  const upRaw = text(await call('local_chain_up', { files, ttlSeconds: 300 }, 300000));
+  if (/No PostgreSQL configured/i.test(upRaw)) {
+    throw new Skip('server has no CHROMIA_TEST_DATABASE_URL - a real local chain needs PostgreSQL');
+  }
+  const up = JSON.parse(upRaw);
+  expect(up.ok === true && (up.status === 'started' || up.status === 'already_running') && up.brid && up.apiUrl,
+    JSON.stringify(up).slice(0, 250));
+  try {
+    // The chain must ANSWER, not merely claim to be up: BRID over REST...
+    const bridRes = await fetch(`${up.apiUrl}/brid/iid_0`);
+    const bridText = (await bridRes.text()).trim();
+    expect(bridRes.status === 200 && bridText.toUpperCase() === up.brid.toUpperCase(),
+      `GET /brid/iid_0 -> ${bridRes.status} "${bridText.slice(0, 70)}" (expected ${up.brid})`);
+    // ...and the dapp's own query over POST /query/{brid}.
+    const q = await fetch(`${up.apiUrl}/query/${up.brid}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'ping' }),
+    });
+    const qBody = await q.text();
+    expect(q.status === 200 && qBody.includes('pong'), `POST /query -> ${q.status} ${qBody.slice(0, 120)}`);
+    const st = JSON.parse(text(await call('local_chain_up', { action: 'status' })));
+    expect(st.status === 'running' && st.brid === up.brid, JSON.stringify(st).slice(0, 200));
+  } finally {
+    // Always bring the chain down - no orphan node may outlive the sweep.
+    const down = JSON.parse(text(await call('local_chain_up', { action: 'down' })));
+    expect(down.ok === true && down.status === 'stopped', JSON.stringify(down).slice(0, 200));
+  }
+  await new Promise(r => setTimeout(r, 750));
+  let closed = false;
+  try { await fetch(`${up.apiUrl}/brid/iid_0`, { signal: AbortSignal.timeout(3000) }); } catch { closed = true; }
+  expect(closed, `${up.apiUrl} still answers after action=down`);
+  return `chain ${up.brid.slice(0, 12)}... answered over HTTP, then port closed`;
+}, 'local_chain_up');
+
 await check('unknown tool errors cleanly', async () => {
   const m = await call('no_such_tool', {});
   const t = text(m);

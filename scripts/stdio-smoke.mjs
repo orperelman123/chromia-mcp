@@ -1,8 +1,16 @@
 // Stdio-transport smoke: the surface Claude Code and the npm launcher use.
 //   node scripts/stdio-smoke.mjs <path-to-jar>
-//   node scripts/stdio-smoke.mjs --launcher   (runs packages/npm/bin/chromia-mcp.mjs;
-//                                              set CHROMIA_MCP_JAR to skip the download)
+//   node scripts/stdio-smoke.mjs --launcher   (runs packages/npm/bin/chromia-mcp.mjs)
+//
+// Launcher mode runs the real npm launcher end-to-end (arg handling, java
+// spawn, stdio plumbing) against a LOCAL jar: it honors CHROMIA_MCP_JAR, and
+// when that is unset it points the launcher at the freshly built shadowJar.
+// The launcher's DOWNLOAD path (GitHub release asset) is NOT exercised here -
+// it needs a public release and this repo is private; when neither
+// CHROMIA_MCP_JAR nor the local jar exists, the mode SKIPs (exit 0) with the
+// reason rather than faking a result.
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -12,6 +20,19 @@ let cmd, cmdArgs;
 if (arg === '--launcher') {
   cmd = process.execPath;
   cmdArgs = [join(here, '..', 'packages', 'npm', 'bin', 'chromia-mcp.mjs')];
+  if (!process.env.CHROMIA_MCP_JAR) {
+    const localJar = join(here, '..', 'app', 'build', 'libs', 'chromia-mcp-server.jar');
+    if (existsSync(localJar)) {
+      process.env.CHROMIA_MCP_JAR = localJar;
+      console.log(`LAUNCHER: using local jar via CHROMIA_MCP_JAR=${localJar}`);
+      console.log('LAUNCHER: the release-download path is not exercised (needs a public GitHub release; repo is private)');
+    } else {
+      console.log('SKIP launcher mode: CHROMIA_MCP_JAR is unset and no local jar at ' + localJar);
+      console.log('The launcher download needs a public GitHub release asset (repo is private).');
+      console.log('Build the jar first (gradlew.bat shadowJar) or set CHROMIA_MCP_JAR.');
+      process.exit(0);
+    }
+  }
 } else {
   cmd = 'java';
   cmdArgs = ['-jar', arg || join(here, '..', 'app', 'build', 'libs', 'chromia-mcp-server.jar'), '--stdio'];
