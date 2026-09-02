@@ -31,6 +31,9 @@ class DappScaffoldSecureTemplatesTest {
 
     private val dbUrl: String? = System.getenv(RunRellTests.DATABASE_URL_ENV)
 
+    /** Rell's run_must_fail failure text when the transaction it expected to fail succeeds. */
+    private val RUN_MUST_FAIL_UNEXPECTED_SUCCESS = "Transaction did not fail"
+
     @Test
     fun bothTemplatesShipYmlMainAndRunnableTests() {
         listOf("governance", "vault").forEach { template ->
@@ -211,11 +214,20 @@ class DappScaffoldSecureTemplatesTest {
         }
     }
 
-    private fun runShipped(template: String, files: Map<String, String> = rellOf(template)): RunRellTests.Result {
+    private fun runShipped(
+        template: String,
+        files: Map<String, String> = rellOf(template),
+        label: String = template
+    ): RunRellTests.Result {
+        // Module args are keyed by the TEMPLATE, never by the label: the vault
+        // mutants used to be run under a label that fell back to the ft4 args,
+        // so main.oracle_pubkey was missing and every case died with "Unable to
+        // create GTX module" - a failure that satisfied the old
+        // wrong-reason check while proving nothing about the guard.
         val result = RunRellTests.run(files, databaseUrl = dbUrl, moduleArgs = moduleArgsOf(template))
         // Printed so the gradle XML carries the per-case verdicts the report pastes.
-        println("[$template] ok=${result.ok} total=${result.total} passed=${result.passed} failed=${result.failed}")
-        result.cases.forEach { println("[$template]   ${it.name}: ${if (it.ok) "PASS" else "FAIL"}${it.error?.let { e -> " - $e" } ?: ""}") }
+        println("[$label] ok=${result.ok} total=${result.total} passed=${result.passed} failed=${result.failed}")
+        result.cases.forEach { println("[$label]   ${it.name}: ${if (it.ok) "PASS" else "FAIL"}${it.error?.let { e -> " - $e" } ?: ""}") }
         return result
     }
 
@@ -269,12 +281,24 @@ class DappScaffoldSecureTemplatesTest {
         val main = files.getValue("main.rell")
         assertTrue(main.contains(guard), "$template guard must exist verbatim: $guard")
         files["main.rell"] = main.replace(guard, "")
-        val mutant = runShipped("$template-without[${guard.take(48)}]", files)
+        val mutant = runShipped(template, files, label = "$template-without[${guard.take(48)}]")
+        // The mutant must still be a working dapp: the OTHER shipped tests keep
+        // passing, so the only thing the removed guard changes is the exploit.
+        // (Rules out a mutant that fails for environmental reasons - a missing
+        // module arg, a compile error - which is what the vault mutants did.)
+        mutant.cases.filter { !it.name.endsWith(exploitTest) }.forEach {
+            assertTrue(it.ok, "$template mutant must otherwise run: ${it.name} - ${it.error}")
+        }
         val case = mutant.cases.single { it.name.endsWith(exploitTest) }
         assertFalse(case.ok, "$template: $exploitTest must FAIL once '$guard' is removed - it stayed green, so it proves nothing")
-        // Right reason: the attack step now SUCCEEDS (run_must_fail reports an
-        // unexpected success). Wrong reason would be the attack still refused by
-        // some other guard, or a message mismatch - both quote the guard's text.
+        // Right reason: the attack step now SUCCEEDS - run_must_fail reports
+        // "Transaction did not fail". Wrong reason would be the attack still
+        // refused by some other guard, or a message mismatch (both quote the
+        // guard's text), or the chain not starting at all.
+        assertTrue(
+            case.error?.contains(RUN_MUST_FAIL_UNEXPECTED_SUCCESS) == true,
+            "$template: $exploitTest must fail because the attack now succeeds, got: ${case.error}"
+        )
         assertFalse(
             case.error?.contains(expectedFailureFragment) == true,
             "$template: $exploitTest failed for the wrong reason - the attack was still refused: ${case.error}"
