@@ -43,6 +43,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      # Two tests exercise the real chr CLI (the ChrLocator launch path and a
+      # live `chr version` probe) and SKIPPED here because the runner had no
+      # chr - the zero-skip guard surfaced that. Official Linux install per
+      # docs.chromia.com linux.mdx (apt.chromia.com, amd64).
+      - name: Install Chromia CLI
+        run: |
+          curl -fsSL https://apt.chromia.com/chromia.gpg | sudo tee /usr/share/keyrings/chromia.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/chromia.gpg] https://apt.chromia.com stable main" | sudo tee /etc/apt/sources.list.d/chromia.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chr
+          chr --version
+
       - name: Test and build fat jar
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
@@ -57,18 +69,34 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, sys, xml.etree.ElementTree as ET
-          t = f = s = 0; skipped = []
+          # The ONLY skips CI may tolerate, each with the reason. These four post
+          # real testnet transactions / resolve the owner's registered testnet
+          # account, so they need his keys - runnable in CI only if he chooses to
+          # add a testnet key as a repository secret (his call; it must never be
+          # committed). Everything else must run: an unlisted skip reds the build,
+          # and so does zero results.
+          ALLOWED = {
+              'org.chromia.TestnetProvisioningLiveTest::liveSignedTransactionIsAcceptedOnWireAndRejectedByFt4Auth()',
+              'org.chromia.TestnetProvisioningLiveTest::liveDryRunPricesLeaseAndResolvesEverythingWithoutSpending(Path)',
+              'org.chromia.TestnetProvisioningLiveTest::liveClaimDryRunReportsFaucetTerms(Path)',
+              'org.chromia.TestnetProvisioningLiveTest::liveDefaultChrKeystorePathResolvesARegisteredAccount(Path)',
+          }
+          t = f = s = 0; skipped = []; unexpected = []
           for p in glob.glob('app/build/test-results/test/*.xml'):
               r = ET.parse(p).getroot()
               t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); s += int(r.get('skipped', 0))
               for tc in r.iter('testcase'):
                   if tc.find('skipped') is not None:
-                      skipped.append(f"{r.get('name')}::{tc.get('name')}: {(tc.find('skipped').get('message') or '').strip()[:160]}")
-          print(f"tests={t} failures={f} skipped={s}")
+                      key = f"{r.get('name')}::{tc.get('name')}"
+                      line = f"{key}: {(tc.find('skipped').get('message') or '').strip()[:160]}"
+                      skipped.append(line)
+                      if key not in ALLOWED: unexpected.append(line)
+          print(f"tests={t} failures={f} skipped={s} (allowed-by-name={len(skipped) - len(unexpected)})")
+          for x in skipped: print("  skip:", x)
           if t == 0:
               print("no test results found - the suite did not run"); sys.exit(1)
-          if s:
-              print("SKIPPED TESTS (a skip is a test that did not run):"); print("\n".join("  " + x for x in skipped)); sys.exit(1)
+          if unexpected:
+              print("UNEXPECTED SKIPS (a skip is a test that did not run):"); print("\n".join("  " + x for x in unexpected)); sys.exit(1)
           PY
 
       - name: Upload test report
