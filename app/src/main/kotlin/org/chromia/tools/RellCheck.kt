@@ -28,6 +28,56 @@ object RellCheck {
     private val MESSAGE_REGEX =
         Regex("""^(.+?)\((\d+):(\d+)\)\s+(ERROR|WARNING)[:\s]\s*(.*)$""", RegexOption.IGNORE_CASE)
 
+    /** The compiler's C_CommonError text for a selected test module whose header it could not see. */
+    internal val NOT_TEST_MODULE_REGEX = Regex("""Module '([A-Za-z0-9_.]*)' is not a test module""")
+
+    /**
+     * Rell 0.16.7 masks a syntax error inside a `@test module` file: the file
+     * fails to parse, its AST is dropped (c_module_utils.calcAst records the
+     * error and returns null), so the module's header - and with it `@test` -
+     * is null, and checkMainModules (c_compiler.kt) throws C_CommonError
+     * "Module 'X' is not a test module". That exception escapes through
+     * api_base.catchCommonError as a RellCliException BEFORE the recorded
+     * syntax error is printed, so both tools used to show only the misleading
+     * module message (QA 2026-09-02: `app.limit()` in tests/module.rell -
+     * `limit` is a keyword - was blamed on module_args and the tests/ layout).
+     * Recompiling the named module as an APP module with the test check off
+     * changes nothing else: a module without an AST compiles nothing but its
+     * parse error, which is exactly the diagnostic that was lost. [appModules]
+     * (the run's app modules) are compiled alongside so an app-side error in
+     * the same submission is reported in the same round. Returns the raw
+     * compiler ERROR lines, syntax errors first; empty when nothing came out.
+     */
+    internal fun recoverMaskedTestModuleErrors(sourceDir: Path, moduleName: String, appModules: List<String> = emptyList()): List<String> {
+        val captured = mutableListOf<String>()
+        val cliEnv = PrinterRellCliEnv({ captured.add(it) }, { captured.add(it) })
+        val config = RellApiCompile.Config.Builder()
+            .cliEnv(cliEnv)
+            .quiet(false)
+            .moduleArgsMissingError(false)
+            .appModuleInTestsError(false)
+            .build()
+        val modules = (listOf(moduleName) + appModules).distinct()
+        runCatching { RellApiCompile.compileApp(config, sourceDir.toFile(), modules, emptyList()) }
+        return captured
+            .filter { it.isNotBlank() && !it.startsWith("Errors:") && MESSAGE_REGEX.find(it.trim())?.groupValues?.get(4).equals("ERROR", ignoreCase = true) }
+            .sortedBy { if (it.contains("Syntax error", ignoreCase = true)) 0 else 1 }
+    }
+
+    /** Explains the compiler's "is not a test module" verdict; [recovered] = the real errors are shown above it. */
+    internal fun maskedTestModuleHint(moduleName: String, recovered: Boolean): String =
+        if (recovered) {
+            "The compiler's own message was \"Module '$moduleName' is not a test module\" - misleading: the module is " +
+                "declared @test, but a file in it failed to parse, and a file without a syntax tree loses its " +
+                "`@test module;` header, so the compiler rejected the module before reporting the syntax error. " +
+                "Fix the error(s) above; the module layout is fine."
+        } else {
+            "\"Module '$moduleName' is not a test module\" from the Rell compiler usually means a file of that @test " +
+                "module failed to parse (the parse error is discarded together with the header). Check the files of " +
+                "module '$moduleName' for a syntax error - e.g. a reserved word such as `limit` or `offset` used as a " +
+                "function, field or attribute name - and that the module really starts with `@test module;`."
+        }
+
     data class Diagnostic(
         val file: String?,
         val line: Int?,
@@ -331,6 +381,16 @@ object RellCheck {
             .map { parseMessage(it) }
         // A compiler exception with no parsed ERROR line still means failure.
         val errors = diagnostics.filter { it.severity == "ERROR" }.toMutableList()
+        var maskedHint: String? = null
+        val masked = failure?.message?.let { NOT_TEST_MODULE_REGEX.find(it) }
+        if (masked != null && errors.isEmpty()) {
+            // The syntax error that produced this verdict was discarded by the
+            // compiler - recover it (see recoverMaskedTestModuleErrors).
+            val module = masked.groupValues[1]
+            val recovered = recoverMaskedTestModuleErrors(sourceDir, module, modules.orEmpty()).map { parseMessage(it) }
+            errors.addAll(recovered)
+            maskedHint = maskedTestModuleHint(module, recovered.isNotEmpty())
+        }
         if (failure != null && errors.isEmpty()) {
             errors.add(Diagnostic(null, null, null, "ERROR", failure.message ?: "Compilation failed", failure.message ?: ""))
         }
@@ -348,7 +408,8 @@ object RellCheck {
             if (compiledTestModules > 0) parts += "$compiledTestModules @test module(s)"
             "Compiled ${parts.joinToString(" and ")} successfully with Rell ${rellVersion()}."
         } else {
-            "Compilation failed with ${errors.size} error(s). Fix the first error and re-run; later errors often cascade."
+            "Compilation failed with ${errors.size} error(s). Fix the first error and re-run; later errors often cascade." +
+                (maskedHint?.let { " $it" } ?: "")
         }
         return Result(ok, compiledModules, errors, warnings, notes)
     }
