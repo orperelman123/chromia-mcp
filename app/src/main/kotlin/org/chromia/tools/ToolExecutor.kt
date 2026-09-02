@@ -118,6 +118,9 @@ class ToolExecutor(
             val strategy = strategies[request.name]
                 ?: return toolErrorResult("Unknown tool: ${request.name}")
                     .also { logToolCall(request.name, startedAt, ok = false) }
+            unknownArgumentsError(request.name, request.arguments.keys)?.let { message ->
+                return toolErrorResult(message).also { logToolCall(request.name, startedAt, ok = false) }
+            }
             strategy.execute(request, repository)
         }.getOrElse { e ->
             toolErrorResult("Tool execution failed: ${e.message}")
@@ -134,6 +137,50 @@ class ToolExecutor(
     }
 
     internal fun registeredToolNames(): Set<String> = strategies.keys
+
+    /**
+     * Argument names a strategy honours beyond its declared input schema.
+     * Keep this list tiny and deliberate: an alias here is a promise that the
+     * strategy reads it.
+     */
+    private val undeclaredArgumentAliases: Map<String, Set<String>> = mapOf(
+        "write_deployment_config" to setOf("chain")
+    )
+
+    /** Declared input-schema property names per tool (every tool, disabled ones included). */
+    private val acceptedArguments: Map<String, Set<String>> by lazy {
+        McpTools.allTools().associate { tool ->
+            tool.name to (tool.inputSchema.properties.keys + undeclaredArgumentAliases[tool.name].orEmpty())
+        }
+    }
+
+    /**
+     * An argument the tool never declared is an argument it never reads, so a
+     * call carrying one used to succeed while silently doing less than asked:
+     * `module_args` (the spelling the description itself uses) on run_rell_tests
+     * ran the tests WITHOUT the args and reported ok:true; `ttl` on local_chain_up
+     * kept the default TTL; `include_iccf` on ft4_module_args answered without
+     * ICCF; `dapp_name` on scaffold_dapp scaffolded "hello" (QA input-abuse lens
+     * 2026-09-02). The MCP SDK does not validate arguments against the schema,
+     * so reject them here with the declared names and a nearest-match hint.
+     * Returns null when every argument is declared (or a deliberate alias).
+     */
+    internal fun unknownArgumentsError(toolName: String, argumentNames: Collection<String>): String? {
+        val accepted = acceptedArguments[toolName] ?: return null
+        val unknown = argumentNames.filter { it !in accepted }
+        if (unknown.isEmpty()) return null
+        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        val described = unknown.joinToString(", ") { name ->
+            val n = norm(name)
+            val suggestion = accepted.firstOrNull { norm(it) == n }
+                ?: accepted.firstOrNull { n.isNotEmpty() && (norm(it).contains(n) || n.contains(norm(it))) }
+            if (suggestion != null) "`$name` (did you mean `$suggestion`?)" else "`$name`"
+        }
+        val declared = if (accepted.isEmpty()) "this tool declares no arguments"
+        else "declared arguments: ${accepted.sorted().joinToString(", ")}"
+        return "Unknown argument(s) for $toolName: $described - $declared. " +
+            "Undeclared arguments are never honoured, so the call would have silently ignored them; rename or remove them."
+    }
 
     /**
      * Pre-loads the RAG store and embedding model so the first real `search`
