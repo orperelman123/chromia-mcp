@@ -24,6 +24,8 @@ Four principles, in priority order:
 ## How to work here (each of these cost real time today)
 
 - **One gradle build at a time**, never a second while yours runs. Four concurrent builds OOM-killed the Kotlin daemon on this 32 GB box; worktrees isolate files, not RAM. Iterate with targeted `--tests '*YourTest*'`; **do not run the full suite yourself** — the merge gate is a forced full run done serially by the orchestrator.
+- **Never run `gradlew --stop`.** It stops every Gradle daemon for the user, not just your worktree's — it killed another lane's build mid-run.
+- **DB-backed tests need a database of their own per worktree.** Two suites sharing one Postgres schema collide (`Missing metadata entities for existing tables: c0.<other lane's tables>`), and it looks intermittent. Each worktree carries its own `local-test-env.properties` pointing at its own database (`chromia_mcp_test_wtqa`, `chromia_mcp_test_wtecon`, …); the orchestrator provisions these — if your worktree has none, say so rather than pointing at another lane's.
 - **Never sit idle waiting on a build.** If you have nothing to do but wait, write up what you have and finish. Three agents burned ~250k tokens each in wait loops. A result that reads "waiting on the build" is treated as a stall and the lane is taken over.
 - **A fast `BUILD SUCCESSFUL` proves nothing.** Gradle caches the test task; an 8-second green ran nothing. Use `--rerun-tasks` and read the XMLs in `app/build/test-results/test/`. Zero results is not a pass either.
 - **Bogus "Unresolved reference" errors across unrelated files after a rebase** are stale incremental state, not a real break: `clean test`.
