@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Exploit corpus + coverage scoreboard**: the known exploit patterns and
+  false positives from the adversarial audits now live permanently in
+  `app/src/test/resources/exploit-corpus/` (30 minimal Rell samples with
+  pinned expected verdicts, plus the four adversary-built dApps, their
+  passing gate verdicts, and the running exploit PoCs).
+  `ExploitCorpusScoreboardTest` runs `rell_security_check` over all of them
+  every build and pins the gate's TRUE coverage: a rule regression, a silently
+  closed gap, or a new false positive each fails the build naming the exact
+  entry and the one-line scoreboard edit that credits the change.
+
 ## v0.5.0 — 2026-09-01
 
 A full-day hardening pass: ~60 fixes found by repeated adversarial audits, a
