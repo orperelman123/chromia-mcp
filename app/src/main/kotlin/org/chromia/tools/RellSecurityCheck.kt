@@ -2302,6 +2302,13 @@ object RellSecurityCheck {
 
         var beneficiary: String? = null
         var how: String? = null
+        // A payout can also be gated on the draw instead of flowing from it:
+        // `require(t.holder == account.id)` where `t` is the clock-selected row
+        // lets the caller collect only when the clock named them. The row the
+        // credit updates is the caller's own, so the target trace above sees
+        // nothing - the guard is what the clock decides (evasion E10).
+        var identityGuard = false
+        var valueCredited = false
         statementsOf(flat).forEach { stmt ->
             if (beneficiary != null) return@forEach
             updateSetList(stmt)?.let { (head, items) ->
@@ -2314,6 +2321,7 @@ object RellSecurityCheck {
                 items.forEach { (field, opText, rhs) ->
                     if (beneficiary != null) return@forEach
                     val (flow, _) = flowOf(opText, rhs)
+                    if (flow == Flow.CREDIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(field)) valueCredited = true
                     if (flow == Flow.CREDIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(field) && targetSelected) {
                         beneficiary = if (target.isNotEmpty()) "$target.$field" else field
                         how = "the row credited with $field"
@@ -2323,6 +2331,16 @@ object RellSecurityCheck {
                     }
                 }
             }
+            EQUALITY_OPERANDS_REGEX.findAll(stmt).forEach { eq ->
+                val sides = listOf(eq.groupValues[1], eq.groupValues[2])
+                val fromDraw = sides.any { refClosure(it, bindings).any { r -> r in selectors } }
+                val onIdentity = sides.any { it.substringAfterLast('.') in identityFields }
+                if (fromDraw && onIdentity) identityGuard = true
+            }
+        }
+        if (beneficiary == null && identityGuard && valueCredited) {
+            beneficiary = "who may collect"
+            how = "the identity the payout is gated on"
         }
         if (beneficiary == null) {
             // `create winner_record(holder = <drawn>)` - recording the draw now

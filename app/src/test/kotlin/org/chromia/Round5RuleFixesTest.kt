@@ -431,6 +431,78 @@ class Round5RuleFixesTest {
     }
 
     @Test
+    fun storingTheDrawnIndexAndCollectingLaterDoesNotEvadeIt() {
+        // The most natural refactor of the raffle: the draw stores an integer
+        // index and the winner collects in a second operation, where the
+        // credited row is the CALLER'S own. Tracing the credit target finds
+        // only the authenticated account - what the clock decides is the guard.
+        assertRandomnessDrain(
+            analyze(
+                """
+                module;
+                import lib.ft4.auth;
+                entity player { key owner: byte_array; mutable balance: integer = 0; }
+                entity raffle { key id: text; closes_at: timestamp; mutable ticket_count: integer = 0; mutable pot: integer = 0; mutable winner_idx: integer = -1; }
+                entity ticket { key raffle, idx: integer; holder: byte_array; }
+                @extend(auth.auth_handler) function () = auth.add_auth_handler(flags = ["T"]);
+                function player_of(owner: byte_array): player = require(player @? { .owner == owner }, "register first");
+                operation draw_winner(raffle_id: text) {
+                    auth.authenticate();
+                    val r = require(raffle @? { .id == raffle_id }, "no such raffle");
+                    require(r.winner_idx < 0, "already drawn");
+                    require(op_context.last_block_time >= r.closes_at, "still open");
+                    require(r.ticket_count > 0, "no tickets");
+                    update r ( .winner_idx = op_context.last_block_time % r.ticket_count );
+                }
+                operation collect(raffle_id: text) {
+                    val account = auth.authenticate();
+                    val w = player_of(account.id);
+                    val r = require(raffle @? { .id == raffle_id }, "no such raffle");
+                    require(r.winner_idx >= 0, "not drawn");
+                    val t = require(ticket @? { .raffle == r, .idx == r.winner_idx }, "missing ticket");
+                    require(t.holder == account.id, "not the winner");
+                    val pot = r.pot;
+                    require(pot > 0, "nothing to collect");
+                    update r ( .pot = 0 );
+                    update w ( .balance += pot );
+                }
+                """.trimIndent()
+            ),
+            "the clock gates WHO may collect even though the credit target is the caller's own row"
+        )
+    }
+
+    @Test
+    fun aClockKeyedAccountingBucketStaysClean() {
+        // The precision guard on the identity trigger above: a per-day bucket
+        // is selected by the clock, but the payee is still the caller and no
+        // identity is compared against the drawn row.
+        val result = analyze(
+            """
+            module;
+            import lib.ft4.auth;
+            entity member { key owner: byte_array; mutable balance: integer = 0; }
+            entity day_bucket { key day: integer; mutable total: integer = 0; }
+            val DAY_MS = 86400000;
+            @extend(auth.auth_handler) function () = auth.add_auth_handler(flags = ["T"]);
+            function member_of(owner: byte_array): member = require(member @? { .owner == owner }, "register first");
+            operation daily_claim() {
+                val account = auth.authenticate();
+                val m = member_of(account.id);
+                val today = op_context.last_block_time / DAY_MS;
+                val b = day_bucket @? { .day == today };
+                if (b == null) { create day_bucket(day = today, total = 1); } else { update b ( .total += 1 ); }
+                update m ( .balance += 10 );
+            }
+            """.trimIndent()
+        )
+        assertNoRule(
+            result, "block-clock-randomness",
+            "the clock names a BUCKET, not a person - the payee is the authenticated caller"
+        )
+    }
+
+    @Test
     fun theClockAsABoundStaysClean() {
         // The three shapes the templates ship. Each uses the clock in an
         // inequality, which can only abort - it never chooses who is paid.
