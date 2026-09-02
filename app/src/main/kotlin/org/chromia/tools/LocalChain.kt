@@ -99,7 +99,13 @@ object LocalChain {
         val nodePubkey: String,
         @Volatile var expiresAtMillis: Long,
         @Volatile var ttlTask: ScheduledFuture<*>?,
-        val bridge: LocalChainRestBridge? = null
+        val bridge: LocalChainRestBridge? = null,
+        /**
+         * Bumped by every [reschedule]; a TTL task only stops the chain when
+         * the generation it was scheduled under is still the current one. See
+         * [reschedule] for the race this closes.
+         */
+        @Volatile var ttlGeneration: Long = 0
     )
 
     // Single scheduler thread for TTL expiry; daemon so it never blocks shutdown.
@@ -540,13 +546,29 @@ object LocalChain {
         org.chromia.App.logger.info("local-chain stopped ({})", reason)
     }
 
-    private fun reschedule(chain: Running, ttlSeconds: Long) {
+    /**
+     * (Re)arms the TTL. Internal so the QA concurrency lens can arm an
+     * already-due TTL while holding [lock].
+     *
+     * cancel(false) cannot stop a TTL task that has ALREADY fired and is
+     * waiting for [lock] - which is exactly the state it is in when an `up`
+     * for the same sources arrives around expiry. That `up` refreshed the TTL
+     * and answered "already_running, auto-stops in 1800s"; the stale task then
+     * took the lock, saw `running === chain` and stopped the chain the agent
+     * had just been promised (QA concurrency lens 2026-09-02). The task now
+     * also checks it is the CURRENT generation, so a refresh invalidates any
+     * task that was scheduled before it, fired or not.
+     */
+    internal fun reschedule(chain: Running, ttlSeconds: Long) {
         chain.ttlTask?.cancel(false)
+        val generation = ++chain.ttlGeneration
         chain.expiresAtMillis = System.currentTimeMillis() + ttlSeconds * 1000
         chain.ttlTask = scheduler.schedule(
             {
                 synchronized(lock) {
-                    if (running === chain) stopLocked("TTL of ${ttlSeconds}s expired")
+                    if (running === chain && chain.ttlGeneration == generation) {
+                        stopLocked("TTL of ${ttlSeconds}s expired")
+                    }
                 }
             },
             ttlSeconds,

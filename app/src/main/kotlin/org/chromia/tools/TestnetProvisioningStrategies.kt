@@ -429,8 +429,13 @@ class ProvisionTestnetContainerStrategy(
             privKey
         )
         if (!outcome.confirmed) {
+            // The ephemeral key was minted for this tx alone; a rejected tx
+            // means nothing on-chain will ever reference it - do not leave the
+            // private key on disk (QA resource-lifecycle lens 2026-09-02).
+            if (providedDeployPubkey == null) keyStore.discardEphemeral(deployPubHex)
             return toolErrorResult(gateway.sanitize(
-                "container lease transaction was rejected: ${outcome.rejectReason ?: "unknown reason"}"
+                "container lease transaction was rejected: ${outcome.rejectReason ?: "unknown reason"}" +
+                    (if (providedDeployPubkey == null) " The ephemeral deploy key generated for it was discarded." else "")
             ))
         }
         keyStore.recordTx(outcome.txRidHex, deployPubHex)

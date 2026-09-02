@@ -478,6 +478,44 @@ class ProvisioningToolsTest {
         assertTrue(json["notes"]!!.jsonPrimitive.content.contains("Topped up from the on-chain faucet"))
     }
 
+    /**
+     * The ephemeral deploy key is written to the keystore BEFORE the lease tx
+     * is posted. When the tx is rejected nothing on-chain will ever reference
+     * that pubkey, yet the private key stayed on disk forever - one orphan
+     * .key file per rejected lease, unreachable by any tx/container lookup
+     * (QA concurrency and resource-lifecycle lens 2026-09-02). An explicit
+     * rejection must discard it; a caller-provided pubkey has no server-side
+     * key to discard.
+     */
+    @Test
+    fun rejectedLeaseDiscardsTheEphemeralKeyItMinted(@TempDir dir: Path) = runBlocking {
+        val chain = FakeChain(testPub, testAccount, adId)
+        val poster = FakePoster(outcome = TxOutcome("EF".repeat(32), false, "insufficient balance"))
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        val strategy = provisionStrategy(
+            envWith(TestnetProvisioning.FUNDING_KEY_ENV to testPriv, dir = dir), poster, keystoreDir
+        )
+        val result = strategy.execute(
+            call("provision_testnet_container", buildJsonObject { put("dryRun", false) }),
+            repositoryFor(chain)
+        )
+        assertEquals(true, result.isError)
+        val text = resultText(result)
+        assertTrue(text.contains("rejected"), text)
+        assertTrue(text.contains("discarded"), text)
+        // The lease was attempted once with a freshly minted deploy pubkey...
+        val createArgs = poster.posts.single { ops -> ops.any { it.name == "create_container_with_subnode_image" } }
+            .last().args
+        val mintedPub = createArgs[0].asByteArray().toHex()
+        // ...and after the rejection its private half is gone, with no other
+        // keystore artifact left behind either.
+        val leftovers = Files.list(keystoreDir).use { it.map { p -> p.fileName.toString() }.toList() }
+        assertTrue(leftovers.isEmpty(), "keystore must be empty after a rejected lease, found: $leftovers")
+        assertNull(DeployKeyStore(keystoreDir).privKeyFor(mintedPub))
+        // Discarding is idempotent and honest about what it removed.
+        assertFalse(DeployKeyStore(keystoreDir).discardEphemeral(mintedPub))
+    }
+
     @Test
     fun provisionUnregisteredAccountReportsExactBootstrapStep(@TempDir dir: Path) = runBlocking {
         val chain = FakeChain(testPub, testAccount, adId)
