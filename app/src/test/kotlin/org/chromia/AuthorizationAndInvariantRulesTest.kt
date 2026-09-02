@@ -596,4 +596,59 @@ class AuthorizationAndInvariantRulesTest {
             result.findings.toString()
         )
     }
+
+    /**
+     * The real drain exploit selects into a local and mutates the local. The
+     * rule originally required the mutation to be keyed DIRECTLY by the
+     * parameter, so this - the natural way to write it, and the way the working
+     * exploit is written - walked straight past. Caught by the exploit corpus,
+     * not by the rule's own fixtures.
+     */
+    @Test
+    fun drainViaLocalSelectedByParamIsFlagged() {
+        val findings = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    operation transfer(from: byte_array, to: byte_array, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        val src = wallet @ { .owner == from };
+                        require(src.balance >= amount, "insufficient");
+                        update src ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        ).findings
+        assertTrue(
+            findings.any { it.rule == "authorization-not-bound-to-caller" && it.severity == "HIGH" },
+            "select-into-local then mutate must still be a confused deputy; got ${'$'}findings"
+        )
+    }
+
+    /** The same shape, but bound to the caller, must stay clean. */
+    @Test
+    fun localSelectedByBoundParamStaysClean() {
+        val findings = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    operation withdraw(from: byte_array, amount: integer) {
+                        val account = auth.authenticate();
+                        require(from == account.id, "not your wallet");
+                        val src = wallet @ { .owner == from };
+                        update src ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        ).findings
+        assertTrue(
+            findings.none { it.rule == "authorization-not-bound-to-caller" },
+            "binding the parameter to the caller must clear the rule; got ${'$'}findings"
+        )
+    }
 }

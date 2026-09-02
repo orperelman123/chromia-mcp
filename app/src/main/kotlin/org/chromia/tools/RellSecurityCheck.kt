@@ -607,16 +607,47 @@ object RellSecurityCheck {
      * caller-named row are the receiving half of every idiomatic transfer and
      * must not read as a drain.
      */
+    /**
+     * `val src = wallet @ { .owner == from };` - a local bound to rows SELECTED
+     * with the parameter. Mutating that local is mutating rows the parameter
+     * chose, so for this rule the local is the parameter.
+     */
+    private val AT_SELECT_INTO_LOCAL_REGEX =
+        Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*[^;]*?@[^;{]*\{([^}]*)\}""")
+
+    /**
+     * Names that stand in for [paramRef] because they were selected using it.
+     * Without this the rule only saw mutations keyed DIRECTLY by the parameter,
+     * and the natural phrasing - select into a local, then update the local -
+     * walked straight past it. That is exactly how the real drain exploit is
+     * written, so the rule looked correct against its own fixtures while missing
+     * the thing it was built for (exploit corpus, 2026-09-02).
+     */
+    private fun aliasesSelectedBy(body: String, paramRef: Regex): List<Regex> =
+        AT_SELECT_INTO_LOCAL_REGEX.findAll(body)
+            .filter { paramRef.containsMatchIn(it.groupValues[2]) }
+            .map { Regex("""\b${Regex.escape(it.groupValues[1])}\b""") }
+            .toList()
+
     private fun harmfulMutationKindKeyedBy(body: String, paramRef: Regex): String? {
+        val refs = listOf(paramRef) + aliasesSelectedBy(body, paramRef)
         MUTATION_REGEX.findAll(body).forEach { m ->
             val keyword = m.groupValues[1]
             if (keyword == "create") return@forEach
             val end = body.indexOf(';', m.range.first).let { if (it < 0) body.length else it }
             val stmt = body.substring(m.range.first, end)
             val braceStart = stmt.indexOf('{')
-            if (braceStart < 0) return@forEach
+            if (braceStart < 0) {
+                // `update src ( .balance -= amount );` - no where-clause at all,
+                // the target IS a local. Only an alias can make this harmful.
+                val target = stmt.substringAfter(keyword).substringBefore('(').trim()
+                if (target.isEmpty() || refs.none { it.matches(target) }) return@forEach
+                if (keyword == "delete") return "deletes"
+                if (!isCreditOnly(stmt.substringAfter('('))) return "updates"
+                return@forEach
+            }
             val braceEnd = matchDelimiter(stmt, braceStart, '{', '}') ?: return@forEach
-            if (!paramRef.containsMatchIn(stmt.substring(braceStart + 1, braceEnd))) return@forEach
+            if (refs.none { it.containsMatchIn(stmt.substring(braceStart + 1, braceEnd)) }) return@forEach
             if (keyword == "delete") return "deletes"
             if (!isCreditOnly(stmt.substring(braceEnd + 1))) return "updates"
         }
