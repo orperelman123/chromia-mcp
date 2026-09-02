@@ -2173,7 +2173,121 @@ object RellSecurityCheck {
 
     /** Entity/field names that suggest the row HOLDS collected value. */
     private val SINK_NAME_REGEX = Regex("""fee|pot|treasury|vault|reserve|escrow|pool""", RegexOption.IGNORE_CASE)
-    private val MUTABLE_FIELD_REGEX = Regex("""\bmutable\s+([A-Za-z_]\w*)""")
+
+    /** One declared attribute of an entity, with its declared type. */
+    internal data class EntityField(
+        val entity: String,
+        val name: String,
+        val type: String,
+        val mutable: Boolean,
+        val file: String,
+        val line: Int
+    )
+
+    private val ATTR_PREFIX_REGEX = Regex("""\A\s*(?:(?:key|index|mutable)\b\s*)+""")
+    private val ATTR_LEAD_KEYWORDS = Regex("""\b(?:key|index|mutable)\b""")
+
+    /**
+     * Every attribute declared by every entity in the (masked) submission.
+     * Attribute lists are split on both `;` and `,` so the compound forms
+     * (`key member, seq: integer;`, `key owner: byte_array;`) yield one entry
+     * per name; a name with no `: type` is an entity reference whose type is
+     * its own name (`key member` -> type `member`), which is how Rell reads it.
+     */
+    internal fun entityFields(fullyMasked: Map<String, String>): List<EntityField> {
+        val out = mutableListOf<EntityField>()
+        fullyMasked.forEach { (path, masked) ->
+            ENTITY_DEF_REGEX.findAll(masked).forEach { m ->
+                val entity = m.groupValues[1]
+                val braceStart = masked.indexOf('{', m.range.last)
+                if (braceStart < 0) return@forEach
+                val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
+                var cursor = braceStart + 1
+                val block = masked.substring(braceStart + 1, braceEnd)
+                block.split(';', ',').forEach { rawFragment ->
+                    val start = cursor
+                    cursor += rawFragment.length + 1
+                    val fragment = rawFragment.substringBefore('=')
+                    val mutable = ATTR_LEAD_KEYWORDS.find(fragment)?.value == "mutable" ||
+                        Regex("""\bmutable\b""").containsMatchIn(fragment)
+                    val stripped = ATTR_PREFIX_REGEX.replace(fragment, "").trim()
+                    if (stripped.isEmpty()) return@forEach
+                    val name = stripped.substringBefore(':').trim()
+                    if (!Regex("""\A[A-Za-z_]\w*\z""").matches(name)) return@forEach
+                    val type = if (stripped.contains(':')) stripped.substringAfter(':').trim() else name
+                    val line = masked.substring(0, start).count { it == '\n' } + 1 +
+                        rawFragment.takeWhile { it.isWhitespace() }.count { it == '\n' }
+                    out.add(EntityField(entity, name, type, mutable, path, line))
+                }
+            }
+        }
+        return out
+    }
+
+    /** Local -> entity for function/operation parameters declared with an entity type. */
+    private fun paramTypeAliases(masked: String, entities: Set<String>): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        Regex("""\b(?:function|operation|query)\s+[A-Za-z_]\w*\s*\(([^()]*)\)""").findAll(masked).forEach { m ->
+            parseParams(m.groupValues[1]).forEach { (name, type) ->
+                val t = type.trim().trimEnd('?')
+                if (t in entities) out[name] = t
+            }
+        }
+        return out
+    }
+
+    /** The text from the previous statement/block delimiter to the next one. */
+    private fun enclosingStatement(text: String, index: Int): String {
+        var start = index
+        while (start > 0 && text[start - 1] !in ";{}") start--
+        var end = index
+        while (end < text.length && text[end] !in ";{}") end++
+        return text.substring(start, end)
+    }
+
+    /**
+     * True when [field] of [entity] is read somewhere in the app as an
+     * ACCOUNTING TERM - a factor in a `*`/`/` computation - and nowhere as a
+     * spendable balance (no `>= amount` sufficiency check on it).
+     *
+     * This is the per-share accumulator and the denominator it divides by:
+     * `acc_reward_per_share` and `total_staked` are a scaled INDEX and a sum,
+     * monotonic by construction, and the value they index is paid out of a
+     * different field. The rule's own advice - "add an admin operation that
+     * debits it" - would corrupt every staker's payout, so firing on this
+     * shape is the gate crying wolf on the pattern its own staking template
+     * teaches (adversary round 5). A locked fee pot has the opposite profile:
+     * it is credited and then never read at all.
+     *
+     * A read counts as this field's only when the receiver resolves to
+     * [entity] or the field name is declared on exactly one entity in the
+     * submission - so `wallet.balance / 2` elsewhere cannot exempt
+     * `fee_pot.balance`.
+     */
+    private fun isAccountingIndex(
+        bodies: List<Pair<String, Map<String, String>>>,
+        entity: String,
+        field: String,
+        uniqueFieldName: Boolean
+    ): Boolean {
+        val esc = Regex.escape(field)
+        val readRegex = Regex("""([A-Za-z_]\w*)\s*\.\s*$esc\b(?!\s*(?:\(|=(?!=)|\+=|-=))""")
+        val sufficiency = Regex(
+            """(?:\.\s*$esc\b(?:\s*\.\s*\w+\s*\(\s*\))?\s*(?:>=|<=|>|<)\s*(?!0\b)[A-Za-z_(]""" +
+                """|(?<![<>=!])(?:>=|<=|>|<)\s*[A-Za-z_]\w*\s*\.\s*$esc\b)"""
+        )
+        var arithmeticRead = false
+        bodies.forEach { (masked, alias) ->
+            readRegex.findAll(masked).forEach { m ->
+                val recv = m.groupValues[1]
+                if (!uniqueFieldName && alias[recv] != entity && recv != entity) return@forEach
+                val stmt = enclosingStatement(masked, m.range.first)
+                if (sufficiency.containsMatchIn(stmt)) return false
+                if (ARITHMETIC_REGEX.containsMatchIn(stmt)) arithmeticRead = true
+            }
+        }
+        return arithmeticRead
+    }
 
     /**
      * MEDIUM, once per sink field, when a value-holding field on a
@@ -2196,42 +2310,46 @@ object RellSecurityCheck {
             !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
                 !RunRellTests.isTestModuleSource(files.getValue(path))
         }
-        data class SinkField(val entity: String, val field: String, val file: String, val line: Int)
-        val candidates = mutableListOf<SinkField>()
-        eligible.forEach { path ->
-            val masked = fullyMasked.getValue(path)
-            ENTITY_DEF_REGEX.findAll(masked).forEach { m ->
-                val name = m.groupValues[1]
-                val braceStart = masked.indexOf('{', m.range.last)
-                if (braceStart < 0) return@forEach
-                val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
-                val block = masked.substring(braceStart + 1, braceEnd)
-                val line = masked.substring(0, m.range.first).count { it == '\n' } + 1
-                MUTABLE_FIELD_REGEX.findAll(block).forEach { f ->
-                    val field = f.groupValues[1]
-                    if (!VALUE_FIELD_NAME_REGEX.containsMatchIn(field)) return@forEach
-                    if (!SINK_NAME_REGEX.containsMatchIn(name) && !SINK_NAME_REGEX.containsMatchIn(field)) return@forEach
-                    candidates.add(SinkField(name, field, path, line))
-                }
-            }
-        }
+        val declaredFields = entityFields(fullyMasked.filterKeys { it in eligible })
+        val fieldOwners = declaredFields.groupBy({ it.name }, { it.entity })
+            .mapValues { (_, v) -> v.toSet() }
+        // One candidate per (entity, field), anchored on the FIELD's line: two
+        // sink fields on one entity used to report twice on the entity's line
+        // and read as a duplicate emission (adversary round 5).
+        val candidates = declaredFields.filter { f ->
+            f.mutable && VALUE_FIELD_NAME_REGEX.containsMatchIn(f.name) &&
+                (SINK_NAME_REGEX.containsMatchIn(f.entity) || SINK_NAME_REGEX.containsMatchIn(f.name))
+        }.distinctBy { it.entity to it.name }
         if (candidates.isEmpty()) return emptyList()
+        // Only operation and function bodies count as reads: a query that
+        // formats the field for display is not a payout computation.
+        val bodies = eligible.flatMap { path ->
+            val masked = fullyMasked.getValue(path)
+            val fileAlias = paramTypeAliases(masked, entities)
+            (scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second })
+                .map { body -> body to (fileAlias + aliasMap(body, entities, helperReturns)) }
+        }
         val writes = eligible.flatMap { valueWrites(fullyMasked.getValue(it), entities, helperReturns) }
         return candidates.mapNotNull { c ->
-            val fieldWrites = writes.filter { it.field == c.field && it.entity == c.entity }
+            val fieldWrites = writes.filter { it.field == c.name && it.entity == c.entity }
             val credited = fieldWrites.any { it.kind == "+=" || it.kind == "create" }
             val drained = fieldWrites.any { it.kind == "-=" || it.kind == "=" }
             val unresolvedOut = writes.any {
-                it.entity == null && it.field == c.field && (it.kind == "-=" || it.kind == "=")
+                it.entity == null && it.field == c.name && (it.kind == "-=" || it.kind == "=")
             }
             if (!credited || drained || unresolvedOut) return@mapNotNull null
+            // An accumulator/denominator is not a pot: it is read as a factor
+            // in a payout computation, so debiting it corrupts the payout.
+            if (isAccountingIndex(bodies, c.entity, c.name, fieldOwners[c.name]?.size == 1)) {
+                return@mapNotNull null
+            }
             Finding(
                 "MEDIUM", "value-sink-without-withdrawal", c.file, c.line,
-                "${c.entity}.${c.field} is only ever incremented - fees/value accumulate here and no " +
+                "${c.entity}.${c.name} is only ever incremented - fees/value accumulate here and no " +
                     "operation in the app can ever pay them out, so everything credited is permanently " +
                     "locked at deploy time",
                 "Add a withdrawal path behind an explicit gate (e.g. an admin operation keyed to " +
-                    "chain_context.args that debits ${c.entity}.${c.field}), or route fees to an owned " +
+                    "chain_context.args that debits ${c.entity}.${c.name}), or route fees to an owned " +
                     "account. Advisory: if locking value forever is intended (burn sink), document it " +
                     "and ignore this finding."
             )
