@@ -511,16 +511,36 @@ object RellSecurityCheck {
         return findings
     }
 
+    /** `name = x"..."` / `name: type = "..."` - the identifier the hex literal is assigned to. */
+    private val HEX_ASSIGN_NAME_REGEX = Regex("""([A-Za-z_]\w*)\s*(?::\s*[A-Za-z_][\w<>.?\[\]]*)?\s*=\s*$""")
+    // Secret-looking name parts always win: a "priv_key_id" is a key, not an id.
+    private val SECRET_NAME_PARTS = setOf("priv", "private", "secret", "seed", "mnemonic", "sk", "key")
+    // Public 32-byte identifiers (BRIDs, tx/block hashes, asset ids): hardcoding
+    // one is a config smell, not leaked key material. Reporting it HIGH trained
+    // agents to wave the whole rule through (gate-fatigue, audit 2026-09-02).
+    private val CHAIN_ID_NAME_PARTS = setOf("brid", "rid", "hash", "tx", "txid", "block", "blockchain", "chain", "asset", "id")
+
     private fun hardcodedSecretFindings(path: String, content: String): List<Finding> {
         val findings = mutableListOf<Finding>()
         content.lineSequence().forEachIndexed { idx, line ->
             if (line.trim().startsWith("//")) return@forEachIndexed
-            HEX_SECRET_REGEX.findAll(line).forEach { _ ->
+            HEX_SECRET_REGEX.findAll(line).forEach { match ->
+                val name = HEX_ASSIGN_NAME_REGEX.find(line.substring(0, match.range.first))?.groupValues?.get(1)
+                val parts = name?.lowercase()?.split('_')?.toSet() ?: emptySet()
+                val isChainId = parts.none { it in SECRET_NAME_PARTS } && parts.any { it in CHAIN_ID_NAME_PARTS }
                 findings.add(
-                    Finding(
-                        "HIGH", "hardcoded-key-material", path, idx + 1, line.trim().take(120),
-                        "A 64+ char hex literal looks like key material or a BRID that should come from configuration/module args, not source."
-                    )
+                    if (isChainId) {
+                        Finding(
+                            "MEDIUM", "hardcoded-chain-identifier", path, idx + 1, line.trim().take(120),
+                            "'$name' looks like a public chain/asset identifier (BRID, hash), not key material - " +
+                                "still prefer configuration/module args over source constants so environments can differ."
+                        )
+                    } else {
+                        Finding(
+                            "HIGH", "hardcoded-key-material", path, idx + 1, line.trim().take(120),
+                            "A 64+ char hex literal looks like key material that should come from configuration/module args, not source."
+                        )
+                    }
                 )
             }
         }

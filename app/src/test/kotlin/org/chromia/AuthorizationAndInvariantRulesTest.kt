@@ -492,6 +492,60 @@ class AuthorizationAndInvariantRulesTest {
         assertTrue(result.findings.none { it.rule == "mass-mutation" }, result.findings.toString())
     }
 
+    // ---- gate-fatigue fixes: an ignored gate is worse than no gate ----
+
+    /**
+     * A public BRID constant is a chain identifier, not key material - HIGH
+     * here trains agents to wave the rule through. Named like an identifier,
+     * it reports MEDIUM under its own rule.
+     */
+    @Test
+    fun bridConstantIsMediumChainIdentifierNotHighKeyMaterial() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to
+                    "module;\nval TARGET_BRID = x\"15ddfcb25dcb43577ab311fe78aedab14fda25757c72a787420454728fb80304\";\n"
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "hardcoded-key-material" },
+            result.findings.toString()
+        )
+        val hit = result.findings.filter { it.rule == "hardcoded-chain-identifier" }
+        assertTrue(hit.isNotEmpty(), result.findings.toString())
+        assertEquals("MEDIUM", hit.first().severity)
+    }
+
+    /** A hex literal named like a private key stays HIGH - even if it also says 'id'. */
+    @Test
+    fun privateKeyHexStaysHighKeyMaterial() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to
+                    "module;\nval signer_priv_key_id = x\"15ddfcb25dcb43577ab311fe78aedab14fda25757c72a787420454728fb80304\";\n"
+            )
+        )
+        assertTrue(
+            result.findings.any { it.rule == "hardcoded-key-material" && it.severity == "HIGH" },
+            result.findings.toString()
+        )
+    }
+
+    /** An anonymous 64-hex literal (no identifier to judge by) stays HIGH. */
+    @Test
+    fun unnamedHexLiteralStaysHigh() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to
+                    "module;\nfunction f() { g(x\"15ddfcb25dcb43577ab311fe78aedab14fda25757c72a787420454728fb80304\"); }\nfunction g(b: byte_array) {}\n"
+            )
+        )
+        assertTrue(
+            result.findings.any { it.rule == "hardcoded-key-material" && it.severity == "HIGH" },
+            result.findings.toString()
+        )
+    }
+
     /** is_signer(<that param>) binds the param to an actual transaction signer - clean. */
     @Test
     fun paramCheckedWithIsSignerStaysClean() {
