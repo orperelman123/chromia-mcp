@@ -1911,8 +1911,14 @@ object McpTools {
             AUTHORIZATION (an authenticated caller touching a row it does not own - key writes
             off the authenticated id, or require(row.owner == account.id)); unbacked minting
             (crediting value no reserve covers); missing quorum/stake/timelock in governance;
-            funds with no withdrawal or timeout path; or i64 overflow aborting large legitimate
-            amounts. Prove those with invariant tests via run_rell_tests - scaffold_dapp
+            funds with no withdrawal or timeout path; i64 overflow aborting large legitimate
+            amounts; whether an outcome meant to be UNPREDICTABLE actually is (only the
+            block-clock-as-selector shape is caught - no chain value is secret, so a hash, a
+            counter or a seed mixed from on-chain state is still public before the transaction
+            is signed, and a clean report is not proof of fair randomness); or TRANSACTION
+            ORDERING / MEV (front-running, sandwiching, a price or listing that can change
+            under a pending transaction - the order operations land in a block is invisible
+            to every static rule). Prove those with invariant tests via run_rell_tests - scaffold_dapp
             template=ft4 ships runnable conservation/overdraft/non-owner-must-fail examples,
             and for a DAO or an oracle-priced vault start from template=governance / template=vault,
             where quorum, voting window, reserve-backing and price bounds are structural.
