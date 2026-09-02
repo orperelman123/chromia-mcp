@@ -1454,6 +1454,13 @@ object McpTools {
             no-negative-balance, non-owner-must-fail) that execute via run_rell_tests - copy
             them for the app's own invariants. Also module_args, libs block, and a TypeScript
             client example. FT4 imports compile after `chr install`.
+            Building a DAO / treasury: use 'governance' - quorum, a fixed voting window,
+            stake-weighted votes and execute-once are structural, and its shipped tests replay
+            the single-account treasury drain and require it to fail. Building an exchange,
+            vault or anything priced by an oracle: use 'vault' - every credit is a reserve
+            debit in the same operation, price posts are bounded and rate-limited, a stale
+            price halts trading, and its tests replay the 100 -> 200,000,000 mint and require
+            it to fail (its oracle key is a module arg: see the notes).
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
@@ -1471,8 +1478,8 @@ object McpTools {
                     "template" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "enum" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("hello"), JsonPrimitive("ft4"))),
-                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default) or 'ft4' (accounts, authenticated operation, TS client).")
+                            "enum" to kotlinx.serialization.json.JsonArray(DappScaffold.templates.map { JsonPrimitive(it) }),
+                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default), 'ft4' (accounts, authenticated operation, TS client), 'governance' (DAO treasury: quorum, fixed voting window, stake-weighted votes, execute-once - structural, with the drain replayed as a must-fail test), or 'vault' (oracle-priced exchange: reserve-backed credits, bounded and rate-limited price, staleness halt - with the unbacked mint replayed as a must-fail test).")
                         )
                     )
                 )
@@ -1720,7 +1727,9 @@ object McpTools {
             tests - conservation (a transfer never changes the total), no-negative-balance
             (overdraft must abort), and authorization (a NON-owner's attempt must fail via
             rell.test.tx()...run_must_fail("message")). scaffold_dapp template=ft4 ships runnable
-            examples of all three to copy.
+            examples of all three to copy; template=governance and template=vault ship the
+            adversary's DAO drain and oracle mint as must-fail tests - copy those for your own
+            exploit-must-fail cases.
             Nothing is deployed; sources run in a temp directory and are deleted afterwards.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -1897,7 +1906,9 @@ object McpTools {
             (crediting value no reserve covers); missing quorum/stake/timelock in governance;
             funds with no withdrawal or timeout path; or i64 overflow aborting large legitimate
             amounts. Prove those with invariant tests via run_rell_tests - scaffold_dapp
-            template=ft4 ships runnable conservation/overdraft/non-owner-must-fail examples.
+            template=ft4 ships runnable conservation/overdraft/non-owner-must-fail examples,
+            and for a DAO or an oracle-priced vault start from template=governance / template=vault,
+            where quorum, voting window, reserve-backing and price bounds are structural.
             Use with rell_check as the loop: compile clean, then security clean, then present.
         """.trimIndent(),
         inputSchema = Tool.Input(
