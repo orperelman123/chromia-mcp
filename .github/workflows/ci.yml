@@ -72,20 +72,42 @@ jobs:
         with:
           node-version: '22'
 
+      # Failure policy (what CI treats as fatal vs degraded):
+      # - build-and-test (unit tests) is STRICT: no retries, any failure is fatal.
+      # - This e2e step exercises live third parties (explorer, mainnet/testnet
+      #   nodes, docs site). The sweep itself classifies clean upstream errors
+      #   as WARN-UPSTREAM (degraded, non-fatal) with guardrails so it cannot
+      #   hide real breakage - see scripts/upstream-classifier.mjs. A FAIL from
+      #   the sweep/agent therefore means OUR contract broke, EXCEPT a single
+      #   transient blip (e.g. a dropped connection mid-run), which the one
+      #   bounded retry below absorbs. Each attempt gets a FRESH server on a
+      #   freed port (kill + wait), so nothing is double-counted or leaked;
+      #   two consecutive failures are fatal - a persistent problem still reds CI.
       - name: Start server (full toolset) and run the end-to-end sweep
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
         run: |
-          java -XX:MaxRAMPercentage=60 -jar chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
-          SERVER_PID=$!
-          for i in $(seq 1 90); do
-            curl -sf http://127.0.0.1:3001/health >/dev/null && break
-            sleep 2
-          done
-          curl -sf http://127.0.0.1:3001/health
-          node scripts/e2e-sweep.mjs http://127.0.0.1:3001
-          node scripts/synthetic-agent.mjs http://127.0.0.1:3001
-          kill $SERVER_PID || true
+          run_e2e() {
+            java -XX:MaxRAMPercentage=60 -jar chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
+            local server_pid=$!
+            local rc=0
+            for i in $(seq 1 90); do
+              curl -sf http://127.0.0.1:3001/health >/dev/null && break
+              sleep 2
+            done
+            curl -sf http://127.0.0.1:3001/health || rc=$?
+            if [ "$rc" -eq 0 ]; then node scripts/e2e-sweep.mjs http://127.0.0.1:3001 || rc=$?; fi
+            if [ "$rc" -eq 0 ]; then node scripts/synthetic-agent.mjs http://127.0.0.1:3001 || rc=$?; fi
+            # Always reap the server so a retry starts clean on a freed port.
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            return "$rc"
+          }
+          if ! run_e2e; then
+            echo "::warning::e2e attempt 1 failed - retrying once with a fresh server (a single transient blip must not red-line CI; a persistent failure still will)"
+            sleep 30
+            run_e2e
+          fi
 
       - name: Stdio transport smoke (the Claude Code surface + npm launcher)
         env:

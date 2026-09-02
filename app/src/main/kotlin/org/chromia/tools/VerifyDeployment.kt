@@ -47,6 +47,19 @@ object VerifyDeployment {
      * overall deadline. Named causes mirror [failureHint]'s unknown-chain
      * branch: on the predefined system-cluster nodes, a chain hosted in
      * another cluster stalls or 404s - the dapp's own node URL resolves both.
+     *
+     * A BOGUS BRID legitimately produces EITHER this hint or [failureHint]'s
+     * unknown-chain hint, depending on upstream node health (live-verified
+     * 2026-09-02): a healthy node answers 404 for an unknown BRID in under a
+     * second, but postchain-client's TryNextOnError strategy only surfaces
+     * that 404 after crawling EVERY endpoint in the pool (14 on mainnet, up
+     * to 60s connect/response timeout each), so with any degraded endpoint
+     * the deadline fires first. A shorter first-probe budget would not help:
+     * it cannot surface the 404 any faster (the crawl is the bottleneck), it
+     * would only deliver THIS hint sooner while flipping slow-but-live chains
+     * to live:false. Both hints carry the same actionable core - re-check the
+     * BRID, or verify via the dapp's own node URL - which the e2e sweep and
+     * VerifyDeploymentToolTest.bogusBridAnswersAgreeOnTheActionableCore pin.
      */
     fun timeoutHint(network: String, deadlineMs: Long): String =
         "Height probe timed out: the node(s) produced no answer for this BRID within the " +

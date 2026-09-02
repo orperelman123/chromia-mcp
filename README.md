@@ -269,9 +269,12 @@ Every push runs the full pyramid — none of these can be skipped:
    coverage gate), MCP resources, all help topics, the agent journey, error paths; real
    behavioral checks for the newest tools (local chain up/query-over-HTTP/down,
    deployment preflight incl. the `files`-alias regression, live + bogus verify_deployment,
-   the onboarding walk, translate_error on real in-sweep errors); reconnecting session,
-   upstream explorer latency classified separately from real failures; DB- or
-   loopback-dependent checks degrade to SKIP with the reason.
+   the onboarding walk, translate_error on real in-sweep errors); reconnecting session;
+   DB- or loopback-dependent checks degrade to SKIP with the reason. Live-network checks
+   tag demonstrably third-party failures WARN-UPSTREAM instead of FAIL via an allowlisted
+   classifier (`scripts/upstream-classifier.mjs`) with guardrails: all-live-warn is a FAIL,
+   more than `SWEEP_MAX_UPSTREAM_WARNS` (default 8) warnings is a FAIL, and non-network
+   checks always fail hard.
 3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — checks over the transport
    Claude Code uses. `--launcher` runs the same checks through the real npm launcher
    (`packages/npm/bin/chromia-mcp.mjs`) pointed at the local shadowJar via `CHROMIA_MCP_JAR`;

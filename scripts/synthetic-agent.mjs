@@ -160,7 +160,12 @@ try {
     step('preflight hands the exact deploy command', (pf2.nextAction ?? '').includes('chr deployment create'),
       (pf2.nextAction ?? '').slice(0, 120));
   } else if (pf2Blocking.length && pf2Blocking.every(f => f.check === 'reachability')) {
-    console.log('WARN agent: preflight not ready due to upstream testnet reachability only - tolerated');
+    // The journey's ONLY third-party dependency: the live testnet height
+    // probe. Structural upstream evidence (every local gate clean, only the
+    // reachability finding blocks) - same policy as the e2e sweep's
+    // WARN-UPSTREAM rule (see scripts/upstream-classifier.mjs); every other
+    // step here is local-or-our-server and always fails hard.
+    console.log('WARN-UPSTREAM agent: preflight not ready due to upstream testnet reachability only - tolerated');
   } else {
     step('preflight ready (or reachability-only)', false, JSON.stringify(pf2.blockers).slice(0, 200));
   }

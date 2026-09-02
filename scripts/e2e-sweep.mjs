@@ -5,8 +5,16 @@
 // reported as SKIP, not FAIL; so are checks whose prerequisites are absent on
 // the target (no PostgreSQL behind the server, or a non-loopback target for
 // the local-chain REST probes).
+//
+// Live-network checks (explorer, chain nodes, docs site) can additionally
+// degrade to WARN-UPSTREAM instead of FAIL when the failure is demonstrably
+// the third party's - see upstream-classifier.mjs for the contract and the
+// signature allowlist, and the guardrails near the summary at the bottom
+// (all-warn is a FAIL; more than SWEEP_MAX_UPSTREAM_WARNS warnings is a FAIL;
+// non-network checks never warn).
 //   node scripts/e2e-sweep.mjs http://127.0.0.1:3001
 //   node scripts/e2e-sweep.mjs https://chromia-mcp.onrender.com
+import { upstreamSignature, UpstreamError } from './upstream-classifier.mjs';
 const BASE = process.argv[2] || 'https://chromia-mcp.onrender.com';
 console.log('TARGET:', BASE);
 
@@ -53,27 +61,66 @@ async function rpc(method, params, t = 90000) {
 const calledTools = new Set();
 const call = (name, args, t) => { calledTools.add(name); return rpc('tools/call', { name, arguments: args }, t); };
 const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?.result ?? m);
+/**
+ * For LIVE checks only: same as text(), but a clean tool-level error (our
+ * server answered; result.isError) whose text matches the upstream allowlist
+ * throws UpstreamError, which check() tags WARN-UPSTREAM instead of FAIL.
+ * Structural by construction: never fires on transport errors, rpc timeouts,
+ * malformed responses, or non-error results - those keep failing hard.
+ */
+function liveText(m) {
+  const t = text(m);
+  if (m?.result?.isError === true) {
+    const sig = upstreamSignature(t);
+    if (sig) throw new UpstreamError(sig, t);
+  }
+  return t;
+}
 
 const results = [];
+/** [{label, signature}] - checks degraded by a third-party failure. */
+const upstreamWarns = [];
+/** Live-network checks that actually executed (not SKIPped) - guardrail base. */
+let liveChecksExecuted = 0;
 const RETRYABLE = /timeout|fetch failed|no endpoint event|ECONNRESET|socket/i;
 /** Thrown by a check to degrade to SKIP (prerequisite absent, never a failure). */
 class Skip extends Error {}
-async function check(label, fn, requiresTool) {
+/**
+ * opts.live marks a check that exercises a third-party dependency (explorer,
+ * chain nodes, docs site). ONLY live checks may degrade to WARN-UPSTREAM, and
+ * only via UpstreamError (thrown by liveText() on an allowlisted clean tool
+ * error, or directly by check code when a clean tool ANSWER demonstrates an
+ * upstream condition). An UpstreamError escaping a non-live check is a plain
+ * FAIL - the classification cannot leak into local checks.
+ */
+async function check(label, fn, requiresTool, opts = {}) {
   if (requiresTool && toolNames.length && !toolNames.includes(requiresTool)) {
     results.push([label, true, 'SKIP (tool disabled on this deployment)']);
     console.log(`SKIP ${label} (tool ${requiresTool} disabled on this deployment)`);
     return;
   }
+  if (opts.live) liveChecksExecuted++;
+  const settle = (e) => { // terminal non-pass outcomes shared by both attempts
+    if (e instanceof Skip) {
+      if (opts.live) liveChecksExecuted--; // did not exercise the network
+      results.push([label, true, `SKIP (${e.message})`]);
+      console.log(`SKIP ${label} (${e.message})`);
+      return true;
+    }
+    if (opts.live && e instanceof UpstreamError) {
+      upstreamWarns.push({ label, signature: e.signature });
+      results.push([label, true, `WARN-UPSTREAM (${e.message})`]);
+      console.log(`WARN-UPSTREAM ${label} - the failure is the upstream dependency's, not ours (${e.message})`);
+      return true;
+    }
+    return false;
+  };
   try {
     const detail = await fn();
     results.push([label, true, detail]); console.log(`PASS ${label} ${detail ?? ''}`);
     return;
   } catch (e) {
-    if (e instanceof Skip) {
-      results.push([label, true, `SKIP (${e.message})`]);
-      console.log(`SKIP ${label} (${e.message})`);
-      return;
-    }
+    if (settle(e)) return;
     if (!RETRYABLE.test(e.message ?? '')) {
       results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message}`);
       return;
@@ -85,11 +132,7 @@ async function check(label, fn, requiresTool) {
     const detail = await fn();
     results.push([label, true, `${detail ?? ''} (after retry)`.trim()]); console.log(`PASS ${label} ${detail ?? ''} (after retry)`);
   } catch (e) {
-    if (e instanceof Skip) {
-      results.push([label, true, `SKIP (${e.message})`]);
-      console.log(`SKIP ${label} (${e.message})`);
-      return;
-    }
+    if (settle(e)) return;
     results.push([label, false, e.message]); console.log(`FAIL ${label} ${e.message} (after retry)`);
     try { await openSession(); } catch { /* next check will surface it */ }
   }
@@ -117,36 +160,37 @@ await check('chromia_help topic', async () => {
   expect(t.includes('0.33'), 'no CLI payload'); return null;
 });
 await check('get_network_stats', async () => {
-  const t = text(await call('get_network_stats', {}));
+  const t = liveText(await call('get_network_stats', {}));
   expect(t.includes('countAllAccounts'), t.slice(0, 80)); return null;
-});
+}, null, { live: true });
 let chrId = null;
 await check('get_all_assets', async () => {
-  const j = JSON.parse(text(await call('get_all_assets', {})));
+  const j = JSON.parse(liveText(await call('get_all_assets', {})));
   const assets = j.data?.allAssets || [];
   chrId = assets.find(a => a.symbol === 'CHR')?.id;
   expect(assets.length > 20 && chrId, 'assets/CHR missing'); return `${assets.length} assets`;
-});
+}, null, { live: true });
 await check('top_holders filtered', async () => {
-  const t = text(await call('get_asset_top_holders', { assetId: chrId, limit: 2, accountTypes: ['FT4_USER'], excludeAccounts: ['3008BC6FB654A749FC2F903772545B939A9B5D8047EA2437B8675952BDD6EFD0'] }));
+  if (!chrId) throw new Skip('no CHR asset id - get_all_assets did not answer (see its own tag)');
+  const t = liveText(await call('get_asset_top_holders', { assetId: chrId, limit: 2, accountTypes: ['FT4_USER'], excludeAccounts: ['3008BC6FB654A749FC2F903772545B939A9B5D8047EA2437B8675952BDD6EFD0'] }));
   expect(t.includes('accountId') && !t.includes('3008BC6F'), t.slice(0, 100)); return null;
-});
+}, null, { live: true });
 await check('transactions_by_cluster', async () => {
-  const t = text(await call('get_transactions_by_cluster', {}));
+  const t = liveText(await call('get_transactions_by_cluster', {}));
   expect(t.includes('groupedTransactionsByCluster'), t.slice(0, 80)); return null;
-});
+}, null, { live: true });
 await check('all_transactions filtered', async () => {
-  const t = text(await call('get_all_transactions', { limit: 2, blockchainIds: ['F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2'] }));
+  const t = liveText(await call('get_all_transactions', { limit: 2, blockchainIds: ['F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2'] }));
   expect(t.includes('"transactions"'), t.slice(0, 120)); return null;
-});
+}, null, { live: true });
 await check('filter_blockchains', async () => {
-  const t = text(await call('filter_blockchains', { name: 'alice' }));
+  const t = liveText(await call('filter_blockchains', { name: 'alice' }));
   expect(t.toLowerCase().includes('alice'), t.slice(0, 100)); return null;
-});
+}, null, { live: true });
 await check('blockchain_details', async () => {
-  const t = text(await call('get_blockchain_details', { rid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2' }));
+  const t = liveText(await call('get_blockchain_details', { rid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2' }));
   expect(t.includes('my_neighbor_alice'), t.slice(0, 100)); return null;
-});
+}, null, { live: true });
 let fetchId = null;
 await check('search (ChatGPT)', async () => {
   const j = JSON.parse(text(await call('search', { query: 'register an FT4 account' }, 120000)));
@@ -158,9 +202,9 @@ await check('fetch (ChatGPT)', async () => {
   expect((j.text || '').length > 50, 'no text'); return null;
 });
 await check('fetch_docs live+search', async () => {
-  const t = text(await call('fetch_docs', { query: 'what is ICCF cross-chain proof' }, 120000));
+  const t = liveText(await call('fetch_docs', { query: 'what is ICCF cross-chain proof' }, 120000));
   expect(t.length > 100, 'no content'); return null;
-});
+}, null, { live: true });
 await check('rell_check valid', async () => {
   const j = JSON.parse(text(await call('rell_check', { source: 'module;\nquery ping() = "pong";' }, 120000)));
   expect(j.ok === true, JSON.stringify(j).slice(0, 120)); return null;
@@ -184,9 +228,9 @@ await check('scaffold ft4 + validate yml', async () => {
   expect(v.ok === true, 'scaffolded yml invalid: ' + JSON.stringify(v.errors).slice(0, 150)); return null;
 });
 await check('dapp_query live on-chain', async () => {
-  const t = text(await call('chromia_dapp_query', { blockchainRid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2', query: 'rell.get_app_structure' }, 240000));
+  const t = liveText(await call('chromia_dapp_query', { blockchainRid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2', query: 'rell.get_app_structure' }, 240000));
   expect(t.length > 100 && (t.includes('module') || t.includes('queries')), t.slice(0, 120)); return null;
-}, 'chromia_dapp_query');
+}, 'chromia_dapp_query', { live: true });
 // --- The agent journey: the MCP builds a dapp through its own toolchain ---
 await check('journey: scaffold compiles via rell_check', async () => {
   const scaffold = JSON.parse(text(await call('scaffold_dapp', { name: 'journey' })));
@@ -310,34 +354,47 @@ await check('preflight: clean testnet config is ready with the chr command', asy
   }, 240000)));
   const blockers = blocking(j);
   if (!j.ready && blockers.length && blockers.every(f => f.check === 'reachability')) {
-    // Same classification as the sweep's other live checks: our gates all
-    // passed, only the live testnet height probe failed upstream.
-    console.log('WARN preflight: testnet reachability probe failed upstream (all local gates clean)');
-    return 'WARN: upstream testnet latency (reachability probe only)';
+    // Structural upstream evidence: every local gate passed and ONLY the live
+    // testnet height probe blocked - a clean tool answer naming the upstream
+    // cause. Routed through the shared WARN-UPSTREAM machinery.
+    throw new UpstreamError('testnet-reachability',
+      'all local gates clean; only the live reachability probe blocked: ' +
+      JSON.stringify(blockers.map(f => f.message)).slice(0, 160));
   }
   expect(j.ready === true, JSON.stringify(j.blockers ?? j).slice(0, 250));
   expect((j.nextAction || '').includes(
     'chr deployment create --settings chromia.yml --network testnet --blockchain sweep_dapp'),
   'nextAction lacks the exact chr command: ' + (j.nextAction || '').slice(0, 200));
   return null;
-}, 'deployment_preflight');
+}, 'deployment_preflight', { live: true });
 
 await check('verify_deployment: live mainnet chain + bogus brid', async () => {
   // The same chain the dapp_query check exercises live in this sweep.
   const ALICE = 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2';
   const live = JSON.parse(text(await call('verify_deployment', { brid: ALICE, network: 'mainnet', waitMs: 0 }, 240000)));
   if (live.live !== true && /timed out|timeout|unavailable|refused|reset|503|502/i.test(live.notes || '')) {
-    console.log('WARN verify_deployment: upstream mainnet latency (error path is clean)');
-    return 'WARN: upstream mainnet latency';
+    // A clean tool answer whose notes name an upstream cause for a chain we
+    // KNOW is live: the mainnet nodes, not our tool, failed to answer.
+    throw new UpstreamError('mainnet-node-latency', live.notes);
   }
   expect(live.live === true && live.blockHeight > 0, JSON.stringify(live).slice(0, 250));
   const bogus = JSON.parse(text(await call('verify_deployment', { brid: 'AB'.repeat(32), network: 'mainnet', waitMs: 0 }, 240000)));
   expect(bogus.live === false, JSON.stringify(bogus).slice(0, 200));
-  expect(/Height probe failed/.test(bogus.notes || '') &&
+  // Two correct answers exist for a bogus BRID, and which one arrives depends
+  // on upstream node health (verified live 2026-09-02): a healthy node 404s an
+  // unknown BRID in <1s, but postchain-client's TryNextOnError strategy only
+  // surfaces that 404 after crawling EVERY pool endpoint, so on the
+  // 14-endpoint mainnet pool with any degraded node the overall deadline
+  // fires first and the answer is the timeout hint instead. Both hints name
+  // the same not-served-by-these-nodes cause and the same fixes (re-check the
+  // BRID/network, or verify via the dapp's own node URL) - accept either.
+  // VerifyDeploymentToolTest.bogusBridAnswersAgreeOnTheActionableCore pins
+  // that shared core so tool and sweep cannot drift apart.
+  expect(/Height probe (failed|timed out)/.test(bogus.notes || '') &&
     /check the BRID|could not be reached|translate_error/.test(bogus.notes || ''),
   'bogus brid answer lacks the actionable hint: ' + (bogus.notes || '').slice(0, 250));
   return `live at height ${live.blockHeight}`;
-}, 'verify_deployment');
+}, 'verify_deployment', { live: true });
 
 const BASE_IS_LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(BASE);
 
@@ -435,7 +492,7 @@ const KNOWN_ARGS = {
 const coverageTargets = toolNames.filter(n => !calledTools.has(n));
 await check('coverage: every advertised tool responds', async () => {
   const failures = [];
-  const upstreamLatency = [];
+  const degraded = []; // covered-but-degraded: clean upstream error, tool responded
   for (const name of coverageTargets) {
     let lastText = '';
     let outcome = 'fail';
@@ -447,32 +504,66 @@ await check('coverage: every advertised tool responds', async () => {
         // limitations (explorer requires reCAPTCHA for node-unavailability).
         const cleanRefusal = /Missing required parameter|needs|Provide|pass |No @test modules|reCAPTCHA/i.test(lastText);
         if (m?.result && (m.result.isError !== true || cleanRefusal)) { outcome = 'ok'; break; }
-        // Explorer-side cold-cache latency on heavy analytics: our server answered
-        // with a clean error; back off and retry - the warmed cache usually responds.
-        if (/Request timeout has expired/i.test(lastText) && attempt < 3) {
-          outcome = 'latency';
-          await new Promise(r => setTimeout(r, 8000));
-          continue;
+        // A clean tool-level error matching the upstream allowlist (explorer
+        // incident, cold-cache latency, node blip): our server answered
+        // correctly; back off and retry - it often recovers within the sweep.
+        if (m?.result?.isError === true && upstreamSignature(lastText)) {
+          outcome = 'degraded';
+          if (attempt < 3) { await new Promise(r => setTimeout(r, 8000)); continue; }
+          break;
         }
         outcome = 'fail';
         break;
       } catch (e) { lastText = e.message; outcome = 'fail'; break; }
     }
     if (outcome === 'ok') continue;
-    if (outcome === 'latency' || /Request timeout has expired/i.test(lastText)) {
-      upstreamLatency.push(name);
-      console.log(`WARN ${name}: upstream explorer latency after 3 attempts (server error path is clean)`);
+    if (outcome === 'degraded') {
+      degraded.push(name);
+      console.log(`WARN-UPSTREAM ${name}: ${upstreamSignature(lastText)} after 3 attempts (server error path is clean): ${lastText.slice(0, 100)}`);
     } else {
       failures.push(`${name}: ${lastText.slice(0, 100)}`);
     }
   }
   expect(failures.length === 0, failures.join(' | ').slice(0, 400));
-  const latencyNote = upstreamLatency.length ? `; upstream-latency: ${upstreamLatency.join(',')}` : '';
-  return `${coverageTargets.length} additional tool(s) exercised; ${calledTools.size} total covered${latencyNote}`;
-});
+  if (degraded.length) {
+    // Covered-but-degraded, not a pass and not a hard fail: each such tool
+    // proved it responds with a clean error, but its real behavior went
+    // unverified - the whole gate is tagged WARN-UPSTREAM and counts toward
+    // the guardrails below.
+    throw new UpstreamError('coverage-degraded',
+      `${coverageTargets.length} tool(s) exercised, ${calledTools.size} total covered; ` +
+      `${degraded.length} covered-but-degraded upstream: ${degraded.join(',')}`);
+  }
+  return `${coverageTargets.length} additional tool(s) exercised; ${calledTools.size} total covered`;
+}, null, { live: true });
+
+// --- Guardrails: WARN-UPSTREAM must stay incapable of hiding real breakage ---
+// (a) ALL live checks warning is not an incident - it is this host (or our
+//     server's egress) unable to reach anything, or a systemic bug: FAIL.
+// (b) More than SWEEP_MAX_UPSTREAM_WARNS warnings fails the run. Default 8:
+//     the real 2026-09-01 explorer incident degraded 5 checks, so 8 tolerates
+//     a whole-service outage plus headroom, while a majority of the ~12 live
+//     checks degrading still reds the run.
+// (c) Non-network checks can never warn - enforced structurally in check().
+const MAX_UPSTREAM_WARNS = Number(process.env.SWEEP_MAX_UPSTREAM_WARNS ?? 8);
+if (liveChecksExecuted > 0 && upstreamWarns.length === liveChecksExecuted) {
+  results.push(['guardrail: all live-network checks degraded', false,
+    `all ${liveChecksExecuted} live-network checks warned upstream - nothing was reachable, which is never just an incident`]);
+  console.log(`FAIL guardrail: all ${liveChecksExecuted} live-network checks warned upstream - nothing was reachable, which is never just an incident`);
+}
+if (upstreamWarns.length > MAX_UPSTREAM_WARNS) {
+  results.push(['guardrail: too many upstream warnings', false,
+    `${upstreamWarns.length} upstream warnings exceed the SWEEP_MAX_UPSTREAM_WARNS=${MAX_UPSTREAM_WARNS} ceiling`]);
+  console.log(`FAIL guardrail: ${upstreamWarns.length} upstream warnings exceed the SWEEP_MAX_UPSTREAM_WARNS=${MAX_UPSTREAM_WARNS} ceiling`);
+}
 
 const failed = results.filter(r => !r[1]);
-console.log(`\n=== PRODUCTION SWEEP: ${results.length - failed.length}/${results.length} PASS ===`);
+const passCount = results.length - failed.length - upstreamWarns.length;
+console.log(`\n=== PRODUCTION SWEEP: ${passCount}/${results.length} PASS, ${upstreamWarns.length} WARN-UPSTREAM, ${failed.length} FAIL ===`);
+if (upstreamWarns.length) {
+  console.log(`degraded by upstream problems (${upstreamWarns.length} of ${liveChecksExecuted} live checks): ` +
+    upstreamWarns.map(w => `${w.label} [${w.signature}]`).join('; '));
+}
 failed.forEach(f => console.log('FAILED:', f[0], '-', f[2]));
 try { session.controller.abort(); } catch {}
 process.exit(failed.length ? 1 : 0);

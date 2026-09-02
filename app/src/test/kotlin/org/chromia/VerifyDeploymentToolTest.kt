@@ -279,6 +279,31 @@ class VerifyDeploymentToolTest {
     }
 
     @Test
+    fun bogusBridAnswersAgreeOnTheActionableCore() {
+        // A bogus BRID legitimately yields EITHER answer, depending on
+        // upstream node health (live-verified 2026-09-02): a healthy node
+        // 404s an unknown BRID in <1s, but postchain-client's TryNextOnError
+        // only surfaces that 404 after crawling every pool endpoint, so with
+        // any degraded endpoint the deadline fires first and the caller gets
+        // the timeout hint. The e2e sweep accepts either - this test pins the
+        // shared actionable core both must carry so tool and sweep cannot
+        // drift apart: re-check the BRID, or verify via the dapp's own node
+        // URL as `network`.
+        val unknownChain = VerifyDeployment.failureHint(
+            "Can't find blockchain with blockchainRID: ${"AB".repeat(32)}", "mainnet"
+        )
+        val timedOut = VerifyDeployment.timeoutHint("mainnet", 20_000)
+        listOf(unknownChain, timedOut).forEach { hint ->
+            assertTrue(hint.contains("check the BRID"), hint)
+            assertTrue(hint.contains("node URL as `network`"), hint)
+        }
+        // And the sweep's tag line: the strategy prefixes failureHint answers
+        // with "Height probe failed:" while the deadline path starts with
+        // "Height probe timed out:" - the sweep greps for either prefix.
+        assertTrue(timedOut.startsWith("Height probe timed out:"), timedOut)
+    }
+
+    @Test
     fun hangingFirstProbeReturnsBoundedTimedOutResultInsteadOfHanging() {
         repo.heightDelaysMs.add(60_000L) // signer discovery / height read that never answers in time
         repo.nextHeight = NetworkResult.Success(1L)

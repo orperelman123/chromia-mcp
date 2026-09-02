@@ -14,6 +14,10 @@
 //           server with CHROMIA_MCP_TEST_TIMEOUT_SECONDS=3. Asserts clean
 //           timeout results, the leaked-runner ceiling's clear error once
 //           reached, and that OTHER tools stay responsive while runners spin.
+// Unlike the e2e sweep, there is NO WARN-UPSTREAM rule here (see
+// scripts/upstream-classifier.mjs): every task in the mix is local-only
+// against our own server (help, compiler tools, scaffold, validate, local doc
+// search), so any failure in these phases is ours and always fails hard.
 //   node scripts/stress-soak.mjs                 # all phases, full durations
 //   node scripts/stress-soak.mjs --quick         # short self-test durations
 //   node scripts/stress-soak.mjs --phases burst,abuse
