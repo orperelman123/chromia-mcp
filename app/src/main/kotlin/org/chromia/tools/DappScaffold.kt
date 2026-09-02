@@ -105,6 +105,13 @@ object DappScaffold {
             (SUPPORTED_VERSIONS stops at $RELL_VERSION; a newer pin fails `chr build` with "Unknown version").
             Rell language source tag $RELL_SOURCE_TAG (docs may still say 0.16.4 — source wins for language docs).
             FT4 pin $FT4_VERSION API $FT4_API. Add FT4 by importing lib.ft4.accounts / lib.ft4.assets after reading fetch_docs; configure module_args from official FT4 setup.
+            The ft4 template ships runnable INVARIANT tests (conservation, no-negative-balance,
+            non-owner-must-fail) in src/test/main_test.rell - run them with run_rell_tests (they
+            register FT4 test accounts, so the server needs CHROMIA_TEST_DATABASE_URL) or `chr test`,
+            and copy test_transfer_conserves_total_points for your own app's economic invariant.
+            A passing security check is NOT economic soundness: missing authorization, unbacked
+            minting, missing quorum/timeouts, and value with no withdrawal path all pass static
+            analysis - only an invariant test you write catches them.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -173,6 +180,11 @@ object DappScaffold {
               features:
                 merkle_hash_version: $MERKLE_HASH_VERSION
 
+        test:
+          modules:
+            - test.main_test
+          failOnError: true
+
         compile:
           rellVersion: $RELL_VERSION
 
@@ -227,6 +239,13 @@ object DappScaffold {
             if (line.isBlank()) append('\n') else append("    ").append(line).append('\n')
         }
         append('\n')
+        // chr test discovers tests through this section; without it the shipped
+        // invariant tests would silently not run under `chr test`.
+        append("test:\n")
+        append("  modules:\n")
+        append("    - test.main_test\n")
+        append("  failOnError: true\n")
+        append('\n')
         append("compile:\n")
         append("  rellVersion: $RELL_VERSION\n")
         append('\n')
@@ -244,12 +263,15 @@ object DappScaffold {
         //   2. AUTHORIZE    - prove that account may touch THIS row. Authenticating
         //                     only says who is calling; it does not say the caller
         //                     owns what they are changing. Key writes off the
-        //                     authenticated id (as add_note does below), or check
-        //                     ownership explicitly: require(row.owner == account.id).
+        //                     authenticated id (as add_note and transfer do below),
+        //                     or check ownership explicitly, as delete_note does:
+        //                     require(row.owner == account.id).
         //                     Never trust an account id passed in as a parameter.
         //   3. VALIDATE     - require(...) every input, each parameter separately.
         //   4. CHECK INVARIANTS - conservation (value created must be backed),
-        //                     bounds, quorum. Nothing below enforces these for you.
+        //                     bounds, quorum. Nothing below enforces these for you -
+        //                     state each one as a test the way src/test/main_test.rell
+        //                     does, and keep those tests passing as this file grows.
         // Never import FT4 admin modules or open registration/transfer strategies
         // (see the project security pins).
 
@@ -259,48 +281,191 @@ object DappScaffold {
             created_at: timestamp;
         }
 
+        // A tiny point ledger the shipped invariant tests exercise. The one-time
+        // welcome grant in register_wallet is the ONLY place points are created;
+        // transfer moves them and must never mint or destroy them. If you replace
+        // this ledger with your own economics, carry the same discipline: every
+        // unit of value credited must be debited from somewhere real.
+        entity wallet {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        val WELCOME_POINTS = 100;
+
         // flags = [] means "any auth descriptor on the account may call this".
         // FT4 checks flags with contains_all(), and contains_all([]) is ALWAYS
         // true - so an empty list requires nothing, including from limited
-        // session/login descriptors. That is fine for this note demo, which
+        // session/login descriptors. That is fine for the note demo, which
         // moves no value.
-        // If you copy this handler onto an operation that MOVES VALUE, require
-        // the Transfer flag instead: flags = ["T"]. Otherwise a session key the
-        // user believed could not spend their funds can spend them.
         @extend(auth.auth_handler)
         function () = auth.add_auth_handler(
             flags = []
         );
 
+        // transfer MOVES VALUE, so its handler requires the Transfer flag: a
+        // session key the user believed could not spend their funds must not be
+        // able to call it. Scope every value-moving operation like this.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            scope = "transfer",
+            flags = ["T"]
+        );
+
         operation add_note(body: text) {
             // 1. Authenticate: resolves the FT4 account that signed this call.
             val account = auth.authenticate();
-            // 2. Validate inputs before touching state.
+            // 2. Authorize: the write below is keyed off the authenticated id,
+            //    so the caller can only ever create notes it owns.
+            // 3. Validate inputs before touching state.
             require(body.size() > 0, "note must not be empty");
             require(body.size() <= 1000, "note too long (max 1000 chars)");
-            // 3. Mutate state only after auth + validation.
+            // 4. Mutate state only after auth + validation.
             create note(owner = account.id, body, created_at = op_context.last_block_time);
+        }
+
+        operation delete_note(note_id: rowid) {
+            val account = auth.authenticate();
+            val n = require(note @? { .rowid == note_id }, "no such note");
+            // AUTHORIZE: authentication says who is calling - this require says
+            // the caller owns the row it names. Without it, any account could
+            // delete any note. The shipped test proves a non-owner is refused.
+            require(n.owner == account.id, "not your note");
+            delete n;
+        }
+
+        operation register_wallet() {
+            val account = auth.authenticate();
+            require(wallet @? { .owner == account.id } == null, "wallet already registered");
+            create wallet(owner = account.id, balance = WELCOME_POINTS);
+        }
+
+        operation transfer(to: byte_array, amount: integer) {
+            // 1. AUTHENTICATE - who signed this call.
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - spend only from the CALLER's wallet. Never accept a
+            //    `from: byte_array` parameter here: an operation that debits an
+            //    account named by a parameter lets anyone drain anyone, and a
+            //    static check cannot tell you that.
+            val from_wallet = require(wallet @? { .owner == account.id }, "register a wallet first");
+            // 3. VALIDATE - every input separately. Rell integers are 64-bit
+            //    and arithmetic overflow ABORTS the operation, so bound any
+            //    input you will multiply (e.g. by a price or scale factor)
+            //    BEFORE the arithmetic, or large legitimate amounts abort.
+            require(amount > 0, "amount must be positive");
+            require(to != account.id, "cannot transfer to yourself");
+            val to_wallet = require(wallet @? { .owner == to }, "recipient has no wallet");
+            // 4. CHECK INVARIANTS - no negative balances, and conservation: the
+            //    debit and credit below are the same amount, so transfers can
+            //    never change the total in circulation. src/test/main_test.rell
+            //    asserts both.
+            require(from_wallet.balance >= amount, "insufficient balance");
+            update from_wallet ( .balance -= amount );
+            update to_wallet ( .balance += amount );
         }
 
         query get_notes(owner: byte_array) = note @* { .owner == owner } (
             .body,
             .created_at
         );
+
+        query get_balance(owner: byte_array): integer {
+            val w = wallet @? { .owner == owner };
+            return if (w != null) w.balance else 0;
+        }
+
+        // INVARIANT: every point in circulation came from a welcome grant -
+        // transfers move value, they never create it. The shipped conservation
+        // test compares this to registered_wallets() * WELCOME_POINTS.
+        query points_in_circulation(): integer {
+            var total = 0;
+            for (b in wallet @* {} ( .balance )) total += b;
+            return total;
+        }
+
+        query registered_wallets(): integer = wallet @* {} ( .owner ).size();
     """.trimIndent() + "\n"
 
     private fun ft4TestRell(): String = """
         @test module;
 
-        // FT4 operations need the FT4 test extensions (lib.ft4.test) and run against
-        // registered test accounts. After `chr install`, follow the official FT4
-        // testing guide (fetch_docs: https://docs.chromia.com/build/ft4) to register
-        // a test account and call add_note through ft4_auth-signed transactions.
+        // Invariant tests the scaffold ships. They are real: they register FT4
+        // test accounts, sign operations, and run against PostgreSQL - via
+        // run_rell_tests (server needs CHROMIA_TEST_DATABASE_URL) or `chr test`.
+        // Keep them passing as main.rell grows, and add one such test for every
+        // property your app's economics depend on:
+        //   - CONSERVATION: a transfer never changes the total in circulation.
+        //   - NO NEGATIVE BALANCE: an overdraft aborts instead of going negative.
+        //   - AUTHORIZATION: a non-owner's attempt MUST fail - a passing "happy
+        //     path" test proves nothing about who else can call the operation.
+        // test_transfer_conserves_total_points is the template to copy for your
+        // own invariant: state the property in one line, then try to violate it.
 
         import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, ft_auth_operation_for };
 
-        function test_module_compiles() {
-            // Placeholder keeping `chr test` green until FT4 test accounts are wired.
-            assert_equals(1, 1);
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // CONSERVATION: transfers move points; only register_wallet creates them.
+        function test_transfer_conserves_total_points() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_wallet());
+            signed(bob.keypair, main.register_wallet());
+            assert_equals(main.points_in_circulation(), main.registered_wallets() * main.WELCOME_POINTS);
+
+            signed(alice.keypair, main.transfer(bob.account.id, 30));
+
+            assert_equals(main.get_balance(alice.account.id), main.WELCOME_POINTS - 30);
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS + 30);
+            // The invariant: no sequence of transfers changes the total.
+            assert_equals(main.points_in_circulation(), main.registered_wallets() * main.WELCOME_POINTS);
+        }
+
+        // NO NEGATIVE BALANCE: overdrafts abort with the exact message - and
+        // nothing moves.
+        function test_overdraft_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_wallet());
+            signed(bob.keypair, main.register_wallet());
+
+            signed_must_fail(
+                alice.keypair,
+                main.transfer(bob.account.id, main.WELCOME_POINTS + 1),
+                "insufficient balance"
+            );
+
+            assert_equals(main.get_balance(alice.account.id), main.WELCOME_POINTS);
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS);
+        }
+
+        // AUTHORIZATION: bob authenticates as himself, then tries to touch
+        // alice's row. The operation must refuse - this is the test that
+        // catches a missing require(row.owner == account.id).
+        function test_non_owner_cannot_delete_note() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.add_note("alice's private note"));
+            val note_id = (main.note @ { .owner == alice.account.id }).rowid;
+
+            signed_must_fail(bob.keypair, main.delete_note(note_id), "not your note");
+
+            assert_equals(main.get_notes(alice.account.id).size(), 1);
         }
     """.trimIndent() + "\n"
 

@@ -19,6 +19,29 @@ class DappScaffoldFt4TemplateTest {
         assertTrue(main.contains("auth.authenticate()"), "operation must authenticate")
         assertTrue(main.contains("require("), "operation must validate inputs")
         assertTrue(main.contains("import lib.ft4.auth;"))
+        // The four-step creed's steps 2 and 4 must be executable code, not prose:
+        // an explicit ownership check and a value-moving op keyed off the caller.
+        assertTrue(
+            main.contains("require(n.owner == account.id"),
+            "template must ship a concrete authorization check"
+        )
+        assertTrue(
+            main.contains("scope = \"transfer\"") && main.contains("flags = [\"T\"]"),
+            "the value-moving operation must require the Transfer flag"
+        )
+        val test = files.getValue("src/test/main_test.rell")
+        listOf(
+            "test_transfer_conserves_total_points",
+            "test_overdraft_must_fail",
+            "test_non_owner_cannot_delete_note",
+            "run_must_fail"
+        ).forEach { needle ->
+            assertTrue(test.contains(needle), "shipped test module must contain $needle")
+        }
+        assertFalse(
+            test.contains("assert_equals(1, 1)"),
+            "the placeholder test that passed without exercising anything must be gone"
+        )
         DappScaffold.forbiddenModules.forEach { banned ->
             files.values.forEach { content ->
                 assertFalse(content.contains(banned), "template must not reference $banned")
@@ -77,6 +100,29 @@ class DappScaffoldFt4TemplateTest {
             tests.cases.isNotEmpty() && tests.cases.all { it.ok || it.dbRequired },
             "scaffold tests must pass or be db-limited: ${tests.notes} ${tests.cases}"
         )
+    }
+
+    @Test
+    fun ft4ScaffoldInvariantTestsRunGreen() {
+        // The shipped invariant tests are real: they register FT4 test accounts,
+        // sign operations, and must PASS through the same runner run_rell_tests
+        // uses. Without a database they may only fail as dbRequired - with
+        // CHROMIA_TEST_DATABASE_URL set (local-test-env.properties), every case
+        // must actually run and pass; a fake-green placeholder cannot satisfy this.
+        val rell = DappScaffold.files("notes", template = "ft4")
+            .filterKeys { it.endsWith(".rell") }
+            .mapKeys { (path, _) -> path.removePrefix("src/") }
+        val dbUrl = System.getenv(org.chromia.tools.RunRellTests.DATABASE_URL_ENV)
+        val tests = org.chromia.tools.RunRellTests.run(rell, databaseUrl = dbUrl)
+        assertEquals(3, tests.total, "all three shipped invariant tests must be discovered: ${tests.cases}")
+        if (dbUrl != null) {
+            assertTrue(tests.ok, "shipped invariant tests must pass against the database: ${tests.notes} ${tests.cases}")
+        } else {
+            assertTrue(
+                tests.cases.all { it.ok || it.dbRequired },
+                "without a database the shipped tests may only be db-limited: ${tests.notes} ${tests.cases}"
+            )
+        }
     }
 
     @Test

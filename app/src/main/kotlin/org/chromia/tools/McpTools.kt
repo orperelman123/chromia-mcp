@@ -1448,8 +1448,12 @@ object McpTools {
             Return a production-correct new Chromia dapp skeleton (chromia.yml, src/main.rell, test).
             Pins: Rell ${DappScaffold.RELL_VERSION}, merkle_hash_version 2, FT4 v1.1.0r API 1, Chromia CLI 0.33.x.
             Templates: 'hello' (default, query-only quickstart) or 'ft4' - the golden FT4 template:
-            accounts + auth handler, an authenticated & require()-validated operation, module_args,
-            libs block, and a TypeScript client example. FT4 imports compile after `chr install`.
+            accounts + auth handlers, operations showing the full authenticate -> authorize ->
+            validate -> check-invariants pattern (including an explicit ownership check and a
+            Transfer-flag-scoped value move), plus RUNNABLE invariant tests (conservation,
+            no-negative-balance, non-owner-must-fail) that execute via run_rell_tests - copy
+            them for the app's own invariants. Also module_args, libs block, and a TypeScript
+            client example. FT4 imports compile after `chr install`.
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
@@ -1712,6 +1716,11 @@ object McpTools {
             Pass `files` including at least one file starting with `@test module;` whose test
             functions are named test_*. Tests that touch entities/database need PostgreSQL via the
             CHROMIA_TEST_DATABASE_URL env var on the server; pure-logic tests run without it.
+            Happy-path tests are not enough: for any dapp that holds value, also ship INVARIANT
+            tests - conservation (a transfer never changes the total), no-negative-balance
+            (overdraft must abort), and authorization (a NON-owner's attempt must fail via
+            rell.test.tx()...run_must_fail("message")). scaffold_dapp template=ft4 ships runnable
+            examples of all three to copy.
             Nothing is deployed; sources run in a temp directory and are deleted afterwards.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -1882,6 +1891,13 @@ object McpTools {
             CRITICAL to MEDIUM - for admin/ops tooling only, never for production dApps.
             Returns line-anchored findings with a concrete fix per finding. ok=true means no
             CRITICAL/HIGH findings. Heuristic static analysis - it does not replace an audit.
+            ok=true is NOT economic soundness. Static rules structurally cannot see: missing
+            AUTHORIZATION (an authenticated caller touching a row it does not own - key writes
+            off the authenticated id, or require(row.owner == account.id)); unbacked minting
+            (crediting value no reserve covers); missing quorum/stake/timelock in governance;
+            funds with no withdrawal or timeout path; or i64 overflow aborting large legitimate
+            amounts. Prove those with invariant tests via run_rell_tests - scaffold_dapp
+            template=ft4 ships runnable conservation/overdraft/non-owner-must-fail examples.
             Use with rell_check as the loop: compile clean, then security clean, then present.
         """.trimIndent(),
         inputSchema = Tool.Input(
