@@ -123,7 +123,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -148,6 +148,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to stakingMainRell(),
                 "src/test/main_test.rell" to stakingTestRell()
+            )
+            "marketplace" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to marketplaceMainRell(),
+                "src/test/main_test.rell" to marketplaceTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -202,6 +207,13 @@ object DappScaffold {
             at most what the pool holds, every credit is a pool debit in the same operation, unstaking
             has a cooldown; the shipped tests replay the round-4 stake-times-elapsed-times-rate mint
             from an empty pool and require it to fail).
+            Building an NFT marketplace, a listing/auction board, or anything with a buy button and
+            creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
+            to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
+            to the buyer's ceiling, 200 extracted - cannot be written; offers escrow the bidder's
+            points and settle atomically with the split asserted; the royalty is fixed at mint, and
+            the template DOCUMENTS in its header that a gift plus a side payment bypasses it, with a
+            shipped test asserting the bypass still works rather than pretending otherwise).
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -1884,6 +1896,652 @@ object DappScaffold {
             signed_must_fail(alice.keypair, main.transfer_points(bob.account.id, main.WELCOME_POINTS + 1), "insufficient balance");
             signed(alice.keypair, main.stake(main.WELCOME_POINTS));
             signed_must_fail(alice.keypair, main.transfer_points(bob.account.id, 1), "insufficient balance");
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    // ---- marketplace template: the price a buy names is the price it pays; offers are escrowed ----
+    //
+    // Adversary round 5 (exploit-corpus/realworld/adversary-round5/dapp_b_marketplace)
+    // drained a hand-built marketplace the gate certified with zero findings, twice:
+    //   * corpus row r5-listing-price-race-under-max - buy(listing, max_price) took a
+    //     caller-supplied CEILING while the seller could reprice at will, so the seller
+    //     front-ran the pending buy up to the ceiling and took the buffer (100 listed,
+    //     300 paid). That row stays a GAP on purpose: "a caller-supplied bound is
+    //     compared and a counterparty can move the bounded value" is the shape of every
+    //     orderbook, so a rule for it fires on all of them.
+    //   * royalty bypass, two ways - transfer_nft + transfer_points as a pair, or a
+    //     listing at 1 with the rest paid off-book. A gift path exists in every real
+    //     marketplace, so this is not ruleable either.
+    // Both are DESIGN holes, so the answer is a template (north-star principle 4): an
+    // exact-price buy and an immutable listing make the sandwich unwritable, and the
+    // royalty limitation is stated as a limitation instead of being faked.
+
+    private fun marketplaceMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Marketplace template: list an NFT, buy it at the price you were shown, or
+        // bid with escrowed points. Four guards are STRUCTURAL - they live in the
+        // entity declarations and the single settlement helper, not in a require()
+        // a future operation can forget:
+        //   EXACT PRICE       - buy_nft names the price it agreed to and aborts unless
+        //                       the listing is still at exactly that price. A
+        //                       caller-supplied CEILING (the max_price / slippage
+        //                       shape) is a sandwich: the seller front-runs the pending
+        //                       buy up to the ceiling and pockets the buffer - adversary
+        //                       round 5 took 200 out of a 100-point listing that way.
+        //                       An equality can still be raced, but racing it only
+        //                       ABORTS the buy; it can never move what the buyer pays.
+        //   IMMUTABLE LISTING - `listing.price` and `listing.seller` are not mutable and
+        //                       there is no update_listing_price operation. REPRICING IS
+        //                       cancel_listing + list_nft, chosen over a timelock because
+        //                       a timelock leaves the mutable field (and therefore the
+        //                       race) in place and only narrows the window: here a seller
+        //                       who reprices destroys their own listing, so a buy that
+        //                       lands after it aborts with "not listed" instead of paying
+        //                       more. Adding a mutable price is what re-creates the
+        //                       sandwich - it is the one edit to this file to refuse.
+        //   ESCROWED OFFERS   - make_offer debits the bidder NOW and the points live in
+        //                       the offer row until it settles, is cancelled, or expires.
+        //                       accept_offer names the amount it agreed to (the same
+        //                       guard in the other direction - a bidder can cancel and
+        //                       re-offer lower, so the seller must name what it accepts),
+        //                       deletes the escrow row and pays it out in the same
+        //                       operation, and asserts proceeds + royalty == amount.
+        //   PAIRED SETTLEMENT - settle_sale is the ONLY place a seller or a creator is
+        //                       credited, it asserts the split is exact, and each of its
+        //                       two callers debits exactly `price` in the same operation:
+        //                       the buyer's balance in buy_nft, the escrow row it just
+        //                       deleted in accept_offer. Nothing in this file creates a
+        //                       point outside the one-time welcome grant.
+        //
+        // ROYALTY - AN HONEST BOUNDARY, NOT A GUARD. The royalty is fixed at mint (no
+        // operation changes it, so no creator can front-run a pending sale by raising
+        // it), capped at MAX_ROYALTY_BPS, and taken on every sale THIS MODULE RECORDS -
+        // including a 1-point listing, where it is floored at one point rather than
+        // rounding away to zero. It is NOT enforced on the trade, and no template can
+        // enforce it: transfer_nft gives a token away and transfer_points sends points,
+        // and two willing parties can pair them off-market at any price. The module
+        // cannot tell that apart from a genuine gift and an unrelated payment - which is
+        // why off-marketplace sales exist on every chain that has tried this.
+        // src/test/main_test.rell asserts the bypass WORKS
+        // (test_round5_royalty_bypass_is_documented_not_enforced) so that nobody reading
+        // this template mistakes a documented limit for a guard. If your economics
+        // REQUIRE royalties, the transfer path itself has to change - no free transfer
+        // at all, or a transfer that also pays the creator - and that is a product
+        // decision with real costs, not something a template should decide for you.
+        //
+        // What no template can fix: the price is whatever two parties agree to, so
+        // under-pricing and wash trades stay judgment calls; mint_nft costs nothing, so
+        // token ids can be squatted until you add a fee, a cap or a name registry; and
+        // MAX_ROYALTY_BPS is your economics.
+
+        entity member {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        entity nft {
+            key token_id: text;
+            mutable owner: byte_array;
+            // Both fixed at mint. A royalty that could be reassigned is a royalty
+            // anyone could steal; a royalty that could be RAISED is one the creator
+            // front-runs a pending sale with, so there is no operation that writes it.
+            creator: byte_array;
+            royalty_bps: integer;
+        }
+
+        // IMMUTABLE BY DECLARATION: nothing here is mutable, so there is no value a
+        // counterparty can move under a buy that is already in flight. Recorded with
+        // the seller so a listing can never outlive the ownership it was made under.
+        entity listing {
+            key nft;
+            seller: byte_array;
+            price: integer;
+        }
+
+        // The escrow row: these points have already left the bidder. `amount` is
+        // immutable for the same reason a listing's price is - changing a bid means
+        // cancel_offer + make_offer, which refunds first.
+        entity offer {
+            key nft, bidder: byte_array;
+            amount: integer;
+            expires_at: timestamp;
+        }
+
+        // The one-time welcome grant is the ONLY place points are created (a stand-in
+        // for a real deposit - replace it with an FT4 asset transfer and keep the same
+        // discipline: every credit is debited from somewhere real).
+        val WELCOME_POINTS = 1000;
+        val BPS = 10000;
+        // A royalty can never take the whole sale price.
+        val MAX_ROYALTY_BPS = 1000;
+        // Bound every price BEFORE it is multiplied by the rate (i64 overflow aborts).
+        val MAX_PRICE = 1000000000;
+        val MAX_OFFER_MS = 30 * 24 * 60 * 60 * 1000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
+        // with contains_all(), and contains_all([]) is always true - never weaken
+        // this default; grant flags = [] only per operation, scoped, for
+        // operations that cannot move value.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function member_of(owner: byte_array): member =
+            require(member @? { .owner == owner }, "register as a member first");
+
+        function nft_of(token_id: text): nft =
+            require(nft @? { .token_id == token_id }, "no such token");
+
+        // Clear anything that referred to the OLD owner. Called by every path that
+        // moves a token, so a stale listing can never sell a token its lister no
+        // longer owns.
+        function clear_listing(token: nft) {
+            val l = listing @? { .nft == token };
+            if (l != null) delete l;
+        }
+
+        // Floored at one point when a royalty is owed at all: the round-5 "list at 1,
+        // take the rest off-book" trade paid the creator ZERO because the cut
+        // floor-divided away. This does not stop the bypass (see the header) - it stops
+        // the RECORDED price from paying nothing.
+        function royalty_for(token: nft, price: integer): integer {
+            if (token.royalty_bps == 0) return 0;
+            val exact = price * token.royalty_bps / BPS;
+            val royalty = if (exact > 0) exact else 1;
+            require(royalty <= price, "royalty cannot exceed the price");
+            return royalty;
+        }
+
+        // THE settlement path: the only place in this file that credits a seller or a
+        // creator. Its caller must have debited exactly `price` in the same operation.
+        // The assertion below is the conservation proof for the split itself - delete
+        // it and rounding could quietly create or destroy points.
+        function settle_sale(seller_id: byte_array, token: nft, price: integer) {
+            val royalty = royalty_for(token, price);
+            val proceeds = price - royalty;
+            require(royalty >= 0 and proceeds >= 0, "bad split");
+            require(royalty + proceeds == price, "the split must pay out exactly the price");
+            val seller = member_of(seller_id);
+            update seller ( .balance += proceeds );
+            if (royalty > 0) {
+                val creator = member_of(token.creator);
+                update creator ( .balance += royalty );
+            }
+        }
+
+        operation register_member() {
+            val account = auth.authenticate();
+            require(member @? { .owner == account.id } == null, "already a member");
+            create member(owner = account.id, balance = WELCOME_POINTS);
+        }
+
+        operation mint_nft(token_id: text, royalty_bps: integer) {
+            // 1. AUTHENTICATE  2. AUTHORIZE  3. VALIDATE every input separately.
+            val account = auth.authenticate();
+            member_of(account.id);
+            require(token_id.matches("^[a-z0-9_]{1,64}${'$'}"), "invalid token id");
+            require(nft @? { .token_id == token_id } == null, "token already exists");
+            require(royalty_bps >= 0, "royalty must not be negative");
+            require(royalty_bps <= MAX_ROYALTY_BPS, "royalty too high");
+            create nft(token_id = token_id, owner = account.id, creator = account.id, royalty_bps = royalty_bps);
+        }
+
+        operation list_nft(token_id: text, price: integer) {
+            val account = auth.authenticate();
+            member_of(account.id);
+            val token = nft_of(token_id);
+            // AUTHORIZE: only the owner of THIS token, never a caller-named seller.
+            require(token.owner == account.id, "not the owner");
+            require(price > 0, "price must be positive");
+            require(price <= MAX_PRICE, "price too high");
+            require(listing @? { .nft == token } == null, "already listed");
+            create listing(nft = token, seller = account.id, price = price);
+        }
+
+        // Repricing is cancel + list: there is deliberately no operation that edits a
+        // live listing. See the header - a mutable price is the sandwich.
+        operation cancel_listing(token_id: text) {
+            val account = auth.authenticate();
+            val token = nft_of(token_id);
+            val l = require(listing @? { .nft == token }, "not listed");
+            require(l.seller == account.id, "not the seller");
+            delete l;
+        }
+
+        // EXACT PRICE, not a ceiling: the buyer names the price they were shown, and a
+        // seller who moves it can only make this abort. Deleting the equality below is
+        // exactly the round-5 sandwich.
+        operation buy_nft(token_id: text, expected_price: integer) {
+            val account = auth.authenticate();
+            val buyer = member_of(account.id);
+            val token = nft_of(token_id);
+            val l = require(listing @? { .nft == token }, "not listed");
+            require(l.seller != account.id, "cannot buy your own listing");
+            // A listing is only good while its lister still owns the token.
+            require(token.owner == l.seller, "listing is stale");
+            require(expected_price > 0, "expected_price must be positive");
+            require(l.price == expected_price, "listing price changed - buy at the price you were shown");
+            require(buyer.balance >= l.price, "insufficient balance");
+            val price = l.price;
+            val seller_id = l.seller;
+            // The listing is consumed exactly once, and the buyer's debit is the
+            // money settle_sale pays out.
+            delete l;
+            update buyer ( .balance -= price );
+            settle_sale(seller_id, token, price);
+            update token ( .owner = account.id );
+        }
+
+        // A plain gift. It moves no points, so no royalty is due - and it clears the
+        // listing so the token cannot be sold out from under its new owner. This
+        // operation is half of the documented royalty bypass; see the header.
+        operation transfer_nft(token_id: text, to: byte_array) {
+            val account = auth.authenticate();
+            val token = nft_of(token_id);
+            require(token.owner == account.id, "not the owner");
+            require(to != account.id, "cannot transfer to yourself");
+            member_of(to);
+            clear_listing(token);
+            update token ( .owner = to );
+        }
+
+        operation transfer_points(to: byte_array, amount: integer) {
+            val account = auth.authenticate();
+            val from = member_of(account.id);
+            require(to != account.id, "cannot transfer to yourself");
+            val recipient = member_of(to);
+            require(amount > 0, "amount must be positive");
+            require(from.balance >= amount, "insufficient balance");
+            // The same amount leaves one row and lands in another.
+            update from ( .balance -= amount );
+            update recipient ( .balance += amount );
+        }
+
+        // Escrowed bid: the points leave the bidder NOW, so an accepted offer can
+        // never bounce and the bidder cannot spend them twice while it is open.
+        operation make_offer(token_id: text, amount: integer, valid_ms: integer) {
+            val account = auth.authenticate();
+            val bidder = member_of(account.id);
+            val token = nft_of(token_id);
+            require(token.owner != account.id, "cannot bid on your own token");
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_PRICE, "amount too high");
+            require(valid_ms > 0, "validity must be positive");
+            require(valid_ms <= MAX_OFFER_MS, "validity too long");
+            require(bidder.balance >= amount, "insufficient balance");
+            require(offer @? { .nft == token, .bidder == account.id } == null, "offer already open");
+            update bidder ( .balance -= amount );
+            create offer(
+                nft = token,
+                bidder = account.id,
+                amount = amount,
+                expires_at = op_context.last_block_time + valid_ms
+            );
+        }
+
+        // Only the bidder can take their own escrow back - at any time, expired or
+        // not, so escrowed points can never be stranded.
+        operation cancel_offer(token_id: text) {
+            val account = auth.authenticate();
+            val bidder = member_of(account.id);
+            val token = nft_of(token_id);
+            val o = require(offer @? { .nft == token, .bidder == account.id }, "no open offer");
+            val amount = o.amount;
+            // The escrow row is the debit: deleting it and crediting the bidder
+            // happen in the same operation.
+            delete o;
+            update bidder ( .balance += amount );
+        }
+
+        // The owner accepts an escrowed bid, naming the amount it agreed to: a bidder
+        // can cancel and re-offer lower, which is the sandwich pointed the other way.
+        // The escrow row is destroyed exactly once and what it held is paid out
+        // exactly once, in this operation.
+        operation accept_offer(token_id: text, bidder: byte_array, expected_amount: integer) {
+            val account = auth.authenticate();
+            member_of(account.id);
+            val token = nft_of(token_id);
+            require(token.owner == account.id, "not the owner");
+            require(bidder != account.id, "cannot accept your own offer");
+            val o = require(offer @? { .nft == token, .bidder == bidder }, "no such offer");
+            require(expected_amount > 0, "expected_amount must be positive");
+            require(o.amount == expected_amount, "offer amount changed - accept the amount you were shown");
+            require(op_context.last_block_time < o.expires_at, "offer expired");
+            val amount = o.amount;
+            delete o;
+            clear_listing(token);
+            settle_sale(account.id, token, amount);
+            update token ( .owner = bidder );
+        }
+
+        query get_balance(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            return if (m != null) m.balance else 0;
+        }
+
+        query get_owner(token_id: text): byte_array? {
+            val t = nft @? { .token_id == token_id };
+            return if (t != null) t.owner else null;
+        }
+
+        query get_token(token_id: text) {
+            val t = nft @? { .token_id == token_id };
+            return if (t != null)
+                (owner = t.owner, creator = t.creator, royalty_bps = t.royalty_bps)
+                else null;
+        }
+
+        query get_listing(token_id: text) {
+            val l = listing @? { .nft.token_id == token_id };
+            return if (l != null) (seller = l.seller, price = l.price) else null;
+        }
+
+        query get_offer(token_id: text, bidder: byte_array) {
+            val o = offer @? { .nft.token_id == token_id, .bidder == bidder };
+            return if (o != null) (amount = o.amount, expires_at = o.expires_at) else null;
+        }
+
+        query member_count(): integer = member @* {} ( .owner ).size();
+
+        query token_count(): integer = nft @* {} ( .token_id ).size();
+
+        // INVARIANT: every point in circulation came from a welcome grant. Points are
+        // spendable or escrowed in an open offer, never anywhere else; a sale MOVES
+        // them and never creates them. The shipped tests compare this to
+        // member_count() * WELCOME_POINTS after every step.
+        query points_in_circulation(): integer {
+            var total = 0;
+            for (b in member @* {} ( .balance )) total += b;
+            for (a in offer @* {} ( .amount )) total += a;
+            return total;
+        }
+
+        // INVARIANT: every token has exactly one owner and that owner is a member.
+        query tokens_owned_by_members(): integer =
+            nft @* { .owner in member @* {} ( .owner ) } ( .token_id ).size();
+    """.trimIndent() + "\n"
+
+    private fun marketplaceTestRell(): String = """
+        @test module;
+
+        // The marketplace template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // test_round5_price_sandwich_must_fail replays the adversary's sandwich against
+        // this template and REQUIRES it to be refused, in both directions: the seller
+        // repricing under a pending buy, and the bidder re-offering lower under a
+        // pending accept. It can only pass while the two equalities stand, so deleting
+        // one goes red before an attacker finds out.
+        // test_round5_royalty_bypass_is_documented_not_enforced asserts the OPPOSITE:
+        // the bypass still works, exactly as round 5 found it, because a gift plus a
+        // side payment is indistinguishable from a gift and an unrelated payment. It is
+        // a test of an honest boundary, not of a guard - if it ever starts failing
+        // because the bypass was closed, read the header before celebrating.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Stamp the next block `ms` after the last one.
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        // Points are spendable or escrowed, never anywhere else, and every token has
+        // an owner who is a member. Asserted after every step of every test below.
+        function assert_conserved() {
+            assert_equals(main.points_in_circulation(), main.member_count() * main.WELCOME_POINTS);
+            assert_equals(main.tokens_owned_by_members(), main.token_count());
+        }
+
+        // EXPLOIT MUST FAIL. Round 5: the buyer signed buy(listing, max_price = 300) as
+        // a routine 3x slippage buffer on a 100-point listing, the seller repriced to
+        // the ceiling first, and 200 points were extracted. Here the buy names the
+        // price it agreed to, so the same front-run only ABORTS it - and the seller had
+        // to destroy the listing to reprice at all, because there is no operation that
+        // edits one. Then the same sandwich pointed the other way: the bidder cancels
+        // and re-offers lower under the seller's pending accept.
+        function test_round5_price_sandwich_must_fail() {
+            val seller = register_alice();
+            val buyer = register_bob();
+            signed(seller.keypair, main.register_member());
+            signed(buyer.keypair, main.register_member());
+            signed(seller.keypair, main.mint_nft("sandwich", 0));
+            signed(seller.keypair, main.list_nft("sandwich", 100));
+            assert_conserved();
+
+            // The buyer signs buy_nft("sandwich", 100) - the price on the listing. The
+            // seller sees it and gets a repricing in first. Repricing is cancel+relist,
+            // so this is the strongest front-run the template allows.
+            signed(seller.keypair, main.cancel_listing("sandwich"));
+            signed(seller.keypair, main.list_nft("sandwich", 300));
+            // THE EXPLOIT STEP: in round 5 this paid 300. Here it pays nothing.
+            signed_must_fail(buyer.keypair, main.buy_nft("sandwich", 100), "listing price changed");
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS);
+            assert_equals(main.get_owner("sandwich"), seller.account.id);
+            assert_conserved();
+
+            // 300 leaves the buyer only when the buyer names 300.
+            signed(buyer.keypair, main.buy_nft("sandwich", 300));
+            assert_equals(main.get_owner("sandwich"), buyer.account.id);
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS - 300);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 300);
+            assert_conserved();
+
+            // THE SAME SANDWICH, OTHER SIDE. The owner is about to accept a 400 bid;
+            // the bidder cancels and re-offers 100 first. The accept names 400, so it
+            // aborts instead of settling at 100.
+            signed(seller.keypair, main.mint_nft("bidsand", 0));
+            signed(buyer.keypair, main.make_offer("bidsand", 400, main.MAX_OFFER_MS));
+            signed(buyer.keypair, main.cancel_offer("bidsand"));
+            signed(buyer.keypair, main.make_offer("bidsand", 100, main.MAX_OFFER_MS));
+            signed_must_fail(seller.keypair, main.accept_offer("bidsand", buyer.account.id, 400), "offer amount changed");
+            assert_equals(main.get_owner("bidsand"), seller.account.id);
+            assert_conserved();
+
+            signed(seller.keypair, main.accept_offer("bidsand", buyer.account.id, 100));
+            assert_equals(main.get_owner("bidsand"), buyer.account.id);
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS - 300 - 100);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 300 + 100);
+            assert_conserved();
+        }
+
+        // DOCUMENTED, NOT ENFORCED. This test asserts that the royalty bypass STILL
+        // WORKS, because it does and no template can close it: transfer_nft is a gift
+        // and transfer_points is a payment, and two willing parties pairing them is
+        // indistinguishable from two unrelated favours. What the template does fix is
+        // the arithmetic: a recorded sale always pays a royalty, floored at one point
+        // instead of rounding to zero as the round-5 dapp did. Read the header of
+        // src/main.rell before changing any assertion here.
+        function test_round5_royalty_bypass_is_documented_not_enforced() {
+            val creator = register_alice();
+            val seller = register_bob();
+            val buyer = register_trudy();
+            signed(creator.keypair, main.register_member());
+            signed(seller.keypair, main.register_member());
+            signed(buyer.keypair, main.register_member());
+
+            // The honest path first, so the number the bypass avoids is on the record:
+            // 10% of 200 is 20, and the creator gets it whether they like the sale or not.
+            signed(creator.keypair, main.mint_nft("honest", main.MAX_ROYALTY_BPS));
+            signed(creator.keypair, main.transfer_nft("honest", seller.account.id));
+            signed(seller.keypair, main.list_nft("honest", 200));
+            signed(buyer.keypair, main.buy_nft("honest", 200));
+            assert_equals(main.get_balance(creator.account.id), main.WELCOME_POINTS + 20);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 180);
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS - 200);
+            assert_conserved();
+
+            // BYPASS 1 - a gift plus a side payment. IT WORKS, and it always will.
+            signed(creator.keypair, main.mint_nft("bypass", main.MAX_ROYALTY_BPS));
+            signed(creator.keypair, main.transfer_nft("bypass", seller.account.id));
+            val creator_before = main.get_balance(creator.account.id);
+            signed(buyer.keypair, main.transfer_points(seller.account.id, 100));
+            signed(seller.keypair, main.transfer_nft("bypass", buyer.account.id));
+            assert_equals(main.get_owner("bypass"), buyer.account.id);
+            // NOT ENFORCED: a 100-point trade paid the creator nothing.
+            assert_equals(main.get_balance(creator.account.id), creator_before);
+            assert_conserved();
+
+            // BYPASS 2 - the same trade routed through the marketplace: list at 1 and
+            // take the rest off-book. The round-5 dapp paid ZERO here because the cut
+            // floor-divided away; this template floors it at one point, so the recorded
+            // price always pays something. "Something" is 1 of the 100 that changed
+            // hands - the under-pricing is the bypass, and no arithmetic can see it.
+            signed(creator.keypair, main.mint_nft("wash", main.MAX_ROYALTY_BPS));
+            signed(creator.keypair, main.transfer_nft("wash", seller.account.id));
+            val before_wash = main.get_balance(creator.account.id);
+            signed(seller.keypair, main.list_nft("wash", 1));
+            signed(buyer.keypair, main.transfer_points(seller.account.id, 99));
+            signed(buyer.keypair, main.buy_nft("wash", 1));
+            assert_equals(main.get_owner("wash"), buyer.account.id);
+            assert_equals(main.get_balance(creator.account.id), before_wash + 1);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 180 + 100 + 99);
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS - 200 - 100 - 99 - 1);
+            assert_conserved();
+        }
+
+        // CONSERVATION: both sale paths move points and never create them, and every
+        // credit is somebody's debit in the same operation - the buyer's balance on the
+        // listing path, the escrow row on the offer path. Totals are checked after
+        // every step and the exact split after every sale.
+        function test_sale_and_escrow_conserve_points() {
+            val creator = register_alice();
+            val seller = register_bob();
+            val buyer = register_trudy();
+            signed(creator.keypair, main.register_member());
+            signed(seller.keypair, main.register_member());
+            signed(buyer.keypair, main.register_member());
+            assert_conserved();
+
+            // Listing path: 400 at 5% is 20 to the creator and 380 to the seller.
+            signed(creator.keypair, main.mint_nft("art", 500));
+            signed(creator.keypair, main.transfer_nft("art", seller.account.id));
+            signed(seller.keypair, main.list_nft("art", 400));
+            signed(buyer.keypair, main.buy_nft("art", 400));
+            assert_equals(main.get_balance(creator.account.id), main.WELCOME_POINTS + 20);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 380);
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS - 400);
+            assert_conserved();
+
+            // Offer path: the escrow leaves the bidder the moment the offer is made,
+            // and an offer that is cancelled returns exactly what it held.
+            signed(creator.keypair, main.make_offer("art", 300, main.MAX_OFFER_MS));
+            assert_equals(main.get_balance(creator.account.id), main.WELCOME_POINTS + 20 - 300);
+            assert_equals(main.get_offer("art", creator.account.id)!!.amount, 300);
+            assert_conserved();
+            signed(seller.keypair, main.make_offer("art", 50, main.MAX_OFFER_MS));
+            assert_conserved();
+            signed(seller.keypair, main.cancel_offer("art"));
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 380);
+            assert_conserved();
+
+            // Accepting settles from the escrow: 300 at 5% is 15 to the creator and
+            // 285 to the accepting owner, and the escrow row is consumed exactly once.
+            signed(buyer.keypair, main.accept_offer("art", creator.account.id, 300));
+            assert_equals(main.get_owner("art"), creator.account.id);
+            assert_equals(main.get_offer("art", creator.account.id), null);
+            assert_equals(main.get_balance(creator.account.id), main.WELCOME_POINTS + 20 - 300 + 15);
+            assert_equals(main.get_balance(buyer.account.id), main.WELCOME_POINTS - 400 + 285);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 380);
+            assert_conserved();
+
+            // The same escrow cannot be spent twice.
+            signed_must_fail(buyer.keypair, main.accept_offer("art", creator.account.id, 300), "not the owner");
+            signed_must_fail(creator.keypair, main.cancel_offer("art"), "no open offer");
+            assert_conserved();
+        }
+
+        // ESCROW + OWNERSHIP + BOUNDS: no free tokens, no double-spending escrowed
+        // points, no taking somebody else's escrow, no accepting an expired offer, no
+        // selling a token the listing no longer covers, and every input bounded.
+        function test_escrow_and_ownership_hold() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            signed(alice.keypair, main.mint_nft("held", 0));
+
+            // No free tokens: every path that moves one checks THIS caller owns it.
+            signed_must_fail(bob.keypair, main.list_nft("held", 1), "not the owner");
+            signed_must_fail(bob.keypair, main.transfer_nft("held", trudy.account.id), "not the owner");
+            signed_must_fail(bob.keypair, main.accept_offer("held", trudy.account.id, 1), "not the owner");
+            signed_must_fail(bob.keypair, main.buy_nft("held", 1), "not listed");
+            assert_conserved();
+
+            // Escrowed points are gone from the balance and cannot be spent again -
+            // not on a transfer, not on a purchase - and one bidder gets one offer per
+            // token, so the same points cannot be pledged twice on the same row.
+            signed(bob.keypair, main.make_offer("held", 900, 60000));
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS - 900);
+            signed_must_fail(bob.keypair, main.transfer_points(trudy.account.id, 101), "insufficient balance");
+            signed_must_fail(bob.keypair, main.make_offer("held", 1, 60000), "offer already open");
+            signed(alice.keypair, main.mint_nft("second", 0));
+            signed(alice.keypair, main.list_nft("second", 200));
+            signed_must_fail(bob.keypair, main.buy_nft("second", 200), "insufficient balance");
+            // And only the bidder can take them back.
+            signed_must_fail(alice.keypair, main.cancel_offer("held"), "no open offer");
+            signed_must_fail(trudy.keypair, main.cancel_offer("held"), "no open offer");
+            assert_conserved();
+            signed(bob.keypair, main.cancel_offer("held"));
+            signed_must_fail(bob.keypair, main.cancel_offer("held"), "no open offer");
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS);
+            assert_conserved();
+
+            // An expired offer can no longer be accepted - and the bidder still gets
+            // the escrow back, so points are never stranded.
+            signed(bob.keypair, main.make_offer("held", 200, 60000));
+            after(main.MAX_OFFER_MS);
+            signed_must_fail(alice.keypair, main.accept_offer("held", bob.account.id, 200), "offer expired");
+            signed(bob.keypair, main.cancel_offer("held"));
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS);
+            assert_conserved();
+
+            // A token that moved cannot be sold by the listing it left behind.
+            signed(alice.keypair, main.list_nft("held", 100));
+            signed(alice.keypair, main.transfer_nft("held", trudy.account.id));
+            signed_must_fail(bob.keypair, main.buy_nft("held", 100), "not listed");
+            signed_must_fail(alice.keypair, main.cancel_listing("held"), "not listed");
+            assert_equals(main.get_owner("held"), trudy.account.id);
+            assert_conserved();
+
+            // Every input is bounded, separately.
+            signed_must_fail(alice.keypair, main.mint_nft("bad_royalty", main.MAX_ROYALTY_BPS + 1), "royalty too high");
+            signed_must_fail(alice.keypair, main.mint_nft("Bad Id", 0), "invalid token id");
+            signed_must_fail(alice.keypair, main.mint_nft("held", 0), "token already exists");
+            signed_must_fail(trudy.keypair, main.list_nft("held", 0), "price must be positive");
+            signed_must_fail(trudy.keypair, main.list_nft("held", -1), "price must be positive");
+            signed_must_fail(bob.keypair, main.make_offer("held", 0, 60000), "amount must be positive");
+            signed_must_fail(bob.keypair, main.make_offer("held", 10, main.MAX_OFFER_MS + 1), "validity too long");
+            signed_must_fail(trudy.keypair, main.transfer_nft("held", trudy.account.id), "cannot transfer to yourself");
             assert_conserved();
         }
     """.trimIndent() + "\n"

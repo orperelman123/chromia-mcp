@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace")
 
     private fun rellOf(template: String): Map<String, String> =
         DappScaffold.files("treasury", template = template)
@@ -77,10 +77,11 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace"), DappScaffold.templates)
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
         assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
+        assertEquals("marketplace", DappScaffold.toJson("bazaar", template = "marketplace").getValue("template").toString().trim('"'))
         val unknown = DappScaffold.toJson("x", template = "dao")
         assertEquals("hello", unknown.getValue("template").toString().trim('"'))
         assertTrue(unknown.getValue("warnings").toString().contains("governance, vault, staking"), "unknown-template warning must list the new templates")
@@ -90,6 +91,7 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(notes.contains("template=staking"), "notes must steer staking builders to the template")
         assertTrue(notes.contains("HOW TO PASS module_args to run_rell_tests"), "notes must say how module_args are passed")
         assertTrue(notes.contains("x\"...\" literal, as 0x..., or as bare hex"), "notes must say the yml literal is accepted")
+        assertTrue(notes.contains("template=marketplace"), "notes must steer NFT / marketplace / listing builders to the template")
     }
 
     @Test
@@ -204,6 +206,81 @@ class DappScaffoldSecureTemplatesTest {
             assertTrue(code.contains(it), "staking state must declare $it")
         }
         assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the staking source")
+    }
+
+    /**
+     * The round-5 sandwich was `buy(listing, max_price)` - a caller-supplied CEILING
+     * compared against a price the seller could move. Here that shape has nowhere to
+     * live: the buy compares for EQUALITY, and the listing row has no mutable field
+     * and no operation that edits it, so repricing means destroying the listing.
+     * The royalty bypass is the opposite kind of assertion: it is documented as open,
+     * and the header is checked for saying so.
+     */
+    @Test
+    fun marketplaceGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("bazaar", template = "marketplace").getValue("src/main.rell")
+        val code = withoutComments(main)
+
+        // EXACT PRICE: the buy names the price and it is compared for equality. No
+        // ceiling exists anywhere in the code (MAX_PRICE is the upper bound on what a
+        // listing may say, not a caller's slippage buffer - the match is case-sensitive).
+        val buy = opBody(code, "buy_nft")
+        assertTrue(buy.contains("require(l.price == expected_price,"), "buy_nft must compare the listing price for EQUALITY")
+        assertFalse(Regex("max_price|min_price|slippage").containsMatchIn(code), "no caller-supplied price ceiling may exist - that is the sandwich")
+        assertFalse(Regex("\\.price\\s*(<=|>=|<|>)").containsMatchIn(code), "the listing price must never be compared as a bound")
+
+        // IMMUTABLE LISTING: no mutable field, no operation that edits a live listing.
+        val listing = code.substringAfter("entity listing {").substringBefore("}")
+        assertFalse(listing.contains("mutable"), "no listing field may be mutable - a mutable price re-creates the sandwich")
+        assertFalse(code.contains("update_listing_price"), "repricing must be cancel + list, not an edit")
+        assertFalse(Regex("update\\s+l\\s*\\(").containsMatchIn(code), "no operation may update a listing row")
+
+        // The same guard on the other side: the escrowed amount is immutable, the
+        // accept names it, and an offer expires.
+        val offer = code.substringAfter("entity offer {").substringBefore("}")
+        assertFalse(offer.contains("mutable"), "no offer field may be mutable - a mutable bid sandwiches the seller")
+        val accept = opBody(code, "accept_offer")
+        assertTrue(accept.contains("require(o.amount == expected_amount,"), "accept_offer must compare the escrowed amount for EQUALITY")
+        assertTrue(accept.contains("require(op_context.last_block_time < o.expires_at, \"offer expired\");"), "an offer must expire")
+
+        // ESCROW: the bidder is debited before the row exists, and both ways out of
+        // the row delete it in the operation that pays it out.
+        val makeOffer = opBody(code, "make_offer")
+        assertTrue(makeOffer.indexOf("update bidder ( .balance -= amount );") in 0 until makeOffer.indexOf("create offer("), "make_offer must debit the bidder before it escrows")
+        listOf("cancel_offer", "accept_offer").forEach { op ->
+            assertTrue(opBody(code, op).contains("delete o;"), "$op must consume the escrow row")
+        }
+
+        // PAIRED SETTLEMENT: settle_sale is the only place a seller or creator is
+        // credited, it asserts the split is exact, and both callers debit `price` in
+        // the same operation - the buyer's balance, or the escrow row just deleted.
+        val settle = code.substringAfter("function settle_sale(").substringBefore("\n}")
+        assertTrue(settle.contains("require(royalty + proceeds == price, \"the split must pay out exactly the price\");"), "settle_sale must assert the split is exact")
+        assertEquals(2, Regex("\\bsettle_sale\\(").findAll(code).count() - 1, "settle_sale must have exactly two callers")
+        assertTrue(buy.contains("update buyer ( .balance -= price );"), "buy_nft must debit the buyer")
+        assertTrue(buy.indexOf("delete l;") in 0 until buy.indexOf("settle_sale("), "buy_nft must consume the listing before it pays out")
+        assertTrue(accept.indexOf("delete o;") in 0 until accept.indexOf("settle_sale("), "accept_offer must consume the escrow before it pays out")
+
+        // Every operation that credits a balance debits the same amount in the same
+        // body; the two sale paths do it through settle_sale, asserted above.
+        Regex("operation (\\w+)\\(").findAll(code).map { it.groupValues[1] }.forEach { op ->
+            val body = opBody(code, op)
+            Regex("\\.balance \\+= (\\w+)").findAll(body).map { it.groupValues[1] }.forEach { amount ->
+                val debited = body.contains("-= $amount") ||
+                    (op == "cancel_offer" && body.contains("val $amount = o.amount;") && body.contains("delete o;"))
+                assertTrue(debited, "$op credits .balance += $amount without debiting $amount in the same operation")
+            }
+        }
+
+        // ROYALTY: fixed at mint, capped, never rounded away - and the header says
+        // plainly that the off-market bypass is open rather than implying a guard.
+        assertFalse(code.contains("mutable royalty_bps"), "a raisable royalty front-runs a pending sale")
+        assertFalse(Regex("update\\s+\\w+\\s*\\(\\s*\\.royalty_bps").containsMatchIn(code), "no operation may write a royalty after mint")
+        assertTrue(code.contains("require(royalty_bps <= MAX_ROYALTY_BPS, \"royalty too high\");"))
+        assertTrue(code.contains("val royalty = if (exact > 0) exact else 1;"), "a recorded sale must never round the royalty away to zero")
+        assertTrue(main.contains("AN HONEST BOUNDARY, NOT A GUARD"), "the royalty header must not imply enforcement")
+        assertTrue(main.contains("It is NOT enforced on the trade, and no template can"), "the header must say plainly that the bypass is open")
+        assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the marketplace source")
     }
 
     @Test
@@ -348,6 +425,17 @@ class DappScaffoldSecureTemplatesTest {
             "test_rewards_come_only_from_sponsor_funding",
             "test_late_staker_earns_nothing_for_the_past_and_cooldown_holds",
             "test_bounds_and_ownership"
+        )
+    )
+
+    @Test
+    fun marketplaceShippedTestsRunGreen() = assertShippedGreen(
+        "marketplace",
+        setOf(
+            "test_round5_price_sandwich_must_fail",
+            "test_round5_royalty_bypass_is_documented_not_enforced",
+            "test_sale_and_escrow_conserve_points",
+            "test_escrow_and_ownership_hold"
         )
     )
 
@@ -509,5 +597,53 @@ class DappScaffoldSecureTemplatesTest {
         "require(op_context.last_block_time >= r.ready_at, \"cooldown not over\");",
         "test_late_staker_earns_nothing_for_the_past_and_cooldown_holds",
         "cooldown not over"
+    )
+
+    /**
+     * Turn the exact price back into no check at all and the round-5 sandwich lands
+     * again: the buyer who named 100 pays the 300 the seller relisted at.
+     */
+    @Test
+    fun marketplaceSandwichTestGoesRedWithoutTheExactPriceGuard() = assertGuardRemovalRedensExploitTest(
+        "marketplace",
+        "require(l.price == expected_price, \"listing price changed - buy at the price you were shown\");",
+        "test_round5_price_sandwich_must_fail",
+        "listing price changed"
+    )
+
+    /** The same sandwich from the bidder's side: without the equality, an accept settles at whatever the bid was re-made at. */
+    @Test
+    fun marketplaceSandwichTestGoesRedWithoutTheExactOfferAmountGuard() = assertGuardRemovalRedensExploitTest(
+        "marketplace",
+        "require(o.amount == expected_amount, \"offer amount changed - accept the amount you were shown\");",
+        "test_round5_price_sandwich_must_fail",
+        "offer amount changed"
+    )
+
+    /** Stop debiting the bidder for what the escrow row holds and the offer mints points: conservation trips. */
+    @Test
+    fun marketplaceConservationTestGoesRedWithoutTheEscrowDebit() = assertGuardMutationRedensExploitTest(
+        "marketplace",
+        "update bidder ( .balance -= amount );",
+        "",
+        "test_sale_and_escrow_conserve_points",
+        "insufficient balance",
+        "expected"
+    )
+
+    /**
+     * Drop the one-point floor and a recorded 1-point sale pays the creator nothing
+     * again - exactly what round 5's `list at 1, pay the rest off-book` relied on.
+     * The bypass itself stays open either way; this proves the arithmetic half is
+     * load-bearing, and that the documentation test is asserting a real number.
+     */
+    @Test
+    fun marketplaceRoyaltyDocumentationTestGoesRedWithoutTheOnePointFloor() = assertGuardMutationRedensExploitTest(
+        "marketplace",
+        "val royalty = if (exact > 0) exact else 1;",
+        "val royalty = exact;",
+        "test_round5_royalty_bypass_is_documented_not_enforced",
+        "royalty cannot exceed the price",
+        "expected"
     )
 }
