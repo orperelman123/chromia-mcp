@@ -113,7 +113,34 @@ internal class LocalChainRestBridge(
 
     private val gson = makeStrictGtvGson()
 
-    private val server: EmbeddedServer<*, *> = embeddedServer(CIO, host = "127.0.0.1", port = port) {
+    private val server: EmbeddedServer<*, *> = startOrExplainBindFailure(buildServer())
+
+    /**
+     * ktor CIO wraps a failed port bind in a JobCancellationException whose
+     * message is coroutine noise ("LazyStandaloneCoroutine is cancelling"), so
+     * a busy `apiPort` surfaced to the agent as exactly that instead of
+     * [LocalChain.diagnose]'s actionable port-busy hint (QA lens 2026-09-02;
+     * the real BindException sits two causes deep). Unwrap it and fail with a
+     * message that names the port and the bind, which diagnose classifies.
+     */
+    private fun startOrExplainBindFailure(server: EmbeddedServer<*, *>): EmbeddedServer<*, *> {
+        try {
+            return server.start(wait = false)
+        } catch (e: Exception) {
+            val bind = generateSequence<Throwable>(e) { it.cause }
+                .firstOrNull { it is java.net.BindException }
+            if (bind != null) {
+                throw IllegalStateException(
+                    "Cannot bind the local chain REST API to 127.0.0.1:$port - the port is " +
+                        "already in use (${bind.message})",
+                    e
+                )
+            }
+            throw e
+        }
+    }
+
+    private fun buildServer(): EmbeddedServer<*, *> = embeddedServer(CIO, host = "127.0.0.1", port = port) {
         routing {
             get("/brid/iid_0") {
                 call.respondText(brid, ContentType.Text.Plain)
@@ -181,7 +208,7 @@ internal class LocalChainRestBridge(
                 }
             }
         }
-    }.start(wait = false)
+    }
 
     /** "true"/"false" become booleans, everything else stays a string (RestApi parity). */
     internal fun stringParamToGtv(value: String): Gtv = when (value) {

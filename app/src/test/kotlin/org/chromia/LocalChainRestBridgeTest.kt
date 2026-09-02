@@ -188,4 +188,32 @@ class LocalChainRestBridgeTest {
         val badRid = client.get("$base/tx/$brid/1234/status")
         assertEquals(HttpStatusCode.BadRequest, badRid.status)
     }
+
+    /**
+     * A busy `apiPort` used to surface as ktor CIO's raw
+     * "LazyStandaloneCoroutine is cancelling" (the real BindException sits two
+     * causes deep), so local_chain_up reported coroutine noise instead of the
+     * port-busy hint LocalChain.diagnose was written to produce - its
+     * "address already in use"/"bind" branch was unreachable for the only
+     * failure mode that exists in production (QA lens 2026-09-02).
+     */
+    @Test
+    fun busyPortFailsWithActionablePortBusyMessage() {
+        java.net.ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1")).use { blocker ->
+            val port = blocker.localPort
+            val thrown = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+                LocalChainRestBridge(fakeGateway, brid, port)
+            }
+            val message = thrown.message.orEmpty()
+            assertTrue(message.contains("$port"), "message must name the busy port: $message")
+            assertTrue(message.contains("already in use"), "message must say the port is in use: $message")
+
+            // And LocalChain.diagnose classifies the real exception into the
+            // retry-without-apiPort hint (previously it fell through to the
+            // generic branch with the coroutine-cancellation text).
+            val hint = LocalChain.diagnose(thrown, null)
+            assertTrue(hint.contains("busy"), "diagnose must classify as port-busy: $hint")
+            assertTrue(hint.contains("apiPort"), "diagnose must point at the apiPort escape hatch: $hint")
+        }
+    }
 }
