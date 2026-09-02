@@ -265,6 +265,166 @@ class EconomicInvariantAdvisoryRulesTest {
         )
     }
 
+    // ---- unbacked-conversion-credit ----
+
+    /**
+     * The adversary oracle mint (dapp_d_oracle): sell_tokens credits USD
+     * computed at the posted price, debiting only the token side - the USD
+     * comes from nowhere. 100 -> 200,000,000 in the running exploit.
+     */
+    @Test
+    fun oraclePricedCreditWithoutReserveIsMediumAdvisoryAndNeverBlocks() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    val PRICE_SCALE = 1000000;
+                    entity price_feed { key name: text; mutable price: integer; }
+                    entity usd_account { key owner: byte_array; mutable balance: integer = 0; }
+                    entity token_account { key owner: byte_array; mutable balance: integer = 0; }
+                    operation sell_tokens(token_amount: integer) {
+                        val account = auth.authenticate();
+                        require(token_amount > 0, "positive");
+                        val tok = token_account @ { .owner == account.id };
+                        require(tok.balance >= token_amount, "insufficient tokens");
+                        val price = price_feed @ { .name == "TOKEN_USD" } ( .price );
+                        update tok ( .balance -= token_amount );
+                        update usd_account @ { .owner == account.id } ( .balance += token_amount * price / PRICE_SCALE );
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "unbacked-conversion-credit" }
+        assertTrue(hit.isNotEmpty(), "price-derived credit with no same-asset debit must get the advisory; got ${result.findings}")
+        assertEquals("MEDIUM", hit.first().severity)
+        assertTrue(result.ok, "an economic advisory must never make ok=false; got ${result.findings}")
+    }
+
+    /** Price read through a helper (the full adversary dApp's get_price()) still counts. */
+    @Test
+    fun priceReadViaHelperStillGetsAdvisory() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity price_feed { key name: text; mutable price: integer; }
+                    entity usd_account { key owner: byte_array; mutable balance: integer = 0; }
+                    entity token_account { key owner: byte_array; mutable balance: integer = 0; }
+                    function get_price(): integer {
+                        val f = price_feed @? { .name == "TOKEN_USD" };
+                        require(f != null, "no feed");
+                        return f.price;
+                    }
+                    operation sell_tokens(token_amount: integer) {
+                        val account = auth.authenticate();
+                        require(token_amount > 0, "positive");
+                        val tok = token_account @ { .owner == account.id };
+                        require(tok.balance >= token_amount, "insufficient tokens");
+                        update tok ( .balance -= token_amount );
+                        update usd_account @ { .owner == account.id } ( .balance += token_amount * get_price() / 1000000 );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbacked-conversion-credit" in rules(result),
+            "helper-read price must still count; got ${result.findings}"
+        )
+    }
+
+    /** Paying the credit out of a same-asset reserve row IS conservation - clean. */
+    @Test
+    fun reserveBackedConversionStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    val PRICE_SCALE = 1000000;
+                    entity price_feed { key name: text; mutable price: integer; }
+                    entity usd_account { key owner: byte_array; mutable balance: integer = 0; }
+                    entity token_account { key owner: byte_array; mutable balance: integer = 0; }
+                    operation sell_tokens(token_amount: integer) {
+                        val account = auth.authenticate();
+                        require(token_amount > 0, "positive");
+                        val tok = token_account @ { .owner == account.id };
+                        require(tok.balance >= token_amount, "insufficient tokens");
+                        val price = price_feed @ { .name == "TOKEN_USD" } ( .price );
+                        val usd_out = token_amount * price / PRICE_SCALE;
+                        val reserve = usd_account @ { .owner == chain_context.args.reserve_owner };
+                        require(reserve.balance >= usd_out, "reserve cannot cover");
+                        update reserve ( .balance -= usd_out );
+                        update tok ( .balance -= token_amount );
+                        update usd_account @ { .owner == account.id } ( .balance += usd_out );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbacked-conversion-credit" !in rules(result),
+            "reserve-debited conversion must stay clean; got ${result.findings}"
+        )
+    }
+
+    /** A fee computed from CONFIG (chain_context.args) is not an oracle conversion - clean. */
+    @Test
+    fun configRateFeeTransferStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    entity treasury { key id: integer; mutable balance: integer = 0; }
+                    operation transfer(to: byte_array, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        val sender = wallet @ { .owner == account.id };
+                        require(sender.balance >= amount, "insufficient");
+                        val fee = amount * chain_context.args.fee_rate / 10000;
+                        update sender ( .balance -= amount );
+                        update wallet @ { .owner == to } ( .balance += amount - fee );
+                        update treasury @ { .id == 0 } ( .balance += fee );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbacked-conversion-credit" !in rules(result),
+            "config-sourced rates must not count as oracle prices; got ${result.findings}"
+        )
+    }
+
+    /** An escrow purchase that reads a listing price but does no rate arithmetic - clean. */
+    @Test
+    fun escrowBuyReadingListingPriceStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity listing { key id: integer; seller: byte_array; mutable price: integer; }
+                    entity credit_account { key owner: byte_array; mutable balance: integer = 0; }
+                    entity purchase { index buyer: byte_array; amount: integer; }
+                    operation buy(listing_id: integer) {
+                        val account = auth.authenticate();
+                        val l = listing @ { .id == listing_id };
+                        val buyer = credit_account @ { .owner == account.id };
+                        require(buyer.balance >= l.price, "insufficient credits");
+                        update buyer ( .balance -= l.price );
+                        create purchase(buyer = account.id, amount = l.price);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbacked-conversion-credit" !in rules(result),
+            "no conversion arithmetic, no advisory; got ${result.findings}"
+        )
+    }
+
     /** A majority comparison that moves no value (e.g. closing a poll) is not the shape. */
     @Test
     fun majorityWithoutValueMovementStaysClean() {

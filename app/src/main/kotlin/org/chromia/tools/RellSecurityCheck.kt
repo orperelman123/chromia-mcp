@@ -358,6 +358,12 @@ object RellSecurityCheck {
         // false-flagged every validate_x() helper pattern (gate fatigue).
         val requireFunctions = functionNamesMatchingSeed(fullyMasked, REQUIRE_REGEX)
         val quorumTermPresent = submissionHasQuorumTerm(fullyMasked)
+        val allEntityNames = entityNames(fullyMasked)
+        val entityHelperReturns = helperEntityReturns(fullyMasked, allEntityNames)
+        val priceReadFunctions = functionNamesMatchingSeed(
+            fullyMasked.mapValues { (_, m) -> CHAIN_ARGS_REF_REGEX.replace(m, " ") },
+            PRICE_STATE_READ_REGEX
+        )
         val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
 
         var exemptedLibFiles = 0
@@ -415,6 +421,7 @@ object RellSecurityCheck {
                 )
                 findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
+                findings += unbackedConversionFindings(path, op, allEntityNames, entityHelperReturns, priceReadFunctions)
             }
         }
 
@@ -949,6 +956,164 @@ object RellSecurityCheck {
             )
         }
         return findings
+    }
+
+    // ---- unbacked-conversion-credit (oracle mint) ----
+    // The adversary oracle vault (dapp_d_oracle, certified ok:true) turns
+    // 100 USD into 200,000,000: buy tokens at a transient low price, sell
+    // back at the restored fair price. sell_tokens credits USD that no
+    // reserve ever held - the credited entity is never debited, so value is
+    // created from nothing at whatever rate the price feed says.
+
+    private val ENTITY_DEF_REGEX = Regex("""\bentity\s+([A-Za-z_]\w*)""")
+
+    /** All entity names declared anywhere in the (masked) submission. */
+    internal fun entityNames(maskedFiles: Map<String, String>): Set<String> =
+        maskedFiles.values.flatMapTo(mutableSetOf()) { m ->
+            ENTITY_DEF_REGEX.findAll(m).map { it.groupValues[1] }
+        }
+
+    /** `function get_or_create_x(...): some_entity` - helper name to entity it returns. */
+    private val FUNCTION_RETURN_REGEX = Regex("""\bfunction\s+([A-Za-z_]\w*)\s*\([^()]*\)\s*:\s*([A-Za-z_]\w*)""")
+
+    internal fun helperEntityReturns(maskedFiles: Map<String, String>, entities: Set<String>): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        maskedFiles.values.forEach { m ->
+            FUNCTION_RETURN_REGEX.findAll(m).forEach { f ->
+                if (f.groupValues[2] in entities) out[f.groupValues[1]] = f.groupValues[2]
+            }
+        }
+        return out
+    }
+
+    /**
+     * One textual write to an entity field. [entity] is null when the update
+     * target could not be resolved (dotted path, unknown local) - callers must
+     * treat null conservatively for their direction of the argument.
+     */
+    internal data class ValueWrite(val entity: String?, val field: String, val kind: String)
+
+    private val ALIAS_AT_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*@""")
+    private val ALIAS_CALL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\(""")
+    private val FIELD_WRITE_REGEX = Regex("""\.\s*([A-Za-z_]\w*)\s*(\+=|-=|=(?!=))""")
+    private val CREATE_STMT_REGEX = Regex("""\bcreate\s+([A-Za-z_]\w*)\s*\(""")
+    private val UPDATE_KEYWORD_REGEX = Regex("""\bupdate\b""")
+    private val CREATE_ARG_REGEX = Regex("""([A-Za-z_]\w*)\s*=(?!=)\s*([^,]+)""")
+
+    /**
+     * Every `update`/`create` field write in a (masked) body, with the target
+     * entity resolved through the three shapes real code uses: direct
+     * (`update wallet @ {...} (...)`), select-into-local
+     * (`val w = wallet @ {...}; update w (...)`), and helper-returned
+     * (`val t = get_or_create_treasury(); update t (...)`).
+     */
+    internal fun valueWrites(
+        body: String,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): List<ValueWrite> {
+        val alias = mutableMapOf<String, String>()
+        ALIAS_AT_REGEX.findAll(body).forEach { m ->
+            if (m.groupValues[2] in entities) alias[m.groupValues[1]] = m.groupValues[2]
+        }
+        ALIAS_CALL_REGEX.findAll(body).forEach { m ->
+            helperReturns[m.groupValues[2].substringAfterLast('.')]?.let { alias[m.groupValues[1]] = it }
+        }
+        val writes = mutableListOf<ValueWrite>()
+        UPDATE_KEYWORD_REGEX.findAll(body).forEach { m ->
+            val end = body.indexOf(';', m.range.first).let { if (it < 0) body.length else it }
+            val stmt = body.substring(m.range.last + 1, end)
+            val head = stmt.takeWhile { it !in "@({" }.trim()
+            val rest = stmt.dropWhile { it !in "@({" }
+            val entity: String? = when {
+                rest.startsWith("@") -> head.takeIf { it in entities }
+                head.isNotEmpty() -> alias[head]
+                rest.startsWith("(") -> rest.substring(1).substringBefore(')').trim()
+                    .let { alias[it] ?: it.takeIf { t -> t in entities } }
+                else -> null
+            }
+            FIELD_WRITE_REGEX.findAll(stmt).forEach { f ->
+                writes.add(ValueWrite(entity, f.groupValues[1], f.groupValues[2]))
+            }
+        }
+        CREATE_STMT_REGEX.findAll(body).forEach { m ->
+            val entityName = m.groupValues[1]
+            if (entityName !in entities) return@forEach
+            val parenStart = body.indexOf('(', m.range.first)
+            val parenEnd = matchDelimiter(body, parenStart, '(', ')') ?: return@forEach
+            CREATE_ARG_REGEX.findAll(body.substring(parenStart + 1, parenEnd)).forEach { a ->
+                if (a.groupValues[2].trim() != "0") {
+                    writes.add(ValueWrite(entityName, a.groupValues[1], "create"))
+                }
+            }
+        }
+        return writes
+    }
+
+    /**
+     * A read of a price/rate field: `price` may appear anywhere in the name,
+     * `rate` must be a whole underscore-separated token (fee_rate yes,
+     * generated/migrated no). Assignments (`.price = x`) are writes, not reads.
+     */
+    private val PRICE_STATE_READ_REGEX = Regex(
+        """\.\s*(?:\w*price\w*|(?:[a-z0-9]+_)*rates?(?:_[a-z0-9]+)*)(?!\w)(?!\s*=(?!=))""",
+        RegexOption.IGNORE_CASE
+    )
+    private val CHAIN_ARGS_REF_REGEX = Regex("""\bchain_context\s*\.\s*args\s*\.\s*\w+""")
+
+    /** `a * b` / `a / b` - real arithmetic, not `@*` or comment residue. */
+    private val ARITHMETIC_REGEX = Regex("""[\w)\]]\s*[*/]\s*[\w(]""")
+
+    /** Field names that hold value (mirrors VALUE_MUTATION_REGEX's name list). */
+    private val VALUE_FIELD_NAME_REGEX = Regex(
+        """balance|amount|credit|fund|supply|share|debt|stake|reward|coin|token""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * MEDIUM when an operation converts at a state-read price (a price/rate
+     * field read from an entity, directly or via a helper), does arithmetic
+     * with it, and credits a value field of an entity that the operation never
+     * debits. That credited asset comes from nowhere: nothing guarantees a
+     * reserve holds it, so one transient oracle price mints unbacked balance.
+     * Config-sourced rates (chain_context.args.fee_bps) do not count - the
+     * exploit needs a MUTABLE price. Advisory, never blocking: conservation
+     * is not decidable from syntax (an intentional emission schedule has the
+     * same shape), only the designer knows whether a reserve exists off-op.
+     */
+    private fun unbackedConversionFindings(
+        path: String,
+        op: OperationBlock,
+        entities: Set<String>,
+        helperReturns: Map<String, String>,
+        priceReadFunctions: Set<String>
+    ): List<Finding> {
+        val body = CHAIN_ARGS_REF_REGEX.replace(op.body, " ")
+        val calls = calledNames(body)
+        val readsPrice = PRICE_STATE_READ_REGEX.containsMatchIn(body) || calls.any { it in priceReadFunctions }
+        if (!readsPrice) return emptyList()
+        if (!ARITHMETIC_REGEX.containsMatchIn(body)) return emptyList()
+        val writes = valueWrites(op.body, entities, helperReturns)
+        val debitedEntities = writes.filter { it.kind == "-=" }.mapNotNull { it.entity }.toSet()
+        val credit = writes.firstOrNull { w ->
+            (w.kind == "+=" || w.kind == "create") &&
+                VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
+                w.entity != null && w.entity !in debitedEntities
+        } ?: return emptyList()
+        return listOf(
+            Finding(
+                "MEDIUM", "unbacked-conversion-credit", path, op.line,
+                "operation ${op.name} credits ${credit.entity}.${credit.field} at a price/rate read from " +
+                    "mutable state, but never debits any ${credit.entity} row - the credited value is " +
+                    "backed by nothing, so a transient oracle price mints unbacked balance " +
+                    "(100 -> 200,000,000 in the adversary corpus)",
+                "Make the conversion conserve value: pay the credit out of a reserve/vault row of the " +
+                    "same asset (require(reserve.balance >= out) then update reserve ( .balance -= out )), " +
+                    "and bound price updates (max move per update, staleness check). Advisory: " +
+                    "conservation cannot be proven statically - if this credit is an intentional emission " +
+                    "backed elsewhere, document it and ignore this finding."
+            )
+        )
     }
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
