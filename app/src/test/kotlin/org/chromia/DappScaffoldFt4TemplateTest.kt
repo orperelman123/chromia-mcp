@@ -60,10 +60,27 @@ class DappScaffoldFt4TemplateTest {
             "the placeholder test that passed without exercising anything must be gone"
         )
         DappScaffold.forbiddenModules.forEach { banned ->
-            files.values.forEach { content ->
-                assertFalse(content.contains(banned), "template must not reference $banned")
+            files.forEach { (path, content) ->
+                // Sole exception: chromia.yml CONFIGURES lib.ft4.core.admin under
+                // test.moduleArgs (configuring is not importing - Round 2 D3);
+                // FT4's test helpers cannot start a test chain without it.
+                if (path == "chromia.yml" && banned == "lib.ft4.core.admin") return@forEach
+                assertFalse(content.contains(banned), "$path must not reference $banned")
             }
         }
+        // The admin key must be TEST-SCOPED (under the top-level test: block,
+        // never under blockchains.<name>), appear exactly once, and be FT4's
+        // PUBLISHED test key - never a real credential.
+        val ymlText = files.getValue("chromia.yml")
+        val adminIdx = ymlText.indexOf("lib.ft4.core.admin")
+        assertTrue(adminIdx >= 0, "chromia.yml must configure lib.ft4.core.admin under test.moduleArgs for chr test")
+        val testBlockIdx = ymlText.indexOf("\ntest:")
+        assertTrue(testBlockIdx in 0 until adminIdx, "admin args must sit under the top-level test: block")
+        assertEquals(adminIdx, ymlText.lastIndexOf("lib.ft4.core.admin"), "admin must be configured exactly once")
+        assertTrue(
+            ymlText.contains(DappScaffold.TEST_ADMIN_PUBKEY),
+            "admin_pubkey must be FT4's published test key, never a fresh credential"
+        )
         val yml = files.getValue("chromia.yml")
         assertTrue(yml.contains("merkle_hash_version: 2"))
         assertTrue(yml.contains("rellVersion: ${DappScaffold.RELL_VERSION}"))

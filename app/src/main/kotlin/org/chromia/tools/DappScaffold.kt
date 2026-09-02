@@ -16,12 +16,13 @@ import kotlinx.serialization.json.put
 object DappScaffold {
 
     /**
-     * The FT4 module_args the ft4 template writes into chromia.yml, in the shape
-     * run_rell_tests takes. FT4 will not initialize without them: the tool
-     * accepts module_args as a PARAMETER and does not read the generated yml, so
-     * running the shipped tests without these fails every case with an opaque
-     * "Unable to create GTX module". Kept beside the yml it mirrors so the two
-     * cannot drift.
+     * The FT4 module_args the ft4 template writes into chromia.yml - the
+     * production `moduleArgs` block plus the test-scoped `test.moduleArgs`
+     * block - in the shape run_rell_tests takes. FT4 will not initialize
+     * without them: the tool accepts module_args as a PARAMETER and does not
+     * read the generated yml, so running the shipped tests without these fails
+     * every case with an opaque "Unable to create GTX module". Kept beside the
+     * yml it mirrors so the two cannot drift.
      */
     fun ft4TestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = mapOf(
         "lib.ft4" to mapOf("query_max_page_size" to JsonPrimitive(100)),
@@ -154,8 +155,13 @@ object DappScaffold {
             FT4 pin $FT4_VERSION API $FT4_API. Add FT4 by importing lib.ft4.accounts / lib.ft4.assets after reading fetch_docs; configure module_args from official FT4 setup.
             The ft4 template ships runnable INVARIANT tests (conservation, no-negative-balance,
             non-owner-must-fail) in src/test/main_test.rell - run them with run_rell_tests (they
-            register FT4 test accounts, so the server needs CHROMIA_TEST_DATABASE_URL) or `chr test`,
+            register FT4 test accounts, so the server needs CHROMIA_TEST_DATABASE_URL, and you must
+            pass module_args = chromia.yml's moduleArgs PLUS its test.moduleArgs block - FT4's test
+            helpers need the test-only lib.ft4.core.admin/lib.ft4.test.core.auth keys) or `chr test`
+            (green as scaffolded; needs `chr install` and a C.UTF-8 PostgreSQL in `database:`),
             and copy test_transfer_conserves_total_points for your own app's economic invariant.
+            test.moduleArgs admin keys are FT4's published TEST keys, scoped to `chr test` only -
+            never move them under blockchains.<name> and never import admin modules in code.
             A passing security check is NOT economic soundness: missing authorization, unbacked
             minting, missing quorum/timeouts, and value with no withdrawal path all pass static
             analysis - only an invariant test you write catches them.
@@ -292,11 +298,37 @@ object DappScaffold {
         append("  modules:\n")
         append("    - test.main_test\n")
         append("  failOnError: true\n")
+        // TEST-SCOPED module_args - never under the production blockchain.
+        // lib.ft4.test.core (register_alice & co) transitively imports
+        // lib.ft4.admin, whose core.admin module_args has no default: without an
+        // admin_pubkey here, `chr test` refuses to start ("Missing module_args
+        // for module(s): lib.ft4.core.admin") and run_rell_tests fails every tx
+        // with "Unable to create GTX module". These are FT4's own PUBLISHED test
+        // keys (ft4-lib chromia.yml, tag v1.1.0r) - they gate nothing on a
+        // deployed chain because main never imports an admin module, so no admin
+        // operation is mounted. Verified green with chr test on 2026-09-02.
+        append("  # Test-only FT4 admin wiring (FT4's published test keys - not credentials).\n")
+        append("  # Required by lib.ft4.test.core; never move these under blockchains.<name>.\n")
+        append("  moduleArgs:\n")
+        append("    lib.ft4.core.admin:\n")
+        append("      admin_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
+        append("    lib.ft4.test.core.auth:\n")
+        append("      admin_priv_key: x\"$TEST_ADMIN_PRIVKEY\"\n")
         append('\n')
         append("compile:\n")
         append("  rellVersion: $RELL_VERSION\n")
         append('\n')
         append(Ft4ModuleArgs.libsYaml(includeIccf = false))
+        // FT4's test helpers import lib.ft4.admin.crosschain, which imports
+        // lib.iccf - without this lib `chr test` fails compilation with
+        // "Module 'lib.iccf' not found". Official FT4-setup git pin (verified
+        // installable + green with chr install / chr test on 2026-09-02).
+        // The production app never imports it; run_rell_tests vendors its own.
+        append("  # Required only by the shipped tests (FT4 test helpers import lib.iccf).\n")
+        append(
+            Ft4ModuleArgs.gitIccfYaml()
+                .removePrefix("libs:\n")
+        )
     }
 
     private fun ft4MainRell(): String = """
@@ -449,7 +481,10 @@ object DappScaffold {
 
         // Invariant tests the scaffold ships. They are real: they register FT4
         // test accounts, sign operations, and run against PostgreSQL - via
-        // run_rell_tests (server needs CHROMIA_TEST_DATABASE_URL) or `chr test`.
+        // run_rell_tests (server needs CHROMIA_TEST_DATABASE_URL; pass the
+        // module_args from chromia.yml INCLUDING the test.moduleArgs block) or
+        // `chr test` (works as scaffolded: the yml carries the required
+        // test-only FT4 admin args and the iccf lib the test helpers import).
         // Keep them passing as main.rell grows, and add one such test for every
         // property your app's economics depend on:
         //   - CONSERVATION: a transfer never changes the total in circulation.
