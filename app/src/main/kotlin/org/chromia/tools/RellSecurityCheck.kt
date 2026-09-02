@@ -503,6 +503,18 @@ object RellSecurityCheck {
         // Row fields that hold a price-derived quote (redemption.cash_due): the
         // operation that pays such a quote out reads no price itself.
         val priceDerivedFields = priceDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns, priceReadFunctions)
+        // Row fields carrying value that was already debited when the row was
+        // created (a vesting grant's total): a payout bounded by one of these
+        // is paid out of escrow, not minted.
+        val escrowedCaps = escrowedCapFields(fullyMasked, allEntityNames, entityHelperReturns)
+        // A clock parked in a row by one operation is the same public number
+        // when another reads it back, so those fields are clock sources too.
+        val storedClockFields = clockDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns)
+        // Identity-typed attributes: the fields that name WHO a row belongs to.
+        // The randomness rule keys the beneficiary on this type, never on a name.
+        val identityFieldNames = entityFields(fullyMasked)
+            .filter { it.type.trimEnd('?') == "byte_array" }
+            .mapTo(mutableSetOf()) { it.name }
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -577,7 +589,12 @@ object RellSecurityCheck {
                 findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
-                    path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields, inlinable
+                    path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
+                    inlinable, escrowedCaps
+                )
+                findings += blockClockRandomnessFindings(
+                    path, op, allEntityNames, entityHelperReturns, inlinable, identityFieldNames,
+                    storedClockFields
                 )
             }
         }
@@ -635,8 +652,14 @@ object RellSecurityCheck {
                     "path, signer-gate integrity, auth-marker binding to real FT4, auth-handler flags, " +
                     "mass mutations, require() validation incl. amount sign bounds and per-parameter " +
                     "coverage, ICMF sender binding, ICCF proof provenance, query secret exposure, banned " +
-                    "FT4 admin modules, hardcoded secrets) - a clean report does not replace a security " +
-                    "audit. Economic invariants (quorum, quorum gates dropped on a sibling payout path, " +
+                    "FT4 admin modules, hardcoded secrets, the block clock used to SELECT who receives " +
+                    "value) - a clean report does not replace a security audit. These rules structurally " +
+                    "cannot see whether an outcome meant to be UNPREDICTABLE actually is (no chain value " +
+                    "is secret: a hash, a counter or a seed mixed from on-chain state is public before " +
+                    "the transaction is signed, so only the block-clock-as-selector shape is caught), nor " +
+                    "anything about TRANSACTION ORDERING / MEV (front-running, sandwiching, a price or a " +
+                    "listing repriced under a pending transaction). Economic invariants (quorum, quorum " +
+                    "gates dropped on a sibling payout path, " +
                     "voting windows, reserve backing of price- and time-derived credits, locked value " +
                     "sinks) get ADVISORY MEDIUM findings only: they are design judgments no static rule " +
                     "can prove, they never block, and their absence does not certify sound economics."
@@ -1941,6 +1964,60 @@ object RellSecurityCheck {
     private val TIME_SOURCE_NAMES = setOf("op_context.last_block_time", "op_context.block_height", "block")
 
     /**
+     * `(entity, field)` pairs that hold an amount ALREADY DEBITED elsewhere:
+     * some operation debits a value field by an amount and, in the same
+     * operation, creates a row of that entity carrying the same amount
+     * expression in that field. `update p ( .unclaimed -= amount ); create
+     * vesting_grant(total = amount)` - the grant's `total` is escrowed value,
+     * not a promise, so a payout bounded by it mints nothing.
+     */
+    internal fun escrowedCapFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): Set<Pair<String, String>> {
+        val out = mutableSetOf<Pair<String, String>>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val bodies = scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second }
+            bodies.forEach { body ->
+                val writes = amountWrites(body, entities, helperReturns)
+                val debited = writes.filter { it.flow == Flow.DEBIT }
+                    .map { it.amount.replace(WS_REGEX, "") }
+                    .filter { it.isNotEmpty() && it != "0" }
+                    .toSet()
+                if (debited.isEmpty()) return@forEach
+                writes.filter { it.create && it.entity != null }.forEach { w ->
+                    if (w.amount.replace(WS_REGEX, "") in debited) out.add(w.entity!! to w.field)
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Field names that appear as a SUBTRAHEND anywhere in [expr]'s closure -
+     * the quantities that make the value smaller. `claimable = vested -
+     * g.released` puts `released` here: crediting `released` reduces what the
+     * next call can pay, which is what makes a `+=` a debit.
+     */
+    private fun subtrahendFields(expr: String, bindings: Map<String, List<String>>): Set<String> {
+        val out = mutableSetOf<String>()
+        fun scan(text: String) {
+            var rest = text
+            while (true) {
+                val i = topLevelOperator(rest, '-')
+                if (i < 0) break
+                refsOf(rest.substring(i + 1)).forEach { out.add(it.substringAfterLast('.')) }
+                rest = rest.substring(i + 1)
+            }
+        }
+        scan(expr)
+        refClosure(expr, bindings).forEach { name -> bindings[name]?.forEach { scan(it) } }
+        return out
+    }
+
+    /**
      * MEDIUM, one finding per operation, when a value field is credited with
      * an amount that comes from nowhere - three shapes of the same mint:
      *
@@ -1979,7 +2056,8 @@ object RellSecurityCheck {
         helperReturns: Map<String, String>,
         priceReadFunctions: Set<String>,
         priceDerivedFields: Set<String>,
-        helpers: Map<String, List<FunctionDef>>
+        helpers: Map<String, List<FunctionDef>>,
+        escrowedCaps: Set<Pair<String, String>>
     ): List<Finding> {
         val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
         val bindings = bindingsOf(flat)
@@ -1998,6 +2076,27 @@ object RellSecurityCheck {
             return debitClosures.any { d -> d.any { it in cc && it in derived } }
         }
         fun where(c: AmountWrite) = if (c.entity != null) "${c.entity}.${c.field}" else c.field
+        // A released-so-far counter IS the paired debit. The vesting shape:
+        // `update g ( .released += claimable )` next to `update m ( .balance +=
+        // claimable )`, where `claimable = vested - g.released` and the row's
+        // cap was itself debited from a funded pool when the grant was created.
+        // Crediting the counter strictly reduces what the next call can pay, so
+        // the payout is bounded by escrowed value and mints nothing - the rule
+        // used to demand a `-=` and called this a mint (adversary round 5).
+        fun backedByEscrowedRelease(c: AmountWrite): Boolean {
+            val amount = c.amount.replace(WS_REGEX, "")
+            if (amount.isEmpty() || amount == "0") return false
+            val subtrahends = subtrahendFields(c.amount, bindings)
+            val closure = refClosure(c.amount, bindings)
+            return writes.any { w ->
+                w.flow == Flow.CREDIT && !w.create && w.entity != null && w.entity != c.entity &&
+                    w.amount.replace(WS_REGEX, "") == amount &&
+                    w.field in subtrahends &&
+                    escrowedCaps.any { (entity, cap) ->
+                        entity == w.entity && cap != w.field && closure.any { it.endsWith(".$cap") }
+                    }
+            }
+        }
         val fixTail = "Advisory: conservation cannot be proven statically - if this credit is an " +
             "intentional emission backed elsewhere, document it and ignore this finding."
 
@@ -2063,7 +2162,7 @@ object RellSecurityCheck {
                 val cc = refClosure(c.amount, bindings)
                 cc.any { it in timeDerived } &&
                     (ARITHMETIC_REGEX.containsMatchIn(c.amount) || cc.any { it in scaled }) &&
-                    !backedByFlow(c, timeDerived)
+                    !backedByFlow(c, timeDerived) && !backedByEscrowedRelease(c)
             }
             if (credit != null) {
                 return listOf(
@@ -2082,6 +2181,207 @@ object RellSecurityCheck {
             }
         }
         return emptyList()
+    }
+
+    // ---- block-clock-randomness (the chain's clock used as a lottery) ----
+    // Adversary round 5 dapp4: a raffle picks its winner with
+    // `op_context.last_block_time % ticket_count`. last_block_time is the
+    // PREVIOUS block's timestamp - already committed and public when the
+    // attacker signs the draw - so the winner is computable in advance, anyone
+    // may trigger the draw, and a losing entrant simply waits for a block whose
+    // clock names a ticket they hold. Block height has the identical property,
+    // and so does any hash of either: there is no per-block secret an operation
+    // can reach. Every other guard was present and the gate was silent.
+    //
+    // The rule keys on TYPE AND USE, never on names. The source is the language
+    // construct (`op_context.last_block_time`, `op_context.block_height`,
+    // `block @ {...}`) closed over every local it flows into, through helpers,
+    // conversions and hashes. The use that matters is SELECTION: the clock
+    // reduced by `%`, compared for equality against a row, or indexed with -
+    // and then deciding who receives value. A legitimate schedule uses the
+    // clock as a BOUND (`require(now >= deadline)`, a staleness check, a
+    // cooldown): an inequality that can only abort, never choose. Bounds are
+    // untouched by this rule.
+
+    /**
+     * Row fields written from a block-clock value anywhere in the app. Parking
+     * `op_context.last_block_time` in a row and drawing from the stored copy in
+     * a later operation is the same public number one block later, so reads of
+     * these fields count as clock reads.
+     */
+    internal fun clockDerivedStoredFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): Set<String> {
+        val out = mutableSetOf<String>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val bodies = scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second }
+            bodies.forEach { body ->
+                if (!TIME_SOURCE_REGEX.containsMatchIn(body)) return@forEach
+                val bindings = bindingsOf(body)
+                val clock = derivedNames(bindings, TIME_SOURCE_NAMES, TIME_SOURCE_REGEX)
+                amountWrites(body, entities, helperReturns).forEach { w ->
+                    val fromClock = TIME_SOURCE_REGEX.containsMatchIn(w.amount) ||
+                        refsOf(w.amount).any { it in clock }
+                    if (fromClock) out.add(w.field)
+                }
+            }
+        }
+        return out
+    }
+
+    /** `x[i]` - a subscript, not a `@ {}` block or a type parameter. */
+    private val SUBSCRIPT_REGEX = Regex("""[A-Za-z_)\]]\s*\[""")
+
+    /** The operand tokens either side of an `==`/`!=`, in source order. */
+    private val EQUALITY_OPERANDS_REGEX = Regex(
+        """([A-Za-z_][\w.]*(?:\s*\.\s*\w+\s*\(\s*\))?|\d+)\s*(?:==|!=)\s*([A-Za-z_][\w.]*(?:\s*\.\s*\w+\s*\(\s*\))?|\d+)"""
+    )
+
+    /**
+     * True when [expr] uses a block-clock value to SELECT rather than to bound:
+     * reduced modulo something, compared for equality against a non-literal, or
+     * used as a subscript. An inequality against the clock (a deadline, a
+     * staleness bound, a cooldown) is deliberately not a selector.
+     */
+    private fun clockSelectorUse(expr: String, clockNames: Set<String>, clockSource: Regex): Boolean {
+        fun isClock(token: String): Boolean {
+            val t = token.replace(WS_REGEX, "")
+            return t in clockNames || clockSource.containsMatchIn(t)
+        }
+        val refsClock = refsOf(expr).any { it in clockNames } || clockSource.containsMatchIn(expr)
+        if (!refsClock) return false
+        if (expr.contains('%')) return true
+        if (SUBSCRIPT_REGEX.containsMatchIn(expr)) return true
+        return EQUALITY_OPERANDS_REGEX.findAll(expr).any { m ->
+            val (l, r) = m.groupValues[1] to m.groupValues[2]
+            // `x == 0` is an initialisation test, not a row selection.
+            val literal = l.toLongOrNull() != null || r.toLongOrNull() != null
+            !literal && (isClock(l) || isClock(r))
+        }
+    }
+
+    /**
+     * HIGH, one finding per operation, when a block-clock value selects who
+     * receives value: the update target of a value credit (or an identity
+     * field the operation writes) traces back to a clock value used as a
+     * selector. Not an advisory - the loser who waits for a favourable block
+     * takes the pot, which is a drain with a running proof of concept.
+     */
+    private fun blockClockRandomnessFindings(
+        path: String,
+        op: OperationBlock,
+        entities: Set<String>,
+        helperReturns: Map<String, String>,
+        helpers: Map<String, List<FunctionDef>>,
+        identityFields: Set<String>,
+        storedClockFields: Set<String>
+    ): List<Finding> {
+        val flat = flattenHelpers(op.body, helpers, entities)
+        // A clock parked in a row by one operation and read back by another is
+        // the same public value one block later, so a read of such a field is a
+        // clock source too (evasion E8: `update r ( .seed = last_block_time )`
+        // in `seal`, `r.seed % ticket_count` in `draw`).
+        val storedRead = fieldReadRegex(storedClockFields)
+        val clockSource = if (storedRead == null) TIME_SOURCE_REGEX else
+            Regex("(?:${TIME_SOURCE_REGEX.pattern})|(?:${storedRead.pattern})")
+        if (!clockSource.containsMatchIn(flat)) return emptyList()
+        val bindings = bindingsOf(flat)
+        val clockNames = derivedNames(bindings, TIME_SOURCE_NAMES, clockSource)
+        // Seeds: locals whose VALUE came out of a selector use of the clock.
+        // Everything computed from a seed inherits it, so routing the draw
+        // through an intermediate val, a helper or a hash changes nothing.
+        val seeds = bindings.filterValues { rhs -> rhs.any { clockSelectorUse(it, clockNames, clockSource) } }.keys
+        if (seeds.isEmpty() && !statementsOf(flat).any { clockSelectorUse(it, clockNames, clockSource) }) return emptyList()
+        val selectors = derivedNames(bindings, seeds, null)
+
+        fun selected(text: String): Boolean =
+            refClosure(text, bindings).any { it in selectors } || clockSelectorUse(text, clockNames, clockSource)
+
+        var beneficiary: String? = null
+        var how: String? = null
+        // A payout can also be gated on the draw instead of flowing from it:
+        // `require(t.holder == account.id)` where `t` is the clock-selected row
+        // lets the caller collect only when the clock named them. The row the
+        // credit updates is the caller's own, so the target trace above sees
+        // nothing - the guard is what the clock decides (evasion E10).
+        var identityGuard = false
+        var valueCredited = false
+        statementsOf(flat).forEach { stmt ->
+            if (beneficiary != null) return@forEach
+            updateSetList(stmt)?.let { (head, items) ->
+                val target = updateTargetName(head)
+                // The row that receives the value: a local carrying the drawn
+                // row, or the where-clause that picked it.
+                // `if (now % 2 == 0) { update alice (...)` puts the draw in the
+                // same `;`-fragment as the payout, so the statement counts too.
+                val targetSelected = selected(target) || selected(head) || clockSelectorUse(stmt, clockNames, clockSource)
+                items.forEach { (field, opText, rhs) ->
+                    if (beneficiary != null) return@forEach
+                    val (flow, _) = flowOf(opText, rhs)
+                    if (flow == Flow.CREDIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(field)) valueCredited = true
+                    if (flow == Flow.CREDIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(field) && targetSelected) {
+                        beneficiary = if (target.isNotEmpty()) "$target.$field" else field
+                        how = "the row credited with $field"
+                    } else if (field in identityFields && selected(rhs)) {
+                        beneficiary = field
+                        how = "the identity stored in $field"
+                    }
+                }
+            }
+            EQUALITY_OPERANDS_REGEX.findAll(stmt).forEach { eq ->
+                val sides = listOf(eq.groupValues[1], eq.groupValues[2])
+                val fromDraw = sides.any { refClosure(it, bindings).any { r -> r in selectors } }
+                val onIdentity = sides.any { it.substringAfterLast('.') in identityFields }
+                if (fromDraw && onIdentity) identityGuard = true
+            }
+        }
+        if (beneficiary == null && identityGuard && valueCredited) {
+            beneficiary = "who may collect"
+            how = "the identity the payout is gated on"
+        }
+        if (beneficiary == null) {
+            // `create winner_record(holder = <drawn>)` - recording the draw now
+            // and paying it out later is the same lottery.
+            CREATE_STMT_REGEX.findAll(flat).forEach { m ->
+                if (beneficiary != null) return@forEach
+                if (m.groupValues[1] !in entities) return@forEach
+                val parenStart = flat.indexOf('(', m.range.first)
+                val parenEnd = matchDelimiter(flat, parenStart, '(', ')') ?: return@forEach
+                splitArgs(flat.substring(parenStart + 1, parenEnd)).forEach { arg ->
+                    if (beneficiary != null) return@forEach
+                    CREATE_ITEM_REGEX.find(arg)?.let { a ->
+                        if (a.groupValues[1] in identityFields && selected(a.groupValues[2])) {
+                            beneficiary = "${m.groupValues[1]}.${a.groupValues[1]}"
+                            how = "the identity stored in ${a.groupValues[1]}"
+                        }
+                    }
+                }
+            }
+        }
+        val target = beneficiary ?: return emptyList()
+        return listOf(
+            Finding(
+                "HIGH", "block-clock-randomness", path, op.line,
+                "operation ${op.name} decides $target from the block clock " +
+                    "(op_context.last_block_time / block_height, or a value derived from one) used as a " +
+                    "SELECTOR - ${how!!} is picked by it. That value is the previous block's, already " +
+                    "committed and public when the transaction is signed, so the outcome is computable " +
+                    "in advance: anyone who may trigger this operation waits for a block whose clock " +
+                    "names them and takes the value on demand (adversary round 5 drained a raffle pot " +
+                    "this way). Hashing the clock, using height instead of time, or routing it through a " +
+                    "helper does not change this - there is no per-block secret an operation can read",
+                "Do not derive an outcome from the block clock. Use commit-reveal (every entrant commits " +
+                    "hash(secret) before the close, reveals after it, and the seed is the XOR of the " +
+                    "revealed secrets, with a forfeit for not revealing), or an external randomness " +
+                    "beacon delivered by a signed oracle operation. If the value is meant to be first-" +
+                    "come-first-served rather than random, select the recipient explicitly and say so. " +
+                    "The block clock is legitimate as a BOUND (require(op_context.last_block_time >= " +
+                    "deadline)) - only never as the thing that picks the winner."
+            )
+        )
     }
 
     // ---- vote-gated-payout-drops-quorum (copied payout path) ----
@@ -2173,7 +2473,121 @@ object RellSecurityCheck {
 
     /** Entity/field names that suggest the row HOLDS collected value. */
     private val SINK_NAME_REGEX = Regex("""fee|pot|treasury|vault|reserve|escrow|pool""", RegexOption.IGNORE_CASE)
-    private val MUTABLE_FIELD_REGEX = Regex("""\bmutable\s+([A-Za-z_]\w*)""")
+
+    /** One declared attribute of an entity, with its declared type. */
+    internal data class EntityField(
+        val entity: String,
+        val name: String,
+        val type: String,
+        val mutable: Boolean,
+        val file: String,
+        val line: Int
+    )
+
+    private val ATTR_PREFIX_REGEX = Regex("""\A\s*(?:(?:key|index|mutable)\b\s*)+""")
+    private val ATTR_LEAD_KEYWORDS = Regex("""\b(?:key|index|mutable)\b""")
+
+    /**
+     * Every attribute declared by every entity in the (masked) submission.
+     * Attribute lists are split on both `;` and `,` so the compound forms
+     * (`key member, seq: integer;`, `key owner: byte_array;`) yield one entry
+     * per name; a name with no `: type` is an entity reference whose type is
+     * its own name (`key member` -> type `member`), which is how Rell reads it.
+     */
+    internal fun entityFields(fullyMasked: Map<String, String>): List<EntityField> {
+        val out = mutableListOf<EntityField>()
+        fullyMasked.forEach { (path, masked) ->
+            ENTITY_DEF_REGEX.findAll(masked).forEach { m ->
+                val entity = m.groupValues[1]
+                val braceStart = masked.indexOf('{', m.range.last)
+                if (braceStart < 0) return@forEach
+                val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
+                var cursor = braceStart + 1
+                val block = masked.substring(braceStart + 1, braceEnd)
+                block.split(';', ',').forEach { rawFragment ->
+                    val start = cursor
+                    cursor += rawFragment.length + 1
+                    val fragment = rawFragment.substringBefore('=')
+                    val mutable = ATTR_LEAD_KEYWORDS.find(fragment)?.value == "mutable" ||
+                        Regex("""\bmutable\b""").containsMatchIn(fragment)
+                    val stripped = ATTR_PREFIX_REGEX.replace(fragment, "").trim()
+                    if (stripped.isEmpty()) return@forEach
+                    val name = stripped.substringBefore(':').trim()
+                    if (!Regex("""\A[A-Za-z_]\w*\z""").matches(name)) return@forEach
+                    val type = if (stripped.contains(':')) stripped.substringAfter(':').trim() else name
+                    val line = masked.substring(0, start).count { it == '\n' } + 1 +
+                        rawFragment.takeWhile { it.isWhitespace() }.count { it == '\n' }
+                    out.add(EntityField(entity, name, type, mutable, path, line))
+                }
+            }
+        }
+        return out
+    }
+
+    /** Local -> entity for function/operation parameters declared with an entity type. */
+    private fun paramTypeAliases(masked: String, entities: Set<String>): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        Regex("""\b(?:function|operation|query)\s+[A-Za-z_]\w*\s*\(([^()]*)\)""").findAll(masked).forEach { m ->
+            parseParams(m.groupValues[1]).forEach { (name, type) ->
+                val t = type.trim().trimEnd('?')
+                if (t in entities) out[name] = t
+            }
+        }
+        return out
+    }
+
+    /** The text from the previous statement/block delimiter to the next one. */
+    private fun enclosingStatement(text: String, index: Int): String {
+        var start = index
+        while (start > 0 && text[start - 1] !in ";{}") start--
+        var end = index
+        while (end < text.length && text[end] !in ";{}") end++
+        return text.substring(start, end)
+    }
+
+    /**
+     * True when [field] of [entity] is read somewhere in the app as an
+     * ACCOUNTING TERM - a factor in a `*`/`/` computation - and nowhere as a
+     * spendable balance (no `>= amount` sufficiency check on it).
+     *
+     * This is the per-share accumulator and the denominator it divides by:
+     * `acc_reward_per_share` and `total_staked` are a scaled INDEX and a sum,
+     * monotonic by construction, and the value they index is paid out of a
+     * different field. The rule's own advice - "add an admin operation that
+     * debits it" - would corrupt every staker's payout, so firing on this
+     * shape is the gate crying wolf on the pattern its own staking template
+     * teaches (adversary round 5). A locked fee pot has the opposite profile:
+     * it is credited and then never read at all.
+     *
+     * A read counts as this field's only when the receiver resolves to
+     * [entity] or the field name is declared on exactly one entity in the
+     * submission - so `wallet.balance / 2` elsewhere cannot exempt
+     * `fee_pot.balance`.
+     */
+    private fun isAccountingIndex(
+        bodies: List<Pair<String, Map<String, String>>>,
+        entity: String,
+        field: String,
+        uniqueFieldName: Boolean
+    ): Boolean {
+        val esc = Regex.escape(field)
+        val readRegex = Regex("""([A-Za-z_]\w*)\s*\.\s*$esc\b(?!\s*(?:\(|=(?!=)|\+=|-=))""")
+        val sufficiency = Regex(
+            """(?:\.\s*$esc\b(?:\s*\.\s*\w+\s*\(\s*\))?\s*(?:>=|<=|>|<)\s*(?!0\b)[A-Za-z_(]""" +
+                """|(?<![<>=!])(?:>=|<=|>|<)\s*[A-Za-z_]\w*\s*\.\s*$esc\b)"""
+        )
+        var arithmeticRead = false
+        bodies.forEach { (masked, alias) ->
+            readRegex.findAll(masked).forEach { m ->
+                val recv = m.groupValues[1]
+                if (!uniqueFieldName && alias[recv] != entity && recv != entity) return@forEach
+                val stmt = enclosingStatement(masked, m.range.first)
+                if (sufficiency.containsMatchIn(stmt)) return false
+                if (ARITHMETIC_REGEX.containsMatchIn(stmt)) arithmeticRead = true
+            }
+        }
+        return arithmeticRead
+    }
 
     /**
      * MEDIUM, once per sink field, when a value-holding field on a
@@ -2196,42 +2610,46 @@ object RellSecurityCheck {
             !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
                 !RunRellTests.isTestModuleSource(files.getValue(path))
         }
-        data class SinkField(val entity: String, val field: String, val file: String, val line: Int)
-        val candidates = mutableListOf<SinkField>()
-        eligible.forEach { path ->
-            val masked = fullyMasked.getValue(path)
-            ENTITY_DEF_REGEX.findAll(masked).forEach { m ->
-                val name = m.groupValues[1]
-                val braceStart = masked.indexOf('{', m.range.last)
-                if (braceStart < 0) return@forEach
-                val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
-                val block = masked.substring(braceStart + 1, braceEnd)
-                val line = masked.substring(0, m.range.first).count { it == '\n' } + 1
-                MUTABLE_FIELD_REGEX.findAll(block).forEach { f ->
-                    val field = f.groupValues[1]
-                    if (!VALUE_FIELD_NAME_REGEX.containsMatchIn(field)) return@forEach
-                    if (!SINK_NAME_REGEX.containsMatchIn(name) && !SINK_NAME_REGEX.containsMatchIn(field)) return@forEach
-                    candidates.add(SinkField(name, field, path, line))
-                }
-            }
-        }
+        val declaredFields = entityFields(fullyMasked.filterKeys { it in eligible })
+        val fieldOwners = declaredFields.groupBy({ it.name }, { it.entity })
+            .mapValues { (_, v) -> v.toSet() }
+        // One candidate per (entity, field), anchored on the FIELD's line: two
+        // sink fields on one entity used to report twice on the entity's line
+        // and read as a duplicate emission (adversary round 5).
+        val candidates = declaredFields.filter { f ->
+            f.mutable && VALUE_FIELD_NAME_REGEX.containsMatchIn(f.name) &&
+                (SINK_NAME_REGEX.containsMatchIn(f.entity) || SINK_NAME_REGEX.containsMatchIn(f.name))
+        }.distinctBy { it.entity to it.name }
         if (candidates.isEmpty()) return emptyList()
+        // Only operation and function bodies count as reads: a query that
+        // formats the field for display is not a payout computation.
+        val bodies = eligible.flatMap { path ->
+            val masked = fullyMasked.getValue(path)
+            val fileAlias = paramTypeAliases(masked, entities)
+            (scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second })
+                .map { body -> body to (fileAlias + aliasMap(body, entities, helperReturns)) }
+        }
         val writes = eligible.flatMap { valueWrites(fullyMasked.getValue(it), entities, helperReturns) }
         return candidates.mapNotNull { c ->
-            val fieldWrites = writes.filter { it.field == c.field && it.entity == c.entity }
+            val fieldWrites = writes.filter { it.field == c.name && it.entity == c.entity }
             val credited = fieldWrites.any { it.kind == "+=" || it.kind == "create" }
             val drained = fieldWrites.any { it.kind == "-=" || it.kind == "=" }
             val unresolvedOut = writes.any {
-                it.entity == null && it.field == c.field && (it.kind == "-=" || it.kind == "=")
+                it.entity == null && it.field == c.name && (it.kind == "-=" || it.kind == "=")
             }
             if (!credited || drained || unresolvedOut) return@mapNotNull null
+            // An accumulator/denominator is not a pot: it is read as a factor
+            // in a payout computation, so debiting it corrupts the payout.
+            if (isAccountingIndex(bodies, c.entity, c.name, fieldOwners[c.name]?.size == 1)) {
+                return@mapNotNull null
+            }
             Finding(
                 "MEDIUM", "value-sink-without-withdrawal", c.file, c.line,
-                "${c.entity}.${c.field} is only ever incremented - fees/value accumulate here and no " +
+                "${c.entity}.${c.name} is only ever incremented - fees/value accumulate here and no " +
                     "operation in the app can ever pay them out, so everything credited is permanently " +
                     "locked at deploy time",
                 "Add a withdrawal path behind an explicit gate (e.g. an admin operation keyed to " +
-                    "chain_context.args that debits ${c.entity}.${c.field}), or route fees to an owned " +
+                    "chain_context.args that debits ${c.entity}.${c.name}), or route fees to an owned " +
                     "account. Advisory: if locking value forever is intended (burn sink), document it " +
                     "and ignore this finding."
             )
