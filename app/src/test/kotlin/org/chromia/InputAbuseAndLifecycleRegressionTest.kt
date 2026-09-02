@@ -158,4 +158,97 @@ class InputAbuseAndLifecycleRegressionTest {
         assertTrue(result.ok, result.errors.toString())
     }
 
+    // ---- Lens 1: moduleArgs under a wrong module name were silently dropped ----
+
+    private val logicTest = buildJsonObject {
+        put("math_test.rell", "@test module;\nfunction test_math() { assert_equals(2 + 2, 4); }")
+    }
+
+    private fun runTests(files: JsonObject, moduleArgs: JsonObject): CallToolResult =
+        call("run_rell_tests", buildJsonObject { put("files", files); put("moduleArgs", moduleArgs) })
+
+    @Test
+    fun moduleArgsMustNameAModuleThatDeclaresModuleArgs() {
+        val unknown = runTests(logicTest, buildJsonObject { put("nope", buildJsonObject { put("x", 1) }) })
+        assertEquals(true, unknown.isError, text(unknown))
+        assertTrue(text(unknown).contains("moduleArgs names module 'nope', but no such module"), text(unknown))
+
+        val path = runTests(logicTest, buildJsonObject { put("math_test.rell", buildJsonObject { put("x", 1) }) })
+        assertEquals(true, path.isError, text(path))
+        assertTrue(text(path).contains("looks like a file path"), text(path))
+
+        val empty = runTests(logicTest, buildJsonObject { put("", buildJsonObject { put("x", 1) }) })
+        assertEquals(true, empty.isError, text(empty))
+        assertTrue(text(empty).contains("is not a valid Rell module name"), text(empty))
+
+        val undeclared = runTests(logicTest, buildJsonObject { put("math_test", buildJsonObject { put("x", 1) }) })
+        assertEquals(true, undeclared.isError, text(undeclared))
+        assertTrue(text(undeclared).contains("declares no `struct module_args`"), text(undeclared))
+
+        // Traversal-shaped keys never touch the file system.
+        val traversal = runTests(logicTest, buildJsonObject { put("../x", buildJsonObject { put("x", 1) }) })
+        assertEquals(true, traversal.isError, text(traversal))
+        assertTrue(text(traversal).contains("looks like a file path"), text(traversal))
+        val dots = runTests(logicTest, buildJsonObject { put("..", buildJsonObject { put("x", 1) }) })
+        assertEquals(true, dots.isError, text(dots))
+        assertTrue(text(dots).contains("is not a valid Rell module name"), text(dots))
+    }
+
+    @Test
+    fun moduleArgsForRealModulesStillReachTheTests() {
+        // A user module (file form) declaring module_args.
+        val userModule = runTests(
+            buildJsonObject {
+                put("cfg.rell", "module;\nstruct module_args { greeting: text; }\nfunction greet() = chain_context.args.greeting;")
+                put("cfg_test.rell", "@test module;\nimport cfg;\nfunction test_greet() { assert_equals(cfg.greet(), \"hi\"); }")
+            },
+            buildJsonObject { put("cfg", buildJsonObject { put("greeting", "hi") }) }
+        )
+        assertTrue(userModule.isError != true, text(userModule))
+        assertEquals("true", userModule.structuredContent!!.getValue("ok").jsonPrimitive.content, text(userModule))
+
+        // A directory module whose header-less file declares module_args resolves
+        // at the resolver level (the compiler's own handling of module_args in
+        // directory layouts is out of scope here - see the QA report).
+        val dir = java.nio.file.Files.createTempDirectory("module-args-resolve")
+        try {
+            java.nio.file.Files.createDirectories(dir.resolve("app"))
+            java.nio.file.Files.writeString(dir.resolve("app/module.rell"), "module;")
+            java.nio.file.Files.writeString(dir.resolve("app/config.rell"), "// struct module_args in a comment does not count\nstruct module_args { limit: integer; }")
+            java.nio.file.Files.writeString(dir.resolve("app/logic.rell"), "function limit() = chain_context.args.limit;")
+            java.nio.file.Files.createDirectories(dir.resolve("app/sub"))
+            java.nio.file.Files.writeString(dir.resolve("app/sub/x.rell"), "module; // no module_args here")
+            RunRellTests.requireModuleArgsResolve(dir, listOf("app"))
+            val sub = assertThrows(IllegalArgumentException::class.java) {
+                RunRellTests.requireModuleArgsResolve(dir, listOf("app.sub.x"))
+            }
+            assertTrue(sub.message!!.contains("declares no `struct module_args`"), sub.message)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+
+        // The vendored FT4 tree resolves too: the scaffold's full test set names
+        // lib.ft4, lib.ft4.core.accounts, lib.ft4.core.admin and
+        // lib.ft4.test.core.auth (a FILE module) - none may be refused.
+        val ft4 = DappScaffold.files("notes", template = "ft4")
+            .filterKeys { it.endsWith(".rell") }
+            .mapKeys { (path, _) -> path.removePrefix("src/") }
+        val result = RunRellTests.run(ft4, databaseUrl = null, moduleArgs = DappScaffold.ft4TestModuleArgs())
+        assertEquals(3, result.total, result.notes)
+        assertFalse(result.notes.contains("moduleArgs names module"), result.notes)
+    }
+
+    @Test
+    fun localChainPrepareRefusesModuleArgsForUnknownModules() {
+        val e = assertThrows(IllegalArgumentException::class.java) {
+            LocalChain.prepare(
+                mapOf("main.rell" to "module; entity item { name; }"),
+                "jdbc:postgresql://localhost:1/x",
+                mapOf("lib.ft4.accounts" to mapOf("x" to JsonPrimitive(1))),
+                null
+            )
+        }
+        assertTrue(e.message!!.contains("moduleArgs names module 'lib.ft4.accounts', but no such module"), e.message)
+    }
+
 }

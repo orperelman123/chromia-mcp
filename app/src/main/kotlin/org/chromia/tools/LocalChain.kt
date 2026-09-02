@@ -259,6 +259,9 @@ object LocalChain {
             if (submittedVendored == 0 && RellLibs.needsFt4(sources)) {
                 RellLibs.provisionFt4(tempDir)
             }
+            // Same contract as run_rell_tests: a mistyped module key must not
+            // start a chain that silently runs without the args.
+            RunRellTests.requireModuleArgsResolve(tempDir, moduleArgs.keys)
             val appModules = (RellLibs.userAppModules(sources) - testModules).distinct()
             require(appModules.isNotEmpty()) {
                 "No app modules found - a chain needs at least one non-test module (e.g. \"main.rell\": \"module; ...\"). " +
