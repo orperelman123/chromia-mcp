@@ -737,7 +737,32 @@ class DeployTestnetChainStrategy(
                     "path -> source). The gates cannot vouch for code they never saw."
             )
         val blockchain = extractString(args, "blockchain")?.takeIf { it.isNotBlank() } ?: "my_dapp"
+        // The name is a chromia.yml key AND a chr command-line argument. An
+        // invalid name used to slip through: the generated scaffold silently
+        // normalized it (DappScaffold.normalizeName falls back to "my_dapp")
+        // while `chr --blockchain` kept the raw value, so a dry run reported
+        // all gates passed for a deploy that could not succeed - and on
+        // Windows the raw value reached `cmd /c`, where shell metacharacters
+        // are live. Reject instead of silently substituting.
+        if (!Regex("^[a-z][a-z0-9_]{0,31}$").matches(blockchain)) {
+            return toolErrorResult(
+                "blockchain \"${blockchain.take(60)}\" is not a valid chain name: it must start with a " +
+                    "lowercase letter and contain only lowercase letters, digits, or underscores, at most " +
+                    "32 characters ([a-z][a-z0-9_]{0,31}). The name keys the chromia.yml blockchains " +
+                    "block and is passed to chr, so nothing else deploys the code you sent."
+            )
+        }
         val containerArg = extractString(args, "container")?.takeIf { it.isNotBlank() }
+        // Spliced into the generated YAML and compared against the yml's own
+        // container line, which only ever matches this charset - anything else
+        // used to corrupt the YAML first and then fail with a misattributed
+        // "conflicts with deployments.testnet.container" error.
+        if (containerArg != null && !Regex("^[A-Za-z0-9_.-]{1,128}$").matches(containerArg)) {
+            return toolErrorResult(
+                "container \"${containerArg.take(60)}\" is not a valid container lease name (letters, " +
+                    "digits, and _ . - only) - pass the name returned by provision_testnet_container."
+            )
+        }
         val providedYml = extractString(args, "chromiaYml")?.takeIf { it.isNotBlank() }
         val mode = when (val m = extractString(args, "mode")?.takeIf { it.isNotBlank() } ?: "create") {
             "create", "update" -> m

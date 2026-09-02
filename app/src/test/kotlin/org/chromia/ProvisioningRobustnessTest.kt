@@ -174,6 +174,61 @@ class ProvisioningRobustnessTest {
         )
     }
 
+    // ---- 2. blockchain name is validated, never silently substituted --------
+
+    @Test
+    fun deployRejectsBlockchainNameTheScaffoldWouldSilentlyRewrite(@TempDir dir: Path) = runBlocking {
+        // "My-Dapp" normalizes to the scaffold default, "my_dapp & echo pwned"
+        // additionally carries cmd metacharacters that a Windows `cmd /c chr`
+        // launch would interpret. Both used to pass the dry run as
+        // "all gates passed" while a live run could not deploy that name.
+        for (name in listOf("My-Dapp", "my_dapp & echo pwned")) {
+            val strategy = DeployTestnetChainStrategy(
+                env = mapOf(TestnetProvisioning.CHROMIA_DIR_ENV to dir.toString()),
+                keyStore = DeployKeyStore(dir),
+                processRunner = fakeChr,
+                tempDirFactory = { java.nio.file.Files.createTempDirectory(dir, "deploy") }
+            )
+            val result = strategy.execute(
+                call("deploy_testnet_chain", buildJsonObject {
+                    put("rell", "module;")
+                    put("container", "or_container_42")
+                    put("blockchain", name)
+                }),
+                hangingRepository(queryHangMs = 0, heightHangMs = 0)
+            )
+            assertEquals(
+                true, result.isError,
+                "blockchain \"$name\" must be a validation error - the generated chromia.yml would " +
+                    "define a DIFFERENT name than the chr command deploys: ${result.structuredContent}"
+            )
+            assertTrue(errorText(result).contains("valid chain name"), errorText(result))
+        }
+    }
+
+    @Test
+    fun deployRejectsContainerNameOutsideTheLeaseCharset(@TempDir dir: Path) = runBlocking {
+        val strategy = DeployTestnetChainStrategy(
+            env = mapOf(TestnetProvisioning.CHROMIA_DIR_ENV to dir.toString()),
+            keyStore = DeployKeyStore(dir),
+            processRunner = fakeChr,
+            tempDirFactory = { java.nio.file.Files.createTempDirectory(dir, "deploy") }
+        )
+        val result = strategy.execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", "module;")
+                put("container", "c1\nchains:\n  evil: x")
+            }),
+            hangingRepository(queryHangMs = 0, heightHangMs = 0)
+        )
+        assertEquals(true, result.isError, "${result.structuredContent}")
+        // The refusal must name the real problem (an invalid lease name), not
+        // misattribute it - the old path fell into a misleading
+        // "conflicts with deployments.testnet.container" error after already
+        // splicing the raw value into the YAML.
+        assertTrue(errorText(result).contains("valid container"), errorText(result))
+    }
+
     /** chr fake: --version answers like a real 0.33.2; nothing else is ever run. */
     private val fakeChr = ProcessRunner { command, _, _, _ ->
         if (command.contains("--version")) {
