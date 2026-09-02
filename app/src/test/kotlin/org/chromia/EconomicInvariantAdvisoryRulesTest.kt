@@ -164,6 +164,107 @@ class EconomicInvariantAdvisoryRulesTest {
         )
     }
 
+    // ---- unbounded-voting-period ----
+
+    /**
+     * The adversary DAO accepted voting_period_ms = 1: `require(p > 0)` reads
+     * like validation but the window is over before anyone else can vote.
+     * Advisory MEDIUM; must never block.
+     */
+    @Test
+    fun votingPeriodBoundedOnlyByZeroIsMediumAdvisoryAndNeverBlocks() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity proposal { proposer: byte_array; deadline: timestamp; }
+                    operation create_proposal(voting_period_ms: integer) {
+                        val account = auth.authenticate();
+                        require(voting_period_ms > 0, "voting period must be positive");
+                        create proposal(proposer = account.id, deadline = op_context.last_block_time + voting_period_ms);
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "unbounded-voting-period" }
+        assertTrue(hit.isNotEmpty(), "zero-only bound on a voting window must get the advisory; got ${result.findings}")
+        assertEquals("MEDIUM", hit.first().severity)
+        assertTrue(result.ok, "an economic advisory must never make ok=false; got ${result.findings}")
+    }
+
+    /** A real minimum (module args or constant) is exactly the fix - clean. */
+    @Test
+    fun votingPeriodWithRealMinimumStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity proposal { proposer: byte_array; deadline: timestamp; }
+                    operation create_proposal(voting_period_ms: integer) {
+                        val account = auth.authenticate();
+                        require(voting_period_ms >= chain_context.args.min_voting_period_ms, "too short");
+                        create proposal(proposer = account.id, deadline = op_context.last_block_time + voting_period_ms);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbounded-voting-period" !in rules(result),
+            "a real minimum must clear the advisory; got ${result.findings}"
+        )
+    }
+
+    /** Bounding delegated to a require()-bearing helper the param is passed to - clean. */
+    @Test
+    fun votingPeriodValidatedInHelperStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity proposal { proposer: byte_array; deadline: timestamp; }
+                    function validate_period(period_ms: integer) {
+                        require(period_ms >= 3600000, "too short");
+                    }
+                    operation create_proposal(voting_period_ms: integer) {
+                        val account = auth.authenticate();
+                        validate_period(voting_period_ms);
+                        create proposal(proposer = account.id, deadline = op_context.last_block_time + voting_period_ms);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbounded-voting-period" !in rules(result),
+            "helper-delegated validation must clear the advisory; got ${result.findings}"
+        )
+    }
+
+    /** A period param that never touches a deadline/time anchor is not a window - clean. */
+    @Test
+    fun periodParamWithoutTimeAnchorStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity report { key id: integer; mutable period: integer; }
+                    operation set_reporting_period(period: integer) {
+                        val account = auth.authenticate();
+                        require(period > 0, "must be positive");
+                        update report @ { .id == 0 } ( .period = period );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "unbounded-voting-period" !in rules(result),
+            "no time anchor, no advisory; got ${result.findings}"
+        )
+    }
+
     /** A majority comparison that moves no value (e.g. closing a poll) is not the shape. */
     @Test
     fun majorityWithoutValueMovementStaysClean() {

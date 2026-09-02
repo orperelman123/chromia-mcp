@@ -414,6 +414,7 @@ object RellSecurityCheck {
                     valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
                 )
                 findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
+                findings += unboundedTimeWindowFindings(path, op, requireFunctions)
             }
         }
 
@@ -890,6 +891,64 @@ object RellSecurityCheck {
                     "document it and ignore this finding."
             )
         )
+    }
+
+    /** Parameter names that set the length of some time window. */
+    private val TIME_WINDOW_PARAM_REGEX = Regex("""period|window|duration""", RegexOption.IGNORE_CASE)
+
+    /** The statement actually uses the parameter as a time offset/deadline. */
+    private val TIME_ANCHOR_REGEX = Regex(
+        """last_block_time|block_time|deadline|expires|expiry|ends_at|closes_at""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * MEDIUM when a caller-supplied period/window/duration parameter feeds a
+     * deadline and its only lower bound is `> 0`. The adversary DAO accepted
+     * voting_period_ms = 1: `require(voting_period_ms > 0)` reads like
+     * validation but permits a voting window that is over before anyone else
+     * can vote, turning governance into a race the proposer always wins.
+     * Advisory, never blocking: the right minimum is a design number the gate
+     * cannot know, and some windows (short auctions, heartbeats) are
+     * legitimately tiny.
+     */
+    private fun unboundedTimeWindowFindings(
+        path: String,
+        op: OperationBlock,
+        requireFunctions: Set<String>
+    ): List<Finding> {
+        val findings = mutableListOf<Finding>()
+        val statements = op.body.split(';')
+        parseParams(op.params).forEach { (name, type) ->
+            if (!TIME_WINDOW_PARAM_REGEX.containsMatchIn(name)) return@forEach
+            if (!type.lowercase().contains("integer")) return@forEach
+            val paramRef = Regex("""\b${Regex.escape(name)}\b""")
+            val timed = statements.any { paramRef.containsMatchIn(it) && TIME_ANCHOR_REGEX.containsMatchIn(it) }
+            if (!timed) return@forEach
+            // Lower bounds on the parameter: `p > X` / `p >= X` / `X < p` / `X <= p`.
+            val lowerBounds =
+                Regex("""\b${Regex.escape(name)}\b\s*>=?\s*([\w.]+)""").findAll(op.body).map { it.groupValues[1] } +
+                    Regex("""([\w.]+)\s*<=?\s*\b${Regex.escape(name)}\b""").findAll(op.body).map { it.groupValues[1] }
+            if (lowerBounds.any { it != "0" }) return@forEach
+            // Validation delegated to a require()-bearing helper the param is
+            // passed to may bound it where this scan cannot see - stay quiet.
+            val delegated = requireFunctions.any { fn ->
+                Regex("""\b${Regex.escape(fn)}\s*\([^)]*\b${Regex.escape(name)}\b""").containsMatchIn(op.body)
+            }
+            if (delegated) return@forEach
+            findings.add(
+                Finding(
+                    "MEDIUM", "unbounded-voting-period", path, op.line,
+                    "operation ${op.name} sets a time window from caller-supplied '$name' with no minimum " +
+                        "(only compared against 0, or not at all) - $name = 1 closes the window in the same " +
+                        "block it opens, e.g. a voting period nobody but the proposer can act in",
+                    "Enforce a real minimum: require($name >= min_period) with the floor from module args " +
+                        "or a named constant. Advisory: the right minimum is a design decision - if a " +
+                        "near-zero window is intended here, document why and ignore this finding."
+                )
+            )
+        }
+        return findings
     }
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
