@@ -121,6 +121,12 @@ object LocalChain {
     /** Test seam: replaces the real node bring-up when set. */
     internal var starterOverrideForTests: ((StartPlan) -> Running)? = null
 
+    /** Test seam: replaces [startNode] INSIDE the bounded start executor when set. */
+    internal var nodeStarterOverrideForTests: ((StartPlan) -> Running)? = null
+
+    /** Test seam: shrinks [START_TIMEOUT_SECONDS] so the timeout path is testable. */
+    internal var startTimeoutSecondsOverrideForTests: Long? = null
+
     // ------------------------------------------------------------------
     // Public entry points
     // ------------------------------------------------------------------
@@ -420,14 +426,36 @@ object LocalChain {
 
     private fun startBounded(plan: StartPlan): Running {
         starterOverrideForTests?.let { return it(plan) }
+        val timeoutSeconds = startTimeoutSecondsOverrideForTests ?: START_TIMEOUT_SECONDS
         val executor = newStartExecutor()
-        val future = executor.submit<Running> { startNode(plan) }
+        // Read by the timeout path below: cancel(true) makes future.get() throw
+        // CancellationException even when the callable completed, so the future
+        // alone cannot hand a late-started node to cleanup.
+        val lateResult = java.util.concurrent.atomic.AtomicReference<Running?>()
+        val future = executor.submit<Running> {
+            (nodeStarterOverrideForTests ?: ::startNode)(plan).also { lateResult.set(it) }
+        }
         return try {
-            future.get(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            future.get(timeoutSeconds, TimeUnit.SECONDS)
         } catch (e: java.util.concurrent.TimeoutException) {
             future.cancel(true)
+            // The interrupt cannot stop a non-interruptible JDBC connect. If the
+            // start still COMPLETES later, the node and its REST bridge used to
+            // leak forever: never registered in `running`, invisible to the
+            // shutdown hook, port held, and sharing the schema with the next
+            // `up` (QA lens 2026-09-02). Queue the shutdown BEHIND the start
+            // task on its own single thread - it runs only once the start ends.
+            executor.submit {
+                lateResult.get()?.let { late ->
+                    runCatching { late.bridge?.close() }
+                    runCatching { late.node?.shutdown() }
+                    org.chromia.App.logger.info(
+                        "local-chain start completed after the ${timeoutSeconds}s timeout - late node shut down"
+                    )
+                }
+            }
             throw IllegalStateException(
-                "Node start exceeded ${START_TIMEOUT_SECONDS}s - the database at the configured URL " +
+                "Node start exceeded ${timeoutSeconds}s - the database at the configured URL " +
                     "may be unreachable or overloaded. Verify PostgreSQL is running and $DATABASE_URL_ENV is correct."
             )
         } catch (e: java.util.concurrent.ExecutionException) {

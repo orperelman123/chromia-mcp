@@ -47,6 +47,8 @@ class LocalChainToolTest {
     fun tearDown() {
         LocalChain.stopAll()
         LocalChain.starterOverrideForTests = null
+        LocalChain.nodeStarterOverrideForTests = null
+        LocalChain.startTimeoutSecondsOverrideForTests = null
     }
 
     // ------------------------------------------------------------------
@@ -407,5 +409,77 @@ class LocalChainToolTest {
         for (status in listOf("started", "already_running", "running", "stopped", "not_running")) {
             assertTrue(statusDescription.contains(status), statusDescription)
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Abandoned-start lifecycle
+    // ------------------------------------------------------------------
+
+    /**
+     * A start that outlives the timeout is abandoned with future.cancel(true),
+     * but a non-interruptible JDBC connect ignores the interrupt: when the
+     * start then COMPLETED anyway, the fully started node and its REST bridge
+     * leaked forever - never registered in `running`, invisible to the
+     * shutdown hook, port held, schema shared with the next `up` (QA lens
+     * 2026-09-02). The late-completing start must be shut down.
+     */
+    @Test
+    fun lateCompletingStartAfterTimeoutIsShutDownNotLeaked() {
+        val stubGateway = object : org.chromia.tools.LocalChainRestBridge.ChainGateway {
+            override fun query(name: String, args: net.postchain.gtv.Gtv): net.postchain.gtv.Gtv =
+                net.postchain.gtv.GtvFactory.gtv("x")
+            override fun queryWithHeight(name: String, args: net.postchain.gtv.Gtv): Pair<net.postchain.gtv.Gtv, Long> =
+                net.postchain.gtv.GtvFactory.gtv("x") to 0L
+            override fun postTransaction(raw: ByteArray) {}
+            override fun transactionStatus(txRid: ByteArray): net.postchain.common.tx.TransactionStatus =
+                net.postchain.common.tx.TransactionStatus.UNKNOWN
+        }
+        val lateBridge = org.chromia.tools.LocalChainRestBridge(
+            stubGateway, "AB".repeat(32), LocalChain.freePortIn(LocalChain.API_PORT_RANGE)
+        )
+        LocalChain.startTimeoutSecondsOverrideForTests = 1
+        LocalChain.nodeStarterOverrideForTests = { plan ->
+            // Mimic the non-interruptible hang (JDBC socket connect): swallow
+            // the cancel(true) interrupt and complete anyway.
+            val end = System.currentTimeMillis() + 2_500
+            while (System.currentTimeMillis() < end) {
+                try {
+                    Thread.sleep(50)
+                } catch (_: InterruptedException) {
+                }
+            }
+            LocalChain.Running(
+                node = null,
+                brid = plan.brid,
+                apiPort = lateBridge.port,
+                fingerprint = plan.fingerprint,
+                nodePubkey = plan.pubKeyHex,
+                expiresAtMillis = Long.MAX_VALUE,
+                ttlTask = null,
+                bridge = lateBridge
+            )
+        }
+
+        val result = LocalChain.up(goodFiles, databaseUrl = dbUrl)
+        assertFalse(result.ok, result.notes)
+        assertTrue(result.notes.contains("exceeded 1s"), result.notes)
+
+        // Once the abandoned start completes, its queued cleanup must close the
+        // bridge - on the old code the port stayed open forever.
+        val deadline = System.currentTimeMillis() + 10_000
+        var closed = false
+        while (System.currentTimeMillis() < deadline && !closed) {
+            closed = runCatching {
+                java.net.Socket().use { s ->
+                    s.connect(java.net.InetSocketAddress("127.0.0.1", lateBridge.port), 250)
+                    false
+                }
+            }.getOrElse { true }
+            if (!closed) Thread.sleep(100)
+        }
+        assertTrue(
+            closed,
+            "late-started bridge on port ${lateBridge.port} must be shut down after the abandoned start completes"
+        )
     }
 }
