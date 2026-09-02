@@ -546,6 +546,35 @@ class AuthorizationAndInvariantRulesTest {
         )
     }
 
+    /**
+     * Input validation done in a helper is still validation: the auth closure
+     * already walks helpers, the require() closure must too, or every
+     * validate_x() helper pattern eats an unvalidated-inputs finding.
+     */
+    @Test
+    fun requireInsideHelperCountsAsValidation() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity note { key id: text; }
+                    function validate_id(id: text) {
+                        require(id.size() > 0, "empty id");
+                        require(id.size() <= 64, "id too long");
+                    }
+                    operation add_note(id: text) {
+                        validate_id(id);
+                        create note(id);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "unvalidated-inputs" },
+            result.findings.toString()
+        )
+    }
+
     /** is_signer(<that param>) binds the param to an actual transaction signer - clean. */
     @Test
     fun paramCheckedWithIsSignerStaysClean() {

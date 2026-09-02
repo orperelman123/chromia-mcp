@@ -353,6 +353,10 @@ object RellSecurityCheck {
         val mutatingFunctions = mutatingFunctionNames(fullyMasked)
         val valueMutatingFunctions = functionNamesMatchingSeed(fullyMasked, VALUE_MUTATION_REGEX)
         val ft4AuthCallers = functionNamesMatchingSeed(fullyMasked, AUTHENTICATE_CALL_REGEX)
+        // Validation done in a helper is still validation: the auth and mutation
+        // closures already walk helpers, so an op-body-only require() scan
+        // false-flagged every validate_x() helper pattern (gate fatigue).
+        val requireFunctions = functionNamesMatchingSeed(fullyMasked, REQUIRE_REGEX)
         val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
 
         var exemptedLibFiles = 0
@@ -406,7 +410,7 @@ object RellSecurityCheck {
             ops.forEach { op ->
                 findings += operationFindings(
                     path, op, authFunctions, mutatingFunctions, authMarkers,
-                    valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly
+                    valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
                 )
             }
         }
@@ -454,8 +458,10 @@ object RellSecurityCheck {
                 append("allowAdminModules=true: banned-module findings reported as MEDIUM, not CRITICAL. ")
             }
             append(
-                "Heuristic static checks only (auth, require() validation, banned FT4 admin modules, " +
-                    "hardcoded secrets) - a clean report does not replace a security audit."
+                "Heuristic static checks only (authentication AND authorization binding, signer-gate " +
+                    "integrity, auth-handler flags, mass mutations, require() validation, banned FT4 " +
+                    "admin modules, hardcoded secrets) - a clean report does not replace a security " +
+                    "audit, and economic invariants (conservation, quorum) are not checked."
             )
         }
         return Result(!blocking, adjusted.sortedWith(compareBy({ severityRank(it.severity) }, { it.file }, { it.line })), operationsScanned, notes)
@@ -826,13 +832,15 @@ object RellSecurityCheck {
         authMarkers: List<String> = AUTH_MARKERS,
         valueMutatingFunctions: Set<String> = emptySet(),
         ft4AuthCallers: Set<String> = emptySet(),
-        emptyFlagsOnly: Boolean = false
+        emptyFlagsOnly: Boolean = false,
+        requireFunctions: Set<String> = emptySet()
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
         val calls = calledNames(op.body)
         val hasAuth = containsAuthMarker(op.body, authMarkers) ||
             authFunctions.any { it in calls }
-        val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body)
+        val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body) ||
+            requireFunctions.any { it in calls }
         val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
             mutatingFunctions.any { it in calls }
 
