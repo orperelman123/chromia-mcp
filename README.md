@@ -28,6 +28,7 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - **Onboarding state machine (`onboarding_next_step`)** — report what is honestly done (`hasProject`, `compiles`, `testsPass`, `deployedTo`, `goal` local/testnet/mainnet, ...) and get exactly one next action: which MCP tool to call with which args, or the exact human step with its URL (faucet, Vault lease, `chr keygen`), plus remaining steps and human-only blockers. Grounded in live-verified facts; never emits key material
 - **Deployment verification (`verify_deployment`)** — prove a deployed dapp is live with no keys: is the BRID known on the network (name or custom node URL), is the block height progressing (bounded wait), and does an optional read-only smoke query answer
 - **Deployment preflight (`deployment_preflight`)** — catch every deployment problem before a human burns a lease step or signs anything: validates the `deployments.<target>` block (brid/url/container/chains), flags wrong-network BRIDs or URLs as HIGH blockers, probes the target node read-only, runs the compile + security source gate when `rell` is supplied (CRITICAL/HIGH block mainnet), and checks the production pins. `ready:true` only with zero blockers — a mainnet target without sources stays blocked until the source gate runs, other targets note the skipped gate; when ready it emits the exact `chr deployment create|update` command
+- **Testnet provisioning (`provision_testnet_container`, `claim_testnet_tchr`, `deploy_testnet_chain`)** — agent-headless container leasing and dapp deployment on the Chromia TESTNET, funded by a server-held key that never appears in any output. See [Testnet Provisioning](#testnet-provisioning-agent-headless) below
 
 ## Documentation Tools
 
@@ -95,6 +96,20 @@ Static security review of compiled Rell (compiles first via the embedded compile
 Findings are line-anchored with a concrete fix each. `ok=true` = no CRITICAL/HIGH findings.
 Heuristic static analysis — it does not replace a security audit. The agent loop is:
 `rell_check` until it compiles → `rell_security_check` until clean → present the code.
+
+## Testnet Provisioning (agent-headless)
+
+Three tools let an agent take a dapp from sources to a live **testnet** chain with no human involved, built on live-verified Economy Chain ground truth (operations `create_container_with_subnode_image`, `faucet`, `renew_container`; queries `create_container_cost`, `get_create_container_ticket_by_transaction`, `get_leases_by_account`; the Economy Chain BRID is resolved at runtime from the Directory Chain's `get_economy_chain_rid`):
+
+- **`provision_testnet_container`** — prices a container lease live (`create_container_cost`; e.g. 1 SCU × 2 weeks on cluster `blue` ≈ 70 tCHR), validates cluster and duration against live limits, and on a live run signs the lease with the server-held funding key. If the balance is short it first claims from the **on-chain faucet** and refuses if still short — it never spends more than the reported cost. Returns the chain-assigned container name (or `txRid` to poll via `statusTxRid` — container creation is an asynchronous ICMF ticket). Generates an **ephemeral deploy keypair per lease**; only the public key is ever returned.
+- **`claim_testnet_tchr`** — tops up the funding account from the on-chain testnet faucet operation (module `economy_chain_test_claim_tchr`): 1000 tCHR per account per 7 days, FT4-authenticated, **no captcha and no website**. On cooldown it reports exactly when the next claim is possible.
+- **`deploy_testnet_chain`** — gates first (`rell_security_check` CRITICAL/HIGH refuse even on testnet; `deployment_preflight` blockers refuse), then runs `chr deployment create|update` headlessly with the container's server-held deploy key via `POSTCHAIN_CLIENT_PRIVKEY`/`POSTCHAIN_CLIENT_PUBKEY`, reads back the new chain BRID and verifies it with a live height probe. Requires the `chr` CLI on the server host; if it is missing the tool names that exact blocked step instead of pretending.
+
+**dryRun defaults to TRUE everywhere** — nothing is signed or sent without an explicit `dryRun: false`. These tools are testnet-only by construction (the network parameter does not exist; the Directory Chain BRID is the testnet one).
+
+**Key policy (server-side only).** The funding key is resolved in order: env `CHROMIA_TESTNET_FUNDING_PRIVKEY` (raw hex) → env `CHROMIA_TESTNET_FUNDING_KEY_ID` (a key id in the chr keystore) → the chr keystore's own default `key.id` in `~/.chromia/config` (`CHROMIA_DIR` overrides the directory). Ephemeral deploy keys live in the server keystore (`CHROMIA_MCP_KEYSTORE_DIR`, default `~/.chromia-mcp/keys`); `CHROMIA_TESTNET_DEPLOY_PRIVKEY` covers containers leased elsewhere. **No private key ever appears in any tool output, note, or error** — every outgoing string is swept, and a dedicated test sweeps every output path of all three tools for key-shaped material, including error paths where the chain or `chr` echoes input back.
+
+If no funding account is usable the tools degrade to dryRun and state the exact setup step. If the configured key's FT4 account does not exist on the Economy Chain, the tools report the precise one-time bootstrap (send ≥ 20 tCHR to the derived account id; a pending fee-strategy transfer is then completed headlessly, 10 tCHR registration fee). A registered account with **zero balance is not a blocker** — the faucet claim is the first automatic step.
 
 ## Hosted Options
 
@@ -590,7 +605,7 @@ Specify the network parameter in your queries to target the appropriate environm
 
 ## Out of scope
 
-This server is a **query / documentation expert**. It does **not** send signed transactions, hold keys, or act as a wallet. Use `chromia_dapp_query` for read-only dApp queries. Transaction *inspection* (`get_all_transactions`) is supported; transaction *execution* is not. There is no OpenAPI spec.
+This server is primarily a **query / documentation expert**. The only tools that sign and send transactions are the three [testnet provisioning](#testnet-provisioning-agent-headless) tools — TESTNET only, dryRun by default, funded by a server-held key that never reaches any output. Nothing here touches mainnet funds, acts as a general wallet, or executes arbitrary transactions: `chromia_dapp_query` stays read-only, transaction *inspection* (`get_all_transactions`) is supported, arbitrary transaction *execution* is not. There is no OpenAPI spec.
 
 MCP resources are the existing health JSON, `docs-repositories.json`, and `prompt_templates.json` (not a generated library). Prompt templates are the `get_prompts` tool; the server does not advertise MCP `prompts`.
 

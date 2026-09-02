@@ -1147,8 +1147,15 @@ class DappBuildToolsTest {
         assertTrue(notes.contains("node0") && notes.contains("node3"))
         assertTrue(notes.contains("Do not invent a single required URL") || notes.contains("do not invent a single required URL"))
         assertTrue(yaml.contains("""brid: x"${WriteDeploymentConfig.TESTNET_DIRECTORY_BRID}""""))
-        assertTrue(yaml.contains("chains:"))
-        assertTrue(yaml.contains("wallet:"))
+        // D2 (live run 2026-09-02): a chains placeholder is a null map value that
+        // chr 0.29.10 rejects with "Incorrect type, expected string" - a fresh
+        // deployment config must OMIT chains entirely; chr writes it back on
+        // 0.30.0+ and it is added by hand on 0.29.x.
+        assertFalse(yaml.contains("chains"), "fresh deployments yaml must omit the chains key entirely:\n$yaml")
+        assertFalse(yaml.contains("placeholder"), yaml)
+        assertTrue(notes.contains("chains is omitted on purpose"))
+        assertTrue(notes.contains("Incorrect type, expected string"))
+        assertTrue(notes.contains("0.29.x"))
         assertTrue(yaml.contains("container: <containerIID>"))
         assertTrue(full.contains("merkle_hash_version: 2"))
         assertTrue(full.contains("rellVersion: 0.16.1"))
@@ -1210,7 +1217,9 @@ class DappBuildToolsTest {
         assertTrue(notes.contains("string") && notes.contains("list"), notes)
         assertFalse(notes.contains("validatrium") && yaml.contains("validatrium"))
         assertTrue(yaml.contains("""brid: x"${WriteDeploymentConfig.MAINNET_DIRECTORY_BRID}""""))
-        assertTrue(yaml.contains("hello:"))
+        // D2: no chains placeholder on a fresh deployment config (see testnet shape test).
+        assertFalse(yaml.contains("chains"), yaml)
+        assertTrue(full.contains("hello:"))
         assertTrue(full.contains("merkle_hash_version: 2"))
         assertFalse(full.contains("merkle_hash_version: 1"))
         forbidden.forEach { module ->
@@ -1867,7 +1876,11 @@ class DappBuildToolsTest {
         assertTrue(yamlMain.contains("container: <containerIID>"))
         assertTrue(yamlTest.contains(WriteDeploymentConfig.TESTNET_DIRECTORY_BRID))
         assertTrue(yamlMain.contains(WriteDeploymentConfig.MAINNET_DIRECTORY_BRID))
+        // D2: no null chains placeholder - chr rejects it ("Incorrect type, expected string").
+        assertFalse(yamlTest.contains("chains"), yamlTest)
+        assertFalse(yamlMain.contains("chains"), yamlMain)
         val workflow = payload["workflow"]!!.jsonPrimitive.content
+        assertTrue(workflow.contains("Omit deployments.<net>.chains on the first create"))
         val notes = payload["notes"]!!.jsonPrimitive.content
         val pmc = payload["pmc"]!!.jsonPrimitive.content
         assertEquals("https://docs.chromia.com/get-started/about/hosting", payload["hosting_about"]!!.jsonPrimitive.content)

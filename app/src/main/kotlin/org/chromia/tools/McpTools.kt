@@ -1918,9 +1918,11 @@ object McpTools {
         name = "write_deployment_config",
         description = """
             Return the chromia.yml deployments.<network> block that Chromia CLI 0.33.x expects
-            (url, official Directory Chain BRID, chains placeholder).
+            (url, official Directory Chain BRID; chains omitted on purpose - a first
+            chr deployment create must not carry it, and a placeholder null value is rejected by chr).
             network must be testnet or mainnet. Does not invent a BRID.
-            Since CLI 0.30.0, chr deployment create writes deployments.<net>.chains back into chromia.yml.
+            Since CLI 0.30.0, chr deployment create writes deployments.<net>.chains back into chromia.yml;
+            on 0.29.x add chains.<name>: x"<dapp rid>" by hand after the first create.
             Does not send signed transactions and does not run chr.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -3373,6 +3375,294 @@ object McpTools {
         )
     )
 
+    fun provisionTestnetContainerTool() = Tool(
+        name = "provision_testnet_container",
+        description = """
+            Lease a dapp container on the Chromia TESTNET with no human involved. Prices the lease live
+            (create_container_cost on the Economy Chain, resolved via the Directory Chain), validates the
+            cluster and duration against live chain limits, and - on a live run - signs
+            create_container_with_subnode_image with the SERVER-held funding key (env
+            CHROMIA_TESTNET_FUNDING_PRIVKEY, or a chr keystore key id via CHROMIA_TESTNET_FUNDING_KEY_ID /
+            ~/.chromia config key.id). If the funding balance cannot cover the cost it first claims from the
+            on-chain testnet faucet (1000 tCHR per account per 7 days) and refuses if still short - it never
+            spends more than the reported cost. Container creation is asynchronous: a live call returns the
+            chain-assigned container name, or txRid to poll via statusTxRid. An ephemeral deploy keypair is
+            generated per lease and held server-side; only its PUBLIC key is ever returned - private keys
+            never appear in any output or error. dryRun defaults to TRUE: it reports cost, balance and
+            readiness without signing or sending anything. If the funding account does not exist yet the tool
+            states the exact one-time bootstrap step instead of pretending.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "cluster" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Testnet cluster to lease in (default \"blue\"; live clusters come from get_clusters)"
+                            )
+                        )
+                    ),
+                    "scu" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive("Container units / SCUs (default 1)")
+                        )
+                    ),
+                    "durationWeeks" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive(
+                                "Lease duration in weeks (default 2; live chain limits are 1-12)"
+                            )
+                        )
+                    ),
+                    "extraStorageGib" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("integer"),
+                            "description" to JsonPrimitive("Extra storage in GiB (default 0)")
+                        )
+                    ),
+                    "autoRenew" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Auto-renew the lease weekly from the funding account (default false)"
+                            )
+                        )
+                    ),
+                    "deployPubkey" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Optional 33-byte compressed secp256k1 PUBLIC key (66 hex chars) to set as the " +
+                                    "container's deployer; omit to have the server generate an ephemeral keypair " +
+                                    "and keep the private half server-side"
+                            )
+                        )
+                    ),
+                    "dryRun" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default TRUE: price and validate everything without signing or sending. " +
+                                    "Set false to actually lease (spends tCHR from the funding account)."
+                            )
+                        )
+                    ),
+                    "statusTxRid" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Poll a previous live call: the 64-hex txRid it returned. Returns the ticket " +
+                                    "state and the container name once created."
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Provision testnet container",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "status" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "dry_run | provisioned | submitted_pending | refused | blocked_human_step | " +
+                                    "ticket_pending | ticket_failure"
+                            )
+                        )
+                    ),
+                    "costTchr" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "costRaw" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "cluster" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "scu" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "durationWeeks" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "funding" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
+                    "containerName" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "txRid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "deployPubkey" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("PUBLIC key of the deploy keypair (never the private key)")
+                        )
+                    ),
+                    "humanStep" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("status")
+        )
+    )
+
+    fun claimTestnetTchrTool() = Tool(
+        name = "claim_testnet_tchr",
+        description = """
+            Top up the server-held testnet funding account from the ON-CHAIN faucet operation (module
+            economy_chain_test_claim_tchr on the Economy Chain): 1000 tCHR per account per 7 days,
+            FT4-authenticated with the server-held key - no captcha, no website, no human. dryRun defaults
+            to TRUE and reports the account, balance and claim size without sending - but the chain
+            exposes no cooldown query, so a dry run CANNOT predict whether a claim will succeed. A live
+            claim reports the new balance; if the account claimed within the last 7 days the tool reports
+            exactly how long until the next claim (status on_cooldown) instead of failing vaguely. Key
+            material never appears in any output.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "dryRun" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default TRUE: report balance and claimability without sending the claim."
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Claim testnet tCHR",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "status" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("dry_run | claimed | on_cooldown | blocked_human_step")
+                        )
+                    ),
+                    "accountId" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "balanceTchr" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "claimAmountTchr" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "txRid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "nextClaimableInSeconds" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "humanStep" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("status")
+        )
+    )
+
+    fun deployTestnetChainTool() = Tool(
+        name = "deploy_testnet_chain",
+        description = """
+            Deploy dapp sources to a leased TESTNET container with no human involved. Order is fixed and
+            gated: (1) the security gate (rell_security_check) - CRITICAL/HIGH findings refuse the deploy
+            even on testnet; (2) the compile + config gate (deployment_preflight with the sources) - any
+            blocker refuses; (3) only then `chr deployment create|update --settings chromia.yml --network
+            testnet --blockchain <name>` runs headlessly, signed via POSTCHAIN_CLIENT_PRIVKEY from the
+            server-held deploy key for the container (stored by provision_testnet_container, or env
+            CHROMIA_TESTNET_DEPLOY_PRIVKEY); (4) the new chain BRID is read back and a live height probe
+            verifies it (a fresh chain can take minutes to start - that is reported honestly, with
+            verify_deployment as the follow-up). Provide chromiaYml or let the tool generate one from the
+            scaffold pins plus the container name; a generated config probes `chr --version` and pins
+            compile.rellVersion to the Rell the INSTALLED CLI actually bundles (falling back to the
+            scaffold default when chr cannot be probed - the choice and its source are reported), and
+            omits deployments.testnet.chains, which a first create must not carry. dryRun defaults to
+            TRUE: gates run, nothing deploys. chr is resolved via CHROMIA_CHR_BIN, then a PATH search
+            honoring PATHEXT on Windows (.cmd/.bat shims run via `cmd /c`); the resolution used is
+            reported. If chr is missing or no deploy key is held, the tool names the exact blocked step
+            instead of pretending. Key material never appears in any output.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "rell" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive(
+                                "The dapp sources: one source string (treated as main.rell) or an object of " +
+                                    "path -> source. Required - the gates cannot vouch for unseen code."
+                            )
+                        )
+                    ),
+                    "files" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive("Alias for `rell` (same shape).")
+                        )
+                    ),
+                    "blockchain" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Blockchain name in chromia.yml (default \"my_dapp\")")
+                        )
+                    ),
+                    "container" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Container lease name from provision_testnet_container (required unless " +
+                                    "chromiaYml already carries deployments.testnet.container)"
+                            )
+                        )
+                    ),
+                    "chromiaYml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Full chromia.yml contents; omit to generate one (scaffold pins + " +
+                                    "deployments.testnet with the given container)"
+                            )
+                        )
+                    ),
+                    "mode" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "enum" to JsonArray(listOf(JsonPrimitive("create"), JsonPrimitive("update"))),
+                            "description" to JsonPrimitive(
+                                "\"create\" for a first deploy (default), \"update\" to upgrade an existing chain"
+                            )
+                        )
+                    ),
+                    "dryRun" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive(
+                                "Default TRUE: run every gate and report the exact command without deploying."
+                            )
+                        )
+                    )
+                )
+            ),
+            required = listOf("rell")
+        ),
+        title = "Deploy testnet chain",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "status" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "dry_run | deployed | deployed_unverified | refused | blocked_human_step"
+                            )
+                        )
+                    ),
+                    "blockchain" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "container" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "brid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "live" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
+                    "blockHeight" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "gates" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
+                    "securityFindings" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
+                    "preflight" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
+                    "command" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "updatedChromiaYml" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "humanStep" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("status")
+        )
+    )
+
     /**
      * All advertised tools. `compact = true` (env `CHROMIA_MCP_COMPACT_TOOLS=true` via
      * [compactToolsMode]) drops the individual *_help schemas - their content stays
@@ -3481,6 +3771,9 @@ object McpTools {
         onboardingNextStepTool(),
         verifyDeploymentTool(),
         deploymentPreflightTool(),
+        provisionTestnetContainerTool(),
+        claimTestnetTchrTool(),
+        deployTestnetChainTool(),
         ft4ModuleArgsTool(),
         chrBuildHelpTool(),
         chrReplHelpTool(),
