@@ -67,7 +67,7 @@ object VerifyDeployment {
             "queried node(s) - a chain hosted in a cluster the predefined \"$network\" system " +
             "nodes do not serve stalls exactly like this - or the node is very slow. If the " +
             "chain is live, pass the dapp's own node URL as `network` to verify it directly; " +
-            "otherwise re-check the BRID and network, or retry later."
+            "otherwise re-check the BRID and network, or retry later." + ProbeBudget.abandonedNote()
 
     private val HEX64 = Regex("^[0-9a-fA-F]{64}$")
 

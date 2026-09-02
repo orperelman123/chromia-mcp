@@ -369,6 +369,19 @@ class DeployKeyStore(private val dir: Path) {
         return dir
     }
 
+    /**
+     * Removes an ephemeral key that never got used: the lease tx it was minted
+     * for was REJECTED (not included), so no container can ever reference the
+     * pubkey. Without this every rejected lease left a private key on disk
+     * forever, unreachable by any tx/container lookup (QA concurrency and
+     * resource-lifecycle lens 2026-09-02). Only for explicit rejections - a
+     * post that THREW may still have reached the chain, and that key must
+     * stay so a container created late is not orphaned. Returns whether a
+     * file was removed.
+     */
+    fun discardEphemeral(pubHex: String): Boolean =
+        runCatching { Files.deleteIfExists(dir.resolve("$pubHex.key")) }.getOrDefault(false)
+
     fun storeEphemeral(pubHex: String, privHex: String) {
         val file = ensureDir().resolve("$pubHex.key")
         Files.writeString(file, privHex)

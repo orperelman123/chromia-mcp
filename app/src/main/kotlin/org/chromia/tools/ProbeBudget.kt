@@ -1,11 +1,13 @@
 package org.chromia.tools
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Shared wall-clock budget for the tool family that drives BLOCKING
@@ -68,13 +70,47 @@ object ProbeBudget {
      */
     suspend fun <T : Any> withBudget(budgetMs: Long, work: suspend () -> T): T? {
         if (budgetMs <= 0) return null
-        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val scope = CoroutineScope(probeDispatcher + SupervisorJob())
+        val deferred = scope.async { work() }
         return try {
-            val deferred = scope.async { work() }
             withTimeoutOrNull(budgetMs) { deferred.await() }
         } finally {
             scope.cancel()
+            if (!deferred.isCompleted) {
+                // Still blocked in the client after the deadline: count it until
+                // the blocking call really returns (cancel cannot interrupt it).
+                abandonedProbes.incrementAndGet()
+                deferred.invokeOnCompletion { abandonedProbes.decrementAndGet() }
+            }
         }
+    }
+
+    /**
+     * Abandoned probes used to keep running on Dispatchers.IO - the SAME pool
+     * every other tool blocks on (rell_check, run_rell_tests, local_chain_up,
+     * docs). Each one holds an IO thread for the whole endpoint crawl (up to
+     * 14 x 60s on mainnet), and the pool has 64 threads: an agent retrying a
+     * not-served chain filled it, after which every IO-dispatched tool call
+     * waited for a thread with no message at all - the server looked hung,
+     * not busy (QA concurrency lens 2026-09-02). Probes now run on their own
+     * daemon pool so a stuck crawl can only ever cost probes, and the
+     * abandoned count is surfaced in the timeout hints.
+     */
+    private val probeDispatcher = Executors.newCachedThreadPool { r ->
+        Thread(r, "probe-budget").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
+    private val abandonedProbes = AtomicInteger()
+
+    /** Probes that outlived their deadline and are still blocked in the client. Released when each returns. */
+    fun abandonedCount(): Int = abandonedProbes.get()
+
+    /** "" when nothing is stuck; otherwise names the backlog so a slow answer is explained, not mysterious. */
+    fun abandonedNote(): String {
+        val n = abandonedCount()
+        if (n <= 0) return ""
+        return " $n earlier probe(s) abandoned at their deadline are still blocked in the postchain client " +
+            "(released when the node crawl gives up; they run on a dedicated pool and do not delay other tools)."
     }
 
     /**
@@ -91,7 +127,7 @@ object ProbeBudget {
             "like this - or the node is very slow. If the chain is live, pass the dapp's own node " +
             "URL as `network` to query it directly; otherwise re-check the blockchainRid and " +
             "network, or retry later ($QUERY_DEADLINE_ENV tunes the deadline, capped at " +
-            "${MAX_DEADLINE_MS}ms)."
+            "${MAX_DEADLINE_MS}ms)." + abandonedNote()
 
     /**
      * The node-error text deployment_preflight records for a reachability
@@ -103,5 +139,5 @@ object ProbeBudget {
         "height probe timed out - no answer within the overall ${deadlineMs}ms reachability " +
             "deadline shared by all probed URLs; a node that does not serve this chain stalls " +
             "exactly like this ($PREFLIGHT_DEADLINE_ENV tunes the deadline, capped at " +
-            "${MAX_DEADLINE_MS}ms)"
+            "${MAX_DEADLINE_MS}ms)" + abandonedNote()
 }
