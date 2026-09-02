@@ -507,6 +507,10 @@ object RellSecurityCheck {
         // created (a vesting grant's total): a payout bounded by one of these
         // is paid out of escrow, not minted.
         val escrowedCaps = escrowedCapFields(fullyMasked, allEntityNames, entityHelperReturns)
+        // Fields that are one side of a two-sided record of one obligation
+        // (loan.principal / pool.total_debt): raising them makes somebody OWE
+        // more, so an unbacked-credit rule must not read them as a payout.
+        val mirroredCounters = mirroredCounterFields(fullyMasked, allEntityNames, entityHelperReturns)
         // A clock parked in a row by one operation is the same public number
         // when another reads it back, so those fields are clock sources too.
         val storedClockFields = clockDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns)
@@ -590,7 +594,7 @@ object RellSecurityCheck {
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
-                    inlinable, escrowedCaps
+                    inlinable, escrowedCaps, mirroredCounters
                 )
                 findings += blockClockRandomnessFindings(
                     path, op, allEntityNames, entityHelperReturns, inlinable, identityFieldNames,
@@ -1931,6 +1935,61 @@ object RellSecurityCheck {
      * the shape: the conversion happens when the row is written, so the
      * operation that later pays the quote out reads no price at all.
      */
+    /**
+     * Field names that are one side of a TWO-SIDED RECORD OF ONE OBLIGATION -
+     * a liability counter, not somebody's spendable value.
+     *
+     * A field F qualifies when some other field G moves with it in LOCKSTEP
+     * across the WHOLE module: every non-zero, non-create write of F has a
+     * write of G in the same body, in the same direction, with the identical
+     * amount expression, and vice versa - and the pair moves in BOTH
+     * directions somewhere (an up-only pair is an accumulator, not an
+     * obligation).
+     *
+     * `loan.principal += interest` next to `pool.total_debt += interest` in
+     * the accrual helper, and `loan.principal -= paid` next to
+     * `pool.total_debt -= paid` in repay: raising the pair makes the borrower
+     * owe MORE and discharging it costs them cash, so nothing spendable is
+     * created. Adversary round 6 fired unbacked-conversion-credit on three
+     * operations of one lending pool for exactly this, prescribing "debit a
+     * reward pool before crediting the staker" - which would make the pool pay
+     * for its own interest income.
+     *
+     * Keyed on USE, never on names. A spendable balance cannot qualify: a
+     * transfer moves it on its own (`from.balance -= x; to.balance += x` is
+     * opposite directions, not lockstep), which breaks the set equality for
+     * every candidate partner. Nor can a mint plus a statistics counter - the
+     * counter is never debited alongside the balance, and the balance is spent
+     * without the counter.
+     */
+    internal fun mirroredCounterFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): Set<String> {
+        val occurrences = mutableMapOf<String, MutableSet<Triple<Int, Flow, String>>>()
+        var bodyIndex = 0
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val bodies = scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second }
+            bodies.forEach { body ->
+                val idx = bodyIndex++
+                amountWrites(body, entities, helperReturns).forEach { w ->
+                    if (w.create || w.flow == Flow.SET) return@forEach
+                    val amount = w.amount.replace(WS_REGEX, "")
+                    if (amount.isEmpty() || amount == "0") return@forEach
+                    occurrences.getOrPut(w.field) { mutableSetOf() }.add(Triple(idx, w.flow, amount))
+                }
+            }
+        }
+        val out = mutableSetOf<String>()
+        occurrences.forEach { (field, moves) ->
+            if (moves.none { it.second == Flow.CREDIT } || moves.none { it.second == Flow.DEBIT }) return@forEach
+            if (occurrences.any { (other, otherMoves) -> other != field && otherMoves == moves }) out.add(field)
+        }
+        return out
+    }
+
     internal fun priceDerivedStoredFields(
         fullyMasked: Map<String, String>,
         entities: Set<String>,
@@ -1959,6 +2018,9 @@ object RellSecurityCheck {
         }
         return derived - debited
     }
+
+    /** `delete l` / `delete listing @ {...}` - the local or entity whose row is destroyed. */
+    private val DELETE_TARGET_REGEX = Regex("""\bdelete\s+([A-Za-z_]\w*)""")
 
     private val TIME_SOURCE_REGEX = Regex("""\bop_context\s*\.\s*(?:last_block_time|block_height)\b|\bblock\s*@""")
     private val TIME_SOURCE_NAMES = setOf("op_context.last_block_time", "op_context.block_height", "block")
@@ -2057,7 +2119,8 @@ object RellSecurityCheck {
         priceReadFunctions: Set<String>,
         priceDerivedFields: Set<String>,
         helpers: Map<String, List<FunctionDef>>,
-        escrowedCaps: Set<Pair<String, String>>
+        escrowedCaps: Set<Pair<String, String>>,
+        mirroredCounters: Set<String>
     ): List<Finding> {
         val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
         val bindings = bindingsOf(flat)
@@ -2066,8 +2129,12 @@ object RellSecurityCheck {
         val debitedEntities = debits.mapNotNull { it.entity }.toSet()
         val debitAmounts = debits.map { it.amount.replace(WS_REGEX, "") }.toSet()
         val debitClosures = debits.map { refClosure(it.amount, bindings) }
+        // A liability counter is not a payout: raising `pool.total_debt` (which
+        // moves in lockstep with `loan.principal`) makes the borrower owe more,
+        // and there is nothing to fund or cap. See [mirroredCounterFields].
         val valueCredits = writes.filter { w ->
-            w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) && w.amount.replace(WS_REGEX, "") != "0"
+            w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
+                w.field !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0"
         }
         fun backedByEntity(c: AmountWrite) = c.entity != null && c.entity in debitedEntities
         fun backedByAmount(c: AmountWrite) = c.amount.replace(WS_REGEX, "") in debitAmounts
@@ -2096,6 +2163,30 @@ object RellSecurityCheck {
                         entity == w.entity && cap != w.field && closure.any { it.endsWith(".$cap") }
                     }
             }
+        }
+        // AN ESCROW RELEASED BY DELETION IS STILL A DEBIT. The marketplace
+        // template's own discipline - a row that already holds debited value is
+        // destroyed in the operation that pays it out - has no compound
+        // assignment anywhere: `delete l; update owner ( .balance += earned )`,
+        // where `earned` is computed from `l.escrowed`. That row's cap was
+        // debited from the tenant when it was created (escrowedCaps), and
+        // deleting it is what makes the payout happen exactly once, so this
+        // mints nothing. One step past backedByEscrowedRelease, where the debit
+        // was a released-so-far counter (adversary round 5); round 6 hit the
+        // no-counter form on a lease built on template=marketplace.
+        val deletedEscrowRows: List<Pair<String, String>> = run {
+            val alias = aliasMap(flat, entities, helperReturns)
+            DELETE_TARGET_REGEX.findAll(flat).flatMap { m ->
+                val local = m.groupValues[1]
+                val entity = alias[local] ?: local.takeIf { it in entities }
+                if (entity == null) emptySequence()
+                else escrowedCaps.asSequence().filter { it.first == entity }.map { local to it.second }
+            }.toList()
+        }
+        fun backedByEscrowedDelete(c: AmountWrite): Boolean {
+            if (deletedEscrowRows.isEmpty()) return false
+            val closure = refClosure(c.amount, bindings)
+            return deletedEscrowRows.any { (local, cap) -> "$local.$cap" in closure }
         }
         val fixTail = "Advisory: conservation cannot be proven statically - if this credit is an " +
             "intentional emission backed elsewhere, document it and ignore this finding."
@@ -2162,7 +2253,7 @@ object RellSecurityCheck {
                 val cc = refClosure(c.amount, bindings)
                 cc.any { it in timeDerived } &&
                     (ARITHMETIC_REGEX.containsMatchIn(c.amount) || cc.any { it in scaled }) &&
-                    !backedByFlow(c, timeDerived) && !backedByEscrowedRelease(c)
+                    !backedByFlow(c, timeDerived) && !backedByEscrowedRelease(c) && !backedByEscrowedDelete(c)
             }
             if (credit != null) {
                 return listOf(
@@ -2173,9 +2264,15 @@ object RellSecurityCheck {
                             "from the same elapsed term - the reward is minted from nothing: with an empty " +
                             "or absent pool the balance still grows without bound (adversary round 4 " +
                             "drained a staking dapp from an empty pool this way)",
-                        "Fund the emission: keep a reward pool row, cap the emission at what it holds " +
-                            "(val paid = min(pool.undistributed, elapsed * RATE)) and debit it in the same " +
-                            "operation (update pool ( .undistributed -= paid )) before crediting the staker. $fixTail"
+                        "FIRST decide which side of the ledger this field is on. If it is an OBLIGATION " +
+                            "counter - what somebody OWES (a loan's principal, a pool's total_debt) - raising " +
+                            "it makes the holder poorer and nothing needs funding: do NOT add a pool debit, " +
+                            "which would make the pool pay for its own interest income; instead make the " +
+                            "counter move in lockstep with the matching per-row obligation and prove it with " +
+                            "a conservation test. If it is SPENDABLE value, fund the emission: keep a reward " +
+                            "pool row, cap the emission at what it holds (val paid = min(pool.undistributed, " +
+                            "elapsed * RATE)) and debit it in the same operation (update pool " +
+                            "( .undistributed -= paid )) before crediting the staker. $fixTail"
                     )
                 )
             }
