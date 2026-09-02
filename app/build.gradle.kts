@@ -1,4 +1,5 @@
 import java.time.Duration
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 val mcpVersion = "0.7.7"
@@ -146,7 +147,10 @@ tasks.named<Test>("test") {
     // win, so CI is unaffected.
     val localTestEnv = rootProject.layout.projectDirectory.file("local-test-env.properties").asFile
     if (localTestEnv.isFile) {
-        val props = java.util.Properties()
+        // NOT `java.util.Properties()`: inside this block `java` resolves to the
+        // JavaPluginExtension and shadows the package - the script then fails to
+        // compile ("Unresolved reference: util"), taking every Gradle task with it.
+        val props = Properties()
         localTestEnv.inputStream().use(props::load)
         props.stringPropertyNames()
             .filter { System.getenv(it) == null }
