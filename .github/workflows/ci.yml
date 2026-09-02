@@ -48,6 +48,29 @@ jobs:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
         run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
 
+      # A skip is a test that silently did not run. Gradle prints the skip count
+      # only when something FAILS, so a green run with 8 skips looked identical
+      # to a green run with none - that is exactly how this job quietly covered
+      # less than it claimed until 2026-09-02. Count them from the XML and red
+      # the build on any, so coverage cannot drift back without CI noticing.
+      - name: Fail on any skipped test
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          t = f = s = 0; skipped = []
+          for p in glob.glob('app/build/test-results/test/*.xml'):
+              r = ET.parse(p).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); s += int(r.get('skipped', 0))
+              for tc in r.iter('testcase'):
+                  if tc.find('skipped') is not None:
+                      skipped.append(f"{r.get('name')}::{tc.get('name')}: {(tc.find('skipped').get('message') or '').strip()[:160]}")
+          print(f"tests={t} failures={f} skipped={s}")
+          if t == 0:
+              print("no test results found - the suite did not run"); sys.exit(1)
+          if s:
+              print("SKIPPED TESTS (a skip is a test that did not run):"); print("\n".join("  " + x for x in skipped)); sys.exit(1)
+          PY
+
       - name: Upload test report
         if: failure()
         uses: actions/upload-artifact@v7
