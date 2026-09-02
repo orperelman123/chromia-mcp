@@ -644,6 +644,43 @@ object RellSecurityCheck {
         return findings
     }
 
+    // ---- signer-check-on-untrusted-argument (phantom gate) ----
+    /** `is_signer(x)` with a single bare identifier argument. */
+    private val IS_SIGNER_ARG_REGEX = Regex("""\bis_signer\s*\(\s*([A-Za-z_]\w*)\s*\)""")
+    private val IS_SIGNER_CALL_REGEX = Regex("""\bis_signer\s*\([^)]*\)""")
+
+    /**
+     * HIGH when a mutating operation's only use of a parameter is inside
+     * `is_signer(<param>)`: the caller supplies the very key being checked and
+     * signs with it, so the "gate" always passes - a phantom admin check.
+     * `is_signer(p)` DOES prove the caller controls key p, so when p is also
+     * used (keying the write, passed onward) it is the idiomatic self-binding
+     * pattern and stays clean; the raw "any is_signer(param)" version of this
+     * rule would flag every self-registration op and train agents to ignore
+     * the gate.
+     */
+    private fun phantomSignerGateFindings(path: String, op: OperationBlock, mutates: Boolean): List<Finding> {
+        if (!mutates) return emptyList()
+        val paramNames = parseParams(op.params).mapTo(mutableSetOf()) { it.first }
+        if (paramNames.isEmpty()) return emptyList()
+        val checkedParams = IS_SIGNER_ARG_REGEX.findAll(op.body)
+            .map { it.groupValues[1] }.filter { it in paramNames }.toSet()
+        if (checkedParams.isEmpty()) return emptyList()
+        val residual = IS_SIGNER_CALL_REGEX.replace(op.body, "is_signer(_)")
+        return checkedParams.mapNotNull { param ->
+            if (Regex("""\b${Regex.escape(param)}\b""").containsMatchIn(residual)) return@mapNotNull null
+            Finding(
+                "HIGH", "signer-check-on-untrusted-argument", path, op.line,
+                "operation ${op.name} gates a mutation on is_signer('$param') where '$param' is a " +
+                    "caller-supplied parameter used nowhere else - the caller passes their own key and " +
+                    "signs with it, so the check always passes",
+                "Check the signer against a trusted constant instead: " +
+                    "op_context.is_signer(chain_context.args.admin_pubkey) (module args), or authenticate " +
+                    "with ft4 auth and authorize against stored state. A caller-chosen key is not a gate."
+            )
+        }
+    }
+
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
     internal fun scanOperations(path: String, content: String): List<OperationBlock> {
@@ -709,6 +746,7 @@ object RellSecurityCheck {
         if (hasAuth) {
             findings += confusedDeputyFindings(path, op, authFunctions)
         }
+        findings += phantomSignerGateFindings(path, op, mutates)
         if (op.params.isNotBlank() && !hasRequire && !hasAuth) {
             findings.add(
                 Finding(

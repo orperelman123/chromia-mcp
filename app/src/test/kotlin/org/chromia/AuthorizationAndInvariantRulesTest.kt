@@ -160,6 +160,107 @@ class AuthorizationAndInvariantRulesTest {
         )
     }
 
+    // ---- signer-check-on-untrusted-argument (phantom gate) ----
+
+    /**
+     * `require(is_signer(admin))` where `admin` is an operation PARAMETER: the
+     * attacker passes their own pubkey and signs with it - the "gate" always
+     * passes and the privileged mutation runs. The old auth scan counted
+     * is_signer( as authentication and stayed silent.
+     */
+    @Test
+    fun signerCheckOnCallerSuppliedKeyGatingPrivilegedMutationIsHigh() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity config { mutable fee: integer; }
+                    operation set_fee(admin: pubkey, fee: integer) {
+                        require(op_context.is_signer(admin), "admin only");
+                        require(fee >= 0, "fee");
+                        update config @ { } ( .fee = fee );
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "signer-check-on-untrusted-argument" }
+        assertTrue(hit.isNotEmpty(), "phantom signer gate must be flagged; got ${result.findings}")
+        assertEquals("HIGH", hit.first().severity)
+        assertEquals(false, result.ok)
+    }
+
+    /** The gate is just as phantom when the mutation happens via a helper. */
+    @Test
+    fun phantomSignerGateOverTransitiveMutationIsHigh() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity acct { key id: byte_array; mutable balance: integer; }
+                    function do_mint(to: byte_array, amount: integer) {
+                        update acct @ { .id == to } ( .balance += amount );
+                    }
+                    operation mint(caller: pubkey, to: byte_array, amount: integer) {
+                        require(op_context.is_signer(caller), "not authorized");
+                        do_mint(to, amount);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "signer-check-on-untrusted-argument" in rules(result),
+            result.findings.toString()
+        )
+    }
+
+    /**
+     * The idiomatic self-binding pattern: prove you control the key you are
+     * registering, then use that same key in the write. The parameter is bound
+     * to a real signer AND used - this is a gate, not a phantom.
+     */
+    @Test
+    fun selfBindingSignerCheckStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity user { key pubkey; name: text; }
+                    operation register(pubkey, name: text) {
+                        require(op_context.is_signer(pubkey), "must sign with the key being registered");
+                        require(name.size() > 0, "name required");
+                        create user(pubkey, name);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "signer-check-on-untrusted-argument" },
+            result.findings.toString()
+        )
+    }
+
+    /** is_signer against a module-args constant is the real admin gate - clean. */
+    @Test
+    fun signerCheckAgainstChainContextArgsStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity config { mutable fee: integer; }
+                    operation set_fee(fee: integer) {
+                        require(op_context.is_signer(chain_context.args.admin_pubkey), "admin only");
+                        require(fee >= 0, "fee");
+                        update config @ { } ( .fee = fee );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "signer-check-on-untrusted-argument" },
+            result.findings.toString()
+        )
+    }
+
     /** is_signer(<that param>) binds the param to an actual transaction signer - clean. */
     @Test
     fun paramCheckedWithIsSignerStaysClean() {
