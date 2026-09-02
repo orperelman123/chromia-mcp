@@ -1912,16 +1912,23 @@ class DappBuildToolsTest {
 
     @Test
     fun chrVersionLiveProbe() {
-        val chr = findOnPath("chr")
-        // Environment-dependent live probe: skip (not fail) where chr is absent or
-        // not directly launchable (e.g. Windows shims), so CI stays green without chr.
-        org.junit.jupiter.api.Assumptions.assumeTrue(chr != null, "chr not on PATH; skipping live probe")
+        // Launch chr the way the server does. A bare PATH lookup finds scoop's
+        // extensionless shim, which ProcessBuilder cannot start (CreateProcess
+        // error=193) - that used to abort this probe on exactly the Windows boxes
+        // it most needed to cover. ChrLocator honors PATHEXT and wraps .cmd/.bat
+        // in `cmd /c`, so going through it both fixes the launch and makes this
+        // probe real coverage of the launcher agents actually depend on.
+        val chr = org.chromia.tools.ChrLocator.resolve(System.getenv())
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            findOnPath("chr") != null,
+            "chr not on PATH; skipping live probe"
+        )
         val proc = try {
-            ProcessBuilder(chr, "version")
+            ProcessBuilder(chr.command + "version")
                 .redirectErrorStream(true)
                 .start()
         } catch (e: java.io.IOException) {
-            org.junit.jupiter.api.Assumptions.abort<Nothing>("chr found but not launchable: ${e.message}")
+            throw AssertionError("chr is on PATH but ${chr.source} could not launch it: ${e.message}", e)
         }
         val output = proc.inputStream.bufferedReader().readText()
         val code = proc.waitFor()
