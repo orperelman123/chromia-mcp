@@ -206,7 +206,7 @@ class DappScaffoldSecureTemplatesTest {
             } else {
                 assertFalse(yml.contains("oracle_pubkey"), "governance yml carries no oracle key")
             }
-            val ymlCheck = org.chromia.tools.ChromiaYml.validate(yml)
+            val ymlCheck = org.chromia.tools.ChromiaYmlValidator.validate(yml)
             assertTrue(ymlCheck.errors.isEmpty(), "$template yml must validate: ${ymlCheck.errors}")
         }
     }

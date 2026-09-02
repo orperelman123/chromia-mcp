@@ -861,6 +861,7 @@ object DappScaffold {
             rell.test.tx()
                 .op(ft_auth_operation_for(keypair.pub))
                 .op(op)
+                .nop()
                 .sign(keypair)
                 .run();
         }
@@ -869,6 +870,7 @@ object DappScaffold {
             rell.test.tx()
                 .op(ft_auth_operation_for(keypair.pub))
                 .op(op)
+                .nop()
                 .sign(keypair)
                 .run_must_fail(expected);
         }
@@ -1277,7 +1279,10 @@ object DappScaffold {
         // any trade. They can only pass while the guards stand.
 
         import main;
-        import lib.ft4.test.core.{ register_alice, ft_auth_operation_for, admin_priv_key };
+        import lib.ft4.test.core.{ register_alice, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
 
         // The oracle keypair: FT4's published test key, wired through
         // test.moduleArgs (lib.ft4.test.core.auth.admin_priv_key + main.oracle_pubkey).
@@ -1296,6 +1301,7 @@ object DappScaffold {
             rell.test.tx()
                 .op(ft_auth_operation_for(keypair.pub))
                 .op(op)
+                .nop()
                 .sign(keypair)
                 .run();
         }
@@ -1304,6 +1310,7 @@ object DappScaffold {
             rell.test.tx()
                 .op(ft_auth_operation_for(keypair.pub))
                 .op(op)
+                .nop()
                 .sign(keypair)
                 .run_must_fail(expected);
         }
