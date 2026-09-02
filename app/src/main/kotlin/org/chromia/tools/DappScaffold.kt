@@ -122,17 +122,29 @@ object DappScaffold {
      */
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
+    /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
+    val templates = listOf("hello", "ft4", "governance", "vault")
+
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
-        return if (template == "ft4") {
-            linkedMapOf(
+        return when (template) {
+            "ft4" -> linkedMapOf(
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to ft4MainRell(),
                 "src/test/main_test.rell" to ft4TestRell(),
                 "client/example.ts" to ft4ClientTs(chain)
             )
-        } else {
-            linkedMapOf(
+            "governance" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to governanceMainRell(),
+                "src/test/main_test.rell" to governanceTestRell()
+            )
+            "vault" -> linkedMapOf(
+                "chromia.yml" to vaultChromiaYml(chain),
+                "src/main.rell" to vaultMainRell(),
+                "src/test/main_test.rell" to vaultTestRell()
+            )
+            else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
                 "src/main.rell" to mainRell(),
                 "src/test/main_test.rell" to mainTestRell()
@@ -165,6 +177,16 @@ object DappScaffold {
             A passing security check is NOT economic soundness: missing authorization, unbacked
             minting, missing quorum/timeouts, and value with no withdrawal path all pass static
             analysis - only an invariant test you write catches them.
+            Building a DAO / treasury: start from template=governance (quorum, a fixed voting
+            window, stake-weighted votes and execute-once are structural, and the shipped tests
+            replay the single-account drain and require it to fail). Building an exchange, vault
+            or anything priced by an oracle: start from template=vault (every credit is paid out
+            of a reserve row in the same operation, price moves are bounded and rate-limited,
+            stale prices halt trading; the shipped tests replay the 100 -> 200,000,000 mint and
+            require it to fail). The vault's oracle key is a module arg: its tests need
+            main.oracle_pubkey from chromia.yml test.moduleArgs in the module_args you pass to
+            run_rell_tests, and you must set main.oracle_pubkey under blockchains.<name>.moduleArgs
+            before `chr build` - it is deliberately absent so no placeholder key can ship.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -175,7 +197,7 @@ object DappScaffold {
 
     fun toJson(name: String?, template: String = "hello"): JsonObject {
         val chain = normalizeName(name)
-        val effectiveTemplate = if (template == "ft4") "ft4" else "hello"
+        val effectiveTemplate = if (template in templates) template else "hello"
         val fileMap = files(chain, template)
         // Never silently substitute what the agent asked for (QA finding):
         // surface every fallback as an explicit warning.
@@ -188,7 +210,7 @@ object DappScaffold {
             )
         }
         if (template != effectiveTemplate) {
-            warnings.add("Unknown template '$template' (valid: hello, ft4); scaffolded the '$effectiveTemplate' template.")
+            warnings.add("Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the '$effectiveTemplate' template.")
         }
         return buildJsonObject {
             put("name", chain)
@@ -281,7 +303,17 @@ object DappScaffold {
 
     // ---- Golden FT4 template: accounts + authenticated, validated operation ----
 
-    private fun ft4ChromiaYml(name: String): String = buildString {
+    /**
+     * The FT4-based chromia.yml every account-holding template ships.
+     * [productionModuleArgsNote] is appended inside the production moduleArgs
+     * block (4-space indented lines; comments only - a template never ships
+     * a production key), [extraTestModuleArgs] inside test.moduleArgs.
+     */
+    private fun ft4ChromiaYml(
+        name: String,
+        productionModuleArgsNote: String = "",
+        extraTestModuleArgs: String = ""
+    ): String = buildString {
         append("blockchains:\n")
         append("  $name:\n")
         append("    module: main\n")
@@ -291,6 +323,7 @@ object DappScaffold {
         Ft4ModuleArgs.moduleArgsYaml().lineSequence().forEach { line ->
             if (line.isBlank()) append('\n') else append("    ").append(line).append('\n')
         }
+        append(productionModuleArgsNote)
         append('\n')
         // chr test discovers tests through this section; without it the shipped
         // invariant tests would silently not run under `chr test`.
@@ -314,6 +347,7 @@ object DappScaffold {
         append("      admin_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
         append("    lib.ft4.test.core.auth:\n")
         append("      admin_priv_key: x\"$TEST_ADMIN_PRIVKEY\"\n")
+        append(extraTestModuleArgs)
         append('\n')
         append("compile:\n")
         append("  rellVersion: $RELL_VERSION\n")
@@ -581,5 +615,777 @@ object DappScaffold {
         await session.call({ name: "add_note", args: ["hello from ts"] });
         const notes = await client.query("get_notes", { owner: /* account id bytes */ });
         console.log(notes);
+    """.trimIndent() + "\n"
+
+    // ---- governance template: quorum, fixed window, stake weight, execute-once are structural ----
+    //
+    // Adversary round 1 (exploit-corpus/realworld/adversary-1/dapp_c_dao) drained a
+    // DAO the gate certified ok:true: one account with zero contribution proposed
+    // paying itself the treasury, cast its single vote, and executed after a 1 ms
+    // window. Static analysis can only advise here - a stake-weighted execute is
+    // textually identical to an unweighted one - so this template makes each step
+    // of that drain unwritable: the window is a constant (no parameter to shrink),
+    // votes weigh stake (no stake, no proposal, no weight), execution needs a quorum
+    // snapshotted at proposal time, and the executed flag flips in the paying op.
+
+    private fun governanceMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Governance template: a member-funded treasury that pays out only by
+        // stake-weighted vote. Four guards are STRUCTURAL - they live in the
+        // entities and constants, not in a require() a future operation can forget:
+        //   QUORUM        - execute_proposal needs yes_weight + no_weight >= quorum_weight,
+        //                   snapshotted from the total stake when the proposal was created,
+        //                   so joining late cannot shrink the bar.
+        //   VOTING WINDOW - VOTING_PERIOD_MS is a constant, not a parameter. Nothing a
+        //                   proposer sends can close a vote before others can act. If you
+        //                   make it configurable, floor it: require(period >= VOTING_PERIOD_MS).
+        //   STAKE WEIGHT  - a vote weighs what the voter has locked in the treasury. A
+        //                   member with nothing at stake cannot propose and weighs zero.
+        //   EXECUTED ONCE - `executed` flips in the same operation that pays.
+        // The single-account drain (zero-stake proposer pays itself, votes 1-0,
+        // executes after a 1 ms window) is refused at every step - it cannot propose,
+        // cannot end the window early, and cannot reach quorum alone.
+        // src/test/main_test.rell replays that exact attack and REQUIRES it to fail;
+        // keep that test passing as this file grows.
+        // What no template can fix: a member holding more than QUORUM_BPS of all stake
+        // owns the DAO by construction. That is what stake weighting means - choose
+        // QUORUM_BPS and a member cap for your own economics.
+
+        entity member {
+            key owner: byte_array;
+            mutable balance: integer = 0;   // spendable points
+            mutable stake: integer = 0;     // points locked in the treasury = voting weight
+        }
+
+        // The treasury and the total stake behind it: one row, updated in the same
+        // operations that move member points, so the conservation queries below
+        // hold at every block.
+        object dao {
+            mutable treasury_balance: integer = 0;
+            mutable total_stake: integer = 0;
+        }
+
+        entity proposal {
+            index proposer: byte_array;
+            title: text;
+            beneficiary: byte_array;
+            amount: integer;
+            created_at: timestamp;
+            deadline: timestamp;
+            quorum_weight: integer;         // snapshot: total_stake * QUORUM_BPS / 10000 at creation
+            mutable yes_weight: integer = 0;
+            mutable no_weight: integer = 0;
+            mutable executed: boolean = false;
+        }
+
+        // One vote per member per proposal: the key aborts a second vote.
+        entity vote {
+            key proposal, voter: byte_array;
+            weight: integer;
+            support: boolean;
+        }
+
+        // The one-time welcome grant is the ONLY place points are created (a
+        // stand-in for a real deposit - replace with an FT4 asset transfer and
+        // keep the same discipline: every credit is debited from somewhere real).
+        val WELCOME_POINTS = 1000;
+        // Three days. A constant: there is no parameter that shortens it.
+        val VOTING_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
+        // Half of all stake must vote for a proposal to be decidable at all.
+        val QUORUM_BPS = 5000;
+        val MAX_TITLE_LENGTH = 200;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
+        // with contains_all(), and contains_all([]) is always true - never weaken
+        // this default; grant flags = [] only per operation, scoped, for
+        // operations that cannot move value.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function member_of(owner: byte_array): member =
+            require(member @? { .owner == owner }, "register as a member first");
+
+        function quorum_for(total_stake: integer): integer =
+            max(1, total_stake * QUORUM_BPS / 10000);
+
+        operation register_member() {
+            val account = auth.authenticate();
+            require(member @? { .owner == account.id } == null, "already a member");
+            create member(owner = account.id, balance = WELCOME_POINTS);
+        }
+
+        // Lock points in the treasury. Stake is voting weight: what you can lose
+        // is what you may decide over.
+        operation fund_treasury(amount: integer) {
+            val account = auth.authenticate();
+            val m = member_of(account.id);
+            require(amount > 0, "amount must be positive");
+            require(m.balance >= amount, "insufficient balance");
+            update m ( .balance -= amount, .stake += amount );
+            dao.treasury_balance += amount;
+            dao.total_stake += amount;
+        }
+
+        operation create_proposal(title: text, beneficiary: byte_array, amount: integer) {
+            // 1. AUTHENTICATE
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - only a member with stake may put the treasury to a vote.
+            val proposer = member_of(account.id);
+            require(proposer.stake > 0, "only members with stake may propose");
+            // 3. VALIDATE - each input separately.
+            require(title.size() > 0 and title.size() <= MAX_TITLE_LENGTH, "invalid title");
+            require(member @? { .owner == beneficiary } != null, "beneficiary is not a member");
+            require(amount > 0, "amount must be positive");
+            require(amount <= dao.treasury_balance, "amount exceeds treasury");
+            // 4. INVARIANTS - the window and the quorum are fixed HERE, from
+            //    constants and the current total stake; the proposer chooses neither.
+            val now = op_context.last_block_time;
+            create proposal(
+                proposer = account.id,
+                title = title,
+                beneficiary = beneficiary,
+                amount = amount,
+                created_at = now,
+                deadline = now + VOTING_PERIOD_MS,
+                quorum_weight = quorum_for(dao.total_stake)
+            );
+        }
+
+        operation cast_vote(proposal_id: rowid, support: boolean) {
+            val account = auth.authenticate();
+            val voter = member_of(account.id);
+            val p = require(proposal @? { .rowid == proposal_id }, "proposal not found");
+            require(not p.executed, "proposal already executed");
+            require(op_context.last_block_time < p.deadline, "voting has ended");
+            // A vote weighs the voter's stake. Zero stake is zero weight, and is
+            // refused outright so a spam of empty votes cannot count toward quorum.
+            val weight = voter.stake;
+            require(weight > 0, "no voting weight: fund the treasury first");
+            create vote(proposal = p, voter = account.id, weight = weight, support = support);
+            if (support) {
+                update p ( .yes_weight += weight );
+            } else {
+                update p ( .no_weight += weight );
+            }
+        }
+
+        // Any member may trigger execution: the outcome is fixed by the votes.
+        operation execute_proposal(proposal_id: rowid) {
+            auth.authenticate();
+            val p = require(proposal @? { .rowid == proposal_id }, "proposal not found");
+            require(not p.executed, "proposal already executed");
+            require(op_context.last_block_time >= p.deadline, "voting is still open");
+            require(p.yes_weight + p.no_weight >= p.quorum_weight, "quorum not reached");
+            require(p.yes_weight > p.no_weight, "proposal was not approved");
+            require(dao.treasury_balance >= p.amount, "treasury cannot cover the proposal");
+            val b = member_of(p.beneficiary);
+            // Flip the flag and move the value in the same operation: Rell
+            // operations are atomic, so there is no state where one happened
+            // without the other.
+            update p ( .executed = true );
+            dao.treasury_balance -= p.amount;
+            update b ( .balance += p.amount );
+        }
+
+        query get_proposal(proposal_id: rowid) {
+            val p = require(proposal @? { .rowid == proposal_id }, "proposal not found");
+            return (
+                title = p.title,
+                beneficiary = p.beneficiary,
+                amount = p.amount,
+                deadline = p.deadline,
+                quorum_weight = p.quorum_weight,
+                yes_weight = p.yes_weight,
+                no_weight = p.no_weight,
+                executed = p.executed
+            );
+        }
+
+        query get_balance(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            return if (m != null) m.balance else 0;
+        }
+
+        query get_stake(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            return if (m != null) m.stake else 0;
+        }
+
+        query treasury_balance(): integer = dao.treasury_balance;
+
+        query total_stake(): integer = dao.total_stake;
+
+        query member_count(): integer = member @* {} ( .owner ).size();
+
+        // INVARIANT: every point in circulation came from a welcome grant. Points
+        // are either spendable (member.balance) or in the treasury; funding and
+        // paying out move them, they never create or destroy them. The shipped
+        // conservation test compares this to member_count() * WELCOME_POINTS.
+        query points_in_circulation(): integer {
+            var total = dao.treasury_balance;
+            for (b in member @* {} ( .balance )) total += b;
+            return total;
+        }
+
+        // INVARIANT: the stake ledger and the dao's total agree.
+        query staked_points(): integer {
+            var total = 0;
+            for (s in member @* {} ( .stake )) total += s;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun governanceTestRell(): String = """
+        @test module;
+
+        // The governance template's invariant tests. They are real: FT4 test
+        // accounts, signed operations, PostgreSQL - run via run_rell_tests (pass
+        // chromia.yml's moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // test_round1_single_account_drain_must_fail replays the adversary's DAO
+        // drain step by step against this template and REQUIRES each step to be
+        // refused. That test is the proof the bug is unwritable here: it can only
+        // pass while the guards stand, so if you ever delete one, this goes red
+        // before an attacker finds out.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Advance the chain past the voting window: the next block is stamped
+        // VOTING_PERIOD_MS + 1 after the last one.
+        function close_voting_window() {
+            rell.test.set_next_block_time_delta(main.VOTING_PERIOD_MS + 1);
+            rell.test.block().run();
+        }
+
+        function assert_conserved() {
+            assert_equals(main.points_in_circulation(), main.member_count() * main.WELCOME_POINTS);
+            assert_equals(main.staked_points(), main.total_stake());
+        }
+
+        function proposal_by(proposer: byte_array): rowid =
+            (main.proposal @ { .proposer == proposer }).rowid;
+
+        // EXPLOIT MUST FAIL. Round 1: two honest members fund 600 + 400; a third
+        // account with nothing at stake proposes paying itself the treasury, casts
+        // one vote, and executes after a 1 ms window. Here every step is refused.
+        function test_round1_single_account_drain_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            signed(alice.keypair, main.fund_treasury(600));
+            signed(bob.keypair, main.fund_treasury(400));
+            assert_equals(main.treasury_balance(), 1000);
+            assert_equals(main.get_stake(trudy.account.id), 0);
+
+            // Step 1 - a zero-stake account cannot even propose.
+            signed_must_fail(
+                trudy.keypair,
+                main.create_proposal("pay me", trudy.account.id, 1000),
+                "only members with stake may propose"
+            );
+
+            // Step 2 - with the smallest possible stake the proposal exists, but the
+            // attacker's single vote weighs 1 against a quorum of 500.
+            signed(trudy.keypair, main.fund_treasury(1));
+            signed(trudy.keypair, main.create_proposal("pay me", trudy.account.id, 1001));
+            val pid = proposal_by(trudy.account.id);
+            signed(trudy.keypair, main.cast_vote(pid, true));
+
+            // Step 3 - the window is a constant: executing in the next block is refused.
+            signed_must_fail(trudy.keypair, main.execute_proposal(pid), "voting is still open");
+
+            // Step 4 - even after the window closes, quorum was never reached.
+            close_voting_window();
+            signed_must_fail(trudy.keypair, main.execute_proposal(pid), "quorum not reached");
+
+            assert_equals(main.treasury_balance(), 1001);
+            assert_equals(main.get_balance(trudy.account.id), main.WELCOME_POINTS - 1);
+            assert_conserved();
+        }
+
+        // HAPPY PATH + EXECUTE ONCE + CONSERVATION: enough stake votes yes, the
+        // payout lands exactly once, and no point is created or lost on the way.
+        function test_stake_weighted_proposal_pays_once_and_conserves_points() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(alice.keypair, main.fund_treasury(600));
+            signed(bob.keypair, main.fund_treasury(400));
+
+            signed(alice.keypair, main.create_proposal("pay bob for the audit", bob.account.id, 300));
+            val pid = proposal_by(alice.account.id);
+            assert_equals(main.get_proposal(pid).quorum_weight, 500);
+            signed(alice.keypair, main.cast_vote(pid, true));
+            signed(bob.keypair, main.cast_vote(pid, true));
+            // One vote per member: the (proposal, voter) key refuses a second one.
+            rell.test.tx()
+                .op(ft_auth_operation_for(bob.keypair.pub))
+                .op(main.cast_vote(pid, true))
+                .sign(bob.keypair)
+                .run_must_fail();
+            assert_equals(main.get_proposal(pid).yes_weight, 1000);
+
+            signed_must_fail(bob.keypair, main.execute_proposal(pid), "voting is still open");
+            close_voting_window();
+            signed(bob.keypair, main.execute_proposal(pid));
+
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS - 400 + 300);
+            assert_equals(main.treasury_balance(), 700);
+            // Executed once: a replay is refused and moves nothing.
+            signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal already executed");
+            assert_equals(main.treasury_balance(), 700);
+            assert_conserved();
+        }
+
+        // STAKE WEIGHT BEATS HEAD COUNT: two yes votes worth 301 lose to one no
+        // vote worth 600, and a member with no stake has no vote at all.
+        function test_majority_of_stake_can_reject() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            signed(alice.keypair, main.fund_treasury(600));
+            signed(bob.keypair, main.fund_treasury(300));
+
+            signed(bob.keypair, main.create_proposal("pay bob", bob.account.id, 500));
+            val pid = proposal_by(bob.account.id);
+            signed_must_fail(trudy.keypair, main.cast_vote(pid, true), "no voting weight");
+            signed(trudy.keypair, main.fund_treasury(1));
+            signed(trudy.keypair, main.cast_vote(pid, true));
+            signed(bob.keypair, main.cast_vote(pid, true));
+            signed(alice.keypair, main.cast_vote(pid, false));
+
+            close_voting_window();
+            signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal was not approved");
+            assert_equals(main.treasury_balance(), 901);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    // ---- vault template: every credit is a reserve debit; prices are bounded and time-checked ----
+    //
+    // Adversary round 1 (exploit-corpus/realworld/adversary-1/dapp_d_oracle) turned
+    // 100 USD into 200,000,000 through a gate that said ok:true: sell_tokens credited
+    // USD that no reserve ever held, and set_price accepted any positive number at any
+    // time. This template keeps the vault's own holdings as ordinary rows of the same
+    // entities, so a trade is a transfer between rows (the credit cannot exist without
+    // its debit), bounds and rate-limits every price update, and refuses to trade on
+    // a stale price. The oracle key is a module arg the production yml deliberately
+    // leaves unset: the chain cannot build with a placeholder key.
+
+    /**
+     * Module args for running the vault template's shipped tests: FT4's test
+     * wiring plus the oracle key the vault reads from `main`. The key is FT4's
+     * published TEST admin key, used here only so the tests can sign price posts
+     * - it mirrors chromia.yml's test.moduleArgs and, like them, never belongs
+     * under blockchains.<name>.
+     */
+    fun vaultTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
+        ft4TestModuleArgs() + mapOf(
+            "main" to mapOf("oracle_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY))
+        )
+
+    private fun vaultChromiaYml(name: String): String = ft4ChromiaYml(
+        name,
+        productionModuleArgsNote = buildString {
+            append("      # REQUIRED before `chr build` / deploy - the vault's oracle key. It is\n")
+            append("      # deliberately NOT set here so the chain cannot be built with a\n")
+            append("      # placeholder: put your oracle's 33-byte compressed public key here and\n")
+            append("      # nowhere in source. Never copy the test key from test.moduleArgs.\n")
+            append("      # main:\n")
+            append("      #   oracle_pubkey: x\"<your oracle public key>\"\n")
+        },
+        extraTestModuleArgs = buildString {
+            append("    # The shipped tests sign price posts with FT4's published test key.\n")
+            append("    main:\n")
+            append("      oracle_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
+        }
+    )
+
+    private fun vaultMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Vault template: an oracle-priced exchange between a cash balance and a
+        // token balance. Three guards are STRUCTURAL:
+        //   RESERVE-BACKED  - the vault's holdings are rows of the SAME entities as
+        //                     users' balances, keyed by the chain's own id. Every trade
+        //                     debits one row and credits another in the same operation;
+        //                     there is no code path that credits without a debit, and a
+        //                     sale the reserve cannot cover aborts. Value is conserved
+        //                     by construction - the shipped tests assert it after every
+        //                     trade, including the adversary's replayed drain.
+        //   BOUNDED PRICE   - set_price refuses a move beyond MAX_PRICE_MOVE_BPS of the
+        //                     previous price and a second post inside
+        //                     MIN_PRICE_UPDATE_INTERVAL_MS, so a wrong or hostile post is
+        //                     capped per hour instead of arbitrary per block.
+        //   TIME-CHECKED    - a price older than MAX_PRICE_AGE_MS halts trading until
+        //                     the oracle posts again; an uninitialised feed never trades.
+        // The oracle is the ONE key in chain_context.args.oracle_pubkey - configured,
+        // never a parameter, never in source.
+        // What no template can fix: an honest-but-wrong oracle still moves price
+        // within the bound, and a trader can capture that move - but only out of what
+        // the reserve holds, never out of thin air. Size MAX_PRICE_MOVE_BPS and the
+        // interval for your asset, and keep the conservation test green.
+
+        struct module_args {
+            oracle_pubkey: pubkey;
+        }
+
+        entity cash_account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        entity token_account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // price == 0 means "never posted": trading refuses until the oracle posts.
+        object price_feed {
+            mutable price: integer = 0;
+            mutable updated_at: timestamp = 0;
+        }
+
+        // Cash per token, scaled: PRICE_SCALE == 1.00.
+        val PRICE_SCALE = 1000000;
+        val MAX_PRICE = 1000 * PRICE_SCALE;
+        // A post may move the price at most 20% from the previous post...
+        val MAX_PRICE_MOVE_BPS = 2000;
+        // ...and at most once an hour, so the worst case is bounded per hour.
+        val MIN_PRICE_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
+        // A price older than a day is not a price.
+        val MAX_PRICE_AGE_MS = 24 * 60 * 60 * 1000;
+        // Bound every amount BEFORE multiplying by a price: Rell integers are
+        // 64-bit and overflow aborts. MAX_TRADE_AMOUNT * MAX_PRICE fits.
+        val MAX_TRADE_AMOUNT = 1000000000;
+        // The one-time welcome grant is the ONLY place cash is created (a
+        // stand-in for a real deposit - replace with an FT4 asset transfer and keep
+        // the same discipline). Tokens exist only as the vault's initial reserve.
+        val WELCOME_CASH = 1000;
+        val INITIAL_TOKEN_SUPPLY = 1000000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
+        // with contains_all(), and contains_all([]) is always true - never weaken
+        // this default; grant flags = [] only per operation, scoped, for
+        // operations that cannot move value.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        // The vault's own rows are keyed by the chain's id: not a key, not a
+        // constant anyone can register, and never a parameter.
+        function vault_id(): byte_array = chain_context.blockchain_rid;
+
+        function cash_of(owner: byte_array): cash_account =
+            require(cash_account @? { .owner == owner }, "register an account first");
+
+        function tokens_of(owner: byte_array): token_account =
+            require(token_account @? { .owner == owner }, "register an account first");
+
+        function cash_reserve(): cash_account {
+            val vault = vault_id();
+            val r = cash_account @? { .owner == vault };
+            if (r != null) return r;
+            return create cash_account(owner = vault, balance = 0);
+        }
+
+        function token_reserve(): token_account {
+            val vault = vault_id();
+            val r = token_account @? { .owner == vault };
+            if (r != null) return r;
+            return create token_account(owner = vault, balance = INITIAL_TOKEN_SUPPLY);
+        }
+
+        // The price a trade may use: posted, and not stale.
+        function current_price(): integer {
+            require(price_feed.price > 0, "price feed not initialised");
+            require(
+                op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS,
+                "price feed is stale"
+            );
+            return price_feed.price;
+        }
+
+        operation set_price(price: integer) {
+            // 1+2. AUTHENTICATE + AUTHORIZE: the configured oracle key, never a parameter.
+            require(op_context.is_signer(chain_context.args.oracle_pubkey), "oracle only");
+            // 3. VALIDATE the post itself...
+            require(price > 0 and price <= MAX_PRICE, "price out of range");
+            // 4. ...and bound it against the previous post, in size and in time. The
+            //    first post initialises the feed and is exempt from the move bound.
+            val prev = price_feed.price;
+            val now = op_context.last_block_time;
+            if (prev > 0) {
+                require(price * 10000 <= prev * (10000 + MAX_PRICE_MOVE_BPS), "price move exceeds bound");
+                require(price * 10000 >= prev * (10000 - MAX_PRICE_MOVE_BPS), "price move exceeds bound");
+                require(now - price_feed.updated_at >= MIN_PRICE_UPDATE_INTERVAL_MS, "price update too soon");
+            }
+            price_feed.price = price;
+            price_feed.updated_at = now;
+        }
+
+        operation register_account() {
+            val account = auth.authenticate();
+            require(cash_account @? { .owner == account.id } == null, "account already registered");
+            create cash_account(owner = account.id, balance = WELCOME_CASH);
+            create token_account(owner = account.id, balance = 0);
+            // The vault's rows exist from the first registration, so the
+            // conservation queries are meaningful before the first trade.
+            cash_reserve();
+            token_reserve();
+        }
+
+        operation buy_tokens(cash_in: integer) {
+            // 1. AUTHENTICATE  2. AUTHORIZE - only the caller's own rows are debited.
+            val account = auth.authenticate();
+            val buyer_cash = cash_of(account.id);
+            val buyer_tokens = tokens_of(account.id);
+            // 3. VALIDATE - bound before the multiplication below.
+            require(cash_in > 0, "amount must be positive");
+            require(cash_in <= MAX_TRADE_AMOUNT, "amount too large");
+            require(buyer_cash.balance >= cash_in, "insufficient cash");
+            val price = current_price();
+            val tokens_out = cash_in * PRICE_SCALE / price;
+            require(tokens_out > 0, "amount too small");
+            // 4. INVARIANTS - the tokens come out of the reserve or not at all.
+            val reserve_cash = cash_reserve();
+            val reserve_tokens = token_reserve();
+            require(reserve_tokens.balance >= tokens_out, "vault cannot cover the trade");
+            update buyer_cash ( .balance -= cash_in );
+            update reserve_cash ( .balance += cash_in );
+            update reserve_tokens ( .balance -= tokens_out );
+            update buyer_tokens ( .balance += tokens_out );
+        }
+
+        operation sell_tokens(tokens_in: integer) {
+            val account = auth.authenticate();
+            val seller_cash = cash_of(account.id);
+            val seller_tokens = tokens_of(account.id);
+            require(tokens_in > 0, "amount must be positive");
+            require(tokens_in <= MAX_TRADE_AMOUNT, "amount too large");
+            require(seller_tokens.balance >= tokens_in, "insufficient tokens");
+            val price = current_price();
+            val cash_out = tokens_in * price / PRICE_SCALE;
+            require(cash_out > 0, "amount too small");
+            // The cash comes out of the reserve or not at all: this is the line the
+            // adversary's sell_tokens did not have, and it is what keeps a price
+            // swing from minting balance nobody deposited.
+            val reserve_cash = cash_reserve();
+            val reserve_tokens = token_reserve();
+            require(reserve_cash.balance >= cash_out, "vault cannot cover the trade");
+            update seller_tokens ( .balance -= tokens_in );
+            update reserve_tokens ( .balance += tokens_in );
+            update reserve_cash ( .balance -= cash_out );
+            update seller_cash ( .balance += cash_out );
+        }
+
+        query get_token_price(): integer = price_feed.price;
+
+        query get_price_updated_at(): timestamp = price_feed.updated_at;
+
+        query oracle_pubkey(): pubkey = chain_context.args.oracle_pubkey;
+
+        query get_cash_balance(owner: byte_array): integer {
+            val a = cash_account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_token_balance(owner: byte_array): integer {
+            val a = token_account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_vault_cash(): integer {
+            val vault = vault_id();
+            val a = cash_account @? { .owner == vault };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_vault_tokens(): integer {
+            val vault = vault_id();
+            val a = token_account @? { .owner == vault };
+            return if (a != null) a.balance else 0;
+        }
+
+        query registered_accounts(): integer {
+            val vault = vault_id();
+            return cash_account @* { .owner != vault } ( .owner ).size();
+        }
+
+        // INVARIANT: cash is only ever created by the welcome grant; trades move it
+        // between a user row and the vault row. The shipped tests compare this to
+        // registered_accounts() * WELCOME_CASH after every trade.
+        query cash_in_circulation(): integer {
+            var total = 0;
+            for (b in cash_account @* {} ( .balance )) total += b;
+            return total;
+        }
+
+        // INVARIANT: tokens are only ever the vault's initial reserve, moved around.
+        query tokens_in_circulation(): integer {
+            var total = 0;
+            for (b in token_account @* {} ( .balance )) total += b;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun vaultTestRell(): String = """
+        @test module;
+
+        // The vault template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block, which carries the oracle key the
+        // tests sign with) or `chr test`.
+        //
+        // The two test_round1_* functions replay the adversary's oracle drain against
+        // this template and REQUIRE it to be refused, then assert that nothing was
+        // created: cash_in_circulation() and tokens_in_circulation() are unchanged by
+        // any trade. They can only pass while the guards stand.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, ft_auth_operation_for, admin_priv_key };
+
+        // The oracle keypair: FT4's published test key, wired through
+        // test.moduleArgs (lib.ft4.test.core.auth.admin_priv_key + main.oracle_pubkey).
+        function oracle(): rell.test.keypair =
+            rell.test.keypair(priv = admin_priv_key(), pub = main.oracle_pubkey());
+
+        function post_price(price: integer) {
+            rell.test.tx().op(main.set_price(price)).sign(oracle()).run();
+        }
+
+        function post_price_must_fail(price: integer, expected: text) {
+            rell.test.tx().op(main.set_price(price)).sign(oracle()).run_must_fail(expected);
+        }
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Stamp the next block `ms` after the last one.
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        function assert_conserved() {
+            assert_equals(main.cash_in_circulation(), main.registered_accounts() * main.WELCOME_CASH);
+            assert_equals(main.tokens_in_circulation(), main.INITIAL_TOKEN_SUPPLY);
+        }
+
+        // EXPLOIT MUST FAIL. Round 1, step 1: the fair price is 2.00 and the oracle
+        // momentarily posts 0.000001. Here the post is refused - and so is a legal
+        // move that comes too soon, and any post from a key that is not the oracle.
+        function test_round1_price_crash_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            post_price(2 * main.PRICE_SCALE);
+
+            post_price_must_fail(1, "price move exceeds bound");
+            post_price_must_fail(main.PRICE_SCALE * 8 / 5, "price update too soon");
+            rell.test.tx().op(main.set_price(2 * main.PRICE_SCALE)).sign(alice.keypair).run_must_fail("oracle only");
+            assert_equals(main.get_token_price(), 2 * main.PRICE_SCALE);
+
+            // The widest legal move, after the interval, lands - 20% down, not 99.99995%.
+            after(main.MIN_PRICE_UPDATE_INTERVAL_MS);
+            post_price(main.PRICE_SCALE * 8 / 5);
+            assert_equals(main.get_token_price(), 1600000);
+        }
+
+        // EXPLOIT MUST FAIL. Round 1, step 2: buy at one price, sell everything at a
+        // higher one for more cash than was ever deposited. Here the sale the vault
+        // cannot cover aborts, what it can cover moves, and the totals never change.
+        function test_round1_unbacked_sell_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            assert_conserved();
+            post_price(main.PRICE_SCALE);
+
+            signed(alice.keypair, main.buy_tokens(1000));
+            assert_equals(main.get_token_balance(alice.account.id), 1000);
+            assert_equals(main.get_cash_balance(alice.account.id), 0);
+            assert_equals(main.get_vault_cash(), 1000);
+            assert_conserved();
+
+            after(main.MIN_PRICE_UPDATE_INTERVAL_MS);
+            post_price(main.PRICE_SCALE * 12 / 10);
+            // 1000 tokens at 1.20 would be 1200 cash; the vault holds 1000.
+            signed_must_fail(alice.keypair, main.sell_tokens(1000), "vault cannot cover the trade");
+            assert_equals(main.get_cash_balance(alice.account.id), 0);
+            assert_conserved();
+
+            // What the vault holds is what can leave it.
+            signed(alice.keypair, main.sell_tokens(800));
+            assert_equals(main.get_cash_balance(alice.account.id), 960);
+            assert_equals(main.get_token_balance(alice.account.id), 200);
+            assert_equals(main.get_vault_cash(), 40);
+            assert_conserved();
+        }
+
+        // TIME-CHECKED: no post, no trade; an old post, no trade; a fresh post
+        // reopens trading.
+        function test_stale_or_missing_price_halts_trading() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            signed_must_fail(alice.keypair, main.buy_tokens(10), "price feed not initialised");
+
+            post_price(main.PRICE_SCALE);
+            signed(alice.keypair, main.buy_tokens(10));
+            assert_equals(main.get_token_balance(alice.account.id), 10);
+
+            after(main.MAX_PRICE_AGE_MS + 1);
+            signed_must_fail(alice.keypair, main.buy_tokens(10), "price feed is stale");
+
+            post_price(main.PRICE_SCALE);
+            signed(alice.keypair, main.buy_tokens(10));
+            assert_equals(main.get_token_balance(alice.account.id), 20);
+            assert_conserved();
+        }
     """.trimIndent() + "\n"
 }
