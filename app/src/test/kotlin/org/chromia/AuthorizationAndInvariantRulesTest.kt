@@ -408,6 +408,90 @@ class AuthorizationAndInvariantRulesTest {
         )
     }
 
+    // ---- mass-mutation ----
+
+    @Test
+    fun deleteAllRowsIsHigh() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity note { key id: integer; body: text; }
+                    operation wipe() {
+                        val account = auth.authenticate();
+                        delete note @* { };
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "mass-mutation" }
+        assertTrue(hit.isNotEmpty(), "delete @* {} must be flagged; got ${result.findings}")
+        assertEquals("HIGH", hit.first().severity)
+        assertEquals(false, result.ok)
+    }
+
+    @Test
+    fun updateAllRowsIsHigh() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity acct { key id: byte_array; mutable balance: integer; }
+                    operation zero_everyone() {
+                        val account = auth.authenticate();
+                        update acct @* { } ( .balance = 0 );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue("mass-mutation" in rules(result), result.findings.toString())
+    }
+
+    /** Filtered mutations and @*-queries are normal Rell - clean. */
+    @Test
+    fun filteredMutationAndQueryStayClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    entity note { key id: integer; owner: byte_array; body: text; }
+                    operation remove_mine() {
+                        val account = auth.authenticate();
+                        delete note @* { .owner == account.id };
+                    }
+                    query all_notes() = note @* { } ( .body );
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule.startsWith("mass-mutation") },
+            result.findings.toString()
+        )
+    }
+
+    /** Wiping tables is what test fixtures DO - reuse the test-surface downgrade. */
+    @Test
+    fun massMutationInTestModuleDowngradesToMedium() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "test/fixtures.rell" to """
+                    @test module;
+                    entity scratch { key id: integer; }
+                    function reset() {
+                        delete scratch @* { };
+                    }
+                    operation seed() {
+                        delete scratch @* { };
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "mass-mutation-test-surface" }
+        assertTrue(hit.isNotEmpty(), result.findings.toString())
+        assertTrue(hit.all { it.severity == "MEDIUM" }, result.findings.toString())
+        assertTrue(result.findings.none { it.rule == "mass-mutation" }, result.findings.toString())
+    }
+
     /** is_signer(<that param>) binds the param to an actual transaction signer - clean. */
     @Test
     fun paramCheckedWithIsSignerStaysClean() {

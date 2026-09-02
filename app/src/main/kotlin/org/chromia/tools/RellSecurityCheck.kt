@@ -399,6 +399,7 @@ object RellSecurityCheck {
                 findings += bannedModuleFindings(path, masked, allowAdminModules)
             }
             findings += hardcodedSecretFindings(path, commentMasked)
+            findings += massMutationFindings(path, masked)
             val authMarkers = authMarkersFor(masked)
             val ops = scanOperations(path, masked)
             operationsScanned += ops.size
@@ -741,6 +742,23 @@ object RellSecurityCheck {
         }
         return empty > 0 && nonEmptyOrUnknown == 0
     }
+
+    // ---- mass-mutation ----
+    /** `update x @* {}` / `delete x @* {}`: an empty where-clause hits EVERY row. */
+    private val MASS_MUTATION_REGEX = Regex("""\b(update|delete)\s+[A-Za-z_][\w.]*\s*@\*\s*\{\s*\}""")
+
+    private fun massMutationFindings(path: String, masked: String): List<Finding> =
+        MASS_MUTATION_REGEX.findAll(masked).map { m ->
+            val keyword = m.groupValues[1]
+            Finding(
+                "HIGH", "mass-mutation", path,
+                masked.substring(0, m.range.first).count { it == '\n' } + 1,
+                m.value.replace(Regex("""\s+"""), " "),
+                "$keyword with an empty where-clause ${if (keyword == "delete") "deletes" else "rewrites"} " +
+                    "EVERY row of the entity. Filter the rows (delete x @* { .owner == account.id }); " +
+                    "if a full wipe really is intended, it belongs behind an explicit admin gate."
+            )
+        }.toList()
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
