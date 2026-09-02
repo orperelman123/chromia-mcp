@@ -267,8 +267,17 @@ object RellSecurityCheck {
     internal fun functionBodies(maskedContent: String): List<Pair<String, String>> =
         functionDefinitions(maskedContent).map { it.name to it.body }
 
-    /** One `function name(params) { body }` / `= expr;` definition, masked. */
-    internal data class FunctionDef(val name: String, val params: String, val body: String)
+    /**
+     * One `function name(params) { body }` / `= expr;` definition, masked.
+     * [expressionBody] is true for the `= expr` form, where the body IS the
+     * return value (no `return` keyword to find).
+     */
+    internal data class FunctionDef(
+        val name: String,
+        val params: String,
+        val body: String,
+        val expressionBody: Boolean = false
+    )
 
     /** Every function definition in the (masked) source with its raw parameter list - see [functionBodies]. */
     internal fun functionDefinitions(maskedContent: String): List<FunctionDef> {
@@ -280,8 +289,9 @@ object RellSecurityCheck {
             val params = maskedContent.substring(parenStart + 1, parenEnd)
             val braceStart = maskedContent.indexOf('{', parenEnd)
             val eqIdx = maskedContent.indexOf('=', parenEnd)
+            val blockBody = braceStart >= 0 && (eqIdx < 0 || braceStart < eqIdx)
             val body = when {
-                braceStart >= 0 && (eqIdx < 0 || braceStart < eqIdx) -> {
+                blockBody -> {
                     val braceEnd = matchDelimiter(maskedContent, braceStart, '{', '}') ?: return@forEach
                     maskedContent.substring(braceStart + 1, braceEnd)
                 }
@@ -291,7 +301,7 @@ object RellSecurityCheck {
                 }
                 else -> return@forEach
             }
-            functions.add(FunctionDef(name, params, body))
+            functions.add(FunctionDef(name, params, body, expressionBody = !blockBody))
         }
         return functions
     }
@@ -490,6 +500,9 @@ object RellSecurityCheck {
         )
         val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
         val inlinable = inlinableFunctions(fullyMasked)
+        // Row fields that hold a price-derived quote (redemption.cash_due): the
+        // operation that pays such a quote out reads no price itself.
+        val priceDerivedFields = priceDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns, priceReadFunctions)
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -563,11 +576,14 @@ object RellSecurityCheck {
                 findings += iccfProvenanceFindings(path, op, mutatingFunctions)
                 findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
-                findings += unbackedConversionFindings(path, op, allEntityNames, entityHelperReturns, priceReadFunctions)
+                findings += unbackedConversionFindings(
+                    path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields, inlinable
+                )
             }
         }
 
         findings += valueSinkFindings(files, fullyMasked, allEntityNames, entityHelperReturns)
+        findings += droppedQuorumGateFindings(files, fullyMasked, inlinable, allEntityNames, valueMutatingFunctions)
 
         // HIGH findings on the test surface downgrade to MEDIUM with a rule
         // suffix; CRITICALs (banned modules, open strategies) never downgrade
@@ -620,7 +636,8 @@ object RellSecurityCheck {
                     "mass mutations, require() validation incl. amount sign bounds and per-parameter " +
                     "coverage, ICMF sender binding, ICCF proof provenance, query secret exposure, banned " +
                     "FT4 admin modules, hardcoded secrets) - a clean report does not replace a security " +
-                    "audit. Economic invariants (quorum, voting windows, reserve backing, locked value " +
+                    "audit. Economic invariants (quorum, quorum gates dropped on a sibling payout path, " +
+                    "voting windows, reserve backing of price- and time-derived credits, locked value " +
                     "sinks) get ADVISORY MEDIUM findings only: they are design judgments no static rule " +
                     "can prove, they never block, and their absence does not certify sound economics."
             )
@@ -958,6 +975,83 @@ object RellSecurityCheck {
             }
             sb.append(text, last, text.length)
             return sb.toString()
+        }
+        return expand(body, 0, emptySet())
+    }
+
+    private val RETURN_STMT_REGEX = Regex("""\breturn\b([^;]*)$""")
+
+    /**
+     * [body] as a FLAT statement list: every reachable app-owned helper's
+     * statements are hoisted in front of the statement that calls it, and the
+     * call keeps its name but its argument list becomes the helper's return
+     * expression(s) - `val r = reward_for(m);` reads as
+     * `val now__h1 = op_context.last_block_time; ...; val r = reward_for( m.staked * (now__h1 - since__h1) * RATE );`.
+     * Same binding and renaming as [inlineHelpers] (formals become the caller's
+     * argument text, helper locals get fresh names), same depth/budget/cycle
+     * guards, every same-named definition expanded. Unlike [inlineHelpers] the
+     * result splits on ';' into one statement per fragment, so the data-flow
+     * rules (time/price taint, credit-vs-debit pairing) see a helper's writes
+     * and bindings exactly as if they were written in the operation - moving
+     * the reward math or the payout into a helper changes nothing.
+     */
+    internal fun flattenHelpers(
+        body: String,
+        functions: Map<String, List<FunctionDef>>,
+        entities: Set<String>
+    ): String {
+        if (functions.isEmpty()) return body
+        var serial = 0
+        var budget = INLINE_MAX_CHARS
+        fun expand(text: String, depth: Int, stack: Set<String>): String {
+            if (depth >= INLINE_MAX_DEPTH || budget <= 0) return text
+            val out = StringBuilder()
+            text.split(';').forEach { fragment ->
+                val hoisted = StringBuilder()
+                val sb = StringBuilder()
+                var last = 0
+                CALL_SITE_REGEX.findAll(fragment).forEach { m ->
+                    if (m.range.first < last) return@forEach
+                    val callee = m.groupValues[1]
+                    val defs = functions[callee] ?: return@forEach
+                    if (callee in stack || callee in CONTROL_KEYWORDS || callee in entities || isMutationTarget(fragment, m)) {
+                        return@forEach
+                    }
+                    val parenStart = fragment.indexOf('(', m.range.first)
+                    val parenEnd = matchDelimiter(fragment, parenStart, '(', ')') ?: return@forEach
+                    val args = fragment.substring(parenStart + 1, parenEnd)
+                    val returns = mutableListOf<String>()
+                    defs.forEach { def ->
+                        serial++
+                        val bound = bindHelperBody(def, args, serial)
+                        budget -= bound.length
+                        val flat = expand(bound, depth + 1, stack + callee).trimEnd().trimEnd(';').split(';')
+                        if (def.expressionBody) {
+                            // Hoisted statements of nested calls come first; the
+                            // expression itself is the last fragment.
+                            flat.dropLast(1).forEach { hoisted.append(it).append(';') }
+                            returns.add(flat.last())
+                        } else {
+                            flat.forEach { stmt ->
+                                val r = RETURN_STMT_REGEX.find(stmt)
+                                if (r != null) {
+                                    returns.add(r.groupValues[1])
+                                    hoisted.append(stmt, 0, r.range.first).append(';')
+                                } else {
+                                    hoisted.append(stmt).append(';')
+                                }
+                            }
+                        }
+                    }
+                    sb.append(fragment, last, parenStart + 1)
+                    sb.append(returns.filter { it.isNotBlank() }.joinToString(" , "))
+                    sb.append(')')
+                    last = parenEnd + 1
+                }
+                sb.append(fragment, last, fragment.length)
+                out.append(hoisted).append(sb).append(';')
+            }
+            return out.toString()
         }
         return expand(body, 0, emptySet())
     }
@@ -1558,50 +1652,517 @@ object RellSecurityCheck {
         RegexOption.IGNORE_CASE
     )
 
+    // ---- statement-level data flow over a flattened body ----
+    // The conversion/emission rules need to know, per write, WHAT amount moves
+    // and where it came from: a credit is backed when the same quantity (or a
+    // quantity derived from the same price/time term) is debited in the same
+    // operation, whatever the rows are called. [flattenHelpers] puts helper
+    // statements in the operation's own statement list first, so none of this
+    // depends on where the code was written.
+
+    internal enum class Flow { CREDIT, DEBIT, SET }
+
     /**
-     * MEDIUM when an operation converts at a state-read price (a price/rate
-     * field read from an entity, directly or via a helper), does arithmetic
-     * with it, and credits a value field of an entity that the operation never
-     * debits. That credited asset comes from nowhere: nothing guarantees a
-     * reserve holds it, so one transient oracle price mints unbacked balance.
-     * Config-sourced rates (chain_context.args.fee_bps) do not count - the
-     * exploit needs a MUTABLE price. Advisory, never blocking: conservation
-     * is not decidable from syntax (an intentional emission schedule has the
-     * same shape), only the designer knows whether a reserve exists off-op.
+     * One field write with the amount expression it moves. [flow] normalises
+     * the spelling: `+= x`, `= old + x`, `-= -x` and `create e(f = x)` are
+     * CREDITs of x; `-= x`, `= old - x`, `+= -x` are DEBITs of x; a plain
+     * `= x` with no top-level +/- is a SET. [create] marks `create` arguments.
+     */
+    internal data class AmountWrite(
+        val entity: String?,
+        val field: String,
+        val flow: Flow,
+        val amount: String,
+        val create: Boolean = false
+    )
+
+    private val WS_REGEX = Regex("""\s+""")
+    private val LOCAL_BINDING_REGEX = Regex(
+        """\b(?:val|var)\s+([A-Za-z_]\w*)\s*(?::[^=;]*)?=(?!=)(.*)$""", RegexOption.DOT_MATCHES_ALL
+    )
+    private val BARE_ASSIGN_REGEX = Regex(
+        """(?:^|[{};)])\s*([A-Za-z_]\w*)\s*(\+=|-=|=(?!=))(.*)$""", RegexOption.DOT_MATCHES_ALL
+    )
+    private val DOTTED_ASSIGN_REGEX = Regex(
+        """(?:^|[{};)])\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)+)\s*(\+=|-=|=(?!=))(.*)$""", RegexOption.DOT_MATCHES_ALL
+    )
+    private val SET_ITEM_REGEX = Regex("""^\s*\.\s*([A-Za-z_]\w*)\s*(\+=|-=|=(?!=))(.*)$""", RegexOption.DOT_MATCHES_ALL)
+    private val CREATE_ITEM_REGEX = Regex("""^\s*([A-Za-z_]\w*)\s*=(?!=)(.*)$""", RegexOption.DOT_MATCHES_ALL)
+    private val FOR_ALIAS_REGEX = Regex("""\bfor\s*\(\s*([A-Za-z_]\w*)\s+in\s+([A-Za-z_]\w*)\s*@""")
+    private val REQUIRE_ALIAS_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*require\s*\(\s*([A-Za-z_]\w*)\s*@""")
+    private val REF_TOKEN_REGEX = Regex("""[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*""")
+
+    /** Identifiers and dotted paths referenced in [expr], with every dotted prefix (`a.b.c` -> a, a.b, a.b.c). */
+    internal fun refsOf(expr: String): Set<String> {
+        val out = mutableSetOf<String>()
+        REF_TOKEN_REGEX.findAll(expr).forEach { m ->
+            val parts = m.value.split('.').map { it.trim() }
+            for (i in 1..parts.size) out.add(parts.subList(0, i).joinToString("."))
+        }
+        return out
+    }
+
+    private fun statementsOf(body: String): List<String> = body.split(';')
+
+    /** `update <target> [@ {...}] ( .f op e, ... )` -> the raw target text and its (field, op, rhs) items. */
+    private fun updateSetList(stmt: String): Pair<String, List<Triple<String, String, String>>>? {
+        val m = UPDATE_KEYWORD_REGEX.find(stmt) ?: return null
+        val rest = stmt.substring(m.range.last + 1)
+        var brace = 0
+        var parenStart = -1
+        for ((i, c) in rest.withIndex()) {
+            when (c) {
+                '{' -> brace++
+                '}' -> brace--
+                '(' -> if (brace == 0) { parenStart = i; break }
+            }
+        }
+        if (parenStart < 0) return null
+        val parenEnd = matchDelimiter(rest, parenStart, '(', ')') ?: return null
+        val items = splitArgs(rest.substring(parenStart + 1, parenEnd)).mapNotNull { item ->
+            SET_ITEM_REGEX.find(item)?.let { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }
+        }
+        return rest.substring(0, parenStart).trim() to items
+    }
+
+    /** The update target's local name (`m` in `update m (...)`, `wallet` in `update wallet @ {...} (...)`). */
+    private fun updateTargetName(head: String): String = head.takeWhile { !it.isWhitespace() && it !in "@({" }
+
+    /** Local -> entity, through `val x = e @`, `val x = require(e @`, `val x = helper_returning_e(`, `for (x in e @`. */
+    private fun aliasMap(body: String, entities: Set<String>, helperReturns: Map<String, String>): Map<String, String> {
+        val alias = mutableMapOf<String, String>()
+        ALIAS_AT_REGEX.findAll(body).forEach { m ->
+            if (m.groupValues[2] in entities) alias[m.groupValues[1]] = m.groupValues[2]
+        }
+        REQUIRE_ALIAS_REGEX.findAll(body).forEach { m ->
+            if (m.groupValues[2] in entities) alias[m.groupValues[1]] = m.groupValues[2]
+        }
+        ALIAS_CALL_REGEX.findAll(body).forEach { m ->
+            helperReturns[m.groupValues[2].substringAfterLast('.')]?.let { alias[m.groupValues[1]] = it }
+        }
+        FOR_ALIAS_REGEX.findAll(body).forEach { m ->
+            if (m.groupValues[2] in entities) alias[m.groupValues[1]] = m.groupValues[2]
+        }
+        return alias
+    }
+
+    /** Index of the first top-level binary [op] in [expr] (outside brackets, not unary, not `->`/`+=`), or -1. */
+    private fun topLevelOperator(expr: String, op: Char): Int {
+        var depth = 0
+        var prev = ' '
+        for ((i, c) in expr.withIndex()) {
+            when (c) {
+                '(', '[', '{' -> depth++
+                ')', ']', '}' -> depth--
+                op -> if (depth == 0) {
+                    val next = expr.getOrNull(i + 1) ?: ' '
+                    val binary = prev.isLetterOrDigit() || prev == '_' || prev == ')' || prev == ']'
+                    if (binary && next != '=' && next != '>') return i
+                }
+            }
+            if (!c.isWhitespace()) prev = c
+        }
+        return -1
+    }
+
+    private fun flowOf(op: String, rhsRaw: String): Pair<Flow, String> {
+        val rhs = rhsRaw.trim()
+        return when (op) {
+            "+=" -> if (rhs.startsWith("-")) Flow.DEBIT to rhs.drop(1).trim() else Flow.CREDIT to rhs
+            "-=" -> if (rhs.startsWith("-")) Flow.CREDIT to rhs.drop(1).trim() else Flow.DEBIT to rhs
+            else -> {
+                val plus = topLevelOperator(rhs, '+')
+                val minus = topLevelOperator(rhs, '-')
+                when {
+                    plus >= 0 && (minus < 0 || plus < minus) -> Flow.CREDIT to rhs.substring(plus + 1).trim()
+                    minus >= 0 -> Flow.DEBIT to rhs.substring(minus + 1).trim()
+                    else -> Flow.SET to rhs
+                }
+            }
+        }
+    }
+
+    /**
+     * Every field write in a (flattened, masked) body with its amount: update
+     * set-lists (target resolved as in [valueWrites], plus `require(e @`, and
+     * `for (x in e @` loop variables), object/dotted assignments
+     * (`pool.undistributed -= earned`), and non-zero `create` arguments.
+     */
+    internal fun amountWrites(body: String, entities: Set<String>, helperReturns: Map<String, String>): List<AmountWrite> {
+        val alias = aliasMap(body, entities, helperReturns)
+        val out = mutableListOf<AmountWrite>()
+        statementsOf(body).forEach { stmt ->
+            updateSetList(stmt)?.let { (head, items) ->
+                val name = updateTargetName(head)
+                val entity = when {
+                    name.isEmpty() -> null
+                    head.substring(name.length).trimStart().startsWith("@") -> name.takeIf { it in entities }
+                    else -> alias[name] ?: name.takeIf { it in entities }
+                }
+                items.forEach { (field, op, rhs) ->
+                    val (flow, amount) = flowOf(op, rhs)
+                    out.add(AmountWrite(entity, field, flow, amount))
+                }
+            }
+            DOTTED_ASSIGN_REGEX.find(stmt)?.let { m ->
+                val path = m.groupValues[1].replace(WS_REGEX, "")
+                val base = path.substringBeforeLast('.')
+                val (flow, amount) = flowOf(m.groupValues[2], m.groupValues[3])
+                out.add(AmountWrite(alias[base] ?: base.takeIf { it in entities }, path.substringAfterLast('.'), flow, amount))
+            }
+        }
+        CREATE_STMT_REGEX.findAll(body).forEach { m ->
+            val entityName = m.groupValues[1]
+            if (entityName !in entities) return@forEach
+            val parenStart = body.indexOf('(', m.range.first)
+            val parenEnd = matchDelimiter(body, parenStart, '(', ')') ?: return@forEach
+            splitArgs(body.substring(parenStart + 1, parenEnd)).forEach { arg ->
+                CREATE_ITEM_REGEX.find(arg)?.let { a ->
+                    val rhs = a.groupValues[2].trim()
+                    if (rhs != "0") out.add(AmountWrite(entityName, a.groupValues[1], Flow.CREDIT, rhs, create = true))
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Every binding in a (flattened) body: `val x = e`, `x op= e`, `a.b op= e`
+     * (keyed `a.b`) and `update t ( .f op= e )` (keyed `t.f`). A name assigned
+     * more than once keeps every right-hand side.
+     */
+    internal fun bindingsOf(body: String): Map<String, List<String>> {
+        val out = mutableMapOf<String, MutableList<String>>()
+        fun add(name: String, rhs: String) = out.getOrPut(name) { mutableListOf() }.add(rhs)
+        statementsOf(body).forEach { stmt ->
+            LOCAL_BINDING_REGEX.find(stmt)?.let { add(it.groupValues[1], it.groupValues[2]); return@forEach }
+            DOTTED_ASSIGN_REGEX.find(stmt)?.let { add(it.groupValues[1].replace(WS_REGEX, ""), it.groupValues[3]); return@forEach }
+            BARE_ASSIGN_REGEX.find(stmt)?.let { add(it.groupValues[1], it.groupValues[3]); return@forEach }
+            updateSetList(stmt)?.let { (head, items) ->
+                val name = updateTargetName(head)
+                if (name.isNotEmpty()) items.forEach { (field, _, rhs) -> add("$name.$field", rhs) }
+            }
+        }
+        return out
+    }
+
+    /** [expr]'s references closed over [bindings]: everything the expression's value was computed from. */
+    internal fun refClosure(expr: String, bindings: Map<String, List<String>>): Set<String> {
+        val seen = mutableSetOf<String>()
+        val work = ArrayDeque(refsOf(expr))
+        while (work.isNotEmpty()) {
+            val n = work.removeFirst()
+            if (!seen.add(n)) continue
+            bindings[n]?.forEach { rhs -> refsOf(rhs).forEach { if (it !in seen) work.add(it) } }
+        }
+        return seen
+    }
+
+    /** [seeds] plus every binding whose value matches [source] or references a derived name (to a fixpoint). */
+    internal fun derivedNames(bindings: Map<String, List<String>>, seeds: Set<String>, source: Regex?): Set<String> {
+        val derived = seeds.toMutableSet()
+        var changed = true
+        while (changed) {
+            changed = false
+            bindings.forEach { (name, values) ->
+                if (name in derived) return@forEach
+                val hit = values.any { v -> (source != null && source.containsMatchIn(v)) || refsOf(v).any { it in derived } }
+                if (hit) { derived.add(name); changed = true }
+            }
+        }
+        return derived
+    }
+
+    /** The derived names whose value went through `*` or `/` (directly or via another scaled name). */
+    private fun scaledNames(bindings: Map<String, List<String>>, derived: Set<String>): Set<String> {
+        val scaled = mutableSetOf<String>()
+        var changed = true
+        while (changed) {
+            changed = false
+            bindings.forEach { (name, values) ->
+                if (name in scaled || name !in derived) return@forEach
+                val hit = values.any { v -> ARITHMETIC_REGEX.containsMatchIn(v) || refsOf(v).any { it in scaled } }
+                if (hit) { scaled.add(name); changed = true }
+            }
+        }
+        return scaled
+    }
+
+    /** A price read: a price/rate state field, or a call to a helper that reads one. */
+    private fun priceSourceRegex(priceReadFunctions: Set<String>): Regex {
+        val calls = if (priceReadFunctions.isEmpty()) "" else
+            "|\\b(?:" + priceReadFunctions.joinToString("|") { Regex.escape(it) } + ")\\s*\\("
+        return Regex("(?i:${PRICE_STATE_READ_REGEX.pattern})$calls")
+    }
+
+    /** A read (not a write, not a call) of any of [fields]. */
+    private fun fieldReadRegex(fields: Set<String>): Regex? =
+        if (fields.isEmpty()) null else
+            Regex("""\.\s*(?:${fields.joinToString("|") { Regex.escape(it) }})\b(?!\s*(?:\(|=(?!=)|\+=|-=))""")
+
+    /**
+     * Field names that hold a PRICE-DERIVED QUOTE: written by `create`/`=`
+     * somewhere in the app from a scaled price computation, and never debited
+     * anywhere (a balance that is debited elsewhere is an account, not a
+     * quote). `redemption.cash_due = tokens_in * current_price() / SCALE` is
+     * the shape: the conversion happens when the row is written, so the
+     * operation that later pays the quote out reads no price at all.
+     */
+    internal fun priceDerivedStoredFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>,
+        priceReadFunctions: Set<String>
+    ): Set<String> {
+        val source = priceSourceRegex(priceReadFunctions)
+        val derived = mutableSetOf<String>()
+        val debited = mutableSetOf<String>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val bodies = scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second }
+            bodies.forEach { raw ->
+                val body = CHAIN_ARGS_REF_REGEX.replace(raw, " ")
+                val writes = amountWrites(body, entities, helperReturns)
+                writes.filter { it.flow == Flow.DEBIT }.forEach { debited.add(it.field) }
+                if (!source.containsMatchIn(body)) return@forEach
+                val bindings = bindingsOf(body)
+                val tainted = derivedNames(bindings, emptySet(), source)
+                val scaled = scaledNames(bindings, tainted)
+                writes.filter { it.create || it.flow == Flow.SET }.forEach { w ->
+                    val direct = source.containsMatchIn(w.amount) && ARITHMETIC_REGEX.containsMatchIn(w.amount)
+                    if (direct || refClosure(w.amount, bindings).any { it in scaled }) derived.add(w.field)
+                }
+            }
+        }
+        return derived - debited
+    }
+
+    private val TIME_SOURCE_REGEX = Regex("""\bop_context\s*\.\s*(?:last_block_time|block_height)\b|\bblock\s*@""")
+    private val TIME_SOURCE_NAMES = setOf("op_context.last_block_time", "op_context.block_height", "block")
+
+    /**
+     * MEDIUM, one finding per operation, when a value field is credited with
+     * an amount that comes from nowhere - three shapes of the same mint:
+     *
+     *  1. PRICE: the operation reads a mutable price/rate (entity field,
+     *     directly or via a helper), does arithmetic, and credits a value
+     *     field of an entity it never debits. The adversary oracle vault
+     *     turned 100 USD into 200,000,000 this way. Config rates
+     *     (chain_context.args.fee_bps) do not count - the exploit needs a
+     *     MUTABLE price.
+     *  2. STORED QUOTE: the credit is paid from a row field that was itself
+     *     computed at a price when the row was written (a redemption's
+     *     cash_due) - the conversion and the payout are split across two
+     *     operations, so the paying operation reads no price.
+     *  3. TIME: the credit is derived from elapsed block time (or height)
+     *     scaled by a rate or a stake - `staked * (now - since) * RATE` - and
+     *     no debit in the operation moves a quantity derived from the same
+     *     elapsed term. Rewards are minted from nothing: with an empty or
+     *     absent pool a staker's balance grows without bound (adversary
+     *     round 4 drained from an empty pool).
+     *
+     * A credit is BACKED - and stays quiet - when the same operation debits
+     * the same row type (shape 1), debits exactly the same amount expression
+     * (an escrow record: `.tokens -= tokens_in` then
+     * `create redemption(tokens_locked = tokens_in)`), or debits a quantity
+     * computed from the same price/time term (`pool.undistributed -= earned`
+     * then `acc_reward_per_share += earned * SCALE / total`). Helpers are
+     * flattened into the operation first, so where the math or the payout
+     * lives does not matter. Advisory, never blocking: conservation is not
+     * decidable from syntax (an intentional emission backed off-op has the
+     * same shape) - only the designer knows whether a reserve exists.
      */
     private fun unbackedConversionFindings(
         path: String,
         op: OperationBlock,
         entities: Set<String>,
         helperReturns: Map<String, String>,
-        priceReadFunctions: Set<String>
+        priceReadFunctions: Set<String>,
+        priceDerivedFields: Set<String>,
+        helpers: Map<String, List<FunctionDef>>
     ): List<Finding> {
-        val body = CHAIN_ARGS_REF_REGEX.replace(op.body, " ")
-        val calls = calledNames(body)
-        val readsPrice = PRICE_STATE_READ_REGEX.containsMatchIn(body) || calls.any { it in priceReadFunctions }
-        if (!readsPrice) return emptyList()
-        if (!ARITHMETIC_REGEX.containsMatchIn(body)) return emptyList()
-        val writes = valueWrites(op.body, entities, helperReturns)
-        val debitedEntities = writes.filter { it.kind == "-=" }.mapNotNull { it.entity }.toSet()
-        val credit = writes.firstOrNull { w ->
-            (w.kind == "+=" || w.kind == "create") &&
-                VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
-                w.entity != null && w.entity !in debitedEntities
-        } ?: return emptyList()
-        return listOf(
+        val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
+        val bindings = bindingsOf(flat)
+        val writes = amountWrites(flat, entities, helperReturns)
+        val debits = writes.filter { it.flow == Flow.DEBIT }
+        val debitedEntities = debits.mapNotNull { it.entity }.toSet()
+        val debitAmounts = debits.map { it.amount.replace(WS_REGEX, "") }.toSet()
+        val debitClosures = debits.map { refClosure(it.amount, bindings) }
+        val valueCredits = writes.filter { w ->
+            w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) && w.amount.replace(WS_REGEX, "") != "0"
+        }
+        fun backedByEntity(c: AmountWrite) = c.entity != null && c.entity in debitedEntities
+        fun backedByAmount(c: AmountWrite) = c.amount.replace(WS_REGEX, "") in debitAmounts
+        fun backedByFlow(c: AmountWrite, derived: Set<String>): Boolean {
+            val cc = refClosure(c.amount, bindings)
+            return debitClosures.any { d -> d.any { it in cc && it in derived } }
+        }
+        fun where(c: AmountWrite) = if (c.entity != null) "${c.entity}.${c.field}" else c.field
+        val fixTail = "Advisory: conservation cannot be proven statically - if this credit is an " +
+            "intentional emission backed elsewhere, document it and ignore this finding."
+
+        // 1. price read in this operation
+        val calls = calledNames(flat)
+        val readsPrice = PRICE_STATE_READ_REGEX.containsMatchIn(flat) || calls.any { it in priceReadFunctions }
+        val priceSource = priceSourceRegex(priceReadFunctions)
+        val priceDerived = derivedNames(bindings, emptySet(), priceSource)
+        if (readsPrice && ARITHMETIC_REGEX.containsMatchIn(flat)) {
+            val credit = valueCredits.firstOrNull { c ->
+                c.flow == Flow.CREDIT && c.entity != null &&
+                    !backedByEntity(c) && !backedByAmount(c) && !backedByFlow(c, priceDerived)
+            }
+            if (credit != null) {
+                return listOf(
+                    Finding(
+                        "MEDIUM", "unbacked-conversion-credit", path, op.line,
+                        "operation ${op.name} credits ${where(credit)} at a price/rate read from " +
+                            "mutable state, but never debits any ${credit.entity} row or the converted " +
+                            "amount - the credited value is backed by nothing, so a transient oracle price " +
+                            "mints unbacked balance (100 -> 200,000,000 in the adversary corpus)",
+                        "Make the conversion conserve value: pay the credit out of a reserve/vault row of the " +
+                            "same asset (require(reserve.balance >= out) then update reserve ( .balance -= out )), " +
+                            "and bound price updates (max move per update, staleness check). $fixTail"
+                    )
+                )
+            }
+        }
+
+        // 2. paid from a stored price-derived quote
+        val storedSource = fieldReadRegex(priceDerivedFields)
+        if (storedSource != null) {
+            val storedDerived = derivedNames(bindings, emptySet(), storedSource)
+            val credit = valueCredits.firstOrNull { c ->
+                c.flow == Flow.CREDIT && c.entity != null &&
+                    (storedSource.containsMatchIn(c.amount) || refClosure(c.amount, bindings).any { it in storedDerived }) &&
+                    !backedByEntity(c) && !backedByAmount(c) && !backedByFlow(c, storedDerived + priceDerived)
+            }
+            if (credit != null) {
+                val quote = refClosure(credit.amount, bindings)
+                    .firstOrNull { ref -> priceDerivedFields.any { f -> ref.endsWith(".$f") } }
+                    ?: "a stored quote"
+                return listOf(
+                    Finding(
+                        "MEDIUM", "unbacked-conversion-credit", path, op.line,
+                        "operation ${op.name} credits ${where(credit)} from $quote, an amount that was " +
+                            "computed at a mutable price when that row was written, and never debits any " +
+                            "reserve by that amount - the quote is paid from nothing, so the conversion " +
+                            "mints unbacked balance one operation later than where the price was read",
+                        "Pay the quote out of a reserve row of the credited asset in the same operation " +
+                            "(require(reserve.balance >= due) then update reserve ( .balance -= due )), " +
+                            "and settle at the current bounded price rather than a stale stored one. $fixTail"
+                    )
+                )
+            }
+        }
+
+        // 3. elapsed time x rate
+        val timeDerived = derivedNames(bindings, TIME_SOURCE_NAMES, TIME_SOURCE_REGEX)
+        if (timeDerived.size > TIME_SOURCE_NAMES.size || TIME_SOURCE_REGEX.containsMatchIn(flat)) {
+            val scaled = scaledNames(bindings, timeDerived)
+            val credit = valueCredits.firstOrNull { c ->
+                val cc = refClosure(c.amount, bindings)
+                cc.any { it in timeDerived } &&
+                    (ARITHMETIC_REGEX.containsMatchIn(c.amount) || cc.any { it in scaled }) &&
+                    !backedByFlow(c, timeDerived)
+            }
+            if (credit != null) {
+                return listOf(
+                    Finding(
+                        "MEDIUM", "unbacked-conversion-credit", path, op.line,
+                        "operation ${op.name} credits ${where(credit)} with an amount derived from elapsed " +
+                            "block time scaled by a rate/stake, and no debit in the operation moves a quantity " +
+                            "from the same elapsed term - the reward is minted from nothing: with an empty " +
+                            "or absent pool the balance still grows without bound (adversary round 4 " +
+                            "drained a staking dapp from an empty pool this way)",
+                        "Fund the emission: keep a reward pool row, cap the emission at what it holds " +
+                            "(val paid = min(pool.undistributed, elapsed * RATE)) and debit it in the same " +
+                            "operation (update pool ( .undistributed -= paid )) before crediting the staker. $fixTail"
+                    )
+                )
+            }
+        }
+        return emptyList()
+    }
+
+    // ---- vote-gated-payout-drops-quorum (copied payout path) ----
+    // Adversary round 4 (dapp_a_grants V2b): a stake-weighted, quorum-gated DAO
+    // gained a second payout operation copied from execute_proposal minus the
+    // quorum line. majority-without-quorum is silenced submission-wide once any
+    // quorum/stake/weight term exists - deliberately, because a stake-weighted
+    // execute is textually identical to an unweighted one - so the copy drew
+    // zero findings and a single account voting 1-0 drained the treasury.
+
+    private val COMPARISON_OP_REGEX = Regex("""(?<![=!<>\-])[<>]=?(?!=)""")
+    private val ACCUMULATED_FIELD_REGEX = Regex("""\.\s*([A-Za-z_]\w*)\s*\+=""")
+    private val FIELD_READ_REGEX = Regex("""\.\s*([A-Za-z_]\w*)\b(?!\s*(?:\(|=(?!=)|\+=|-=))""")
+    private val WORD_REGEX = Regex("""[A-Za-z_]\w*""")
+
+    /**
+     * MEDIUM when a value-moving operation is gated by comparing two tallies
+     * (two distinct fields the app accumulates with `+=`, compared in one
+     * condition - `p.yes_weight > p.no_weight`), its own body (helpers
+     * flattened in) references NO quorum/threshold/weight term other than
+     * those tallies, and ANOTHER operation of the submission gated by the
+     * same tally pair does reference one. That sibling is the proof the
+     * designer meant a quorum here; the flagged path lost it. Keyed on use
+     * (accumulated fields in a comparison), not on the tallies' names; the
+     * quorum evidence is per operation, not per submission. A consistently
+     * quorumless stake-weighted DAO has no such sibling and stays quiet -
+     * that remains the deliberate majority-without-quorum bias. Advisory,
+     * never blocking: a path that legitimately needs no quorum (refunding a
+     * rejected proposal's deposit) has the same shape.
+     */
+    internal fun droppedQuorumGateFindings(
+        files: Map<String, String>,
+        fullyMasked: Map<String, String>,
+        helpers: Map<String, List<FunctionDef>>,
+        entities: Set<String>,
+        valueMutatingFunctions: Set<String>
+    ): List<Finding> {
+        val eligible = fullyMasked.filter { (path, _) ->
+            !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
+                !RunRellTests.isTestModuleSource(files.getValue(path))
+        }
+        val accumulated = eligible.values.flatMapTo(mutableSetOf()) { m ->
+            ACCUMULATED_FIELD_REGEX.findAll(m).map { it.groupValues[1] }
+        }
+        if (accumulated.size < 2) return emptyList()
+        data class Gate(val path: String, val op: OperationBlock, val pairs: Set<Set<String>>, val hasTerm: Boolean, val movesValue: Boolean)
+        val gates = eligible.flatMap { (path, masked) ->
+            scanOperations(path, masked).mapNotNull { op ->
+                val flat = flattenHelpers(op.body, helpers, entities)
+                val pairs = statementsOf(flat)
+                    .filter { COMPARISON_OP_REGEX.containsMatchIn(it) }
+                    .map { s -> FIELD_READ_REGEX.findAll(s).map { it.groupValues[1] }.filter { it in accumulated }.toSet() }
+                    .filter { it.size >= 2 }
+                    .toSet()
+                if (pairs.isEmpty()) return@mapNotNull null
+                val tallies = pairs.flatten().toSet()
+                val hasTerm = WORD_REGEX.findAll(flat).any { w ->
+                    w.value !in tallies && QUORUM_TERM_REGEX.containsMatchIn(w.value)
+                }
+                val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(flat) ||
+                    calledNames(flat).any { it in valueMutatingFunctions }
+                Gate(path, op, pairs, hasTerm, movesValue)
+            }
+        }
+        return gates.filter { it.movesValue && !it.hasTerm }.mapNotNull { g ->
+            val sibling = gates.firstOrNull { s -> s !== g && s.hasTerm && s.pairs.any { it in g.pairs } }
+                ?: return@mapNotNull null
+            val pair = g.pairs.first { it in sibling.pairs }.sorted().joinToString(" vs ")
             Finding(
-                "MEDIUM", "unbacked-conversion-credit", path, op.line,
-                "operation ${op.name} credits ${credit.entity}.${credit.field} at a price/rate read from " +
-                    "mutable state, but never debits any ${credit.entity} row - the credited value is " +
-                    "backed by nothing, so a transient oracle price mints unbacked balance " +
-                    "(100 -> 200,000,000 in the adversary corpus)",
-                "Make the conversion conserve value: pay the credit out of a reserve/vault row of the " +
-                    "same asset (require(reserve.balance >= out) then update reserve ( .balance -= out )), " +
-                    "and bound price updates (max move per update, staleness check). Advisory: " +
-                    "conservation cannot be proven statically - if this credit is an intentional emission " +
-                    "backed elsewhere, document it and ignore this finding."
+                "MEDIUM", "vote-gated-payout-drops-quorum", g.path, g.op.line,
+                "operation ${g.op.name} moves value gated by the vote tally comparison ($pair) but " +
+                    "references no quorum, threshold, or weight term - while operation ${sibling.op.name} " +
+                    "(${sibling.path}:${sibling.op.line}), gated by the same tallies, does. This path " +
+                    "dropped the quorum gate its sibling has, so a single account voting 1-0 on its own " +
+                    "proposal satisfies it (adversary round 4: treasury 1000 -> 0 through the copied op)",
+                "Apply the same participation floor here (e.g. require(yes + no >= quorum_weight)), " +
+                    "or route both paths through one shared helper that checks quorum and majority " +
+                    "together so a copy cannot lose the line. Advisory: if this path is meant to need " +
+                    "no quorum (e.g. refunding a rejected proposal), document it and ignore this finding."
             )
-        )
+        }
     }
 
     // ---- value-sink-without-withdrawal (locked funds) ----
