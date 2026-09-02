@@ -274,13 +274,17 @@ class DappScaffoldSecureTemplatesTest {
         template: String,
         guard: String,
         exploitTest: String,
-        expectedFailureFragment: String
+        expectedFailureFragment: String,
+        alsoRemove: List<String> = emptyList()
     ) {
         if (dbUrl == null) return // these run real transactions; the DB branch is authoritative and CI provides one
         val files = rellOf(template).toMutableMap()
-        val main = files.getValue("main.rell")
-        assertTrue(main.contains(guard), "$template guard must exist verbatim: $guard")
-        files["main.rell"] = main.replace(guard, "")
+        var main = files.getValue("main.rell")
+        (listOf(guard) + alsoRemove).forEach { g ->
+            assertTrue(main.contains(g), "$template guard must exist verbatim: $g")
+            main = main.replace(g, "")
+        }
+        files["main.rell"] = main
         val mutant = runShipped(template, files, label = "$template-without[${guard.take(48)}]")
         // The mutant must still be a working dapp: the OTHER shipped tests keep
         // passing, so the only thing the removed guard changes is the exploit.
@@ -334,6 +338,30 @@ class DappScaffoldSecureTemplatesTest {
         "vault",
         "require(price * 10000 >= prev * (10000 - MAX_PRICE_MOVE_BPS), \"price move exceeds bound\");",
         "test_round1_price_crash_must_fail",
-        "price move exceeds bound"
+        "price move exceeds bound",
+        // Defense in depth: with only the lower bound gone, the crash is STILL
+        // refused by the rate limit (see the test below). The attack succeeds only
+        // once every price-move guard is gone - which is exactly what "structural"
+        // means, and what this mutant must strip to prove it.
+        alsoRemove = listOf(
+            "require(price * 10000 <= prev * (10000 + MAX_PRICE_MOVE_BPS), \"price move exceeds bound\");",
+            "require(now - price_feed.updated_at >= MIN_PRICE_UPDATE_INTERVAL_MS, \"price update too soon\");"
+        )
     )
+
+    /** Removing the price bound alone is not enough to crash the price: the rate limit still refuses it. */
+    @Test
+    fun vaultPriceCrashIsStillRefusedByTheRateLimitWhenOnlyTheBoundIsRemoved() {
+        if (dbUrl == null) return
+        val files = rellOf("vault").toMutableMap()
+        val bound = "require(price * 10000 >= prev * (10000 - MAX_PRICE_MOVE_BPS), \"price move exceeds bound\");"
+        files["main.rell"] = files.getValue("main.rell").replace(bound, "")
+        val mutant = runShipped("vault", files, label = "vault-without-lower-bound-only")
+        val case = mutant.cases.single { it.name.endsWith("test_round1_price_crash_must_fail") }
+        assertFalse(case.ok, "the exploit test asserts the bound's message, so it must go red")
+        assertTrue(
+            case.error?.contains("price update too soon") == true,
+            "the crash must still be REFUSED - by the rate limit - not succeed: ${'$'}{case.error}"
+        )
+    }
 }
