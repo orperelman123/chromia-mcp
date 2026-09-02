@@ -514,6 +514,136 @@ object RellSecurityCheck {
         return findings
     }
 
+    // ---- authorization-not-bound-to-caller (confused deputy) ----
+    // "Authenticated + a require() somewhere" used to be certified secure; the
+    // adversary round drained a vault through exactly that shape: authenticate,
+    // then mutate rows SELECTED by a caller-supplied account parameter that is
+    // never related to the authenticated identity. Anyone drains anyone.
+    /** Parameter names that denote an account/identity being acted UPON. */
+    private val ACCOUNT_PARAM_NAME_REGEX = Regex(
+        """(?:^|_)(account|owner|from|sender|user|holder|wallet|member|spender|payer)(?:$|_)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** `val x = something(` - candidate bindings of the authenticated identity. */
+    private val VAL_CALL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\(""")
+
+    /** Top-level `name: type` / bare `name` pairs of an operation's parameter list. */
+    internal fun parseParams(params: String): List<Pair<String, String>> {
+        if (params.isBlank()) return emptyList()
+        val out = mutableListOf<Pair<String, String>>()
+        var depth = 0
+        val cur = StringBuilder()
+        fun flush() {
+            val raw = cur.toString().substringBefore('=').trim()
+            cur.clear()
+            if (raw.isEmpty()) return
+            val colon = raw.indexOf(':')
+            if (colon >= 0) out.add(raw.substring(0, colon).trim() to raw.substring(colon + 1).trim())
+            else out.add(raw to raw) // `operation f(pubkey)` - the name IS the type
+        }
+        for (c in params) {
+            when (c) {
+                '(', '<', '[', '{' -> { depth++; cur.append(c) }
+                ')', '>', ']', '}' -> { depth--; cur.append(c) }
+                ',' -> if (depth == 0) flush() else cur.append(c)
+                else -> cur.append(c)
+            }
+        }
+        flush()
+        return out
+    }
+
+    /** A set-clause consisting purely of `+=` credits cannot drain the selected row. */
+    private fun isCreditOnly(setPart: String): Boolean {
+        val residue = setPart
+            .replace("+=", "").replace("==", "").replace("!=", "").replace(">=", "").replace("<=", "")
+        return !residue.contains('=')
+    }
+
+    /**
+     * "deletes" / "updates" when the (masked) body contains a delete, or an
+     * update whose set-clause is not credit-only, whose where-clause references
+     * [paramRef]; null otherwise. Credit-only updates (`.balance += x`) of a
+     * caller-named row are the receiving half of every idiomatic transfer and
+     * must not read as a drain.
+     */
+    private fun harmfulMutationKindKeyedBy(body: String, paramRef: Regex): String? {
+        MUTATION_REGEX.findAll(body).forEach { m ->
+            val keyword = m.groupValues[1]
+            if (keyword == "create") return@forEach
+            val end = body.indexOf(';', m.range.first).let { if (it < 0) body.length else it }
+            val stmt = body.substring(m.range.first, end)
+            val braceStart = stmt.indexOf('{')
+            if (braceStart < 0) return@forEach
+            val braceEnd = matchDelimiter(stmt, braceStart, '{', '}') ?: return@forEach
+            if (!paramRef.containsMatchIn(stmt.substring(braceStart + 1, braceEnd))) return@forEach
+            if (keyword == "delete") return "deletes"
+            if (!isCreditOnly(stmt.substring(braceEnd + 1))) return "updates"
+        }
+        return null
+    }
+
+    /**
+     * HIGH when an authenticated operation debits/deletes rows selected by an
+     * account-ish operation parameter that is never bound to the caller: no
+     * statement relates it to an authenticated-identity variable, no
+     * `is_signer(<param>)`, and the operation is not an admin op keyed to
+     * `chain_context.args.*`. Runs only when the operation authenticates -
+     * the unauthenticated case is already `unauthenticated-mutation`.
+     */
+    private fun confusedDeputyFindings(
+        path: String,
+        op: OperationBlock,
+        authFunctions: Set<String>
+    ): List<Finding> {
+        val body = op.body
+        // Admin ops keyed to blockchain config are the sanctioned break-glass
+        // pattern (require(account.id == chain_context.args.admin, ...)).
+        if (body.contains("chain_context.args")) return emptyList()
+        val accountParams = parseParams(op.params)
+            .filter { (name, type) ->
+                ACCOUNT_PARAM_NAME_REGEX.containsMatchIn(name) || type.lowercase().contains("account")
+            }
+            .map { it.first }
+        if (accountParams.isEmpty()) return emptyList()
+        val authVars = VAL_CALL_REGEX.findAll(body)
+            .filter { m ->
+                val callee = m.groupValues[2].substringAfterLast('.')
+                callee == "authenticate" || callee in authFunctions
+            }
+            .map { it.groupValues[1] }
+            .toList()
+        val statements = body.split(';')
+        val findings = mutableListOf<Finding>()
+        accountParams.forEach { param ->
+            val paramRef = Regex("""\b${Regex.escape(param)}\b""")
+            // is_signer(<param>) proves the caller controls that key - bound.
+            if (Regex("""is_signer\s*\(\s*${Regex.escape(param)}\s*\)""").containsMatchIn(body)) return@forEach
+            // Any single statement relating the param to the authenticated
+            // identity counts: require(param == account.id, ...), or a mutation
+            // co-keyed by both (.grantee == param, .granter == account.id).
+            val bound = authVars.any { v ->
+                val authRef = Regex("""\b${Regex.escape(v)}\b""")
+                statements.any { paramRef.containsMatchIn(it) && authRef.containsMatchIn(it) }
+            }
+            if (bound) return@forEach
+            val kind = harmfulMutationKindKeyedBy(body, paramRef) ?: return@forEach
+            findings.add(
+                Finding(
+                    "HIGH", "authorization-not-bound-to-caller", path, op.line,
+                    "operation ${op.name} authenticates but $kind rows selected by caller-supplied " +
+                        "parameter '$param' never bound to the authenticated account",
+                    "Key the mutation off the authenticated identity (.owner == account.id), or bind the " +
+                        "parameter first: require($param == account.id, ...) or op_context.is_signer($param). " +
+                        "Authentication says who is calling - it does not say the caller may touch the rows " +
+                        "'$param' selects."
+                )
+            )
+        }
+        return findings
+    }
+
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
     internal fun scanOperations(path: String, content: String): List<OperationBlock> {
@@ -575,6 +705,9 @@ object RellSecurityCheck {
                     "Authenticate the caller (ft4 auth.authenticate() or an explicit op_context.is_signer / require(...) signer check) before create/update/delete."
                 )
             )
+        }
+        if (hasAuth) {
+            findings += confusedDeputyFindings(path, op, authFunctions)
         }
         if (op.params.isNotBlank() && !hasRequire && !hasAuth) {
             findings.add(
