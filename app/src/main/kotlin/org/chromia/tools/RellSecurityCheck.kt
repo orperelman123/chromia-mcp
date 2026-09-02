@@ -1389,6 +1389,19 @@ object RellSecurityCheck {
      * doubt, matching the delegated-validation precedent). Entity names are
      * excluded: `create log_row(p)` stores p, it does not validate it.
      */
+    /**
+     * `update v ( .balance -= amount );` is textually a call `v(...)`, and since
+     * a local is not a known function the delegation check read it as "handed to
+     * a helper that validates it" and stayed silent - so every rule using
+     * paramDelegated was blind to the select-into-a-local shape, which is the
+     * natural way to write a withdraw. The mutation keyword decides: a name
+     * immediately preceded by `update`/`delete` is a TARGET, never a callee.
+     */
+    private fun isMutationTarget(body: String, m: MatchResult): Boolean {
+        val before = body.substring(0, m.range.first).trimEnd()
+        return before.endsWith("update") || before.endsWith("delete")
+    }
+
     private fun paramDelegated(
         body: String,
         names: Set<String>,
@@ -1397,7 +1410,7 @@ object RellSecurityCheck {
         entities: Set<String>
     ): Boolean = CALL_SITE_REGEX.findAll(body).any { m ->
         val callee = m.groupValues[1]
-        callee !in CONTROL_KEYWORDS && callee !in entities &&
+        callee !in CONTROL_KEYWORDS && callee !in entities && !isMutationTarget(body, m) &&
             (callee in requireFunctions || callee !in knownFunctions) &&
             names.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(argsOf(body, m)) }
     }
@@ -1450,7 +1463,7 @@ object RellSecurityCheck {
         parseParams(op.params).forEach { (name, type) ->
             if (!NUMERIC_TYPE_REGEX.matches(type.trim().lowercase())) return@forEach
             val tainted = taintedNames(op.body, name)
-            if (hasLowerBound(op.body, tainted)) return@forEach
+                        if (hasLowerBound(op.body, tainted)) return@forEach
             if (paramDelegated(op.body, tainted, requireFunctions, knownFunctions, entities)) return@forEach
             fun taintedIn(text: String) =
                 tainted.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(text) }
