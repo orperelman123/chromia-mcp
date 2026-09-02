@@ -110,11 +110,13 @@ object RellSecurityCheck {
         // proof-carrying operations: lib.iccf's require_valid_proof aborts the
         // op on an invalid proof. Production filechain/iccf-example ops using
         // this documented pattern were false-flagged HIGH (real-world round 1).
-        "require_valid_proof",
-        // Reading the actual transaction signers to derive the mutation
-        // (create x(signer) for op_context.get_signers()) ties the write to
-        // whoever REALLY signed - same trust level as is_signer( above.
-        "op_context.get_signers("
+        "require_valid_proof"
+        // op_context.get_signers( is deliberately NOT a token marker any more:
+        // merely READING the signer list proved nothing (audit probe N7 wrote
+        // `val signers = op_context.get_signers();` and never looked at the
+        // value, and the gate called that auth). [getSignersUsedAsGate] below
+        // recognizes it only when the VALUE actually gates or derives the
+        // mutation.
     )
     // "auth_handler" as a bare substring matched identifiers like auth_handlers_cfg;
     // require the call/definition paren (add_auth_handler(...) still matches).
@@ -145,12 +147,114 @@ object RellSecurityCheck {
     internal fun calledNames(maskedBody: String): Set<String> =
         CALL_SITE_REGEX.findAll(maskedBody).mapTo(mutableSetOf()) { it.groupValues[1] }
 
-    /** Auth markers for one (masked) file: the globals plus its FT4 auth aliases. */
-    internal fun authMarkersFor(masked: String): List<String> =
-        AUTH_MARKERS + FT4_AUTH_ALIAS_REGEX.findAll(masked).map { "${it.groupValues[1]}.authenticate" }
+    // ---- marker integrity: a marker must be bound to what it claims to be ----
+    // A local `namespace auth { function authenticate() {} }` satisfied the
+    // "auth.authenticate" token scan (audit probe N6): the marker matched a
+    // no-op the ATTACKER defined. Markers derived from names the submission
+    // can redefine are only trusted when the redefinition is provably absent.
+
+    /** `import lib.ft4.auth;` / `import a: lib.ft4.auth;` - the real FT4 auth module. */
+    private val FT4_AUTH_IMPORT_REGEX = Regex("""\bimport\s+(?:[A-Za-z_]\w*\s*:\s*)?lib\.ft4\.auth\b""")
+
+    /** Any import line that mentions the real lib.ft4 tree. */
+    private val FT4_ANY_IMPORT_REGEX = Regex("""\bimport\b[^;]*\blib\.ft4\b""")
+
+    /** A local `namespace auth`/`namespace ft4` that can shadow the FT4 markers. */
+    private val AUTH_NS_SPOOF_REGEX = Regex("""\bnamespace\s+(?:auth|ft4)\b""")
+
+    /** `import auth: something;` - aliasing a module AS `auth`/`ft4`. */
+    private val AUTH_ALIAS_SPOOF_REGEX = Regex("""\bimport\s+(?:auth|ft4)\s*:\s*([A-Za-z_][\w.]*)""")
+
+    /**
+     * True when any app (non-library) file defines a local `auth`/`ft4`
+     * namespace or aliases a non-FT4 module as `auth`/`ft4` - i.e. the tokens
+     * `auth.authenticate` / `ft4.auth` may resolve to attacker-defined code
+     * somewhere in this submission. While a spoof is present, those two
+     * markers are only trusted in files that genuinely import the FT4 module
+     * (a real import and a same-named local namespace cannot coexist - the
+     * compiler rejects the name clash - so the import proves the resolution).
+     * With no spoof anywhere, behavior is unchanged.
+     */
+    internal fun authMarkerSpoofPresent(fullyMasked: Map<String, String>): Boolean =
+        fullyMasked.any { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@any false
+            AUTH_NS_SPOOF_REGEX.containsMatchIn(masked) ||
+                AUTH_ALIAS_SPOOF_REGEX.findAll(masked).any { !it.groupValues[1].startsWith("lib.ft4") }
+        }
+
+    /**
+     * True when the submission defines `require_valid_proof` itself and NO
+     * definition contains a require(...) - a local no-op spoofing the ICCF
+     * proof check (probe N12 shipped exactly `function require_valid_proof(x) {}`).
+     * The genuine lib.iccf definition (vendored or hand-rolled wrappers that
+     * really abort) contains a require and stays trusted; a submission that
+     * only IMPORTS lib.iccf defines nothing locally and stays trusted.
+     */
+    internal fun validProofSpoofed(fullyMasked: Map<String, String>): Boolean {
+        val defs = fullyMasked.values.flatMap { functionBodies(it) }
+            .filter { (name, _) -> name == "require_valid_proof" }
+        if (defs.isEmpty()) return false
+        return defs.none { (_, body) -> REQUIRE_REGEX.containsMatchIn(body) }
+    }
+
+    internal data class MarkerDistrust(val authSpoof: Boolean, val proofSpoof: Boolean) {
+        companion object { val NONE = MarkerDistrust(authSpoof = false, proofSpoof = false) }
+    }
+
+    internal fun markerDistrust(fullyMasked: Map<String, String>): MarkerDistrust =
+        MarkerDistrust(authMarkerSpoofPresent(fullyMasked), validProofSpoofed(fullyMasked))
+
+    /** Auth markers for one (masked) file: the trusted globals plus its FT4 auth aliases. */
+    internal fun authMarkersFor(masked: String, distrust: MarkerDistrust = MarkerDistrust.NONE): List<String> {
+        var base = AUTH_MARKERS
+        if (distrust.authSpoof) {
+            if (!FT4_AUTH_IMPORT_REGEX.containsMatchIn(masked)) base = base - "auth.authenticate"
+            if (!FT4_ANY_IMPORT_REGEX.containsMatchIn(masked)) base = base - "ft4.auth"
+        }
+        if (distrust.proofSpoof) base = base - "require_valid_proof"
+        return base + FT4_AUTH_ALIAS_REGEX.findAll(masked).map { "${it.groupValues[1]}.authenticate" }
+    }
+
+    // ---- get_signers must gate, not merely be read (a4) ----
+    private val GET_SIGNERS_FOR_REGEX =
+        Regex("""\b(?:for\s*\(\s*[A-Za-z_]\w*|[A-Za-z_][\w.]*)\s+in\s+op_context\s*\.\s*get_signers\s*\(""")
+    private val GET_SIGNERS_CALL_REGEX = Regex("""op_context\s*\.\s*get_signers\s*\(\s*\)""")
+    private val GET_SIGNERS_BIND_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*op_context\s*\.\s*get_signers\s*\(""")
+
+    /**
+     * True when op_context.get_signers() is used as an actual gate or as the
+     * source the mutation derives from: iterated (`for (s in get_signers())`),
+     * membership-tested (`x in get_signers()`), indexed, or bound to a local
+     * that is then USED for something other than a presence check. Merely
+     * binding the list - or checking only `.size()` / `.empty()`, which every
+     * signed transaction passes - proves nothing about WHO signed and does
+     * not count (audit probe N7).
+     */
+    internal fun getSignersUsedAsGate(text: String): Boolean {
+        if (!text.contains("get_signers")) return false
+        if (GET_SIGNERS_FOR_REGEX.containsMatchIn(text)) return true
+        GET_SIGNERS_CALL_REGEX.findAll(text).forEach { m ->
+            val rest = text.substring(m.range.last + 1).trimStart()
+            if (rest.startsWith("[")) return true
+            if (rest.startsWith(".")) {
+                val method = rest.drop(1).trimStart().takeWhile { it.isLetterOrDigit() || it == '_' }
+                if (method != "size" && method != "empty") return true
+            }
+        }
+        GET_SIGNERS_BIND_REGEX.findAll(text).forEach { m ->
+            val name = m.groupValues[1]
+            Regex("""\b${Regex.escape(name)}\b""").findAll(text).forEach { r ->
+                if (r.range.first >= m.range.first && r.range.first <= m.range.last) return@forEach
+                val after = text.substring(r.range.last + 1).trimStart()
+                if (!after.startsWith(".size") && !after.startsWith(".empty")) return true
+            }
+        }
+        return false
+    }
 
     private fun containsAuthMarker(text: String, markers: List<String>): Boolean =
-        markers.any { text.contains(it) } || AUTH_HANDLER_REGEX.containsMatchIn(text)
+        markers.any { text.contains(it) } || AUTH_HANDLER_REGEX.containsMatchIn(text) ||
+            getSignersUsedAsGate(text)
 
     /**
      * (name, masked body) for EVERY function definition in the (masked) source.
@@ -216,9 +320,10 @@ object RellSecurityCheck {
         // minor). Conservative for security: a name counts as auth-establishing
         // only if EVERY definition of it establishes auth.
         data class Def(val name: String, val calls: Set<String>, val hasMarker: Boolean)
+        val distrust = markerDistrust(maskedFiles)
         val defs = mutableListOf<Def>()
         maskedFiles.forEach { (_, masked) ->
-            val markers = authMarkersFor(masked)
+            val markers = authMarkersFor(masked, distrust)
             functionBodies(masked).forEach { (name, body) ->
                 defs.add(Def(name, calledNames(body), containsAuthMarker(body, markers)))
             }
@@ -343,10 +448,15 @@ object RellSecurityCheck {
     fun analyze(files: Map<String, String>, allowAdminModules: Boolean = false): Result {
         val findings = mutableListOf<Finding>()
         var operationsScanned = 0
+        var queriesScanned = 0
 
         // Fully masked: brace/paren matching and the mutation/auth regexes must
         // never see braces, "update", or auth markers inside strings or comments.
         val fullyMasked = files.mapValues { (_, content) -> maskRellSource(content, maskStrings = true) }
+        // Marker integrity first: a submission-local redefinition of the names
+        // the markers key on (namespace auth spoof, no-op require_valid_proof)
+        // strips those markers from the untrusted files.
+        val distrust = markerDistrust(fullyMasked)
         // Auth and mutation call graphs span the whole submission: an auth helper
         // or a mutating helper defined in a sibling file must be recognized.
         val authFunctions = authFunctionNames(fullyMasked)
@@ -357,6 +467,12 @@ object RellSecurityCheck {
         // closures already walk helpers, so an op-body-only require() scan
         // false-flagged every validate_x() helper pattern (gate fatigue).
         val requireFunctions = functionNamesMatchingSeed(fullyMasked, REQUIRE_REGEX)
+        // Every function name the submission defines: a parameter handed to a
+        // callee OUTSIDE this set (library/builtin code we cannot see) gets the
+        // benefit of the doubt in the per-parameter validation rules.
+        val knownFunctions = fullyMasked.values.flatMapTo(mutableSetOf()) { m ->
+            functionBodies(m).map { it.first }
+        }
         val quorumTermPresent = submissionHasQuorumTerm(fullyMasked)
         val allEntityNames = entityNames(fullyMasked)
         val entityHelperReturns = helperEntityReturns(fullyMasked, allEntityNames)
@@ -411,7 +527,15 @@ object RellSecurityCheck {
             }
             findings += hardcodedSecretFindings(path, commentMasked)
             findings += massMutationFindings(path, masked)
-            val authMarkers = authMarkersFor(masked)
+            findings += icmfReceiverFindings(
+                path, masked, mutatingFunctions, requireFunctions, knownFunctions, allEntityNames
+            )
+            if (!RunRellTests.isTestModuleSource(content)) {
+                val queries = scanQueries(masked)
+                queriesScanned += queries.size
+                queries.forEach { q -> findings += querySecretExposureFindings(path, q) }
+            }
+            val authMarkers = authMarkersFor(masked, distrust)
             val ops = scanOperations(path, masked)
             operationsScanned += ops.size
             ops.forEach { op ->
@@ -419,6 +543,14 @@ object RellSecurityCheck {
                     path, op, authFunctions, mutatingFunctions, authMarkers,
                     valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
                 )
+                findings += amountLowerBoundFindings(
+                    path, op, requireFunctions, knownFunctions, valueMutatingFunctions,
+                    mutatingFunctions, allEntityNames
+                )
+                findings += perParamValidationFindings(
+                    path, op, requireFunctions, knownFunctions, mutatingFunctions, allEntityNames
+                )
+                findings += iccfProvenanceFindings(path, op, mutatingFunctions)
                 findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(path, op, allEntityNames, entityHelperReturns, priceReadFunctions)
@@ -442,7 +574,10 @@ object RellSecurityCheck {
 
         val blocking = adjusted.any { it.severity == "CRITICAL" || it.severity == "HIGH" }
         val notes = buildString {
-            append("Scanned ${files.size - exemptedLibFiles - thirdPartyLibFiles} file(s), $operationsScanned operation(s). ")
+            append(
+                "Scanned ${files.size - exemptedLibFiles - thirdPartyLibFiles} file(s), " +
+                    "$operationsScanned operation(s), $queriesScanned query(ies). "
+            )
             if (exemptedLibFiles > 0) {
                 append(RellLibs.exemptedFt4Note(exemptedLibFiles) + " ")
             }
@@ -470,9 +605,11 @@ object RellSecurityCheck {
                 append("allowAdminModules=true: banned-module findings reported as MEDIUM, not CRITICAL. ")
             }
             append(
-                "Heuristic static checks only (authentication AND authorization binding, signer-gate " +
-                    "integrity, auth-handler flags, mass mutations, require() validation, banned FT4 " +
-                    "admin modules, hardcoded secrets) - a clean report does not replace a security " +
+                "Heuristic static checks only (authentication AND authorization binding, auth on every " +
+                    "path, signer-gate integrity, auth-marker binding to real FT4, auth-handler flags, " +
+                    "mass mutations, require() validation incl. amount sign bounds and per-parameter " +
+                    "coverage, ICMF sender binding, ICCF proof provenance, query secret exposure, banned " +
+                    "FT4 admin modules, hardcoded secrets) - a clean report does not replace a security " +
                     "audit. Economic invariants (quorum, voting windows, reserve backing, locked value " +
                     "sinks) get ADVISORY MEDIUM findings only: they are design judgments no static rule " +
                     "can prove, they never block, and their absence does not certify sound economics."
@@ -1212,6 +1349,586 @@ object RellSecurityCheck {
         }
     }
 
+    // ---- shared helpers for the parameter-flow rules ----
+
+    /** Call-shaped tokens that are control flow or builtins, never validators. */
+    private val CONTROL_KEYWORDS = setOf(
+        "if", "while", "for", "when", "not", "require", "require_not_empty", "exists", "empty"
+    )
+
+    /** The (masked) argument text of one [CALL_SITE_REGEX] match. */
+    private fun argsOf(body: String, m: MatchResult): String {
+        val parenStart = body.indexOf('(', m.range.first)
+        val parenEnd = matchDelimiter(body, parenStart, '(', ')') ?: return ""
+        return body.substring(parenStart + 1, parenEnd)
+    }
+
+    private val VAL_BINDING_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=([^;]*)""")
+
+    /** The parameter plus every local transitively assigned from it. */
+    internal fun taintedNames(body: String, param: String): Set<String> {
+        val names = mutableSetOf(param)
+        val bindings = VAL_BINDING_REGEX.findAll(body).map { it.groupValues[1] to it.groupValues[2] }.toList()
+        var changed = true
+        while (changed) {
+            changed = false
+            bindings.forEach { (n, expr) ->
+                if (n !in names && names.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(expr) }) {
+                    names.add(n)
+                    changed = true
+                }
+            }
+        }
+        return names
+    }
+
+    /**
+     * True when [param] is handed to a call that may validate it where this
+     * scan cannot see: a submitted helper that require()s, or a callee the
+     * submission does not define at all (library/builtin - benefit of the
+     * doubt, matching the delegated-validation precedent). Entity names are
+     * excluded: `create log_row(p)` stores p, it does not validate it.
+     */
+    /**
+     * `update v ( .balance -= amount );` is textually a call `v(...)`, and since
+     * a local is not a known function the delegation check read it as "handed to
+     * a helper that validates it" and stayed silent - so every rule using
+     * paramDelegated was blind to the select-into-a-local shape, which is the
+     * natural way to write a withdraw. The mutation keyword decides: a name
+     * immediately preceded by `update`/`delete` is a TARGET, never a callee.
+     */
+    private fun isMutationTarget(body: String, m: MatchResult): Boolean {
+        val before = body.substring(0, m.range.first).trimEnd()
+        return before.endsWith("update") || before.endsWith("delete")
+    }
+
+    private fun paramDelegated(
+        body: String,
+        names: Set<String>,
+        requireFunctions: Set<String>,
+        knownFunctions: Set<String>,
+        entities: Set<String>
+    ): Boolean = CALL_SITE_REGEX.findAll(body).any { m ->
+        val callee = m.groupValues[1]
+        callee !in CONTROL_KEYWORDS && callee !in entities && !isMutationTarget(body, m) &&
+            (callee in requireFunctions || callee !in knownFunctions) &&
+            names.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(argsOf(body, m)) }
+    }
+
+    // ---- amount-without-lower-bound (negative-amount inversion, probe N4) ----
+    // `.balance -= amount` with no sign check: amount = -5000 turns a withdraw
+    // into a mint (and `.balance += amount` into a drain of the credited row).
+    // The rule keys on USE - a numeric parameter feeding a compound value
+    // write with no lower bound anywhere - never on the parameter's name;
+    // names are attacker-chosen (the a2-renamed lesson).
+
+    private val NUMERIC_TYPE_REGEX = Regex("""^(?:integer|big_integer|decimal)\??$""")
+
+    /** RHS of a compound write starting at [from]: to the first top-level `,` `;` or closer. */
+    private fun rhsAfter(body: String, from: Int): String {
+        val sb = StringBuilder()
+        var depth = 0
+        var k = from
+        while (k < body.length) {
+            val c = body[k]
+            when {
+                c in "([{" -> depth++
+                c in ")]}" -> { if (depth == 0) break; depth-- }
+                (c == ',' || c == ';') && depth == 0 -> break
+            }
+            sb.append(c)
+            k++
+        }
+        return sb.toString()
+    }
+
+    /** `n > x` / `n >= x` / `n == x` / `x < n` / `x <= n` - anything bounding n from below (or pinning it). */
+    private fun hasLowerBound(body: String, names: Set<String>): Boolean =
+        names.any { n ->
+            val esc = Regex.escape(n)
+            Regex("""\b$esc\b\s*(?:>=?|==)""").containsMatchIn(body) ||
+                Regex("""<=?\s*\b$esc\b""").containsMatchIn(body)
+        }
+
+    private fun amountLowerBoundFindings(
+        path: String,
+        op: OperationBlock,
+        requireFunctions: Set<String>,
+        knownFunctions: Set<String>,
+        valueMutatingFunctions: Set<String>,
+        mutatingFunctions: Set<String>,
+        entities: Set<String>
+    ): List<Finding> {
+        val findings = mutableListOf<Finding>()
+        parseParams(op.params).forEach { (name, type) ->
+            if (!NUMERIC_TYPE_REGEX.matches(type.trim().lowercase())) return@forEach
+            val tainted = taintedNames(op.body, name)
+                        if (hasLowerBound(op.body, tainted)) return@forEach
+            if (paramDelegated(op.body, tainted, requireFunctions, knownFunctions, entities)) return@forEach
+            fun taintedIn(text: String) =
+                tainted.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(text) }
+            // Direct value write fed by the parameter. Debit shapes: `-=` on any
+            // field, or a subtraction of the tainted value inside a `+=`/`=`
+            // write to a value-named field (`.balance = .balance - amount` and
+            // `.balance += -amount` are the same inversion spelled differently -
+            // rewriting the operator must not evade the rule). Credit shape:
+            // `+=` of the tainted value to a value-named field.
+            fun subtractedTaintIn(rhs: String) =
+                tainted.any { Regex("""-\s*\b${Regex.escape(it)}\b""").containsMatchIn(rhs) }
+            val directHit = FIELD_WRITE_REGEX.findAll(op.body).any { w ->
+                val kind = w.groupValues[2]
+                val valueField = VALUE_FIELD_NAME_REGEX.containsMatchIn(w.groupValues[1])
+                val rhs = rhsAfter(op.body, w.range.last + 1)
+                when (kind) {
+                    "-=" -> taintedIn(rhs)
+                    "+=" -> taintedIn(rhs) && valueField
+                    "=" -> subtractedTaintIn(rhs) && valueField
+                    else -> false
+                }
+            }
+            // ...or handed to a submitted helper that mutates value and never
+            // require()s anything - the wrap-it-in-a-helper evasion.
+            val helperHit = !directHit && CALL_SITE_REGEX.findAll(op.body).any { m ->
+                val callee = m.groupValues[1]
+                (callee in valueMutatingFunctions || callee in mutatingFunctions) &&
+                    callee !in requireFunctions && taintedIn(argsOf(op.body, m))
+            }
+            if (!directHit && !helperHit) return@forEach
+            findings.add(
+                Finding(
+                    "HIGH", "amount-without-lower-bound", path, op.line,
+                    "operation ${op.name} feeds caller-supplied numeric '$name' into a += / -= balance " +
+                        "write with no lower bound anywhere in the operation - a negative value inverts " +
+                        "the write, turning a debit into a mint (or a credit into a drain)",
+                    "Bound the amount before using it: require($name > 0, \"amount must be positive\") " +
+                        "(or an explicit domain minimum). An upper-bound check like " +
+                        "require(balance >= $name) does not stop negative values."
+                )
+            )
+        }
+        return findings
+    }
+
+    // ---- unvalidated-stored-parameter (per-parameter validation, probe S5) ----
+    // One require() on x used to count as validating y too. When an operation
+    // demonstrably validates SOME parameter, every other text parameter it
+    // stores must carry its own check - the masking effect is exactly how the
+    // exploit sample slipped through. Scoped to text parameters (length/format
+    // checks always exist for them); identity types (byte_array/pubkey) have
+    // no meaningful range check and stay out to keep the rule quiet.
+
+    private fun storedAsValue(
+        body: String,
+        ref: Regex,
+        mutatingFunctions: Set<String>,
+        requireFunctions: Set<String>
+    ): Boolean {
+        Regex("""\bcreate\s+[A-Za-z_][\w.]*\s*\(""").findAll(body).forEach { m ->
+            val ps = body.indexOf('(', m.range.first)
+            val pe = matchDelimiter(body, ps, '(', ')') ?: return@forEach
+            if (ref.containsMatchIn(body.substring(ps + 1, pe))) return true
+        }
+        UPDATE_KEYWORD_REGEX.findAll(body).forEach { m ->
+            val end = body.indexOf(';', m.range.first).let { if (it < 0) body.length else it }
+            val stmt = body.substring(m.range.first, end)
+            val braceStart = stmt.indexOf('{')
+            val setPart = if (braceStart >= 0) {
+                val be = matchDelimiter(stmt, braceStart, '{', '}') ?: return@forEach
+                stmt.substring(be + 1)
+            } else {
+                stmt.substringAfter('(', "")
+            }
+            if (ref.containsMatchIn(setPart)) return true
+        }
+        return CALL_SITE_REGEX.findAll(body).any { m ->
+            val callee = m.groupValues[1]
+            callee in mutatingFunctions && callee !in requireFunctions &&
+                ref.containsMatchIn(argsOf(body, m))
+        }
+    }
+
+    private fun perParamValidationFindings(
+        path: String,
+        op: OperationBlock,
+        requireFunctions: Set<String>,
+        knownFunctions: Set<String>,
+        mutatingFunctions: Set<String>,
+        entities: Set<String>
+    ): List<Finding> {
+        val params = parseParams(op.params)
+        if (params.size < 2) return emptyList()
+        val statements = op.body.split(';')
+        fun validated(p: String): Boolean {
+            val ref = Regex("""\b${Regex.escape(p)}\b""")
+            if (statements.any { REQUIRE_REGEX.containsMatchIn(it) && ref.containsMatchIn(it) }) return true
+            return paramDelegated(op.body, setOf(p), requireFunctions, knownFunctions, entities)
+        }
+        // The masking effect needs a mask: fire only when some parameter IS
+        // validated (an op with no require at all is unvalidated-inputs').
+        if (params.none { (n, _) -> validated(n) }) return emptyList()
+        val findings = mutableListOf<Finding>()
+        params.forEach { (name, type) ->
+            if (type.trim().trimEnd('?').trim().lowercase() != "text") return@forEach
+            if (validated(name)) return@forEach
+            val ref = Regex("""\b${Regex.escape(name)}\b""")
+            if (!storedAsValue(op.body, ref, mutatingFunctions, requireFunctions)) return@forEach
+            findings.add(
+                Finding(
+                    "MEDIUM", "unvalidated-stored-parameter", path, op.line,
+                    "operation ${op.name} validates other input(s) but stores text parameter '$name' " +
+                        "with no check of its own - a require() on one parameter does not validate " +
+                        "the others",
+                    "Validate '$name' before storing it: require($name.size() > 0 and " +
+                        "$name.size() <= MAX, \"bad $name\") - length/format checks per parameter, " +
+                        "not per operation."
+                )
+            )
+        }
+        return findings
+    }
+
+    // ---- iccf-proof-without-provenance (probe N12) ----
+    // require_valid_proof proves SOME transaction is anchored - it says
+    // nothing about WHICH chain it came from. Without binding a source
+    // blockchain_rid, any chain's transaction satisfies the proof: proof is
+    // not provenance. Advisory MEDIUM: the documented ICCF pattern binds the
+    // source chain from module args (see clean-iccf-proof-provenance), but
+    // some proof-carrying flows legitimately accept multiple sources.
+
+    private val VALID_PROOF_CALL_REGEX = Regex("""\brequire_valid_proof\s*\(""")
+    private val CHAIN_BINDING_REGEX = Regex("""chain_context\s*\.\s*args|blockchain_rid""")
+
+    private fun iccfProvenanceFindings(
+        path: String,
+        op: OperationBlock,
+        mutatingFunctions: Set<String>
+    ): List<Finding> {
+        if (!VALID_PROOF_CALL_REGEX.containsMatchIn(op.body)) return emptyList()
+        val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
+            calledNames(op.body).any { it in mutatingFunctions }
+        if (!mutates) return emptyList()
+        if (CHAIN_BINDING_REGEX.containsMatchIn(op.body)) return emptyList()
+        return listOf(
+            Finding(
+                "MEDIUM", "iccf-proof-without-provenance", path, op.line,
+                "operation ${op.name} mutates state gated by require_valid_proof but never binds the " +
+                    "source chain - a valid proof only shows SOME anchored transaction exists, so any " +
+                    "chain's transaction (or the wrong chain's) satisfies it: proof is not provenance",
+                "Bind provenance alongside the proof: require(source == chain_context.args.source_brid, " +
+                    "\"wrong source chain\") with the trusted blockchain_rid from module args, then " +
+                    "validate what the proven transaction actually did. Advisory: if multiple source " +
+                    "chains are intended, check membership in a trusted set instead."
+            )
+        )
+    }
+
+    // ---- icmf-sender-not-validated (probe S4) ----
+    // An @extend(receive_icmf_message) body runs for ANY chain publishing on
+    // the topic; mutating state without validating `sender` lets any chain
+    // push fake data. Extend bodies are not operations, so the operation scan
+    // never saw them at all.
+
+    private val ICMF_EXTEND_REGEX =
+        Regex("""@extend\s*\(\s*[\w.]*?receive_icmf_message\s*\)\s*function\s+[A-Za-z_]\w*\s*\(""")
+    private val VALIDATION_CONTEXT_REGEX =
+        Regex("""==|!=|\bin\b|\brequire|\bexists\s*\(|@|\bif\s*\(|\bwhen\b""")
+
+    private fun senderValidated(
+        body: String,
+        sender: String,
+        requireFunctions: Set<String>,
+        knownFunctions: Set<String>,
+        entities: Set<String>
+    ): Boolean {
+        val tainted = taintedNames(body, sender)
+        fun taintedIn(text: String) =
+            tainted.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(text) }
+        if (body.split(';').any { st -> taintedIn(st) && VALIDATION_CONTEXT_REGEX.containsMatchIn(st) }) return true
+        return paramDelegated(body, tainted, requireFunctions, knownFunctions, entities)
+    }
+
+    internal fun icmfReceiverFindings(
+        path: String,
+        masked: String,
+        mutatingFunctions: Set<String>,
+        requireFunctions: Set<String>,
+        knownFunctions: Set<String>,
+        entities: Set<String>
+    ): List<Finding> {
+        val findings = mutableListOf<Finding>()
+        ICMF_EXTEND_REGEX.findAll(masked).forEach { m ->
+            val parenEnd = matchDelimiter(masked, m.range.last, '(', ')') ?: return@forEach
+            val params = parseParams(masked.substring(m.range.last + 1, parenEnd))
+            val braceStart = masked.indexOf('{', parenEnd)
+            if (braceStart < 0) return@forEach
+            val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
+            val body = masked.substring(braceStart + 1, braceEnd)
+            val mutates = MUTATION_REGEX.containsMatchIn(body) ||
+                calledNames(body).any { it in mutatingFunctions }
+            if (!mutates) return@forEach
+            // The sender is the FIRST parameter by position - its name is the
+            // author's choice and must not matter.
+            val sender = params.firstOrNull()?.first ?: return@forEach
+            if (senderValidated(body, sender, requireFunctions, knownFunctions, entities)) return@forEach
+            findings.add(
+                Finding(
+                    "HIGH", "icmf-sender-not-validated", path,
+                    masked.substring(0, m.range.first).count { it == '\n' } + 1,
+                    "an @extend(receive_icmf_message) handler mutates state without ever checking the " +
+                        "message sender - ANY chain publishing on the topic can trigger this write with " +
+                        "attacker-chosen content",
+                    "Validate the sender before mutating: require(sender == " +
+                        "chain_context.args.trusted_chain, \"untrusted sender\") (or look it up in a " +
+                        "registry of trusted chain RIDs). The topic name is not a trust boundary - " +
+                        "the sender chain is."
+                )
+            )
+        }
+        return findings
+    }
+
+    // ---- query-returns-secret-data (probe N8) ----
+    // Queries are publicly callable on every node with NO caller identity:
+    // whatever a query can return, anyone can read. A query touching fields
+    // named like secrets is therefore publishing them. Advisory MEDIUM, keyed
+    // on the AUTHOR's own naming (not attacker-controlled input): the threat
+    // here is a well-meaning generator storing secrets on chain, not an
+    // adversarial author evading the scan.
+
+    internal data class QueryBlock(val name: String, val line: Int, val body: String)
+
+    private val QUERY_REGEX = Regex("""\bquery\s+([A-Za-z_]\w*)\s*\(""")
+
+    internal fun scanQueries(masked: String): List<QueryBlock> {
+        val out = mutableListOf<QueryBlock>()
+        QUERY_REGEX.findAll(masked).forEach { m ->
+            val parenStart = masked.indexOf('(', m.range.first)
+            val parenEnd = matchDelimiter(masked, parenStart, '(', ')') ?: return@forEach
+            val line = masked.substring(0, m.range.first).count { it == '\n' } + 1
+            var j = parenEnd + 1
+            while (j < masked.length && masked[j].isWhitespace()) j++
+            if (j < masked.length && masked[j] == ':') {
+                // explicit return type: skip to the `=` or `{` that starts the body
+                while (j < masked.length && masked[j] != '=' && masked[j] != '{') j++
+            }
+            val body = when {
+                j < masked.length && masked[j] == '{' -> {
+                    val close = matchDelimiter(masked, j, '{', '}') ?: return@forEach
+                    masked.substring(j + 1, close)
+                }
+                j < masked.length && masked[j] == '=' -> {
+                    val semi = masked.indexOf(';', j).let { if (it < 0) masked.length else it }
+                    masked.substring(j + 1, semi)
+                }
+                else -> return@forEach
+            }
+            out.add(QueryBlock(m.groupValues[1], line, body))
+        }
+        return out
+    }
+
+    private val SECRET_ID_PARTS = setOf(
+        "secret", "secrets", "private", "priv", "password", "passwords", "passwd", "pwd",
+        "credential", "credentials", "mnemonic", "ssn"
+    )
+    private val IDENTIFIER_REGEX = Regex("""[A-Za-z_]\w*""")
+
+    private fun querySecretExposureFindings(path: String, q: QueryBlock): List<Finding> {
+        val secretId = IDENTIFIER_REGEX.findAll(q.body)
+            .map { it.value }
+            .firstOrNull { id -> id.lowercase().split('_').any { it in SECRET_ID_PARTS } }
+            ?: return emptyList()
+        return listOf(
+            Finding(
+                "MEDIUM", "query-returns-secret-data", path, q.line,
+                "query ${q.name} reads '$secretId' - queries are publicly callable on every node with " +
+                    "no caller identity, so anything a query returns is readable by anyone",
+                "Queries cannot be access-controlled: do not expose secret material through them. " +
+                    "Remember all Chromia state is visible to node operators regardless - secrets " +
+                    "should not live on chain at all. Advisory: if '$secretId' is not actually " +
+                    "secret, rename it or ignore this finding."
+            )
+        )
+    }
+
+    // ---- conditional-auth-bypass (auth not on every completing path, probe N9) ----
+    // `if (as_admin) { require(is_signer(...)) } update ...` - the caller opts
+    // OUT of the only auth check and the mutation runs anyway. Rell operations
+    // are transactional, so a require-style auth check guards every mutation
+    // in its segment regardless of statement order (an abort reverts); what it
+    // cannot guard is a path that never executes it. This scanner walks the
+    // if/else structure: a mutation is guarded when auth is established
+    // unconditionally in its segment, in its own branch, by a non-negated
+    // auth-bearing branch condition, or by a full-coverage if/else chain where
+    // every branch authenticates. `for`/`while` bodies are conditional (zero
+    // iterations); `if (not is_signer(...)) return;` guards everything AFTER
+    // it (return commits, so it cannot guard mutations before it).
+
+    private val CONTROL_HEAD_REGEX = Regex("""\b(if|for|while)\s*\(""")
+    private val COND_NEGATION_REGEX = Regex("""\bnot\b|==\s*false|!(?!=)""")
+    private val RETURN_REGEX = Regex("""\breturn\b""")
+    private val WHEN_HEAD_REGEX = Regex("""\bwhen\b""")
+    private val WHEN_ELSE_ARM_REGEX = Regex("""\belse\s*->""")
+
+    internal data class PathScan(val establishesAuth: Boolean, val unguardedMutation: Boolean)
+
+    private data class BranchText(val text: String, val end: Int)
+
+    private fun extractBranch(body: String, from: Int): BranchText? {
+        var j = from
+        while (j < body.length && body[j].isWhitespace()) j++
+        if (j >= body.length) return null
+        return if (body[j] == '{') {
+            val close = matchDelimiter(body, j, '{', '}') ?: return null
+            BranchText(body.substring(j + 1, close), close + 1)
+        } else {
+            val semi = body.indexOf(';', j)
+            if (semi < 0) BranchText(body.substring(j), body.length)
+            else BranchText(body.substring(j, semi + 1), semi + 1)
+        }
+    }
+
+    /**
+     * `when` blocks resist textual branch parsing, so they are handled in the
+     * QUIET direction: a when whose block contains an auth marker is kept
+     * verbatim (its marker reads as straight-line auth) when it has an
+     * `else ->` arm or contains a mutation of its own; a when WITHOUT an else
+     * that only carries auth cannot cover all paths, so its content is
+     * blanked and the marker cannot masquerade as unconditional.
+     */
+    private fun neutralizeNonExhaustiveWhens(
+        body: String,
+        markers: List<String>,
+        authFns: Set<String>
+    ): String {
+        var result = body
+        var searchFrom = 0
+        while (true) {
+            val m = WHEN_HEAD_REGEX.find(result, searchFrom) ?: break
+            var j = m.range.last + 1
+            while (j < result.length && result[j].isWhitespace()) j++
+            if (j < result.length && result[j] == '(') {
+                val pe = matchDelimiter(result, j, '(', ')') ?: return result
+                j = pe + 1
+                while (j < result.length && result[j].isWhitespace()) j++
+            }
+            if (j >= result.length || result[j] != '{') {
+                searchFrom = m.range.last + 1
+                continue
+            }
+            val close = matchDelimiter(result, j, '{', '}') ?: return result
+            val block = result.substring(j + 1, close)
+            val hasAuth = containsAuthMarker(block, markers) || calledNames(block).any { it in authFns }
+            val exhaustive = WHEN_ELSE_ARM_REGEX.containsMatchIn(block)
+            val hasMutation = MUTATION_REGEX.containsMatchIn(block)
+            if (hasAuth && !exhaustive && !hasMutation) {
+                val blanked = block.map { if (it == '\n') '\n' else ' ' }.joinToString("")
+                result = result.substring(0, j + 1) + blanked + result.substring(close)
+            }
+            searchFrom = close + 1
+        }
+        return result
+    }
+
+    internal fun scanAuthPaths(
+        rawBody: String,
+        markers: List<String>,
+        authFns: Set<String>,
+        mutFns: Set<String>
+    ): PathScan {
+        val body = neutralizeNonExhaustiveWhens(rawBody, markers, authFns)
+        fun authIn(text: String) =
+            containsAuthMarker(text, markers) || calledNames(text).any { it in authFns }
+        fun mutatesIn(text: String) =
+            MUTATION_REGEX.containsMatchIn(text) || calledNames(text).any { it in mutFns }
+
+        val straight = StringBuilder()
+        var chainAuth = false
+        var chainUnguarded = false
+        var i = 0
+        while (i < body.length) {
+            val m = CONTROL_HEAD_REGEX.find(body, i)
+            if (m == null) {
+                straight.append(body.substring(i))
+                i = body.length
+                break
+            }
+            straight.append(body, i, m.range.first)
+            val keyword = m.groupValues[1]
+            var pos = m.range.first
+            var allGuarded = true
+            var sawElse = false
+            var earlyExitGuard = false
+            var parseFailed = false
+            while (true) {
+                val parenStart = body.indexOf('(', pos)
+                val parenEnd = if (parenStart >= 0) matchDelimiter(body, parenStart, '(', ')') else null
+                if (parenEnd == null) { parseFailed = true; break }
+                val cond = body.substring(parenStart + 1, parenEnd)
+                val branch = extractBranch(body, parenEnd + 1)
+                if (branch == null) { parseFailed = true; break }
+                val sub = scanAuthPaths(branch.text, markers, authFns, mutFns)
+                val condAuth = authIn(cond)
+                val negated = COND_NEGATION_REGEX.containsMatchIn(cond)
+                val guarded = sub.establishesAuth || (condAuth && !negated)
+                if (!guarded) {
+                    allGuarded = false
+                    if (sub.unguardedMutation) chainUnguarded = true
+                }
+                if (keyword == "if" && condAuth && negated && RETURN_REGEX.containsMatchIn(branch.text)) {
+                    earlyExitGuard = true
+                }
+                pos = branch.end
+                if (keyword != "if") break // loops have no else-chain
+                var j = pos
+                while (j < body.length && body[j].isWhitespace()) j++
+                val isElse = body.startsWith("else", j) &&
+                    (j + 4 >= body.length || !(body[j + 4].isLetterOrDigit() || body[j + 4] == '_'))
+                if (!isElse) break
+                var k = j + 4
+                while (k < body.length && body[k].isWhitespace()) k++
+                val isElseIf = body.startsWith("if", k) &&
+                    (k + 2 >= body.length || !(body[k + 2].isLetterOrDigit() || body[k + 2] == '_'))
+                if (isElseIf) {
+                    pos = k
+                    continue
+                }
+                val elseBranch = extractBranch(body, j + 4)
+                if (elseBranch == null) { parseFailed = true; break }
+                val elseSub = scanAuthPaths(elseBranch.text, markers, authFns, mutFns)
+                if (!elseSub.establishesAuth) {
+                    allGuarded = false
+                    if (elseSub.unguardedMutation) chainUnguarded = true
+                }
+                sawElse = true
+                pos = elseBranch.end
+                break
+            }
+            if (parseFailed) {
+                // Unparseable control flow: bail in the QUIET direction and
+                // treat the remainder as straight-line text.
+                straight.append(body.substring(i))
+                i = body.length
+                break
+            }
+            if (keyword == "if" && sawElse && allGuarded) chainAuth = true
+            i = pos
+            if (earlyExitGuard) {
+                // Everything after this point runs only once the gate passed;
+                // mutations BEFORE it committed on the unauthenticated path.
+                val preText = straight.toString()
+                val preAuth = chainAuth || authIn(preText)
+                return PathScan(
+                    establishesAuth = true,
+                    unguardedMutation = !preAuth && (mutatesIn(preText) || chainUnguarded)
+                )
+            }
+        }
+        val text = straight.toString()
+        val auth = chainAuth || authIn(text)
+        return PathScan(auth, !auth && (mutatesIn(text) || chainUnguarded))
+    }
+
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
     internal fun scanOperations(path: String, content: String): List<OperationBlock> {
@@ -1281,6 +1998,23 @@ object RellSecurityCheck {
         }
         if (hasAuth) {
             findings += confusedDeputyFindings(path, op, authFunctions)
+        }
+        if (mutates && hasAuth) {
+            val scan = scanAuthPaths(op.body, authMarkers, authFunctions, mutatingFunctions)
+            if (scan.unguardedMutation) {
+                findings.add(
+                    Finding(
+                        "HIGH", "conditional-auth-bypass", path, op.line,
+                        "operation ${op.name} mutates state, but its auth check(s) sit on a conditional " +
+                            "path (an if-branch or loop body) that can be skipped - the mutation still " +
+                            "runs on the path that never authenticates",
+                        "Establish auth unconditionally before mutating (auth.authenticate() or " +
+                            "require(op_context.is_signer(...)) at operation top level), or authenticate " +
+                            "in EVERY branch of the conditional. An auth check the caller can steer " +
+                            "around (if (as_admin) { ... }) is not a gate."
+                    )
+                )
+            }
         }
         findings += phantomSignerGateFindings(path, op, mutates)
         if (emptyFlagsOnly) {
