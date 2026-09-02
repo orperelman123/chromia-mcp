@@ -572,11 +572,32 @@ object RellSecurityCheck {
     // adversary round drained a vault through exactly that shape: authenticate,
     // then mutate rows SELECTED by a caller-supplied account parameter that is
     // never related to the authenticated identity. Anyone drains anyone.
-    /** Parameter names that denote an account/identity being acted UPON. */
+    /**
+     * Parameter names that denote an account/identity being acted UPON.
+     * ADDITIVE trigger only - it can widen the account-param set for unusual
+     * types, never narrow it. The security boundary is [isAccountTypedParam]:
+     * the attacker chooses parameter names, so when this list WAS the gate the
+     * identical drain was HIGH as `from` and silent as `victim`/`target`/
+     * `beneficiary`/... (verified against the built jar, adversary round 2).
+     */
     private val ACCOUNT_PARAM_NAME_REGEX = Regex(
         """(?:^|_)(account|owner|from|sender|user|holder|wallet|member|spender|payer)(?:$|_)""",
         RegexOption.IGNORE_CASE
     )
+
+    /**
+     * Account-ish by TYPE and use, not by name: byte_array / pubkey / *account*
+     * types are how identities travel in Rell. Whether such a parameter is
+     * DANGEROUS is decided downstream by use ([harmfulMutationKindKeyedBy]:
+     * it must key a debit/delete and never be bound to the caller) - so a
+     * hash/blob byte_array that keys nothing harmful stays clean, whatever
+     * it is called.
+     */
+    private fun isAccountTypedParam(name: String, type: String): Boolean {
+        val t = type.trim().trimEnd('?').trim().lowercase()
+        return t == "byte_array" || t == "pubkey" || t.contains("account") ||
+            ACCOUNT_PARAM_NAME_REGEX.containsMatchIn(name)
+    }
 
     /** `val x = something(` - candidate bindings of the authenticated identity. */
     private val VAL_CALL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\(""")
@@ -686,9 +707,7 @@ object RellSecurityCheck {
         // pattern (require(account.id == chain_context.args.admin, ...)).
         if (body.contains("chain_context.args")) return emptyList()
         val accountParams = parseParams(op.params)
-            .filter { (name, type) ->
-                ACCOUNT_PARAM_NAME_REGEX.containsMatchIn(name) || type.lowercase().contains("account")
-            }
+            .filter { (name, type) -> isAccountTypedParam(name, type) }
             .map { it.first }
         if (accountParams.isEmpty()) return emptyList()
         val authVars = VAL_CALL_REGEX.findAll(body)
