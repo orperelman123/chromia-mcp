@@ -261,6 +261,153 @@ class AuthorizationAndInvariantRulesTest {
         )
     }
 
+    // ---- value-op-without-transfer-flag ----
+    // Ground truth: FT4 has_flags is flags.contains_all(required_flags), and
+    // contains_all([]) is ALWAYS true (raw-ft4-src v1.1.0r
+    // core/accounts/module.rell:502-504). flags = [] therefore lets ANY auth
+    // descriptor - including a limited session key the user believed could not
+    // spend - call every operation the handler governs.
+
+    private val emptyFlagsHandler = """
+        module;
+        import lib.ft4.auth;
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = []
+        );
+    """.trimIndent()
+
+    @Test
+    fun valueMutationUnderEmptyFlagsHandlerIsMedium() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to emptyFlagsHandler + """
+
+                    entity acct { key id: byte_array; mutable balance: integer; }
+                    operation spend(amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        update acct @ { .id == account.id } ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "value-op-without-transfer-flag" }
+        assertTrue(hit.isNotEmpty(), "balance debit under flags=[] must be flagged; got ${result.findings}")
+        assertEquals("MEDIUM", hit.first().severity)
+    }
+
+    /** The value mutation is just as exposed when it happens inside a helper. */
+    @Test
+    fun transitiveValueMutationUnderEmptyFlagsHandlerIsMedium() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to emptyFlagsHandler + """
+
+                    entity acct { key id: byte_array; mutable balance: integer; }
+                    function debit(id: byte_array, amount: integer) {
+                        update acct @ { .id == id } ( .balance -= amount );
+                    }
+                    operation spend(amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        debit(account.id, amount);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue("value-op-without-transfer-flag" in rules(result), result.findings.toString())
+    }
+
+    /** A handler requiring the Transfer flag is the documented fix - clean. */
+    @Test
+    fun valueMutationUnderTransferFlagHandlerStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    @extend(auth.auth_handler)
+                    function () = auth.add_auth_handler(
+                        flags = ["T"]
+                    );
+                    entity acct { key id: byte_array; mutable balance: integer; }
+                    operation spend(amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        update acct @ { .id == account.id } ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "value-op-without-transfer-flag" },
+            result.findings.toString()
+        )
+    }
+
+    /**
+     * The scaffold's own golden template: flags = [] governing an operation
+     * that moves NO value (creates a note). Explicitly documented as fine -
+     * must stay clean or the gate flags our own scaffold.
+     */
+    @Test
+    fun nonValueOpUnderEmptyFlagsHandlerStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to emptyFlagsHandler + """
+
+                    entity note { index owner: byte_array; body: text; }
+                    operation add_note(body: text) {
+                        val account = auth.authenticate();
+                        require(body.size() > 0, "note must not be empty");
+                        create note(owner = account.id, body);
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "value-op-without-transfer-flag" },
+            result.findings.toString()
+        )
+    }
+
+    /**
+     * With MIXED handlers (some scoped handler carries flags) we cannot tell
+     * statically which one governs which operation - stay quiet rather than
+     * noisy.
+     */
+    @Test
+    fun mixedHandlersAreNotFlagged() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    @extend(auth.auth_handler)
+                    function () = auth.add_auth_handler(
+                        flags = []
+                    );
+                    @extend(auth.auth_handler)
+                    function () = auth.add_auth_handler(
+                        scope = "spend",
+                        flags = ["T"]
+                    );
+                    entity acct { key id: byte_array; mutable balance: integer; }
+                    operation spend(amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        update acct @ { .id == account.id } ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            result.findings.none { it.rule == "value-op-without-transfer-flag" },
+            result.findings.toString()
+        )
+    }
+
     /** is_signer(<that param>) binds the param to an actual transaction signer - clean. */
     @Test
     fun paramCheckedWithIsSignerStaysClean() {

@@ -249,12 +249,19 @@ object RellSecurityCheck {
      * operation that mutates only via a helper (`operation transfer() { do_transfer(); }`)
      * must still get an unauthenticated-mutation finding (audit 2026-09-01).
      */
-    internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> {
-        // Same-named functions across files used to clobber the map (last file
-        // won), hiding a mutating definition behind a later benign one (audit
-        // round 4 minor). Conservative for security: a name is mutating if ANY
-        // definition mutates - concatenating all bodies per name gives exactly
-        // that ("any body matches" / "any body calls").
+    internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> =
+        functionNamesMatchingSeed(maskedFiles, MUTATION_REGEX)
+
+    /**
+     * Names of user functions whose body matches [seed], closed over calls
+     * (a function calling a matching function matches). Same-named functions
+     * across files used to clobber a name-keyed map (last file won), hiding a
+     * matching definition behind a later benign one (audit round 4 minor).
+     * Conservative for security: a name matches if ANY definition matches -
+     * concatenating all bodies per name gives exactly that ("any body
+     * matches" / "any body calls").
+     */
+    internal fun functionNamesMatchingSeed(maskedFiles: Map<String, String>, seed: Regex): Set<String> {
         val bodies = mutableMapOf<String, StringBuilder>()
         maskedFiles.forEach { (_, masked) ->
             functionBodies(masked).forEach { (name, body) ->
@@ -262,8 +269,7 @@ object RellSecurityCheck {
             }
         }
         val functions = bodies.mapValues { (_, sb) -> sb.toString() }
-        val seed = functions.filterValues { MUTATION_REGEX.containsMatchIn(it) }.keys.toSet()
-        return closeOverCalls(functions, seed)
+        return closeOverCalls(functions, functions.filterValues { seed.containsMatchIn(it) }.keys.toSet())
     }
 
     /** `import name;` / `import alias: name;` - captures the dotted module path. */
@@ -345,6 +351,9 @@ object RellSecurityCheck {
         // or a mutating helper defined in a sibling file must be recognized.
         val authFunctions = authFunctionNames(fullyMasked)
         val mutatingFunctions = mutatingFunctionNames(fullyMasked)
+        val valueMutatingFunctions = functionNamesMatchingSeed(fullyMasked, VALUE_MUTATION_REGEX)
+        val ft4AuthCallers = functionNamesMatchingSeed(fullyMasked, AUTHENTICATE_CALL_REGEX)
+        val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -394,7 +403,10 @@ object RellSecurityCheck {
             val ops = scanOperations(path, masked)
             operationsScanned += ops.size
             ops.forEach { op ->
-                findings += operationFindings(path, op, authFunctions, mutatingFunctions, authMarkers)
+                findings += operationFindings(
+                    path, op, authFunctions, mutatingFunctions, authMarkers,
+                    valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly
+                )
             }
         }
 
@@ -681,6 +693,55 @@ object RellSecurityCheck {
         }
     }
 
+    // ---- value-op-without-transfer-flag ----
+    // Ground truth: FT4 has_flags = flags.contains_all(required_flags), and
+    // contains_all([]) is ALWAYS true (raw-ft4-src v1.1.0r
+    // rell/src/lib/ft4/core/accounts/module.rell:502-504). A handler with
+    // flags = [] admits EVERY auth descriptor on the account - including a
+    // limited session/login key the user believed could not spend.
+    /**
+     * Value-moving state change: a debit (`-=`) on any field, or any write
+     * (`+=` / `-=` / `=`) to a balance-named field. Credits/assignments to
+     * non-value fields (counters, timestamps) deliberately do not count - a
+     * session key bumping a view counter is not the exploit, and flagging it
+     * would train agents to ignore the gate.
+     */
+    private val VALUE_MUTATION_REGEX = Regex(
+        """\.\w*(?:balance|amount|credit|fund|supply|share|debt|stake|reward|coin|token)\w*\s*(?:\+=|-=|=(?!=))|\.\w+\s*-=""",
+        RegexOption.IGNORE_CASE
+    )
+    private val AUTHENTICATE_CALL_REGEX = Regex("""\bauthenticate\s*\(""")
+    private val ADD_AUTH_HANDLER_CALL_REGEX = Regex("""\badd_auth_handler\s*\(""")
+    private val FLAGS_LIST_REGEX = Regex("""flags\s*=\s*\[([^\]]*)]""")
+    private val ANY_LIST_REGEX = Regex("""\[([^\]]*)]""")
+
+    /**
+     * True when the app (non-lib, non-test) files register at least one FT4
+     * auth handler and EVERY one of them has an empty flags list. With mixed
+     * handlers we cannot statically tell which scope governs which operation,
+     * so the rule stays quiet rather than guessing; a flags-by-variable
+     * handler counts as non-empty for the same reason.
+     */
+    internal fun allAuthHandlersHaveEmptyFlags(files: Map<String, String>): Boolean {
+        var empty = 0
+        var nonEmptyOrUnknown = 0
+        files.forEach { (path, content) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            if (RunRellTests.isTestModuleSource(content)) return@forEach
+            // Comment-masked, strings KEPT: fully masked text blanks "T" and
+            // makes flags = ["T"] indistinguishable from flags = [].
+            val masked = maskRellSource(content, maskStrings = false)
+            ADD_AUTH_HANDLER_CALL_REGEX.findAll(masked).forEach { m ->
+                val parenStart = masked.indexOf('(', m.range.first)
+                val parenEnd = matchDelimiter(masked, parenStart, '(', ')') ?: return@forEach
+                val args = masked.substring(parenStart + 1, parenEnd)
+                val list = FLAGS_LIST_REGEX.find(args) ?: ANY_LIST_REGEX.find(args)
+                if (list != null && list.groupValues[1].isBlank()) empty++ else nonEmptyOrUnknown++
+            }
+        }
+        return empty > 0 && nonEmptyOrUnknown == 0
+    }
+
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
     internal fun scanOperations(path: String, content: String): List<OperationBlock> {
@@ -724,7 +785,10 @@ object RellSecurityCheck {
         op: OperationBlock,
         authFunctions: Set<String> = emptySet(),
         mutatingFunctions: Set<String> = emptySet(),
-        authMarkers: List<String> = AUTH_MARKERS
+        authMarkers: List<String> = AUTH_MARKERS,
+        valueMutatingFunctions: Set<String> = emptySet(),
+        ft4AuthCallers: Set<String> = emptySet(),
+        emptyFlagsOnly: Boolean = false
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
         val calls = calledNames(op.body)
@@ -747,6 +811,24 @@ object RellSecurityCheck {
             findings += confusedDeputyFindings(path, op, authFunctions)
         }
         findings += phantomSignerGateFindings(path, op, mutates)
+        if (emptyFlagsOnly) {
+            val ft4Authed = "authenticate" in calls || calls.any { it in ft4AuthCallers }
+            val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) ||
+                calls.any { it in valueMutatingFunctions }
+            if (ft4Authed && movesValue) {
+                findings.add(
+                    Finding(
+                        "MEDIUM", "value-op-without-transfer-flag", path, op.line,
+                        "operation ${op.name} moves value but every registered auth handler has flags = [] - " +
+                            "FT4 checks flags with contains_all(), and contains_all([]) is always true, so ANY " +
+                            "descriptor on the account (including limited session keys) can call it",
+                        "Require the Transfer flag on the handler governing value-moving operations: " +
+                            "auth.add_auth_handler(flags = [\"T\"]). Keep flags = [] only for operations that " +
+                            "move no value."
+                    )
+                )
+            }
+        }
         if (op.params.isNotBlank() && !hasRequire && !hasAuth) {
             findings.add(
                 Finding(
