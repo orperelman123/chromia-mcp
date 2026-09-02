@@ -507,6 +507,14 @@ object RellSecurityCheck {
         // created (a vesting grant's total): a payout bounded by one of these
         // is paid out of escrow, not minted.
         val escrowedCaps = escrowedCapFields(fullyMasked, allEntityNames, entityHelperReturns)
+        // A clock parked in a row by one operation is the same public number
+        // when another reads it back, so those fields are clock sources too.
+        val storedClockFields = clockDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns)
+        // Identity-typed attributes: the fields that name WHO a row belongs to.
+        // The randomness rule keys the beneficiary on this type, never on a name.
+        val identityFieldNames = entityFields(fullyMasked)
+            .filter { it.type.trimEnd('?') == "byte_array" }
+            .mapTo(mutableSetOf()) { it.name }
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -583,6 +591,10 @@ object RellSecurityCheck {
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
                     inlinable, escrowedCaps
+                )
+                findings += blockClockRandomnessFindings(
+                    path, op, allEntityNames, entityHelperReturns, inlinable, identityFieldNames,
+                    storedClockFields
                 )
             }
         }
@@ -2163,6 +2175,189 @@ object RellSecurityCheck {
             }
         }
         return emptyList()
+    }
+
+    // ---- block-clock-randomness (the chain's clock used as a lottery) ----
+    // Adversary round 5 dapp4: a raffle picks its winner with
+    // `op_context.last_block_time % ticket_count`. last_block_time is the
+    // PREVIOUS block's timestamp - already committed and public when the
+    // attacker signs the draw - so the winner is computable in advance, anyone
+    // may trigger the draw, and a losing entrant simply waits for a block whose
+    // clock names a ticket they hold. Block height has the identical property,
+    // and so does any hash of either: there is no per-block secret an operation
+    // can reach. Every other guard was present and the gate was silent.
+    //
+    // The rule keys on TYPE AND USE, never on names. The source is the language
+    // construct (`op_context.last_block_time`, `op_context.block_height`,
+    // `block @ {...}`) closed over every local it flows into, through helpers,
+    // conversions and hashes. The use that matters is SELECTION: the clock
+    // reduced by `%`, compared for equality against a row, or indexed with -
+    // and then deciding who receives value. A legitimate schedule uses the
+    // clock as a BOUND (`require(now >= deadline)`, a staleness check, a
+    // cooldown): an inequality that can only abort, never choose. Bounds are
+    // untouched by this rule.
+
+    /**
+     * Row fields written from a block-clock value anywhere in the app. Parking
+     * `op_context.last_block_time` in a row and drawing from the stored copy in
+     * a later operation is the same public number one block later, so reads of
+     * these fields count as clock reads.
+     */
+    internal fun clockDerivedStoredFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): Set<String> {
+        val out = mutableSetOf<String>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val bodies = scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second }
+            bodies.forEach { body ->
+                if (!TIME_SOURCE_REGEX.containsMatchIn(body)) return@forEach
+                val bindings = bindingsOf(body)
+                val clock = derivedNames(bindings, TIME_SOURCE_NAMES, TIME_SOURCE_REGEX)
+                amountWrites(body, entities, helperReturns).forEach { w ->
+                    val fromClock = TIME_SOURCE_REGEX.containsMatchIn(w.amount) ||
+                        refsOf(w.amount).any { it in clock }
+                    if (fromClock) out.add(w.field)
+                }
+            }
+        }
+        return out
+    }
+
+    /** `x[i]` - a subscript, not a `@ {}` block or a type parameter. */
+    private val SUBSCRIPT_REGEX = Regex("""[A-Za-z_)\]]\s*\[""")
+
+    /** The operand tokens either side of an `==`/`!=`, in source order. */
+    private val EQUALITY_OPERANDS_REGEX = Regex(
+        """([A-Za-z_][\w.]*(?:\s*\.\s*\w+\s*\(\s*\))?|\d+)\s*(?:==|!=)\s*([A-Za-z_][\w.]*(?:\s*\.\s*\w+\s*\(\s*\))?|\d+)"""
+    )
+
+    /**
+     * True when [expr] uses a block-clock value to SELECT rather than to bound:
+     * reduced modulo something, compared for equality against a non-literal, or
+     * used as a subscript. An inequality against the clock (a deadline, a
+     * staleness bound, a cooldown) is deliberately not a selector.
+     */
+    private fun clockSelectorUse(expr: String, clockNames: Set<String>, clockSource: Regex): Boolean {
+        fun isClock(token: String): Boolean {
+            val t = token.replace(WS_REGEX, "")
+            return t in clockNames || clockSource.containsMatchIn(t)
+        }
+        val refsClock = refsOf(expr).any { it in clockNames } || clockSource.containsMatchIn(expr)
+        if (!refsClock) return false
+        if (expr.contains('%')) return true
+        if (SUBSCRIPT_REGEX.containsMatchIn(expr)) return true
+        return EQUALITY_OPERANDS_REGEX.findAll(expr).any { m ->
+            val (l, r) = m.groupValues[1] to m.groupValues[2]
+            // `x == 0` is an initialisation test, not a row selection.
+            val literal = l.toLongOrNull() != null || r.toLongOrNull() != null
+            !literal && (isClock(l) || isClock(r))
+        }
+    }
+
+    /**
+     * HIGH, one finding per operation, when a block-clock value selects who
+     * receives value: the update target of a value credit (or an identity
+     * field the operation writes) traces back to a clock value used as a
+     * selector. Not an advisory - the loser who waits for a favourable block
+     * takes the pot, which is a drain with a running proof of concept.
+     */
+    private fun blockClockRandomnessFindings(
+        path: String,
+        op: OperationBlock,
+        entities: Set<String>,
+        helperReturns: Map<String, String>,
+        helpers: Map<String, List<FunctionDef>>,
+        identityFields: Set<String>,
+        storedClockFields: Set<String>
+    ): List<Finding> {
+        val flat = flattenHelpers(op.body, helpers, entities)
+        // A clock parked in a row by one operation and read back by another is
+        // the same public value one block later, so a read of such a field is a
+        // clock source too (evasion E8: `update r ( .seed = last_block_time )`
+        // in `seal`, `r.seed % ticket_count` in `draw`).
+        val storedRead = fieldReadRegex(storedClockFields)
+        val clockSource = if (storedRead == null) TIME_SOURCE_REGEX else
+            Regex("(?:${TIME_SOURCE_REGEX.pattern})|(?:${storedRead.pattern})")
+        if (!clockSource.containsMatchIn(flat)) return emptyList()
+        val bindings = bindingsOf(flat)
+        val clockNames = derivedNames(bindings, TIME_SOURCE_NAMES, clockSource)
+        // Seeds: locals whose VALUE came out of a selector use of the clock.
+        // Everything computed from a seed inherits it, so routing the draw
+        // through an intermediate val, a helper or a hash changes nothing.
+        val seeds = bindings.filterValues { rhs -> rhs.any { clockSelectorUse(it, clockNames, clockSource) } }.keys
+        if (seeds.isEmpty() && !statementsOf(flat).any { clockSelectorUse(it, clockNames, clockSource) }) return emptyList()
+        val selectors = derivedNames(bindings, seeds, null)
+
+        fun selected(text: String): Boolean =
+            refClosure(text, bindings).any { it in selectors } || clockSelectorUse(text, clockNames, clockSource)
+
+        var beneficiary: String? = null
+        var how: String? = null
+        statementsOf(flat).forEach { stmt ->
+            if (beneficiary != null) return@forEach
+            updateSetList(stmt)?.let { (head, items) ->
+                val target = updateTargetName(head)
+                // The row that receives the value: a local carrying the drawn
+                // row, or the where-clause that picked it.
+                // `if (now % 2 == 0) { update alice (...)` puts the draw in the
+                // same `;`-fragment as the payout, so the statement counts too.
+                val targetSelected = selected(target) || selected(head) || clockSelectorUse(stmt, clockNames, clockSource)
+                items.forEach { (field, opText, rhs) ->
+                    if (beneficiary != null) return@forEach
+                    val (flow, _) = flowOf(opText, rhs)
+                    if (flow == Flow.CREDIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(field) && targetSelected) {
+                        beneficiary = if (target.isNotEmpty()) "$target.$field" else field
+                        how = "the row credited with $field"
+                    } else if (field in identityFields && selected(rhs)) {
+                        beneficiary = field
+                        how = "the identity stored in $field"
+                    }
+                }
+            }
+        }
+        if (beneficiary == null) {
+            // `create winner_record(holder = <drawn>)` - recording the draw now
+            // and paying it out later is the same lottery.
+            CREATE_STMT_REGEX.findAll(flat).forEach { m ->
+                if (beneficiary != null) return@forEach
+                if (m.groupValues[1] !in entities) return@forEach
+                val parenStart = flat.indexOf('(', m.range.first)
+                val parenEnd = matchDelimiter(flat, parenStart, '(', ')') ?: return@forEach
+                splitArgs(flat.substring(parenStart + 1, parenEnd)).forEach { arg ->
+                    if (beneficiary != null) return@forEach
+                    CREATE_ITEM_REGEX.find(arg)?.let { a ->
+                        if (a.groupValues[1] in identityFields && selected(a.groupValues[2])) {
+                            beneficiary = "${m.groupValues[1]}.${a.groupValues[1]}"
+                            how = "the identity stored in ${a.groupValues[1]}"
+                        }
+                    }
+                }
+            }
+        }
+        val target = beneficiary ?: return emptyList()
+        return listOf(
+            Finding(
+                "HIGH", "block-clock-randomness", path, op.line,
+                "operation ${op.name} decides $target from the block clock " +
+                    "(op_context.last_block_time / block_height, or a value derived from one) used as a " +
+                    "SELECTOR - ${how!!} is picked by it. That value is the previous block's, already " +
+                    "committed and public when the transaction is signed, so the outcome is computable " +
+                    "in advance: anyone who may trigger this operation waits for a block whose clock " +
+                    "names them and takes the value on demand (adversary round 5 drained a raffle pot " +
+                    "this way). Hashing the clock, using height instead of time, or routing it through a " +
+                    "helper does not change this - there is no per-block secret an operation can read",
+                "Do not derive an outcome from the block clock. Use commit-reveal (every entrant commits " +
+                    "hash(secret) before the close, reveals after it, and the seed is the XOR of the " +
+                    "revealed secrets, with a forfeit for not revealing), or an external randomness " +
+                    "beacon delivered by a signed oracle operation. If the value is meant to be first-" +
+                    "come-first-served rather than random, select the recipient explicitly and say so. " +
+                    "The block clock is legitimate as a BOUND (require(op_context.last_block_time >= " +
+                    "deadline)) - only never as the thing that picks the winner."
+            )
+        )
     }
 
     // ---- vote-gated-payout-drops-quorum (copied payout path) ----
