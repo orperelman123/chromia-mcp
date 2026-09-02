@@ -473,7 +473,9 @@ object RellSecurityCheck {
                 "Heuristic static checks only (authentication AND authorization binding, signer-gate " +
                     "integrity, auth-handler flags, mass mutations, require() validation, banned FT4 " +
                     "admin modules, hardcoded secrets) - a clean report does not replace a security " +
-                    "audit, and economic invariants (conservation, quorum) are not checked."
+                    "audit. Economic invariants (quorum, voting windows, reserve backing, locked value " +
+                    "sinks) get ADVISORY MEDIUM findings only: they are design judgments no static rule " +
+                    "can prove, they never block, and their absence does not certify sound economics."
             )
         }
         return Result(!blocking, adjusted.sortedWith(compareBy({ severityRank(it.severity) }, { it.file }, { it.line })), operationsScanned, notes)
