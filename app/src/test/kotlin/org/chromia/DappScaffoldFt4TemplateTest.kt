@@ -1,6 +1,7 @@
 package org.chromia
 
 import org.chromia.tools.DappScaffold
+import org.chromia.tools.Ft4ModuleArgs
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -172,5 +173,33 @@ class DappScaffoldFt4TemplateTest {
     fun toJsonCarriesTemplateField() {
         val json = DappScaffold.toJson("notes", template = "ft4")
         assertEquals("ft4", json.getValue("template").toString().trim('"'))
+    }
+
+    /**
+     * The ft4 template emits an admin PRIVATE key into chromia.yml, which is
+     * only acceptable because it is FT4's own published test keypair used in the
+     * same test-scoped position FT4 itself uses (verified against
+     * ft4-lib/chromia.yml v1.1.0r: lib.ft4.core.admin.admin_pubkey and
+     * lib.ft4.test.core.auth.admin_priv_key). ft4TemplateShipsGoldenPattern already
+     * pins its test-scoped PLACEMENT; what nothing pinned is that no OTHER
+     * key-like value can appear - a refactor could start emitting a fresh key and
+     * this server would be shipping real key material into a user's project.
+     * Every 64+ hex run in the generated yml must be a known, named constant.
+     */
+    @Test
+    fun ft4TemplateEmitsOnlyFt4sPublishedTestKeysAndOnlyUnderTest() {
+        val yml = DappScaffold.files("notes", template = "ft4").getValue("chromia.yml")
+        // Exactly FT4's published test keypair - no other key material.
+        val allowed = setOf(
+            DappScaffold.TEST_ADMIN_PUBKEY.uppercase(),
+            DappScaffold.TEST_ADMIN_PRIVKEY.uppercase(),
+            // Library RIDs - public content identifiers, not key material.
+            DappScaffold.FT4_RID.uppercase().filter { it in "0123456789ABCDEF" },
+            Ft4ModuleArgs.ICCF_GIT_RID.uppercase().filter { it in "0123456789ABCDEF" }
+        )
+        Regex("[0-9A-Fa-f]{64,}").findAll(yml).forEach { m ->
+            val hex = m.value.uppercase()
+            assertTrue(hex in allowed, "chromia.yml emits unexpected key-like material: $hex")
+        }
     }
 }
