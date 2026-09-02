@@ -477,6 +477,22 @@ object RunRellTests {
                 // (audit 2026-09-01): the @test module was found, but nothing ran.
                 append(" 0 test functions found - test functions must be named test_*.")
             }
+            if (cases.any { it.error?.contains("Unable to create GTX module") == true }) {
+                // Postchain wraps the real cause (visible only in the server log):
+                // usually "No moduleArgs for module '<m>'" - every module compiled
+                // into the app that declares module_args without defaults needs an
+                // entry in this tool's module_args parameter. Diagnosed 2026-09-02:
+                // FT4's test helpers (lib.ft4.test.core) transitively import
+                // lib.ft4.admin, so FT4 tests additionally need the TEST-ONLY keys
+                // below even though production code must never import admin.
+                append(
+                    " 'Unable to create GTX module' almost always means the blockchain config synthesized for" +
+                        " rell.test.tx().run() is missing module_args a compiled module requires: pass an entry for every" +
+                        " module that declares module_args without defaults. For FT4 tests using lib.ft4.test.core" +
+                        " helpers that includes lib.ft4.core.admin (admin_pubkey) and lib.ft4.test.core.auth" +
+                        " (admin_priv_key) - test-only keys; see scaffold_dapp template=ft4 for a working set."
+                )
+            }
             if (dbLimited > 0) {
                 append(" $dbLimited failure(s) are environmental (dbRequired=true): the test touches entities/objects and needs PostgreSQL via $DATABASE_URL_ENV.")
             } else if (databaseUrl == null) {

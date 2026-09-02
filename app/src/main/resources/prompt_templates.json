@@ -377,9 +377,9 @@
   "dapp_build": [
     {
       "title": "Scaffold a new Chromia dapp",
-      "description": "Return a production-correct chromia.yml + Rell skeleton. Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1. Never ships lib.ft4.admin / ras_open. Not signed transactions.",
+      "description": "Return a production-correct chromia.yml + Rell skeleton. Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1. template=ft4 ships the authenticate -> authorize -> validate -> check-invariants pattern plus runnable invariant tests (conservation, no-negative-balance, non-owner-must-fail). Never ships lib.ft4.admin / ras_open. Not signed transactions.",
       "tool": "mcp_chromia-mcp_scaffold_dapp",
-      "prompt": "Scaffold a new Chromia dapp named {name} with production pins (Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1). Never include lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.",
+      "prompt": "Scaffold a new Chromia dapp named {name} with production pins (Rell 0.16.1, merkle_hash_version 2, FT4 v1.1.0r API 1). Use template=ft4 for accounts: it demonstrates authenticate -> authorize -> validate -> check-invariants and ships runnable invariant tests to copy for the app's own economics. Never include lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.",
       "parameters": {
         "name": "{name}"
       }
@@ -422,9 +422,9 @@
     },
     {
       "title": "Run Rell tests",
-      "description": "Execute @test module Rell tests in-process with the embedded runner; per-case pass/fail with errors. DB-backed tests need CHROMIA_TEST_DATABASE_URL. Completes rell_check + rell_security_check.",
+      "description": "Execute @test module Rell tests in-process with the embedded runner; per-case pass/fail with errors. DB-backed tests need CHROMIA_TEST_DATABASE_URL. Completes rell_check + rell_security_check - and is the only gate that can prove economic invariants (conservation, no-negative-balance, non-owner-must-fail).",
       "tool": "mcp_chromia-mcp_run_rell_tests",
-      "prompt": "Run these Rell tests and report each case with its error if it failed: {files}",
+      "prompt": "Run these Rell tests and report each case with its error if it failed: {files}. If the dapp holds value and the tests are all happy-path, add invariant tests first: conservation, no-negative-balance, and a non-owner attempt that must fail (run_must_fail) - scaffold_dapp template=ft4 has runnable examples.",
       "parameters": {
         "files": "{files}"
       }

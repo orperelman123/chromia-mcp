@@ -181,6 +181,11 @@ object ChromiaRellPracticesHelp {
         Missing rows: use @? then if (record != null) value else 0. Validate text sizes and symbol.matches before writes.
         Official account/asset id examples are 32 bytes and not all-zero — do not invent a 64-hex.
         Negative tests: rell.test.tx().op(...).run_must_fail("message") then assert_true(failure.message.contains(...)).
+        Beyond input validation, prove ECONOMIC invariants with tests: conservation (a transfer
+        never changes the total in circulation), no-negative-balance (overdraft must abort), and
+        authorization (a NON-owner's attempt must run_must_fail - authenticating says who calls,
+        require(row.owner == account.id) says they may touch that row). scaffold_dapp template=ft4
+        ships runnable examples of all three; run them via run_rell_tests.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.
@@ -227,6 +232,11 @@ object ChromiaRellPracticesHelp {
         put("input_validation_example", inputValidationExample())
         put("missing_balance_example", missingBalanceExample())
         put("run_must_fail_example", runMustFailExample())
+        put(
+            "invariant_tests",
+            "Conservation, no-negative-balance, and non-owner-must-fail tests: scaffold_dapp " +
+                "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests."
+        )
         put("security_keys", buildJsonArray { securityKeys.forEach { add(JsonPrimitive(it)) } })
         put("skipped", buildJsonArray { skipped.forEach { add(JsonPrimitive(it)) } })
         put("rate_limit_help", "ft4_module_args")
