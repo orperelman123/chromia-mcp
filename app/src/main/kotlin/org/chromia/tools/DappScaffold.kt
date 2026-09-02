@@ -340,23 +340,34 @@ object DappScaffold {
 
         val WELCOME_POINTS = 100;
 
-        // flags = [] means "any auth descriptor on the account may call this".
-        // FT4 checks flags with contains_all(), and contains_all([]) is ALWAYS
-        // true - so an empty list requires nothing, including from limited
-        // session/login descriptors. That is fine for the note demo, which
-        // moves no value.
+        // DEFAULT: every operation requires the Transfer flag unless a scoped
+        // handler below loosens it. FT4 resolves flags with contains_all(), and
+        // contains_all([]) is ALWAYS true - an empty default would let limited
+        // session/login descriptors call ANY operation, including value-moving
+        // ones you add later. Defaulting to ["T"] means a new operation is safe
+        // before you think about it; grant exceptions per operation, never by
+        // weakening this default.
         @extend(auth.auth_handler)
         function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        // EXCEPTION, scoped by operation name: the note demo moves no value, so
+        // limited session descriptors may call it. flags = [] requires nothing -
+        // use it ONLY for operations that cannot move value, and only scoped
+        // like this. transfer has no exception: it moves value, so it stays on
+        // the ["T"] default - a session key the user believed could not spend
+        // their funds must not be able to call it.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            scope = "add_note",
             flags = []
         );
 
-        // transfer MOVES VALUE, so its handler requires the Transfer flag: a
-        // session key the user believed could not spend their funds must not be
-        // able to call it. Scope every value-moving operation like this.
         @extend(auth.auth_handler)
         function () = auth.add_auth_handler(
-            scope = "transfer",
-            flags = ["T"]
+            scope = "delete_note",
+            flags = []
         );
 
         operation add_note(body: text) {

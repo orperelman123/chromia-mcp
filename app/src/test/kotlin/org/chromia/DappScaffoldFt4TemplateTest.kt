@@ -25,9 +25,26 @@ class DappScaffoldFt4TemplateTest {
             main.contains("require(n.owner == account.id"),
             "template must ship a concrete authorization check"
         )
+        // The DEFAULT handler an agent copies must require the Transfer flag;
+        // flags = [] may appear only as a per-operation, scoped exception for
+        // operations that move no value (adversary round 2: an empty DEFAULT is
+        // the hole that ships, because defaults are what people copy).
+        val squashed = main.replace(Regex("\\s+"), "")
         assertTrue(
-            main.contains("scope = \"transfer\"") && main.contains("flags = [\"T\"]"),
-            "the value-moving operation must require the Transfer flag"
+            squashed.contains("auth.add_auth_handler(flags=[\"T\"])"),
+            "the default (unscoped) auth handler must require the Transfer flag"
+        )
+        assertTrue(
+            !Regex("add_auth_handler\\(flags=\\[\\]\\)").containsMatchIn(squashed),
+            "flags = [] must never appear unscoped"
+        )
+        assertTrue(
+            squashed.contains("scope=\"add_note\",flags=[]"),
+            "the no-value note demo keeps its scoped flags = [] exception"
+        )
+        assertTrue(
+            !main.contains("scope = \"transfer\""),
+            "transfer must ride the [\"T\"] default, not a scoped exception"
         )
         val test = files.getValue("src/test/main_test.rell")
         listOf(
