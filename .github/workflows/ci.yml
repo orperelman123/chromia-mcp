@@ -58,6 +58,12 @@ jobs:
       - name: Test and build fat jar
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
+          # Three of the four live provisioning tests need only network: they
+          # generate a throwaway keypair and assert the account is UNREGISTERED
+          # (dry runs, nothing signed, nothing spent). They were skipping here
+          # purely because the flag was unset. The fourth needs a real chr
+          # keystore and stays out - see the allowlist below.
+          CHROMIA_LIVE_PROVISIONING_TESTS: "true"
         run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
 
       # A skip is a test that silently did not run. Gradle prints the skip count
@@ -69,16 +75,13 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, sys, xml.etree.ElementTree as ET
-          # The ONLY skips CI may tolerate, each with the reason. These four post
-          # real testnet transactions / resolve the owner's registered testnet
-          # account, so they need his keys - runnable in CI only if he chooses to
-          # add a testnet key as a repository secret (his call; it must never be
-          # committed). Everything else must run: an unlisted skip reds the build,
-          # and so does zero results.
           ALLOWED = {
-              'org.chromia.TestnetProvisioningLiveTest::liveSignedTransactionIsAcceptedOnWireAndRejectedByFt4Auth()',
-              'org.chromia.TestnetProvisioningLiveTest::liveDryRunPricesLeaseAndResolvesEverythingWithoutSpending(Path)',
-              'org.chromia.TestnetProvisioningLiveTest::liveClaimDryRunReportsFaucetTerms(Path)',
+              # The ONLY tolerated skip: it asserts that the zero-human default
+              # path resolves a funding key from the machine's own chr keystore
+              # (~/.chromia) and finds its FT4 account registered on the live
+              # Economy Chain. A runner has no keystore, so there is nothing for
+              # it to assert. Removing this last skip needs a registered testnet
+              # key as a repository secret - the owner's call, never committed.
               'org.chromia.TestnetProvisioningLiveTest::liveDefaultChrKeystorePathResolvesARegisteredAccount(Path)',
           }
           t = f = s = 0; skipped = []; unexpected = []
