@@ -36,7 +36,16 @@ internal fun JsonObject.dataElement(): JsonElement = this["data"] ?: this
  */
 internal class EconomyChainGateway(
     private val repository: ChromiaRepository,
-    private val network: String = "testnet"
+    private val network: String = "testnet",
+    /**
+     * Per-read wall-clock deadline for every blocking postchain-client query
+     * this gateway makes. The merge that introduced these tools bypassed the
+     * [ProbeBudget] family (cc76b9e): a node pool that stalls (the documented
+     * TryNextOnError crawl) made every provisioning tool hang past the hosted
+     * proxy's 60s write timeout - a closed socket instead of an honest answer.
+     * Clamped; operator-tunable via [ProbeBudget.QUERY_DEADLINE_ENV].
+     */
+    private val queryDeadlineMs: Long = ProbeBudget.configuredDeadlineMs(ProbeBudget.QUERY_DEADLINE_ENV)
 ) {
 
     /** Secrets collected during a call; swept out of every outgoing string. */
@@ -69,8 +78,14 @@ internal class EconomyChainGateway(
     }
 
     suspend fun query(bridHex: String, name: String, args: Map<String, Any?>): JsonObject {
-        val result = repository.executeCustomQuery(
-            network, BlockchainRid.buildFromHex(bridHex), name, args
+        val result = ProbeBudget.withBudget(queryDeadlineMs) {
+            repository.executeCustomQuery(
+                network, BlockchainRid.buildFromHex(bridHex), name, args
+            )
+        } ?: throw ChainQueryException(
+            "query $name timed out: no answer from the $network node pool within the " +
+                "${queryDeadlineMs}ms deadline - the nodes may be slow or unreachable; retry, or " +
+                "tune ${ProbeBudget.QUERY_DEADLINE_ENV} (capped at ${ProbeBudget.MAX_DEADLINE_MS}ms)"
         )
         return when (result) {
             is NetworkResult.Success -> result.data
@@ -199,7 +214,12 @@ class ProvisionTestnetContainerStrategy(
 ) : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val gateway = EconomyChainGateway(repository)
+        val gateway = EconomyChainGateway(
+            repository,
+            queryDeadlineMs = ProbeBudget.configuredDeadlineMs(
+                ProbeBudget.QUERY_DEADLINE_ENV, env[ProbeBudget.QUERY_DEADLINE_ENV]
+            )
+        )
         return runCatching {
             executeInner(request, gateway)
         }.getOrElse { e ->
@@ -562,7 +582,12 @@ class ClaimTestnetTchrStrategy(
 ) : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val gateway = EconomyChainGateway(repository)
+        val gateway = EconomyChainGateway(
+            repository,
+            queryDeadlineMs = ProbeBudget.configuredDeadlineMs(
+                ProbeBudget.QUERY_DEADLINE_ENV, env[ProbeBudget.QUERY_DEADLINE_ENV]
+            )
+        )
         return runCatching {
             executeInner(request, gateway)
         }.getOrElse { e ->
@@ -712,7 +737,32 @@ class DeployTestnetChainStrategy(
                     "path -> source). The gates cannot vouch for code they never saw."
             )
         val blockchain = extractString(args, "blockchain")?.takeIf { it.isNotBlank() } ?: "my_dapp"
+        // The name is a chromia.yml key AND a chr command-line argument. An
+        // invalid name used to slip through: the generated scaffold silently
+        // normalized it (DappScaffold.normalizeName falls back to "my_dapp")
+        // while `chr --blockchain` kept the raw value, so a dry run reported
+        // all gates passed for a deploy that could not succeed - and on
+        // Windows the raw value reached `cmd /c`, where shell metacharacters
+        // are live. Reject instead of silently substituting.
+        if (!Regex("^[a-z][a-z0-9_]{0,31}$").matches(blockchain)) {
+            return toolErrorResult(
+                "blockchain \"${blockchain.take(60)}\" is not a valid chain name: it must start with a " +
+                    "lowercase letter and contain only lowercase letters, digits, or underscores, at most " +
+                    "32 characters ([a-z][a-z0-9_]{0,31}). The name keys the chromia.yml blockchains " +
+                    "block and is passed to chr, so nothing else deploys the code you sent."
+            )
+        }
         val containerArg = extractString(args, "container")?.takeIf { it.isNotBlank() }
+        // Spliced into the generated YAML and compared against the yml's own
+        // container line, which only ever matches this charset - anything else
+        // used to corrupt the YAML first and then fail with a misattributed
+        // "conflicts with deployments.testnet.container" error.
+        if (containerArg != null && !Regex("^[A-Za-z0-9_.-]{1,128}$").matches(containerArg)) {
+            return toolErrorResult(
+                "container \"${containerArg.take(60)}\" is not a valid container lease name (letters, " +
+                    "digits, and _ . - only) - pass the name returned by provision_testnet_container."
+            )
+        }
         val providedYml = extractString(args, "chromiaYml")?.takeIf { it.isNotBlank() }
         val mode = when (val m = extractString(args, "mode")?.takeIf { it.isNotBlank() } ?: "create") {
             "create", "update" -> m
@@ -804,8 +854,20 @@ class DeployTestnetChainStrategy(
         }
 
         // ---- gate 2: compile + config preflight ------------------------------
+        // Same bounded-probe contract as DeploymentPreflightStrategy: one
+        // deadline shared across ALL probed URLs, so a stalling node pool
+        // (the ProbeBudget crawl) yields an honest refusal instead of an
+        // unbounded hang - the raw repository call here bypassed cc76b9e.
+        val probeDeadlineMs = ProbeBudget.configuredDeadlineMs(
+            ProbeBudget.PREFLIGHT_DEADLINE_ENV, env[ProbeBudget.PREFLIGHT_DEADLINE_ENV]
+        )
+        var probeStartNanos = -1L
         val preflight = DeploymentPreflight.run(yml, "testnet", files, null) { network, bridHex ->
-            repository.getBlockchainHeight(network, BlockchainRid.buildFromHex(bridHex))
+            if (probeStartNanos < 0) probeStartNanos = System.nanoTime()
+            val remainingMs = probeDeadlineMs - (System.nanoTime() - probeStartNanos) / 1_000_000
+            ProbeBudget.withBudget(remainingMs) {
+                repository.getBlockchainHeight(network, BlockchainRid.buildFromHex(bridHex))
+            } ?: NetworkResult.Error(ProbeBudget.preflightProbeTimeoutMessage(probeDeadlineMs))
         }
         if (!preflight.ready) {
             return toolSuccessResult(buildJsonObject {
@@ -946,8 +1008,14 @@ class DeployTestnetChainStrategy(
             var height: Long? = null
             var verifyNote = ""
             if (brid != null) {
-                val probe = repository.getBlockchainHeight(
-                    "testnet", BlockchainRid.buildFromHex(brid)
+                // Bounded like every other height read (cc76b9e): a cluster
+                // that has not started the fresh chain yet stalls exactly like
+                // an unreachable one, and the deploy already succeeded - the
+                // answer must not hang on the verify step.
+                val probe = ProbeBudget.withBudget(probeDeadlineMs) {
+                    repository.getBlockchainHeight("testnet", BlockchainRid.buildFromHex(brid))
+                } ?: NetworkResult.Error(
+                    "height probe timed out after ${probeDeadlineMs}ms"
                 )
                 when (probe) {
                     is NetworkResult.Success -> { live = true; height = probe.data }

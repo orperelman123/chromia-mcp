@@ -424,15 +424,49 @@ object RealProcessRunner : ProcessRunner {
         val pb = ProcessBuilder(command).directory(workDir.toFile())
         pb.environment().putAll(extraEnv)
         val proc = pb.start()
-        val stdout = proc.inputStream.bufferedReader().readText()
-        val stderr = proc.errorStream.bufferedReader().readText()
+        // The previous implementation drained stdout to EOF BEFORE waitFor, so
+        // timeoutMs was unenforceable dead code: a hung child (chr waiting on
+        // input, a wedged subprocess) kept stdout open and run() never
+        // returned - deploy_testnet_chain blocked forever and the child was
+        // orphaned. It also deadlocked against any child that wrote more
+        // stderr than the OS pipe buffer while stdout was being drained.
+        // Both streams are drained concurrently and waitFor(timeout) is the
+        // only wait; on timeout the child is killed and the partial output
+        // returned honestly.
+        val stdout = StringBuffer()
+        val stderr = StringBuffer()
+        val outDrainer = drain(proc.inputStream, stdout)
+        val errDrainer = drain(proc.errorStream, stderr)
         val finished = proc.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-        if (!finished) {
-            proc.destroyForcibly()
-            return ProcOut(-1, stdout, stderr + "\n[timed out after ${timeoutMs}ms]")
+        if (!finished) proc.destroyForcibly()
+        // Killing the child closes its pipe ends, so the drainers see EOF; the
+        // bounded join is a guard against a grandchild still holding the pipe.
+        outDrainer.join(5_000)
+        errDrainer.join(5_000)
+        return if (!finished) {
+            ProcOut(-1, stdout.toString(), stderr.toString() + "\n[timed out after ${timeoutMs}ms]")
+        } else {
+            ProcOut(proc.exitValue(), stdout.toString(), stderr.toString())
         }
-        return ProcOut(proc.exitValue(), stdout, stderr)
     }
+
+    private fun drain(stream: java.io.InputStream, sink: StringBuffer): Thread =
+        Thread {
+            runCatching {
+                val buf = CharArray(8192)
+                stream.bufferedReader().use { reader ->
+                    while (true) {
+                        val n = reader.read(buf)
+                        if (n < 0) break
+                        sink.append(buf, 0, n)
+                    }
+                }
+            }
+        }.apply {
+            isDaemon = true
+            name = "proc-drain"
+            start()
+        }
 }
 
 /**
