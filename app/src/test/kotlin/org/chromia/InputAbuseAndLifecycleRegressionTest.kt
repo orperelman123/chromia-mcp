@@ -111,4 +111,51 @@ class InputAbuseAndLifecycleRegressionTest {
         }
     }
 
+    // ---- Lens 1: an all-blank submission was a green gate on no code -----------
+
+    @Test
+    fun allBlankSubmissionsAreRefusedByEveryGate() {
+        val rellCheck = call("rell_check", buildJsonObject { put("source", "") })
+        assertEquals(true, rellCheck.isError, text(rellCheck))
+        assertTrue(text(rellCheck).contains("Every submitted Rell file is blank (main.rell)"), text(rellCheck))
+
+        val security = call(
+            "rell_security_check",
+            buildJsonObject { put("files", buildJsonObject { put("a.rell", " \n"); put("b.rell", "﻿") }) }
+        )
+        assertEquals(true, security.isError, text(security))
+        assertTrue(text(security).contains("blank (a.rell, b.rell)"), text(security))
+
+        val project = call("check_dapp_project", buildJsonObject { put("rell", "   ") })
+        assertTrue(project.isError != true, text(project))
+        val projectJson = project.structuredContent!!
+        assertEquals("false", projectJson.getValue("ok").jsonPrimitive.content, text(project))
+        assertTrue(
+            projectJson.getValue("errors").jsonArray.any { it.jsonPrimitive.content.contains("Every submitted Rell file is blank") },
+            text(project)
+        )
+
+        val imports = call("check_ft4_imports", buildJsonObject { put("rell", "") })
+        assertEquals(true, imports.isError, text(imports))
+        assertTrue(text(imports).contains("Every submitted Rell file is blank"), text(imports))
+
+        val tests = call("run_rell_tests", buildJsonObject { put("files", buildJsonObject { put("t.rell", "") }) })
+        assertEquals(true, tests.isError, text(tests))
+        assertTrue(text(tests).contains("Every submitted Rell file is blank"), text(tests))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalChain.prepare(mapOf("main.rell" to ""), "jdbc:postgresql://localhost:1/x", emptyMap(), null)
+        }
+    }
+
+    @Test
+    fun aBlankDirectoryModuleMarkerBesideRealCodeStillCompiles() {
+        // Only ALL-blank submissions are refused: an empty module.rell is legal Rell.
+        val result = RellCheck.check(
+            mapOf("main.rell" to "module; function f() = 1;", "util/module.rell" to ""),
+            null
+        )
+        assertTrue(result.ok, result.errors.toString())
+    }
+
 }

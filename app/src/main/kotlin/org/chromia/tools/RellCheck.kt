@@ -160,9 +160,26 @@ object RellCheck {
         }
     }
 
+    /**
+     * A submission whose every file is blank has nothing to compile, scan or
+     * test - yet it used to sail through as ok:true ("Compiled 1 module(s)
+     * successfully", "No findings", check_dapp_project ok:true), so an agent
+     * whose source variable was accidentally empty got a green gate on no code
+     * (QA input-abuse lens 2026-09-02). Individual blank files stay legal (an
+     * empty directory-module marker is valid Rell); only an all-blank
+     * submission is refused.
+     */
+    internal fun requireSomeSourceContent(files: Map<String, String>) {
+        require(files.values.any { stripBom(it).isNotBlank() }) {
+            "Every submitted Rell file is blank (${files.keys.joinToString(", ")}) - there is nothing to " +
+                "compile or check, so no result would be meaningful. Pass the actual source code."
+        }
+    }
+
     private fun validateFileMap(files: Map<String, String>) {
         require(files.isNotEmpty()) { "Provide `source` or a non-empty `files` map" }
         requireTotalSizeWithinCap(files)
+        requireSomeSourceContent(files)
         files.keys.forEach { relPath ->
             require(relPath.isNotBlank()) { "Empty file path" }
             require(!relPath.contains("..")) { "Path must not contain '..': $relPath" }

@@ -228,6 +228,7 @@ object LocalChain {
     ): StartPlan {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
         RellCheck.requireTotalSizeWithinCap(files)
+        RellCheck.requireSomeSourceContent(files)
         files.keys.forEach { relPath ->
             require(!relPath.contains("..") && !Path.of(relPath).isAbsolute) { "Path must be relative without '..': $relPath" }
             require(relPath.endsWith(".rell")) { "Only .rell files are supported: $relPath" }

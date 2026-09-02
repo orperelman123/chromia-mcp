@@ -218,6 +218,7 @@ object RunRellTests {
     ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
         RellCheck.requireTotalSizeWithinCap(files)
+        RellCheck.requireSomeSourceContent(files)
         files.keys.forEach { relPath ->
             require(!relPath.contains("..") && !Path.of(relPath).isAbsolute) { "Path must be relative without '..': $relPath" }
             require(relPath.endsWith(".rell")) { "Only .rell files are supported: $relPath" }
@@ -291,6 +292,7 @@ object RunRellTests {
     }
 
     private data class ExecuteOutcome(val result: Result, val cleanupDeferred: Boolean)
+
 
     /** Converts JSON module args to the Gtv map the Rell compiler expects. */
     private fun toGtvArgs(

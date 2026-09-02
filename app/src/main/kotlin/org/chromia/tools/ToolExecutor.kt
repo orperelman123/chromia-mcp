@@ -1622,6 +1622,8 @@ class CheckFt4ImportsStrategy : BaseToolStrategy() {
         val rellFiles = extractStringMap(args, "rell")
             ?: throw IllegalArgumentException("Missing required parameter: rell")
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
+        // ok:true on an all-blank submission certified nothing (QA input-abuse lens).
+        RellCheck.requireSomeSourceContent(rellFiles)
         return toolSuccessResult(Ft4ImportCheck.scanFiles(rellFiles, allowAdminModules).toJson())
     }
 }
