@@ -425,6 +425,8 @@ object RellSecurityCheck {
             }
         }
 
+        findings += valueSinkFindings(files, fullyMasked, allEntityNames, entityHelperReturns)
+
         // HIGH findings on the test surface downgrade to MEDIUM with a rule
         // suffix; CRITICALs (banned modules, open strategies) never downgrade
         // this way - shipping-forbidden code is forbidden wherever it sits.
@@ -1114,6 +1116,79 @@ object RellSecurityCheck {
                     "backed elsewhere, document it and ignore this finding."
             )
         )
+    }
+
+    // ---- value-sink-without-withdrawal (locked funds) ----
+    // Both adversary fee sinks shipped this way (dapp_a_points `treasury`,
+    // dapp_b_market `fee_pot`, both certified ok:true): every transfer skims
+    // a fee into a balance that is only ever incremented - no operation can
+    // pay it out, so the value is permanently locked at deploy time.
+
+    /** Entity/field names that suggest the row HOLDS collected value. */
+    private val SINK_NAME_REGEX = Regex("""fee|pot|treasury|vault|reserve|escrow|pool""", RegexOption.IGNORE_CASE)
+    private val MUTABLE_FIELD_REGEX = Regex("""\bmutable\s+([A-Za-z_]\w*)""")
+
+    /**
+     * MEDIUM, once per sink field, when a value-holding field on a
+     * fee/pot/treasury-named entity is credited (`+=`, or created non-zero)
+     * somewhere in the app and NO app code ever decrements or reassigns it.
+     * The name gate keeps monotonic statistics counters out; an unresolvable
+     * write (dotted target, unknown local) to a same-named field is treated
+     * as a possible withdrawal and silences the rule - conservative in the
+     * quiet direction, because an advisory that cries wolf trains agents to
+     * ignore the gate. Advisory, never blocking: a lock-forever sink can be
+     * intended (burn-style), and only the designer knows.
+     */
+    internal fun valueSinkFindings(
+        files: Map<String, String>,
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): List<Finding> {
+        val eligible = files.keys.filter { path ->
+            !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
+                !RunRellTests.isTestModuleSource(files.getValue(path))
+        }
+        data class SinkField(val entity: String, val field: String, val file: String, val line: Int)
+        val candidates = mutableListOf<SinkField>()
+        eligible.forEach { path ->
+            val masked = fullyMasked.getValue(path)
+            ENTITY_DEF_REGEX.findAll(masked).forEach { m ->
+                val name = m.groupValues[1]
+                val braceStart = masked.indexOf('{', m.range.last)
+                if (braceStart < 0) return@forEach
+                val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
+                val block = masked.substring(braceStart + 1, braceEnd)
+                val line = masked.substring(0, m.range.first).count { it == '\n' } + 1
+                MUTABLE_FIELD_REGEX.findAll(block).forEach { f ->
+                    val field = f.groupValues[1]
+                    if (!VALUE_FIELD_NAME_REGEX.containsMatchIn(field)) return@forEach
+                    if (!SINK_NAME_REGEX.containsMatchIn(name) && !SINK_NAME_REGEX.containsMatchIn(field)) return@forEach
+                    candidates.add(SinkField(name, field, path, line))
+                }
+            }
+        }
+        if (candidates.isEmpty()) return emptyList()
+        val writes = eligible.flatMap { valueWrites(fullyMasked.getValue(it), entities, helperReturns) }
+        return candidates.mapNotNull { c ->
+            val fieldWrites = writes.filter { it.field == c.field && it.entity == c.entity }
+            val credited = fieldWrites.any { it.kind == "+=" || it.kind == "create" }
+            val drained = fieldWrites.any { it.kind == "-=" || it.kind == "=" }
+            val unresolvedOut = writes.any {
+                it.entity == null && it.field == c.field && (it.kind == "-=" || it.kind == "=")
+            }
+            if (!credited || drained || unresolvedOut) return@mapNotNull null
+            Finding(
+                "MEDIUM", "value-sink-without-withdrawal", c.file, c.line,
+                "${c.entity}.${c.field} is only ever incremented - fees/value accumulate here and no " +
+                    "operation in the app can ever pay them out, so everything credited is permanently " +
+                    "locked at deploy time",
+                "Add a withdrawal path behind an explicit gate (e.g. an admin operation keyed to " +
+                    "chain_context.args that debits ${c.entity}.${c.field}), or route fees to an owned " +
+                    "account. Advisory: if locking value forever is intended (burn sink), document it " +
+                    "and ignore this finding."
+            )
+        }
     }
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)

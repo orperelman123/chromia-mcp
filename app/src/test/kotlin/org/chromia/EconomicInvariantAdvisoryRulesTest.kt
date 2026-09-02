@@ -425,6 +425,141 @@ class EconomicInvariantAdvisoryRulesTest {
         )
     }
 
+    // ---- value-sink-without-withdrawal ----
+
+    /**
+     * Both adversary fee sinks (dapp_a treasury, dapp_b fee_pot): balance
+     * += fee on every transfer, no operation ever debits it - the value is
+     * permanently locked. The helper-returned alias (get_or_create_fee_pot)
+     * is how the real dApps write it, so it must resolve.
+     */
+    @Test
+    fun feePotOnlyEverCreditedIsMediumAdvisoryAndNeverBlocks() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    entity fee_pot { key id: integer; mutable balance: integer = 0; }
+                    function get_or_create_fee_pot(): fee_pot {
+                        val f = fee_pot @? { .id == 0 };
+                        if (f != null) return f;
+                        return create fee_pot(id = 0);
+                    }
+                    operation transfer(to: byte_array, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        val sender = wallet @ { .owner == account.id };
+                        require(sender.balance >= amount, "insufficient");
+                        val fee = amount / 100;
+                        update sender ( .balance -= amount );
+                        update wallet @ { .owner == to } ( .balance += amount - fee );
+                        val f = get_or_create_fee_pot();
+                        update f ( .balance += fee );
+                    }
+                """.trimIndent()
+            )
+        )
+        val hit = result.findings.filter { it.rule == "value-sink-without-withdrawal" }
+        assertTrue(hit.isNotEmpty(), "credit-only fee pot must get the advisory; got ${result.findings}")
+        assertEquals("MEDIUM", hit.first().severity)
+        assertTrue(result.ok, "an economic advisory must never make ok=false; got ${result.findings}")
+    }
+
+    /** A withdrawal operation debiting the pot - even in another file - is the fix. */
+    @Test
+    fun feePotWithWithdrawalPathStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity wallet { key owner: byte_array; mutable balance: integer = 0; }
+                    entity fee_pot { key id: integer; mutable balance: integer = 0; }
+                    operation transfer(to: byte_array, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        val sender = wallet @ { .owner == account.id };
+                        require(sender.balance >= amount, "insufficient");
+                        val fee = amount / 100;
+                        update sender ( .balance -= amount );
+                        update wallet @ { .owner == to } ( .balance += amount - fee );
+                        update fee_pot @ { .id == 0 } ( .balance += fee );
+                    }
+                """.trimIndent(),
+                "admin.rell" to """
+                    module;
+                    operation withdraw_fees(amount: integer) {
+                        require(op_context.is_signer(chain_context.args.admin_pubkey), "admin only");
+                        require(amount > 0, "positive");
+                        val pot = fee_pot @ { .id == 0 };
+                        require(pot.balance >= amount, "insufficient fees");
+                        update pot ( .balance -= amount );
+                        update wallet @ { .owner == chain_context.args.admin_wallet } ( .balance += amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "value-sink-without-withdrawal" !in rules(result),
+            "a withdrawal path anywhere in the app must clear the advisory; got ${result.findings}"
+        )
+    }
+
+    /** Monotonic statistics counters are not value sinks - the name gate keeps them out. */
+    @Test
+    fun statsCounterStaysClean() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity stats { key id: integer; mutable total_transfer_count: integer = 0; }
+                    operation record(n: integer) {
+                        val account = auth.authenticate();
+                        require(n > 0, "positive");
+                        update stats @ { .id == 0 } ( .total_transfer_count += n );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "value-sink-without-withdrawal" !in rules(result),
+            "a counter is not a value sink; got ${result.findings}"
+        )
+    }
+
+    /** An unresolvable write (dotted target) could be the withdrawal - conservative silence. */
+    @Test
+    fun unresolvableDebitSuppressesTheSinkAdvisory() {
+        val result = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to """
+                    module;
+                    import lib.ft4.auth;
+                    entity owner_link { key id: integer; pot: fee_pot; }
+                    entity fee_pot { key id: integer; mutable balance: integer = 0; }
+                    operation collect(fee: integer) {
+                        val account = auth.authenticate();
+                        require(fee > 0, "positive");
+                        update fee_pot @ { .id == 0 } ( .balance += fee );
+                    }
+                    operation payout(link_id: integer, amount: integer) {
+                        val account = auth.authenticate();
+                        require(amount > 0, "positive");
+                        val l = owner_link @ { .id == link_id };
+                        update l.pot ( .balance -= amount );
+                    }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            "value-sink-without-withdrawal" !in rules(result),
+            "a dotted-target debit must count as a possible withdrawal; got ${result.findings}"
+        )
+    }
+
     /** A majority comparison that moves no value (e.g. closing a poll) is not the shape. */
     @Test
     fun majorityWithoutValueMovementStaysClean() {
