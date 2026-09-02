@@ -86,6 +86,20 @@ object RellSecurityCheck {
     )
     private val BANNED_STRATEGY_RULES = listOf("ras_open", "ras_transfer_open")
 
+    /**
+     * How a dApp actually turns on permissionless registration: it imports the
+     * strategy module. The [BANNED_STRATEGY_RULES] token scan cannot see this -
+     * `operation ras_open(` is declared inside FT4 itself, and FT4's own tree is
+     * exempt from this scan, so the token never matches real app code and the
+     * rule was dead against the only path anyone uses (audit 2026-09-02).
+     * Matched with the same dotted-prefix boundary rule as [BANNED_IMPORTS], so
+     * `...strategies.open_gated` would not trip it.
+     */
+    private val BANNED_STRATEGY_IMPORTS = listOf(
+        "lib.ft4.accounts.strategies.open",
+        "lib.ft4.accounts.strategies.transfer.open"
+    )
+
     private val AUTH_MARKERS = listOf(
         "auth.authenticate",
         "ft4.auth",
@@ -455,6 +469,17 @@ object RellSecurityCheck {
                         Finding(
                             severity, "banned-module", path, idx + 1, trimmed + allowedTag,
                             "Remove $banned - admin modules must never ship in a production dApp."
+                        )
+                    )
+                }
+            }
+            BANNED_STRATEGY_IMPORTS.forEach { banned ->
+                if (Ft4ImportCheck.containsModule(trimmed, banned)) {
+                    findings.add(
+                        Finding(
+                            severity, "open-registration-strategy", path, idx + 1, trimmed + allowedTag,
+                            "Remove the $banned import - it lets anyone register an account or move " +
+                                "assets without approval. Use a gated registration strategy instead."
                         )
                     )
                 }

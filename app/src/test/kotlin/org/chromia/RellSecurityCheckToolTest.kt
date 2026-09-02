@@ -104,6 +104,52 @@ class RellSecurityCheckToolTest {
         assertTrue(notes.contains("rell_check"), notes)
     }
 
+    /**
+     * The open-registration rule used to scan only for the `ras_open` /
+     * `ras_transfer_open` tokens. Those operations are declared inside FT4
+     * itself, and FT4's tree is exempt from this scan, so the rule never fired
+     * on real app code - a dApp enabling permissionless registration the only
+     * way anyone actually does (importing the strategy module) came back clean
+     * while the tool's notes claimed it checked registration strategies.
+     */
+    @Test
+    fun importingTheOpenRegistrationStrategyIsCritical() {
+        val findings = RellSecurityCheck.analyze(
+            mapOf(
+                "main.rell" to "module;\n" +
+                    "import lib.ft4.accounts.strategies.open;\n" +
+                    "entity note { key id: integer; msg: text; }\n"
+            )
+        ).findings
+        val hit = findings.singleOrNull { it.rule == "open-registration-strategy" }
+        assertTrue(hit != null, "open-strategy import must be flagged; got $findings")
+        assertEquals("CRITICAL", hit!!.severity)
+        assertEquals(2, hit.line)
+    }
+
+    @Test
+    fun openTransferStrategyImportIsCriticalToo() {
+        val findings = RellSecurityCheck.analyze(
+            mapOf("main.rell" to "module;\nimport lib.ft4.accounts.strategies.transfer.open;\n")
+        ).findings
+        assertTrue(
+            findings.any { it.rule == "open-registration-strategy" && it.severity == "CRITICAL" },
+            findings.toString()
+        )
+    }
+
+    /** Boundary: a differently-named sibling module must not trip the rule. */
+    @Test
+    fun gatedStrategyImportIsNotFlagged() {
+        val findings = RellSecurityCheck.analyze(
+            mapOf("main.rell" to "module;\nimport lib.ft4.accounts.strategies.open_gated;\n")
+        ).findings
+        assertTrue(
+            findings.none { it.rule == "open-registration-strategy" },
+            "open_gated is a different module and must not trip the rule; got $findings"
+        )
+    }
+
     @Test
     fun operationScannerFindsBlocksAndLines() {
         val ops = RellSecurityCheck.scanOperations(
