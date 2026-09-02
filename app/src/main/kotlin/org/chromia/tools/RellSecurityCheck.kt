@@ -503,6 +503,10 @@ object RellSecurityCheck {
         // Row fields that hold a price-derived quote (redemption.cash_due): the
         // operation that pays such a quote out reads no price itself.
         val priceDerivedFields = priceDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns, priceReadFunctions)
+        // Row fields carrying value that was already debited when the row was
+        // created (a vesting grant's total): a payout bounded by one of these
+        // is paid out of escrow, not minted.
+        val escrowedCaps = escrowedCapFields(fullyMasked, allEntityNames, entityHelperReturns)
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -577,7 +581,8 @@ object RellSecurityCheck {
                 findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
-                    path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields, inlinable
+                    path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
+                    inlinable, escrowedCaps
                 )
             }
         }
@@ -1941,6 +1946,60 @@ object RellSecurityCheck {
     private val TIME_SOURCE_NAMES = setOf("op_context.last_block_time", "op_context.block_height", "block")
 
     /**
+     * `(entity, field)` pairs that hold an amount ALREADY DEBITED elsewhere:
+     * some operation debits a value field by an amount and, in the same
+     * operation, creates a row of that entity carrying the same amount
+     * expression in that field. `update p ( .unclaimed -= amount ); create
+     * vesting_grant(total = amount)` - the grant's `total` is escrowed value,
+     * not a promise, so a payout bounded by it mints nothing.
+     */
+    internal fun escrowedCapFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helperReturns: Map<String, String>
+    ): Set<Pair<String, String>> {
+        val out = mutableSetOf<Pair<String, String>>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val bodies = scanOperations(path, masked).map { it.body } + functionBodies(masked).map { it.second }
+            bodies.forEach { body ->
+                val writes = amountWrites(body, entities, helperReturns)
+                val debited = writes.filter { it.flow == Flow.DEBIT }
+                    .map { it.amount.replace(WS_REGEX, "") }
+                    .filter { it.isNotEmpty() && it != "0" }
+                    .toSet()
+                if (debited.isEmpty()) return@forEach
+                writes.filter { it.create && it.entity != null }.forEach { w ->
+                    if (w.amount.replace(WS_REGEX, "") in debited) out.add(w.entity!! to w.field)
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * Field names that appear as a SUBTRAHEND anywhere in [expr]'s closure -
+     * the quantities that make the value smaller. `claimable = vested -
+     * g.released` puts `released` here: crediting `released` reduces what the
+     * next call can pay, which is what makes a `+=` a debit.
+     */
+    private fun subtrahendFields(expr: String, bindings: Map<String, List<String>>): Set<String> {
+        val out = mutableSetOf<String>()
+        fun scan(text: String) {
+            var rest = text
+            while (true) {
+                val i = topLevelOperator(rest, '-')
+                if (i < 0) break
+                refsOf(rest.substring(i + 1)).forEach { out.add(it.substringAfterLast('.')) }
+                rest = rest.substring(i + 1)
+            }
+        }
+        scan(expr)
+        refClosure(expr, bindings).forEach { name -> bindings[name]?.forEach { scan(it) } }
+        return out
+    }
+
+    /**
      * MEDIUM, one finding per operation, when a value field is credited with
      * an amount that comes from nowhere - three shapes of the same mint:
      *
@@ -1979,7 +2038,8 @@ object RellSecurityCheck {
         helperReturns: Map<String, String>,
         priceReadFunctions: Set<String>,
         priceDerivedFields: Set<String>,
-        helpers: Map<String, List<FunctionDef>>
+        helpers: Map<String, List<FunctionDef>>,
+        escrowedCaps: Set<Pair<String, String>>
     ): List<Finding> {
         val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
         val bindings = bindingsOf(flat)
@@ -1998,6 +2058,27 @@ object RellSecurityCheck {
             return debitClosures.any { d -> d.any { it in cc && it in derived } }
         }
         fun where(c: AmountWrite) = if (c.entity != null) "${c.entity}.${c.field}" else c.field
+        // A released-so-far counter IS the paired debit. The vesting shape:
+        // `update g ( .released += claimable )` next to `update m ( .balance +=
+        // claimable )`, where `claimable = vested - g.released` and the row's
+        // cap was itself debited from a funded pool when the grant was created.
+        // Crediting the counter strictly reduces what the next call can pay, so
+        // the payout is bounded by escrowed value and mints nothing - the rule
+        // used to demand a `-=` and called this a mint (adversary round 5).
+        fun backedByEscrowedRelease(c: AmountWrite): Boolean {
+            val amount = c.amount.replace(WS_REGEX, "")
+            if (amount.isEmpty() || amount == "0") return false
+            val subtrahends = subtrahendFields(c.amount, bindings)
+            val closure = refClosure(c.amount, bindings)
+            return writes.any { w ->
+                w.flow == Flow.CREDIT && !w.create && w.entity != null && w.entity != c.entity &&
+                    w.amount.replace(WS_REGEX, "") == amount &&
+                    w.field in subtrahends &&
+                    escrowedCaps.any { (entity, cap) ->
+                        entity == w.entity && cap != w.field && closure.any { it.endsWith(".$cap") }
+                    }
+            }
+        }
         val fixTail = "Advisory: conservation cannot be proven statically - if this credit is an " +
             "intentional emission backed elsewhere, document it and ignore this finding."
 
@@ -2063,7 +2144,7 @@ object RellSecurityCheck {
                 val cc = refClosure(c.amount, bindings)
                 cc.any { it in timeDerived } &&
                     (ARITHMETIC_REGEX.containsMatchIn(c.amount) || cc.any { it in scaled }) &&
-                    !backedByFlow(c, timeDerived)
+                    !backedByFlow(c, timeDerived) && !backedByEscrowedRelease(c)
             }
             if (credit != null) {
                 return listOf(
