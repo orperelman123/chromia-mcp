@@ -280,4 +280,24 @@ class InputAbuseAndLifecycleRegressionTest {
         assertEquals("not_running", LocalChain.status().status)
     }
 
+    // ---- Lens 3: the freshly merged FT4 module_args error path -----------------
+
+    @Test
+    fun ft4TestsWithoutTheAdminArgsGetTheModuleArgsHint() {
+        val dbUrl = System.getenv(RunRellTests.DATABASE_URL_ENV)
+        org.junit.jupiter.api.Assumptions.assumeTrue(!dbUrl.isNullOrBlank(), "needs ${RunRellTests.DATABASE_URL_ENV}")
+        val rell = DappScaffold.files("notes", template = "ft4")
+            .filterKeys { it.endsWith(".rell") }
+            .mapKeys { (path, _) -> path.removePrefix("src/") }
+        // The production args only - exactly what an agent that read
+        // ft4_module_args but not the scaffold's test block would send.
+        val productionOnly = DappScaffold.ft4TestModuleArgs()
+            .filterKeys { it != "lib.ft4.core.admin" && it != "lib.ft4.test.core.auth" }
+        val result = RunRellTests.run(rell, databaseUrl = dbUrl, moduleArgs = productionOnly)
+        assertFalse(result.ok, result.notes)
+        assertEquals(3, result.total, result.cases.toString())
+        assertTrue(result.cases.all { it.error?.contains("Unable to create GTX module") == true }, result.cases.toString())
+        assertTrue(result.notes.contains("lib.ft4.core.admin (admin_pubkey)"), result.notes)
+        assertTrue(result.notes.contains("lib.ft4.test.core.auth (admin_priv_key)"), result.notes)
+    }
 }
