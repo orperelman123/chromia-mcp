@@ -2,6 +2,11 @@
 
 Read this first. It is the shared context every lane needs; your task message adds only what is specific to your lane. If anything here contradicts your task message, say so in your report rather than guessing.
 
+`GOAL.md` at the repo root states what all of this is for. The two commands below exist so the loop's guarantees do not depend on anyone remembering them:
+
+- **`node scripts/loop-gate.mjs --expect-min <n> --allow-skip <Class::test>`** — the merge gate. Forces a rerun (a cached task reports success having run nothing), refuses evidence older than the run, and fails on any unlisted skip or zero results. The orchestrator runs this; you do not.
+- **`bash scripts/new-lane.sh <branch> [base]`** — provisions a lane: its own worktree, its own C.UTF-8 database, its own test-env file.
+
 ## The goal, and the only test that counts
 
 The MCP must **generate secure dapps**: an agent that builds a dapp using *only* this server's guidance, templates and gates must produce something an independent hostile auditor cannot drain. Not "the gate returned ok:true" — that is a linter result, and on 2026-09-02 it certified four agent-built dapps of which two were trivially drainable. The score is always: *build with only the MCP, then attack the result.*
