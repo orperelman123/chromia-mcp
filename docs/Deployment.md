@@ -1,23 +1,147 @@
 # Deployment & Hosting
 
+**Local is the primary path.** This server is designed to run on the developer's own
+machine — full 70-tool catalog, no memory constraints, `local_chain_up` fully usable, no
+hosting cost. Hosting (Render, Kubernetes) is an *option* for sharing a reduced
+docs/analytics endpoint (see [Hosted (Render)](#hosted-render--the-intended-architecture) below).
+
 ## Environments
 
-### Development (Local)
+### Local (primary)
 
-**Purpose:** Local development and testing by engineers.
+**Purpose:** The normal way to run the server — daily use *and* development.
 
-**URL:** `http://127.0.0.1:3001` (when running locally)
+**Two shapes, one jar** (`app/build/libs/chromia-mcp-server.jar`, built by
+`.\gradlew.bat :app:shadowJar`):
 
-**Characteristics:**
-- Runs on developer's machine
-- No external access
-- Used for development, debugging, and local testing
-- No deployment process - engineers run locally via `./gradlew :app:runSse` or `./gradlew :app:run`
+1. **stdio** — what Claude Code and most MCP clients use. Registered once via
+   `claude mcp add chromia ... -- java -jar <jar> --stdio`; the client starts and stops the
+   process itself. See "Run it locally" in the [README](../README.md) for the exact
+   registration (including the `CHROMIA_TEST_DATABASE_URL` env var).
+2. **local SSE server** — for clients that connect by URL (ChatGPT-style connectors,
+   browser clients, other tools on the machine/LAN). Start with **`.\serve-local.ps1`**
+   (repo root; `serve-local.cmd` for double-click). It auto-picks a free port from 3001,
+   forces the full toolset, uses a fixed `-Xmx2g` heap (no container limit locally;
+   measured steady state ~1.5 GB), waits for `/health`, prints the URL, and shuts down
+   cleanly on Ctrl+C. Gradle equivalent for development: `./gradlew :app:runSse`.
+
+**Requirements:**
+- Java 21+ (only hard requirement — docs RAG, analytics, compiler tools all work with it alone)
+- PostgreSQL, only for DB-backed tools (`run_rell_tests` with entities, `local_chain_up`)
+  via `CHROMIA_TEST_DATABASE_URL`; without it those tools refuse cleanly, the rest works
 
 **Configuration:**
-- SSE defaults to `127.0.0.1:3001`; override with `--sse --host <host> --port <port>` (`parseSseArgs` in `Utils.kt`)
-- CORS configured to allow all origins (for local development)
-- Health check available at `/health` endpoint
+- SSE defaults to `127.0.0.1:3001`; override with `--sse --host <host> --port <port>`
+  (`parseSseArgs` in `Utils.kt`) — `serve-local.ps1` handles this for you
+- Binding beyond localhost (`-BindHost 0.0.0.0`) should be paired with
+  `CHROMIA_MCP_AUTH_TOKEN` (bearer auth; `/health` stays open)
+- CORS allows all origins by default (restrict with `CHROMIA_MCP_ALLOWED_ORIGINS`)
+- Health check at `/health`
+
+#### Optional: auto-start the SSE server on login (Windows)
+
+Nothing is installed by default. If you want the local SSE endpoint always available,
+create a Scheduled Task once (regular user, no admin needed):
+
+```powershell
+schtasks /Create /TN "chromia-mcp-sse" /SC ONLOGON /RL LIMITED `
+  /TR "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Users\Orpe7\chromia-mcp\serve-local.ps1 -Port 3001"
+```
+
+- Pin the port (`-Port 3001`) so clients get a stable URL across logins.
+- Check it: `schtasks /Query /TN "chromia-mcp-sse"`; run it now without re-login:
+  `schtasks /Run /TN "chromia-mcp-sse"`; remove it: `schtasks /Delete /TN "chromia-mcp-sse" /F`.
+- Alternative without admin/schtasks: put a shortcut to `serve-local.cmd` in
+  `shell:startup` (Win+R → `shell:startup`) — it opens a visible console window you can
+  Ctrl+C.
+- The stdio shape needs no auto-start: the MCP client launches the process on demand.
+
+### Hosted (Render) — the intended architecture
+
+The hosted service (`https://chromia-mcp.onrender.com`, Render **starter**, Frankfurt)
+is deliberately a **reduced surface**: docs search (`search`/`fetch_docs`/`fetch`),
+network analytics, help/reference (`chromia_help`), scaffolding, validation, preflight,
+onboarding, and error translation — ~35 tools. The heavy tools stay **local by design**:
+
+| Tool | Why hosted-off | Where it runs |
+|---|---|---|
+| `rell_check`, `rell_security_check` | in-process Rell compiler, measured past 512 MB | local install |
+| `run_rell_tests` | compiler + needs PostgreSQL for entity tests | local install |
+| `chromia_dapp_query` | postchain client memory spike measured past 512 MB | local install |
+| `local_chain_up` | embedded node + PostgreSQL | local install |
+
+This is a split, not a workaround: agents get an always-on shared docs/analytics
+endpoint, and the write→compile→test loop runs next to the developer's code with no
+memory ceiling. Disabled tools refuse calls with a pointer to the local install.
+
+#### Memory: measured, not guessed (2026-09-02)
+
+Measured by running the release jar with the exact hosted env (compact tools + the
+disable list above), NMT + forced-GC working-set sampling, plus a 10-query docs-search
+load over a real SSE session:
+
+| Component | Measured |
+|---|---|
+| JVM + app baseline (no RAG): classes, code cache, symbols, threads | ~106 MB |
+| RAG embeddings index on heap (from the 18.8 MB baked JSON) | ~11 MB |
+| Live heap total after warmup (yes, really) | ~30 MB |
+| Metaspace (reduced surface) | ~30 MB |
+| ONNX runtime + BGE-small model, **native, outside the JVM** | ~90–130 MB |
+| **Steady-state working set, tuned flags** | **~240 MB (47% of 512 MB)** |
+| Peak during boot RAG warmup (transient JSON parse) | ~340–370 MB (66–72%), returns to ~240 MB after GC |
+| Peak under docs-search load | ~250 MB (49%) |
+
+(Measured on Windows working-set; Linux RSS in the container will differ by a few
+percent — `MALLOC_ARENA_MAX=2` in the image keeps glibc from inflating it.)
+
+**Why the live service used to read 84% idle / 95.7% peak:** the old
+`-XX:MaxRAMPercentage=70` with no GC flag. On a sub-2 GB container the JVM silently
+defaults to **SerialGC, which commits the entire ~358 MB heap up front and never
+returns it** — measured side by side: 378 MB working set (SerialGC) vs 234 MB (G1)
+for the same workload, with only ~30 MB of live objects. The Dockerfile now pins
+explicit G1, a 35% heap cap, heap-shrink ratios, and a periodic idle GC; every flag
+is annotated with its measurement in the Dockerfile itself. Expected live effect:
+idle ~47%, worst measured transient ~72% — **starter is comfortable for this surface.**
+
+#### Owner options
+
+- **(a) Leave as-is — recommended.** Starter + reduced surface + tuned image. The
+  service is not Blueprint-managed; `render.yaml` documents the intended shape and
+  the dashboard stays authoritative. Nothing to do besides deploying the tuned image.
+- **(b) Adopt into the Blueprint later.** Dashboard → New + → Blueprint → this repo;
+  Render adopts the existing service by matching the `chromia-mcp` name. Gains:
+  `healthCheckPath: /health` finally applies (deploys gate on real health, not
+  port-open), and config becomes reviewable in git. Note: adoption applies the plan
+  in the file (starter today = no cost change), and later plan edits in the file
+  change the bill on sync. Full steps are in `render.yaml`'s comment block.
+- **(c) Upgrade to standard (2 GB) only if the heavy tools must run hosted.** That
+  unlocks `rell_check`/`rell_security_check`/`chromia_dapp_query` hosted (still not
+  `run_rell_tests` entity tests or `local_chain_up` — those need PostgreSQL). It
+  roughly triples the monthly cost and duplicates what every local install already
+  does better. Not recommended without a concrete consumer.
+
+#### Ops runbook (when it misbehaves)
+
+- **First look:** Render dashboard → Metrics (memory %, restarts) and Logs. The
+  server logs one structured line per tool call — spot the tool that was running
+  when memory climbed.
+- **Memory pressure before OOM:** watch for working set trending above ~70%
+  (>360 MB) at idle — that is drift, not load, and worth a restart + investigation.
+  `-XX:+ExitOnOutOfMemoryError` is set deliberately: a heap OOM exits the container
+  and Render restarts it in seconds, which beats a wedged half-dead JVM. A restart
+  loop (3+ in an hour) means a real leak or a config regression — roll back first.
+- **Boot:** healthy boot logs the RAG load from the baked file and
+  `docs warmup done in ~Ns`. A boot that logs the GitLab download instead means the
+  image was built while GitLab was unreachable (the bake step warns loudly in the
+  build log) — rebuild/redeploy to restore the baked path.
+- **Proposal for the app owner (not implemented here, touches `app/src`):** extend
+  `/health` with `heapUsedMb`, `heapMaxMb`, `rssAnonMb` (from
+  `/proc/self/status` VmRSS), `toolCallsTotal`, and `openSseSessions`. Cost is a few
+  lines; it turns "is memory creeping?" into a curl instead of a dashboard dig, and
+  any uptime monitor can alert on it.
+
+The rest of this document describes the hosted pipelines (Render blueprint and the
+upstream GitLab → Kubernetes flow).
 
 ### Production
 

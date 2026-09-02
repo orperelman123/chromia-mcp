@@ -1,23 +1,92 @@
-# Render Blueprint: hosted SSE endpoint for the team.
-# Deploy: connect this repo in the Render dashboard (New + -> Blueprint), or
-# https://dashboard.render.com/select-repo?type=blueprint
-# NOTE: the server needs ~1.5GB RAM (embedding model + RAG store). The
-# 512MB starter plan idles at ~98% memory (measured live 2026-09-01) and
-# OOMs under real load - standard (2GB) is the minimum that actually fits.
-# Since embeddings.json is baked into the Docker image at build time, boot
-# no longer downloads it from GitLab (the download+parse spike crash-looped
-# 512MB instances ~6x per deploy); parsing the baked file still happens at
-# warmup, so the steady-state sizing above is unchanged. A 512MB "lite"
-# config additionally needs the docs tools off
-# (CHROMIA_MCP_DISABLE_TOOLS=search,fetch_docs,fetch,...) - the server then
-# skips the RAG warmup entirely and never loads the index.
+# Render Blueprint for the hosted chromia-mcp SSE endpoint.
+#
+# HOSTING IS OPTIONAL - local is the primary path (see "Run it locally" in
+# README.md and docs/Deployment.md): run `serve-local.ps1` for a localhost SSE
+# URL, or register the jar over stdio. Local runs the full 70-tool catalog
+# with no memory constraints. The hosted service is deliberately a REDUCED
+# surface: docs/search/analytics/reference (~35 tools), heavy tools disabled.
+#
+# ============================== TRUTH STATUS ==============================
+# The live service (srv-daa797psrm7s73e5qur0, https://chromia-mcp.onrender.com)
+# is NOT Blueprint-managed: it was created standalone in the dashboard on
+# 2026-08-30, before this file existed, so nothing declared here has ever
+# been applied to it. This file DESCRIBES the intended shape of that service;
+# adopting it (see ADOPTION below) makes Render enforce it. Until adoption,
+# the dashboard is authoritative - keep the two in sync by hand.
+# ==========================================================================
+#
+# WHY EACH CHOICE:
+#
+# plan: starter (512MB / 0.5 CPU) - deliberate architecture, not a squeeze.
+#   The heavy tools (in-process Rell compiler, test runner, on-chain query
+#   client, local chains) live in developers' local installs, which have no
+#   memory ceiling. Measured 2026-09-02 with exactly this env plus the tuned
+#   JVM flags now in the Dockerfile: ~240MB steady state, ~340-370MB
+#   transient peak during boot RAG warmup (returns to ~240MB after GC),
+#   ~250MB under docs-search load - comfortable on 512MB. (The earlier 84% idle / 95.7% peak readings came from the old
+#   JVM flags: on a sub-2GB container the JVM silently defaults to SerialGC,
+#   which commits the entire 70%-of-RAM heap up front and never returns it.
+#   Fixed in the Dockerfile: explicit G1, 35% heap cap, heap-shrink flags.)
+#   Upgrade to standard (2GB) ONLY if the heavy tools must run hosted - that
+#   changes cost; see docs/Deployment.md "Owner options".
+#
+# healthCheckPath: /health - the app's real health endpoint (open even when
+#   CHROMIA_MCP_AUTH_TOKEN is set). The live service currently has NO health
+#   check path (Render only checks port-open) because the standalone service
+#   never adopted this file - adoption fixes that, gating deploys on real
+#   health instead of a bound port.
+#
+# CHROMIA_MCP_COMPACT_TOOLS=true - one chromia_help(topic) gateway instead of
+#   ~31 individual *_help schemas; saves agent context on every connection.
+#
+# CHROMIA_MCP_DISABLE_TOOLS - the heavy/off-surface tools:
+#   rell_check, rell_security_check, run_rell_tests: in-process Rell compiler
+#     and test runner - measured past 512MB under load; entity tests also
+#     need PostgreSQL, which this service does not have.
+#   chromia_dapp_query: the postchain on-chain query client - a second
+#     measured memory spike past 512MB.
+#   local_chain_up: embedded postchain node + PostgreSQL requirement - never
+#     sensible on a shared 512MB box.
+#   All five work fully in the local install; the server refuses these calls
+#   with a pointer to it (McpTools.disabledToolRefusal).
+#
+# autoDeploy: true - matches the live service (deploy on push to main). The
+#   Docker build runs the full test suite in the same build as the jar, so a
+#   deploy cannot ship untested code.
+#
+# CHROMIA_MCP_AUTH_TOKEN is deliberately NOT set: the public endpoint serves
+#   ChatGPT's no-auth connector contract (search/fetch). To require a bearer
+#   token, add it in the dashboard as a secret env var - never as a
+#   plaintext value in this file.
+#
+# ============================== ADOPTION ==================================
+# To put the existing service under this Blueprint (owner action, dashboard):
+#   1. Dashboard -> New + -> Blueprint -> select the GitHub repo
+#      (orperelman123/chromia-mcp), branch main.
+#   2. Render matches Blueprint entries to existing services BY SERVICE NAME
+#      in the same workspace: "chromia-mcp" below adopts the live service
+#      instead of creating a duplicate. Verify the preview screen says it is
+#      updating the existing service, not creating a new one.
+#   3. On sync, Render applies THIS file: plan (starter = no cost change
+#      today; a plan change in this file WOULD change the bill on sync),
+#      healthCheckPath (new), env vars (check the dashboard values match
+#      this file first - Blueprint sync makes this file the truth).
+#   4. After adoption, config changes happen by editing this file and
+#      pushing; dashboard edits of Blueprint-managed fields revert on the
+#      next sync.
+# ==========================================================================
 services:
   - type: web
     name: chromia-mcp
     runtime: docker
-    plan: standard
+    repo: https://github.com/orperelman123/chromia-mcp
+    branch: main
+    plan: starter
     region: frankfurt
     healthCheckPath: /health
+    autoDeploy: true
     envVars:
       - key: CHROMIA_MCP_COMPACT_TOOLS
         value: "true"
+      - key: CHROMIA_MCP_DISABLE_TOOLS
+        value: rell_check,rell_security_check,run_rell_tests,chromia_dapp_query,local_chain_up
