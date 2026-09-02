@@ -218,6 +218,7 @@ object RunRellTests {
     ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
         RellCheck.requireTotalSizeWithinCap(files)
+        RellCheck.requireSomeSourceContent(files)
         files.keys.forEach { relPath ->
             require(!relPath.contains("..") && !Path.of(relPath).isAbsolute) { "Path must be relative without '..': $relPath" }
             require(relPath.endsWith(".rell")) { "Only .rell files are supported: $relPath" }
@@ -273,6 +274,7 @@ object RunRellTests {
                 }
                 else -> (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
             }
+            requireModuleArgsResolve(tempDir, moduleArgs.keys)
             val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
             cleanupDeferred = outcome.cleanupDeferred
             if (submittedFt4 > 0) {
@@ -291,6 +293,52 @@ object RunRellTests {
     }
 
     private data class ExecuteOutcome(val result: Result, val cleanupDeferred: Boolean)
+
+    private val MODULE_NAME_REGEX = Regex("""^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$""")
+    private val MODULE_ARGS_DECL_REGEX = Regex("""\bstruct\s+module_args\b""")
+
+    /**
+     * Every moduleArgs key must name a module that exists in [sourceDir] (the
+     * submitted sources plus the provisioned lib/ft4 tree) AND declares
+     * `struct module_args`. The compiler ignores args for modules it never
+     * loads, so a mistyped key (`lib.ft4.accounts`, a file path such as
+     * `main.rell`, an empty key) used to be dropped silently - the run reported
+     * ok:true on tests that never received the args, or every FT4 case failed
+     * with "Unable to create GTX module" plus a note telling the agent to pass
+     * what it believed it had passed (QA input-abuse lens 2026-09-02). Module
+     * resolution mirrors the compiler: `a.b` is `a/b.rell` or the directory
+     * `a/b/`, whose header-less files (and module.rell) form the module.
+     */
+    internal fun requireModuleArgsResolve(sourceDir: Path, moduleNames: Collection<String>) {
+        moduleNames.forEach { name ->
+            require(!name.endsWith(".rell") && !name.contains('/') && !name.contains('\\')) {
+                "moduleArgs key '$name' looks like a file path - key module args by Rell MODULE name " +
+                    "(main.rell is module `main`, app/config.rell is `app.config` or `app`), not by file path."
+            }
+            require(MODULE_NAME_REGEX.matches(name)) {
+                "moduleArgs key '$name' is not a valid Rell module name (expected e.g. main or lib.ft4.core.accounts)."
+            }
+            val relative = name.replace('.', '/')
+            val asFile = sourceDir.resolve("$relative.rell")
+            val asDir = sourceDir.resolve(relative)
+            val moduleFiles: List<Path> = when {
+                Files.isRegularFile(asFile) -> listOf(asFile)
+                Files.isDirectory(asDir) -> Files.list(asDir).use { s ->
+                    s.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(".rell") }.toList()
+                }
+                else -> emptyList()
+            }
+            require(moduleFiles.isNotEmpty()) {
+                "moduleArgs names module '$name', but no such module is in the submitted sources (or the vendored " +
+                    "FT4 tree) - module args are keyed by Rell module name, e.g. lib.ft4.core.accounts, and the " +
+                    "compiler silently ignores args for a module it never loads. Check the spelling against your imports."
+            }
+            require(moduleFiles.any { MODULE_ARGS_DECL_REGEX.containsMatchIn(maskRellSource(Files.readString(it), maskStrings = true)) }) {
+                "moduleArgs names module '$name', which declares no `struct module_args` - the args would be " +
+                    "silently ignored. Remove the entry, or key it under the module that declares module_args."
+            }
+        }
+    }
 
     /** Converts JSON module args to the Gtv map the Rell compiler expects. */
     private fun toGtvArgs(
