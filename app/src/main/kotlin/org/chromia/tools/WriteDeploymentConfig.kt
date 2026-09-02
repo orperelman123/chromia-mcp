@@ -80,8 +80,11 @@ object WriteDeploymentConfig {
         spec.urls.forEach { lines += "      - $it" }
         lines += "    brid: ${spec.bridYaml()}"
         lines += "    container: <containerIID>"
-        lines += "    chains:"
-        lines += "      $chain: # placeholder — omit dapp RID on first create; chr deployment create writes x\"<dapp rid>\""
+        // No `chains:` key on purpose: a FIRST `chr deployment create` must not
+        // see one. A placeholder entry with no value is a null map value that
+        // chr rejects with "Incorrect type, expected string" (live 2026-09-02,
+        // chr 0.29.10). CLI 0.30.0+ writes chains.<name>: x"<dapp rid>" back
+        // after deploying; on 0.29.x add it by hand from chr's stdout.
         return lines.joinToString("\n") + "\n"
     }
 
@@ -99,8 +102,10 @@ object WriteDeploymentConfig {
         Official mainnet hosts (project-config only): https://system.chromaway.com (no port) and https://mainnet-dapp1.sunube.net:7740.
         url may be a string or a list (official schema).
         This block writes those official project-config hosts only. Extra hosts on the mainnet connect-client page are an explorer snapshot, not required — do not invent hosts.
+        chains is omitted on purpose: a FIRST `chr deployment create` needs no chains entry, and a
+        placeholder chains.$chain with no value is a null that chr rejects with "Incorrect type, expected string".
         Since CLI 0.30.0, `chr deployment create` writes deployments.${spec.name}.chains.$chain: x"<dapp rid>" back into chromia.yml.
-        Live docs that say you must paste chains by hand are stale — source + CHANGELOG 0.30.0 win.
+        On CLI 0.29.x there is no write-back — after the first create, add chains.$chain: x"<dapp rid>" by hand (the RID is printed on stdout).
         `chr deployment update` requires chains and does not rewrite chromia.yml.
         First create: `chr deployment create --settings chromia.yml --network ${spec.name} --blockchain $chain`
         container is the Vault / PMC lease id — set it after leasing; this tool does not invent one.

@@ -106,7 +106,10 @@ class ToolExecutor(
         "translate_error" to TranslateErrorStrategy(),
         "onboarding_next_step" to OnboardingNextStepStrategy(),
         "verify_deployment" to VerifyDeploymentStrategy(),
-        "deployment_preflight" to DeploymentPreflightStrategy()
+        "deployment_preflight" to DeploymentPreflightStrategy(),
+        "provision_testnet_container" to ProvisionTestnetContainerStrategy(),
+        "claim_testnet_tchr" to ClaimTestnetTchrStrategy(),
+        "deploy_testnet_chain" to DeployTestnetChainStrategy()
     )
 
     suspend fun executeTool(request: CallToolRequest): CallToolResult {

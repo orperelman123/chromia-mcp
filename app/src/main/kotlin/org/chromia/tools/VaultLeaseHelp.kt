@@ -90,8 +90,10 @@ object VaultLeaseHelp {
         )
         lines += "    brid: ${spec.bridYaml()}"
         lines += "    container: $CONTAINER_PLACEHOLDER"
-        lines += "    chains:"
-        lines += "      $name:"
+        // No `chains:` key: a first `chr deployment create` must not see one -
+        // an empty chains.<name> is a null value chr rejects with "Incorrect
+        // type, expected string" (live 2026-09-02, chr 0.29.10). CLI 0.30.0+
+        // writes it back after create; on 0.29.x add it by hand.
         return lines.joinToString("\n") + "\n"
     }
 
@@ -113,7 +115,9 @@ object VaultLeaseHelp {
         5. Put that real Container ID in chromia.yml as deployments.<net>.container
            (official $PROJECT_CONFIG_URL field). Placeholder in this tool: $CONTAINER_PLACEHOLDER
         6. Then `chr deployment create --settings chromia.yml --network <testnet|mainnet> --blockchain <name>`
-           (see chr_deploy_help). Since CLI 0.30.0, create writes deployments.<net>.chains back.
+           (see chr_deploy_help). Omit deployments.<net>.chains on the first create - an empty
+           chains.<name> is rejected by chr ("Incorrect type, expected string"). Since CLI 0.30.0,
+           create writes chains back; on 0.29.x add chains.<name>: x"<dapp rid>" by hand afterwards.
         Directory Chain BRIDs are official write_deployment_config values only:
         mainnet $MAINNET_DIRECTORY_BRID, testnet $TESTNET_DIRECTORY_BRID.
     """.trimIndent()
