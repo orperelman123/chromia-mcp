@@ -14,8 +14,13 @@ import kotlinx.serialization.json.put
  * Every fact here is grounded in the live-verified research of 2026-09-01
  * (docs.chromia.com + the testnet economy chain; see the vault_lease_help and
  * chr_deploy_help tools for the underlying pages):
- * - tCHR faucet is web + captcha ONLY (no API), 1000 tCHR per 7 days.
- * - Testnet container lease is a Vault web step, ~35 tCHR per SCU-week, 1-12 weeks.
+ * - The tCHR faucet web UI requires a captcha, so a human claims it (1000 tCHR
+ *   per 7 days). `pmc economy claim-test-chr` exists (testnet only), but pmc is
+ *   the provider CLI submitting signed Economy Chain transactions from a
+ *   configured provider account - not a path for a keyless agent.
+ * - Testnet container lease is a Vault web step, priced in tCHR at lease time
+ *   (docs publish no fixed CHR-per-SCU price; observed ~35 tCHR/SCU-week on the
+ *   testnet economy chain 2026-09-01), 1-12 weeks.
  * - `chr deployment create/update --settings chromia.yml --network testnet|mainnet
  *   --blockchain <name>` is fully headless, signed by the CONTAINER key
  *   (env POSTCHAIN_CLIENT_PUBKEY/POSTCHAIN_CLIENT_PRIVKEY is Chromia's own
@@ -246,10 +251,12 @@ object OnboardingNextStep {
         NextAction(
             what = "Get tCHR and lease a testnet container",
             who = "human",
-            how = "1) Claim tCHR at ${VaultLeaseHelp.TESTNET_FAUCET} - web UI with captcha ONLY " +
-                "(no API; 1000 tCHR per 7 days), so a human must do it. " +
-                "2) Lease a container at ${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS} using your pubkey " +
-                "(~35 tCHR per SCU-week, 1-12 weeks). " +
+            how = "1) Claim tCHR at ${VaultLeaseHelp.TESTNET_FAUCET} - the web UI requires a captcha " +
+                "(1000 tCHR per 7 days), so a human must do it. (`pmc economy claim-test-chr` exists " +
+                "for testnet, but pmc needs a configured provider account - not a keyless-agent path.) " +
+                "2) Lease a container at ${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS} using your pubkey - " +
+                "priced in tCHR at lease time (observed ~35 tCHR/SCU-week on the testnet economy chain " +
+                "2026-09-01), 1-12 weeks. " +
                 "3) Give the agent the resulting Container ID.",
             verify = "The Vault containers page shows the lease; you hold a real Container ID for chromia.yml."
         )
@@ -313,9 +320,10 @@ object OnboardingNextStep {
 
     private fun humanBlockerLine(stage: String): String = when (stage) {
         "deploy_key" -> "deploy_key: a human must run `chr keygen` - this server never handles key material."
-        "testnet_container" -> "testnet_container: the tCHR faucet (${VaultLeaseHelp.TESTNET_FAUCET}) is " +
-            "web + captcha only and the container lease is a Vault web step " +
-            "(${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}) - no tool can automate either."
+        "testnet_container" -> "testnet_container: the tCHR faucet web UI (${VaultLeaseHelp.TESTNET_FAUCET}) " +
+            "requires a captcha and the container lease is a Vault web step " +
+            "(${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}) - this server automates neither, and the " +
+            "pmc alternative for tCHR needs a configured provider account."
         "mainnet_container" -> "mainnet_container: the Vault deposit (>= 10 CHR, " +
             "${VaultLeaseHelp.MAINNET_VAULT_DEPOSIT}) and container lease " +
             "(${VaultLeaseHelp.MAINNET_VAULT_CONTAINERS}) are Vault web steps a human must do."
@@ -330,9 +338,11 @@ object OnboardingNextStep {
     }
 
     private fun notesFor(goal: String): String {
-        val base = "Facts (live-verified 2026-09-01): the tCHR faucet is web+captcha only " +
-            "(1000 tCHR / 7 days, ${VaultLeaseHelp.TESTNET_FAUCET}); a testnet container lease costs " +
-            "~35 tCHR per SCU-week for 1-12 weeks (${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}); " +
+        val base = "Facts (live-verified 2026-09-01): the tCHR faucet web UI requires a captcha " +
+            "(1000 tCHR / 7 days, ${VaultLeaseHelp.TESTNET_FAUCET}; `pmc economy claim-test-chr` " +
+            "exists for testnet but needs a configured provider account); a testnet container lease " +
+            "is priced in tCHR at lease time - observed ~35 tCHR/SCU-week on the testnet economy " +
+            "chain 2026-09-01 - for 1-12 weeks (${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}); " +
             "mainnet needs a Vault deposit of at least 10 CHR plus a lease before deploying; " +
             "`chr deployment create/update` is headless and signed by the container key, which holds " +
             "no funds. This server never generates keys or emits key material."

@@ -267,6 +267,10 @@ Read-only BUILD tools (no explorer, no signed txs, no `chr` subprocess):
 - `rell_security_check` — static security pass over compiling Rell code (banned admin modules, unauthenticated mutations, hardcoded key material, missing input validation) with line-anchored findings and fixes
 - `run_rell_tests` — in-process Rell test execution (embedded CLI test runner) with per-case pass/fail results; entity/database tests need PostgreSQL via `CHROMIA_TEST_DATABASE_URL`, pure-logic tests run without it
 - `local_chain_up` — a real local Chromia chain from Rell sources on the embedded Postchain engine (what `chr node start` wraps), against `CHROMIA_TEST_DATABASE_URL` in a dedicated wiped schema; serves the Postchain REST subset on `127.0.0.1` (query + tx + status), signs with the public CLI dev key, bounded by a TTL (default 30 min), one chain at a time; actions `up` / `status` / `down`
+- `translate_error` — paste any cryptic Chromia-stack error (Rell compiler, chr CLI, postchain, postgres, explorer/GraphQL, FT4) and get its meaning, likely cause, and concrete next action from a curated offline rule table (no LLM, no network)
+- `onboarding_next_step` — state machine for the journey from nothing to a deployed dapp: report what is honestly done (`hasProject`, `compiles`, `testsPass`, `deployedTo`, `goal` local/testnet/mainnet, ...) and get exactly one next action — which MCP tool to call with which args, or the exact human step with its URL (faucet, Vault lease, `chr keygen`) — plus remaining steps and human-only blockers. Grounded in live-verified facts; never emits key material
+- `verify_deployment` — prove a deployed dapp is live with no keys: is the BRID known on the network (name or custom node URL), is the block height progressing (bounded wait), and does an optional read-only smoke query answer
+- `deployment_preflight` — catch every deployment problem before a human burns a lease step or signs anything: validates the `deployments.<target>` block (brid/url/container/chains), flags wrong-network BRIDs or URLs as HIGH blockers, probes the target node read-only, runs the compile + security source gate when `rell` (or its `files` alias) is supplied (CRITICAL/HIGH block mainnet), and checks the production pins. `ready:true` only with zero blockers — a mainnet target without sources stays blocked until the source gate runs, other targets note the skipped gate; when ready it emits the exact `chr deployment create|update` command
 - `chromia_rell_language_help` — official Rell definition syntax (query / operation / entity / object / struct / enum / function / module). Official Hello World query `hello_world`. Does not invent language features, run chr, generate keys, or send a tx
 - `chromia_rell_types_help` — official Rell types (simple, collection, complex, iterables, sub-types, virtual). Official slug is `sub-types` (not `subtypes`, which 404s). Does not invent types, run chr, generate keys, or send a tx
 - `chromia_rell_expressions_help` — official Rell values / operators / conditional / jump / lambda pages. Does not invent operators. Does not run chr, generate keys, or send a tx
@@ -284,7 +288,7 @@ Skipped (not official public BUILD/ops help):
 
 ### No signed transaction sending
 
-This MCP is a query / RAG expert. It does not hold keys or submit signed transactions. Use `chromia_dapp_query` for read-only dApp queries and `get_all_transactions` to inspect history.
+This MCP is a query / RAG expert. It does not hold keys or submit signed transactions. Use `chromia_dapp_query` for read-only dApp queries and `get_all_transactions` to inspect history. The `local_chain_up` REST bridge relays agent-signed transactions to the LOCAL chain it runs (signed client-side with the public CLI dev key) — the MCP tools themselves still hold no keys and sign nothing on public networks.
 
 ### ChatGPT `search` / `fetch` Tools
 

@@ -1630,11 +1630,14 @@ class ChromiaRellPracticesHelpStrategy : BaseToolStrategy() {
 
 class OnboardingNextStepStrategy(
     /**
-     * Runtime tool registry, checked dynamically so the local-chain step names
-     * `local_chain_up` only once that tool actually lands in [McpTools]. A
+     * Runtime tool registry, checked dynamically so the plan names a tool
+     * (local_chain_up, deployment_preflight) only when it is actually callable
+     * on this deployment: compiled-in tools minus CHROMIA_MCP_DISABLE_TOOLS.
+     * Recommending a disabled tool would send agents into the disabled-tool
+     * refusal instead of the working fallback (e.g. `chr node start`). A
      * provider (not a snapshot) because [McpTools.ALL_TOOL_NAMES] is lazy.
      */
-    private val registeredTools: () -> Set<String> = { McpTools.ALL_TOOL_NAMES }
+    private val registeredTools: () -> Set<String> = { McpTools.enabledToolNames() }
 ) : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
@@ -1741,17 +1744,30 @@ class DeploymentPreflightStrategy : BaseToolStrategy() {
         val yaml = requireParameter(args, "yaml")
         val target = requireParameter(args, "target")
         // Same shape as check_dapp_project's `rell`: one source string
-        // (checked as main.rell) or a map of path -> source.
-        val rell = extractStringMap(args, "rell")
+        // (checked as main.rell) or a map of path -> source. `files` is
+        // accepted as an alias (same pattern as CheckDappProjectStrategy):
+        // rell_check and run_rell_tests take `files`, and a silently dropped
+        // `files` here would skip the source gate and still report ready:true
+        // on a testnet target. `rell` wins when both are present; the alias
+        // is noted.
+        val rellParam = extractStringMap(args, "rell")
+        val filesAlias = if (rellParam == null) extractStringMap(args, "files") else null
+        val rell = rellParam ?: filesAlias
         val strict = extractBoolean(args, "strict")
         return runCatching {
             // Compile + security run blocking compiler work; the reachability
             // probe is the repository's suspend height read (same seam as
             // verify_deployment), so no live network in unit tests.
-            val result = withContext(Dispatchers.IO) {
+            var result = withContext(Dispatchers.IO) {
                 DeploymentPreflight.run(yaml, target, rell, strict) { network, bridHex ->
                     repository.getBlockchainHeight(network, BlockchainRid.buildFromHex(bridHex))
                 }
+            }
+            if (filesAlias != null) {
+                result = result.copy(
+                    notes = result.notes +
+                        "`files` was accepted as an alias for the `rell` parameter - prefer `rell` in future calls."
+                )
             }
             toolSuccessResult(result.toJson())
         }.getOrElse { e ->

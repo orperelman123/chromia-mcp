@@ -27,7 +27,7 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - **Error translation (`translate_error`)** — paste any cryptic Chromia-stack error (Rell compiler, chr CLI, postchain, postgres, explorer/GraphQL, FT4) and get its meaning, likely cause, and concrete next action from a curated offline rule table (no LLM, no network)
 - **Onboarding state machine (`onboarding_next_step`)** — report what is honestly done (`hasProject`, `compiles`, `testsPass`, `deployedTo`, `goal` local/testnet/mainnet, ...) and get exactly one next action: which MCP tool to call with which args, or the exact human step with its URL (faucet, Vault lease, `chr keygen`), plus remaining steps and human-only blockers. Grounded in live-verified facts; never emits key material
 - **Deployment verification (`verify_deployment`)** — prove a deployed dapp is live with no keys: is the BRID known on the network (name or custom node URL), is the block height progressing (bounded wait), and does an optional read-only smoke query answer
-- **Deployment preflight (`deployment_preflight`)** — catch every deployment problem before a human burns a lease step or signs anything: validates the `deployments.<target>` block (brid/url/container/chains), flags wrong-network BRIDs or URLs as HIGH blockers, probes the target node read-only, runs the compile + security source gate when `rell` is supplied (CRITICAL/HIGH block mainnet), and checks the production pins. `ready:true` only with zero blockers — and never for anything not actually checked; when ready it emits the exact `chr deployment create|update` command
+- **Deployment preflight (`deployment_preflight`)** — catch every deployment problem before a human burns a lease step or signs anything: validates the `deployments.<target>` block (brid/url/container/chains), flags wrong-network BRIDs or URLs as HIGH blockers, probes the target node read-only, runs the compile + security source gate when `rell` is supplied (CRITICAL/HIGH block mainnet), and checks the production pins. `ready:true` only with zero blockers — a mainnet target without sources stays blocked until the source gate runs, other targets note the skipped gate; when ready it emits the exact `chr deployment create|update` command
 
 ## Documentation Tools
 
@@ -72,7 +72,7 @@ database (or schema) — two servers pointed at the same URL can still collide.
 Stands up a **real, queryable local Chromia chain** from Rell sources — in-process, zero keys,
 zero funds, zero human steps. Compiles the sources into a blockchain configuration and runs it
 on the embedded Postchain engine (the same engine `chr node start` wraps) against
-`CHROMIA_TEST_DATABASE_URL`, then serves the standard Postchain REST subset on `127.0.0.1`
+`CHROMIA_TEST_DATABASE_URL`, then serves the Postchain REST subset on `127.0.0.1`
 (`/brid/iid_0`, `/query/{brid}` GET+POST, `/query_gtv/{brid}`, `/tx/{brid}`,
 `/tx/{brid}/{txRid}/status`) — usable with curl or any postchain client. The final step of the
 agent loop: compile → secure → tested → **running**. Returns the BRID and API URL; transactions

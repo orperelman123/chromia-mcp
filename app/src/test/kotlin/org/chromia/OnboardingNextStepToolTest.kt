@@ -22,9 +22,11 @@ import org.junit.jupiter.api.Test
 /**
  * onboarding_next_step: one concrete next action per state on the journey from
  * nothing to a deployed dapp, grounded in the live-verified 2026-09-01 facts
- * (faucet is web+captcha only, lease is a Vault web step, chr deployment
- * create is headless and container-key-signed). Human-only steps must say so
- * with a URL; the tool must never emit key material or keygen recipes.
+ * (the faucet web UI requires a captcha - pmc's claim-test-chr needs a
+ * provider account - the lease is a Vault web step priced at lease time, and
+ * chr deployment create is headless and container-key-signed). Human-only
+ * steps must say so with a URL; the tool must never emit key material or
+ * keygen recipes.
  */
 class OnboardingNextStepToolTest {
 
@@ -91,8 +93,18 @@ class OnboardingNextStepToolTest {
         assertTrue(how.contains("captcha"), how)
         assertTrue(how.contains("1000 tCHR per 7 days"), how)
         assertTrue(how.contains("https://vault.testnet.chromia.com/en/containers/"), how)
-        assertTrue(how.contains("35 tCHR per SCU-week"), how)
+        // Docs publish no fixed CHR-per-SCU price - the lease is priced at lease
+        // time; the ~35 figure is a dated live observation, never a quoted price.
+        assertTrue(how.contains("priced in tCHR at lease time"), how)
+        assertTrue(how.contains("~35 tCHR/SCU-week"), how)
+        assertTrue(how.contains("2026-09-01"), how)
         assertTrue(how.contains("1-12 weeks"), how)
+        // The pmc alternative exists and must be named honestly - it needs a
+        // provider account, so it is disclosed as a non-agent path, not hidden
+        // behind a false "no API" claim.
+        assertTrue(how.contains("pmc economy claim-test-chr"), how)
+        assertTrue(how.contains("provider account"), how)
+        assertFalse(how.contains("no API"), how)
 
         val config = plan(built.copy(hasTestnetKey = true, hasTestnetContainer = true))
         assertEquals("deployment_config", config.stage)
@@ -206,6 +218,62 @@ class OnboardingNextStepToolTest {
 
         val with = plan(built.copy(goal = "local"), registered = tools + "local_chain_up")
         assertTrue(with.nextAction.how.contains("local_chain_up"), with.nextAction.how)
+    }
+
+    @Test
+    fun deploymentDisabledToolsAreExcludedFromTheRegistrySeenByThePlan() {
+        // The strategy consults the ACTUALLY-ENABLED set (compiled-in minus
+        // CHROMIA_MCP_DISABLE_TOOLS), not the compiled-in set: a deployment
+        // that disables local_chain_up must get the `chr node start` fallback,
+        // never a recommendation for a tool whose call would be refused.
+        val disabledEnv = McpTools.disabledTools(
+            mapOf("CHROMIA_MCP_DISABLE_TOOLS" to "local_chain_up")
+        )
+        assertEquals(setOf("local_chain_up"), disabledEnv)
+        val enabled = McpTools.enabledToolNames(disabledEnv)
+        assertFalse("local_chain_up" in enabled)
+        assertTrue("deployment_preflight" in enabled)
+
+        val withoutTool = plan(built.copy(goal = "local"), registered = enabled)
+        assertFalse(withoutTool.nextAction.how.contains("local_chain_up"), withoutTool.nextAction.how)
+        assertTrue(withoutTool.nextAction.how.contains("chr node start"), withoutTool.nextAction.how)
+
+        // Nothing disabled: the enabled set is the full registry and the tool is named.
+        val allEnabled = McpTools.enabledToolNames(emptySet())
+        assertEquals(McpTools.ALL_TOOL_NAMES, allEnabled)
+        val withTool = plan(built.copy(goal = "local"), registered = allEnabled)
+        assertTrue(withTool.nextAction.how.contains("local_chain_up"), withTool.nextAction.how)
+    }
+
+    @Test
+    fun strategySeamComputesEnabledSetFromDisabledTools() = runBlocking {
+        // Same behavior through the MCP strategy itself, with the registry
+        // provider injected the way the production default computes it.
+        val strategy = org.chromia.tools.OnboardingNextStepStrategy(
+            registeredTools = {
+                McpTools.enabledToolNames(
+                    McpTools.disabledTools(mapOf("CHROMIA_MCP_DISABLE_TOOLS" to "local_chain_up"))
+                )
+            }
+        )
+        val result = strategy.execute(
+            CallToolRequest(
+                name = "onboarding_next_step",
+                arguments = buildJsonObject {
+                    put("hasProject", true)
+                    put("compiles", true)
+                    put("securityClean", true)
+                    put("testsPass", true)
+                    put("goal", "local")
+                }
+            ),
+            RecordingRepository()
+        )
+        assertTrue(result.isError != true)
+        val how = result.structuredContent!!["nextAction"]!!
+            .jsonObject["how"]!!.jsonPrimitive.content
+        assertFalse(how.contains("local_chain_up"), how)
+        assertTrue(how.contains("chr node start"), how)
     }
 
     @Test

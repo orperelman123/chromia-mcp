@@ -1758,7 +1758,9 @@ object McpTools {
             Stand up a REAL local Chromia chain from Rell sources - in-process, zero keys, zero
             funds, zero human steps. Compiles the sources into a blockchain configuration and runs
             it on the embedded Postchain engine (the same engine `chr node start` wraps) against
-            the server's PostgreSQL, then serves the standard Postchain REST API on 127.0.0.1.
+            the server's PostgreSQL, then serves a subset of the Postchain REST API on 127.0.0.1:
+            GET /brid/iid_0, GET+POST /query/{brid}, POST /query_gtv/{brid}, POST /tx/{brid}, and
+            GET /tx/{brid}/{txRid}/status - block and confirmation-proof endpoints are NOT served.
             This is the last step of the agent loop: rell_check (compiles) -> rell_security_check
             (secure) -> run_rell_tests (tests pass) -> local_chain_up (runs against a live chain).
             Returns the BRID and apiUrl; then query with
@@ -1768,8 +1770,9 @@ object McpTools {
             actions: "up" (default; requires `files`), "status", "down".
             Bounded by design: one chain at a time, auto-stops after ttlSeconds (default 1800, max
             7200), runs in a dedicated PostgreSQL schema that is wiped on every start. Calling up
-            again with identical sources returns the running chain (TTL refreshed); different
-            sources restart it. Needs PostgreSQL via CHROMIA_TEST_DATABASE_URL on the server (or
+            again with identical inputs returns the running chain (TTL refreshed); a change to the
+            sources, moduleArgs, or databaseUrl restarts it. Needs PostgreSQL via
+            CHROMIA_TEST_DATABASE_URL on the server (or
             `databaseUrl`); @test modules are excluded from the chain like `chr build`.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -1826,7 +1829,7 @@ object McpTools {
                     "status" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("started | already_running | running | stopped | not_running | error")
+                            "description" to JsonPrimitive("started | already_running | running | stopped | not_running (a failed start is a tool error, not a status)")
                         )
                     ),
                     "brid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -3060,9 +3063,12 @@ object McpTools {
             State machine for the journey from nothing to a deployed Chromia dapp: report what is
             honestly done so far and get exactly ONE next action - which MCP tool to call with which
             args, or the exact human step with its URL - plus the remaining steps and human-only
-            blockers. Grounded in live-verified facts: the tCHR faucet is web+captcha only
-            (1000 tCHR / 7 days), the testnet container lease is a Vault web step (~35 tCHR per
-            SCU-week, 1-12 weeks), `chr deployment create/update` is headless and signed by the
+            blockers. Grounded in live-verified facts: the tCHR faucet web UI requires a captcha so a
+            human claims it (1000 tCHR / 7 days; `pmc economy claim-test-chr` exists for testnet but
+            needs a configured provider account, so it is no keyless-agent path), the testnet
+            container lease is a Vault web step priced in tCHR at lease time (observed ~35
+            tCHR/SCU-week on the testnet economy chain 2026-09-01; 1-12 weeks),
+            `chr deployment create/update` is headless and signed by the
             container key (POSTCHAIN_CLIENT_PUBKEY/POSTCHAIN_CLIENT_PRIVKEY env vars, Chromia's
             documented CI pattern; the key holds no funds), and mainnet needs a Vault deposit of at
             least 10 CHR plus a lease first. Absent fields mean "not done". This tool never
@@ -3258,8 +3264,9 @@ object McpTools {
             CRITICAL/HIGH security findings are blockers (warnings for testnet); (5) production pins
             (rellVersion the CLI accepts, merkle_hash_version) - blockers for mainnet, warnings otherwise
             (`strict` overrides). Returns {ready, target, network, findings, blockers, nextAction, notes};
-            ready=true only with zero blockers, and never for anything not actually checked - a mainnet
-            target without `rell` stays blocked until the source gate runs. When ready, nextAction is the
+            ready=true only with zero blockers - a MAINNET target without `rell` stays blocked until the
+            source gate runs, while other targets can be ready with the skipped source gate explicitly
+            called out in notes (nothing skipped is silently vouched for). When ready, nextAction is the
             exact `chr deployment create|update --settings chromia.yml --network <target> --blockchain
             <name>` command. Read-only: no keys, no signing, no network writes.
         """.trimIndent(),
@@ -3288,6 +3295,14 @@ object McpTools {
                                 "Optional Rell sources for the compile + security gate: one source string " +
                                     "(checked as main.rell) or an object of path -> source. Omitting it skips " +
                                     "the source gate (noted; a mainnet target then stays blocked)."
+                            )
+                        )
+                    ),
+                    "files" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive(
+                                "Alias for `rell` (same shape) - matches rell_check / run_rell_tests. " +
+                                    "`rell` wins when both are present; using the alias is noted."
                             )
                         )
                     ),
@@ -3378,6 +3393,16 @@ object McpTools {
 
     /** Every tool name this server implements, whether or not it is advertised. */
     val ALL_TOOL_NAMES: Set<String> by lazy { fullToolList().map { it.name }.toSet() }
+
+    /**
+     * Tool names actually callable on THIS deployment: everything implemented
+     * minus [disabledTools]. This is the set advice tools (onboarding_next_step)
+     * must consult - recommending a compiled-in-but-disabled tool sends agents
+     * into the disabled-tool refusal. Compact mode is irrelevant here: it hides
+     * only *_help schemas from advertisement, and those tools stay callable.
+     */
+    fun enabledToolNames(disabled: Set<String> = disabledTools()): Set<String> =
+        ALL_TOOL_NAMES - disabled
 
     // Names the argument shape too: an agent porting a rell_check call sent
     // {files:{...}} and hit "Missing required parameter: rell" (live probe

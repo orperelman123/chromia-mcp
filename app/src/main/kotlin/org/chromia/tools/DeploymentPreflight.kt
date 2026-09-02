@@ -25,9 +25,9 @@ import org.chromia.domain.NetworkResult
  * 5. Pins - via the validator; strict (default true for mainnet targets) turns
  *    missing production pins into blockers.
  *
- * ready=true only with zero blocking findings, and NEVER for something not
- * checked: a skipped source gate is said in notes, and a mainnet target with
- * no sources stays blocked until the gate runs.
+ * ready=true only with zero blocking findings. A mainnet target with no
+ * sources stays blocked until the source gate runs; other targets can be
+ * ready with the skipped gate explicitly said in notes.
  *
  * Policy: read-only. No keys, no signing, no network writes - the only network
  * I/O is the caller-supplied height probe.

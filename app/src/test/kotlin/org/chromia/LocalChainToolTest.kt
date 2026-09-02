@@ -376,4 +376,36 @@ class LocalChainToolTest {
         ))
         assertTrue(tool.outputSchema!!.properties.keys.containsAll(listOf("ok", "status", "brid", "apiUrl", "notes")))
     }
+
+    @Test
+    fun descriptionIsHonestAboutServedEndpointsAndReuseFingerprint() {
+        val tool = org.chromia.tools.McpTools.allTools().first { it.name == "local_chain_up" }
+        val description = tool.description!!
+        // The bridge serves a 6-endpoint SUBSET, not "the standard Postchain
+        // REST API" - an agent expecting confirmation proofs or block endpoints
+        // must learn that from the description, not from 404s.
+        assertTrue(description.contains("subset of the Postchain REST API"), description)
+        for (endpoint in listOf(
+            "/brid/iid_0", "/query/{brid}", "/query_gtv/{brid}", "/tx/{brid}", "/tx/{brid}/{txRid}/status"
+        )) {
+            assertTrue(description.contains(endpoint), "description must name $endpoint")
+        }
+        assertFalse(description.contains("standard Postchain REST API"), description)
+        // The reuse fingerprint covers sources AND moduleArgs AND databaseUrl -
+        // the description must name all three restart triggers.
+        assertTrue(description.contains("moduleArgs, or databaseUrl restarts it"), description)
+    }
+
+    @Test
+    fun outputSchemaStatusHasNoPhantomErrorValue() {
+        // ok=false becomes a tool error (toolErrorResult), so "error" never
+        // reaches structuredContent - the schema must not advertise it.
+        val tool = org.chromia.tools.McpTools.allTools().first { it.name == "local_chain_up" }
+        val statusDescription = (tool.outputSchema!!.properties["status"] as kotlinx.serialization.json.JsonObject)
+            .getValue("description").jsonPrimitive.content
+        assertFalse(statusDescription.contains("| error"), statusDescription)
+        for (status in listOf("started", "already_running", "running", "stopped", "not_running")) {
+            assertTrue(statusDescription.contains(status), statusDescription)
+        }
+    }
 }

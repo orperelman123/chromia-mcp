@@ -36,7 +36,8 @@ import java.util.concurrent.TimeUnit
  * In-process local Chromia chain for the `local_chain_up` tool: compiles the
  * given Rell sources into a real blockchain configuration and runs it on an
  * embedded Postchain node (the same engine `chr node start` wraps) against
- * PostgreSQL, exposing the standard Postchain REST API on localhost.
+ * PostgreSQL, exposing a subset of the Postchain REST API on localhost
+ * (see [LocalChainRestBridge] for the served endpoints).
  *
  * This closes the last gap in the agent loop: after rell_check (compiles),
  * rell_security_check (secure), and run_rell_tests (tests pass), an agent can

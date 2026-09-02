@@ -429,13 +429,67 @@ class DeploymentPreflightToolTest {
         val tool = McpTools.deploymentPreflightTool()
         assertEquals("deployment_preflight", tool.name)
         assertEquals(listOf("yaml", "target"), tool.inputSchema.required)
-        listOf("yaml", "target", "rell", "strict")
+        listOf("yaml", "target", "rell", "files", "strict")
             .forEach { assertNotNull(tool.inputSchema.properties[it], "inputSchema missing $it") }
         val out = tool.outputSchema!!
         listOf("ready", "target", "network", "findings", "blockers", "nextAction", "notes")
             .forEach { assertNotNull(out.properties[it], "outputSchema missing $it") }
         // The policy is part of the contract: read-only, never signs.
         assertTrue(tool.description!!.contains("no signing"))
-        assertTrue(tool.description!!.contains("never"))
+        // Honest ready semantics: only a MAINNET target is blocked on a missing
+        // source gate; other targets can be ready with the skip called out in notes.
+        assertTrue(
+            tool.description!!.contains("MAINNET target without `rell` stays blocked"),
+            tool.description
+        )
+        assertTrue(tool.description!!.contains("called out in notes"), tool.description)
+    }
+
+    // ---- `files` alias for `rell` -------------------------------------------
+
+    @Test
+    fun filesIsAcceptedAsAnAliasForRell() {
+        // An agent porting a rell_check/run_rell_tests call sends `files`; a
+        // silently ignored `files` would skip the source gate and still say
+        // ready:true on testnet. The alias must run the gate and be noted.
+        repo.nextHeight = NetworkResult.Success(42L)
+        val result = call(
+            buildJsonObject {
+                put("yaml", testnetYaml)
+                put("target", "testnet")
+                put("files", buildJsonObject { put("main.rell", insecureRell) })
+            }
+        )
+        assertTrue(result.isError != true)
+        val s = result.structuredContent!!
+        // The source gate ran on the aliased sources: the HIGH security finding shows up.
+        assertTrue(
+            findings(s).any { it["check"]!!.jsonPrimitive.content == "security" },
+            s.toString()
+        )
+        val notes = s["notes"]!!.jsonPrimitive.content
+        assertTrue(notes.contains("`files` was accepted as an alias"), notes)
+        assertFalse(notes.contains("Source gate SKIPPED"), notes)
+    }
+
+    @Test
+    fun rellWinsWhenBothRellAndFilesArePresent() {
+        repo.nextHeight = NetworkResult.Success(42L)
+        val result = call(
+            buildJsonObject {
+                put("yaml", testnetYaml)
+                put("target", "testnet")
+                put("rell", buildJsonObject { put("main.rell", cleanRell) })
+                // The alias carries uncompilable code - it must be ignored.
+                put("files", buildJsonObject { put("main.rell", "module; query broken(") })
+            }
+        )
+        assertTrue(result.isError != true)
+        val s = result.structuredContent!!
+        assertTrue(s["ready"]!!.jsonPrimitive.boolean, s.toString())
+        assertTrue(blockers(s).isEmpty(), s.toString())
+        // No alias note: `rell` was used, `files` ignored.
+        val notes = s["notes"]!!.jsonPrimitive.content
+        assertFalse(notes.contains("alias"), notes)
     }
 }
