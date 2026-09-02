@@ -1454,13 +1454,24 @@ object RellSecurityCheck {
             if (paramDelegated(op.body, tainted, requireFunctions, knownFunctions, entities)) return@forEach
             fun taintedIn(text: String) =
                 tainted.any { Regex("""\b${Regex.escape(it)}\b""").containsMatchIn(text) }
-            // Direct compound value write fed by the parameter: any debit, or a
-            // credit to a value-named field (mirrors VALUE_MUTATION_REGEX).
+            // Direct value write fed by the parameter. Debit shapes: `-=` on any
+            // field, or a subtraction of the tainted value inside a `+=`/`=`
+            // write to a value-named field (`.balance = .balance - amount` and
+            // `.balance += -amount` are the same inversion spelled differently -
+            // rewriting the operator must not evade the rule). Credit shape:
+            // `+=` of the tainted value to a value-named field.
+            fun subtractedTaintIn(rhs: String) =
+                tainted.any { Regex("""-\s*\b${Regex.escape(it)}\b""").containsMatchIn(rhs) }
             val directHit = FIELD_WRITE_REGEX.findAll(op.body).any { w ->
                 val kind = w.groupValues[2]
-                kind in setOf("+=", "-=") &&
-                    (kind == "-=" || VALUE_FIELD_NAME_REGEX.containsMatchIn(w.groupValues[1])) &&
-                    taintedIn(rhsAfter(op.body, w.range.last + 1))
+                val valueField = VALUE_FIELD_NAME_REGEX.containsMatchIn(w.groupValues[1])
+                val rhs = rhsAfter(op.body, w.range.last + 1)
+                when (kind) {
+                    "-=" -> taintedIn(rhs)
+                    "+=" -> taintedIn(rhs) && valueField
+                    "=" -> subtractedTaintIn(rhs) && valueField
+                    else -> false
+                }
             }
             // ...or handed to a submitted helper that mutates value and never
             // require()s anything - the wrap-it-in-a-helper evasion.

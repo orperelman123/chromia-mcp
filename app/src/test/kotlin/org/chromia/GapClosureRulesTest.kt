@@ -115,6 +115,39 @@ class GapClosureRulesTest {
         assertTrue("amount-without-lower-bound" in rules(result), result.findings.toString())
     }
 
+    /** `.balance = .balance - amount` is `-=` spelled differently. */
+    @Test
+    fun plainAssignSubtractionStillCaught() {
+        val result = analyze(
+            "main.rell" to """
+                module;
+                entity vault { key owner: byte_array; mutable balance: integer; }
+                operation withdraw(owner: byte_array, amount: integer) {
+                    require(op_context.is_signer(owner), "not owner");
+                    val v = vault @ { .owner == owner };
+                    update v ( .balance = v.balance - amount );
+                }
+            """.trimIndent()
+        )
+        assertTrue("amount-without-lower-bound" in rules(result), result.findings.toString())
+    }
+
+    /** `.balance += -amount` is also `-=` spelled differently. */
+    @Test
+    fun negatedCreditStillCaught() {
+        val result = analyze(
+            "main.rell" to """
+                module;
+                entity vault { key owner: byte_array; mutable balance: integer; }
+                operation withdraw(owner: byte_array, amount: integer) {
+                    require(op_context.is_signer(owner), "not owner");
+                    update vault @ { .owner == owner } ( .balance += -amount );
+                }
+            """.trimIndent()
+        )
+        assertTrue("amount-without-lower-bound" in rules(result), result.findings.toString())
+    }
+
     @Test
     fun lowerBoundedAmountStaysClean() {
         val result = analyze(
