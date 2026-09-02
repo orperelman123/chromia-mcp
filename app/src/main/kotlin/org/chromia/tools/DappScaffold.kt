@@ -1290,11 +1290,11 @@ object DappScaffold {
             rell.test.keypair(priv = admin_priv_key(), pub = main.oracle_pubkey());
 
         function post_price(price: integer) {
-            rell.test.tx().op(main.set_price(price)).sign(oracle()).run();
+            rell.test.tx().op(main.set_price(price)).nop().sign(oracle()).run();
         }
 
         function post_price_must_fail(price: integer, expected: text) {
-            rell.test.tx().op(main.set_price(price)).sign(oracle()).run_must_fail(expected);
+            rell.test.tx().op(main.set_price(price)).nop().sign(oracle()).run_must_fail(expected);
         }
 
         function signed(keypair: rell.test.keypair, op: rell.test.op) {
