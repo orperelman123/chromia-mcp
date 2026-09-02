@@ -110,6 +110,7 @@ object Ft4ModuleArgs {
         NEVER import or configure ${DappScaffold.forbiddenModules.joinToString(", ")}.
         Prefer ras_transfer_fee / ras_transfer_subscription if you add a registration strategy.
         Paste moduleArgs under blockchains.$name and merge libs at the project root. Then `chr install`.
+        For run_rell_tests, pass moduleArgs as ONE JSON object keyed by module name that merges this block with chromia.yml's test.moduleArgs (lib.ft4.core.admin.admin_pubkey and lib.ft4.test.core.auth.admin_priv_key - FT4's published test keys); byte_array values may be written as the yml's x"..." literal, as 0x..., or as bare hex.
         ${if (includeIccf) {
             "includeIccf=true emits official IccfGTXModule wiring under blockchains.$name.config.gtx.modules: $ICCF_GTX_MODULE ($ICCF_PROTOCOL_URL, $ICCF_PROPERTIES_URL). libs/yaml use official ICCF protocol-page library-chain $ICCF_LIBRARY_CHAIN_ID version $ICCF_LIBRARY_CHAIN_VERSION (import $ICCF_IMPORT;). Official FT4 setup still documents git tagOrBranch $ICCF_GIT_TAG ($ICCF_FT4_SETUP_URL) — see iccf_git_yaml. Use one ICCF lib shape, not both. Do not invent a newer git tag, library-chain semver, or module name."
         } else {

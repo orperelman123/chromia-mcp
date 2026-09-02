@@ -246,6 +246,15 @@ object ErrorTranslator {
             nextAction = "Pass integers as plain integers and token amounts in raw units as integers or decimal STRINGS; re-check argument types with rell.get_app_structure.",
             relatedTools = listOf("chromia_dapp_query")
         ),
+        rule(
+            id = "gtv_bytearray_from_string",
+            family = "gtv",
+            pattern = "can't create bytearray from string",
+            meaning = "A byte_array / pubkey value (a module_args entry or an operation/query argument) arrived as a string that does not hex-decode.",
+            likelyCause = "chromia.yml's literal x\"02C4...\" was pasted verbatim (e.g. admin_pubkey from test.moduleArgs into run_rell_tests moduleArgs, or into a query argument) - the runtime hex-decodes the whole string, and the x\"...\" wrapper is not hex. Adversary round 4: every non-expert stalled here.",
+            nextAction = "run_rell_tests moduleArgs accepts the x\"...\" literal, 0x..., and bare hex - update the server if it still fails; everywhere else (chromia_dapp_query arguments, client calls) strip the wrapper and pass the bare hex \"02C4...\".",
+            relatedTools = listOf("run_rell_tests", "ft4_module_args", "scaffold_dapp")
+        ),
 
         // ---- postchain runtime / postgres ---------------------------------
         rule(

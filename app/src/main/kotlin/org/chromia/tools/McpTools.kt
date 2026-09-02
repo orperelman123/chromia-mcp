@@ -1460,7 +1460,11 @@ object McpTools {
             vault or anything priced by an oracle: use 'vault' - every credit is a reserve
             debit in the same operation, price posts are bounded and rate-limited, a stale
             price halts trading, and its tests replay the 100 -> 200,000,000 mint and require
-            it to fail (its oracle key is a module arg: see the notes).
+            it to fail (its oracle key is a module arg: see the notes). Building staking, yield,
+            rewards or vesting - anything that pays out over time: use 'staking' - rewards come
+            only from a sponsor-funded pool, the clock releases at most what the pool holds, every
+            credit is a pool debit in the same operation, unstaking has a cooldown, and its tests
+            replay the round-4 stake-times-elapsed mint from an empty pool and require it to fail.
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
@@ -1479,7 +1483,7 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "enum" to kotlinx.serialization.json.JsonArray(DappScaffold.templates.map { JsonPrimitive(it) }),
-                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default), 'ft4' (accounts, authenticated operation, TS client), 'governance' (DAO treasury: quorum, fixed voting window, stake-weighted votes, execute-once - structural, with the drain replayed as a must-fail test), or 'vault' (oracle-priced exchange: reserve-backed credits, bounded and rate-limited price, staleness halt - with the unbacked mint replayed as a must-fail test).")
+                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default), 'ft4' (accounts, authenticated operation, TS client), 'governance' (DAO treasury: quorum, fixed voting window, stake-weighted votes, execute-once - structural, with the drain replayed as a must-fail test), 'vault' (oracle-priced exchange: reserve-backed credits, bounded and rate-limited price, staleness halt - with the unbacked mint replayed as a must-fail test), or 'staking' (staking / yield / rewards / vesting: sponsor-funded pool as the only reward source, pool-capped release, per-share accumulator, cooldown unstake - with the round-4 empty-pool mint replayed as a must-fail test).")
                         )
                     )
                 )
@@ -1562,6 +1566,9 @@ object McpTools {
         name = "ft4_module_args",
         description = """
             Return a production-correct FT4 v1.1.0r API 1 module_args + libs block for chromia.yml.
+            To run FT4 tests, pass run_rell_tests moduleArgs as one JSON object keyed by module name
+            that merges this block with chromia.yml's test.moduleArgs (the test-only admin keys);
+            byte_array values may be the yml's x"..." literal, 0x..., or bare hex.
             require_mandatory_flags only on the main auth descriptor. DEFAULT_LOGIN_CONFIG_NAME is "default".
             Official /build/ft4/configuration-values + /setup/imports (200). Use auth_descriptor.max_rules, not stale max_auth_descriptor_rules.
             NEVER emits lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
@@ -1745,7 +1752,7 @@ object McpTools {
                     "moduleArgs" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
-                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml (its moduleArgs AND test.moduleArgs blocks), e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) ALSO pass the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys; scaffold_dapp template=ft4 writes a working set into chromia.yml test.moduleArgs). Without them every tx fails with 'Unable to create GTX module'.")
+                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml (its moduleArgs AND test.moduleArgs blocks), e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) ALSO pass the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys; scaffold_dapp template=ft4 writes a working set into chromia.yml test.moduleArgs). Without them every tx fails with 'Unable to create GTX module'. Pass it as ONE object that merges blockchains.<name>.moduleArgs with test.moduleArgs, keyed by module name; byte_array / pubkey values may be the yml's x\"02C4...\" literal, 0x02c4..., or bare hex - all three decode to bytes.")
                         )
                     )
                 )

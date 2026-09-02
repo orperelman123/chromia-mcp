@@ -11,21 +11,30 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Pins the two templates that exist because the gate cannot block their
- * exploit class (north-star principle 4): `governance` (the round-1 DAO drain)
- * and `vault` (the round-1 unbacked oracle mint). Each must compile with the
- * vendored FT4, pass the security check with NO finding at all, ship tests
- * that actually run green through run_rell_tests, and - the proof that the
- * bug is unwritable - ship a must-fail replay of the exploit that goes RED
- * the moment its guard is deleted (the mutation tests at the bottom).
+ * Pins the templates that exist because the gate cannot block their exploit
+ * class (north-star principle 4): `governance` (the round-1 DAO drain), `vault`
+ * (the round-1 unbacked oracle mint) and `staking` (the round-4 unbacked reward
+ * mint). Each must compile with the vendored FT4, pass the security check with
+ * NO finding at all, ship tests that actually run green through run_rell_tests,
+ * and - the proof that the bug is unwritable - ship a must-fail replay of the
+ * exploit that goes RED the moment its guard is deleted (the mutation tests at
+ * the bottom).
  */
 class DappScaffoldSecureTemplatesTest {
+
+    private val secureTemplates = listOf("governance", "vault", "staking")
 
     private fun rellOf(template: String): Map<String, String> =
         DappScaffold.files("treasury", template = template)
             .filterKeys { it.endsWith(".rell") }
             .mapKeys { (path, _) -> path.removePrefix("src/") }
 
+    /**
+     * Keyed on the TEMPLATE, never on a run label: the vault mutants used to be
+     * run under a label like "vault-without[...]", got the plain ft4 args
+     * without the oracle key, failed every case with a module_args error, and
+     * so "went red" without the guard ever being exercised.
+     */
     private fun moduleArgsOf(template: String) =
         if (template == "vault") DappScaffold.vaultTestModuleArgs() else DappScaffold.ft4TestModuleArgs()
 
@@ -33,10 +42,15 @@ class DappScaffoldSecureTemplatesTest {
 
     /** Rell's run_must_fail failure text when the transaction it expected to fail succeeds. */
     private val RUN_MUST_FAIL_UNEXPECTED_SUCCESS = "Transaction did not fail"
+    private fun opBody(main: String, op: String): String =
+        main.substringAfter("operation $op").substringBefore("\n}")
+
+    private fun withoutComments(source: String): String =
+        source.lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
 
     @Test
-    fun bothTemplatesShipYmlMainAndRunnableTests() {
-        listOf("governance", "vault").forEach { template ->
+    fun secureTemplatesShipYmlMainAndRunnableTests() {
+        secureTemplates.forEach { template ->
             val files = DappScaffold.files("treasury", template = template)
             assertEquals(
                 setOf("chromia.yml", "src/main.rell", "src/test/main_test.rell"),
@@ -54,7 +68,7 @@ class DappScaffoldSecureTemplatesTest {
             val test = files.getValue("src/test/main_test.rell")
             assertTrue(test.startsWith("@test module;"), template)
             assertTrue(test.contains("run_must_fail"), "$template tests must contain a must-fail case")
-            assertTrue(test.contains("test_round1_"), "$template must ship the round-1 exploit as a must-fail test")
+            assertTrue(Regex("function test_round\\d+_\\w+_must_fail\\(").containsMatchIn(test), "$template must ship the adversary round's exploit as a must-fail test")
             assertTrue(test.contains("assert_conserved()"), "$template must ship a conservation assertion")
             DappScaffold.forbiddenModules.forEach { banned ->
                 files.forEach { (path, content) ->
@@ -63,12 +77,19 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking"), DappScaffold.templates)
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
+        assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
         val unknown = DappScaffold.toJson("x", template = "dao")
         assertEquals("hello", unknown.getValue("template").toString().trim('"'))
-        assertTrue(unknown.getValue("warnings").toString().contains("governance, vault"), "unknown-template warning must list the new templates")
+        assertTrue(unknown.getValue("warnings").toString().contains("governance, vault, staking"), "unknown-template warning must list the new templates")
+        // The notes steer staking / rewards / vesting builders to the template and
+        // say in one place how module_args are passed (the round-4 stall).
+        val notes = DappScaffold.notes("yield")
+        assertTrue(notes.contains("template=staking"), "notes must steer staking builders to the template")
+        assertTrue(notes.contains("HOW TO PASS module_args to run_rell_tests"), "notes must say how module_args are passed")
+        assertTrue(notes.contains("x\"...\" literal, as 0x..., or as bare hex"), "notes must say the yml literal is accepted")
     }
 
     @Test
@@ -87,7 +108,7 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("require(weight > 0, \"no voting weight"), "zero stake must not be able to vote")
         assertTrue(main.contains("require(proposer.stake > 0, \"only members with stake may propose\")"))
         // Executed exactly once, flipped in the paying operation.
-        val execute = main.substringAfter("operation execute_proposal").substringBefore("\n}")
+        val execute = opBody(main, "execute_proposal")
         assertTrue(execute.contains("require(not p.executed, \"proposal already executed\")"))
         assertTrue(execute.contains("update p ( .executed = true );"))
         assertTrue(execute.contains("dao.treasury_balance -= p.amount;"))
@@ -113,7 +134,7 @@ class DappScaffoldSecureTemplatesTest {
         // Every credit in a trade is paired with a reserve debit in the same operation:
         // the vault's rows are rows of the SAME entities, so a trade is a transfer.
         listOf("buy_tokens", "sell_tokens").forEach { op ->
-            val body = main.substringAfter("operation $op").substringBefore("\n}")
+            val body = opBody(main, op)
             val credits = Regex("update (\\w+) \\( \\.balance \\+= (\\w+) \\)").findAll(body).map { it.groupValues[2] }.toList()
             val debits = Regex("update (\\w+) \\( \\.balance -= (\\w+) \\)").findAll(body).map { it.groupValues[2] }.toList()
             assertEquals(2, credits.size, "$op must credit exactly two rows")
@@ -127,9 +148,67 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("require(price > 0 and price <= MAX_PRICE"))
     }
 
+    /**
+     * The round-4 mint was `reward = staked * elapsed * REWARD_PER_SECOND` credited
+     * with no pool debit. Here that formula has no line to live on: the rate only
+     * ever appears inside a release capped by the pool, the pool's only inflow is
+     * a sponsor's paid-for deposit, and every balance credit in every operation is
+     * a debit of the same amount in the same body.
+     */
+    @Test
+    fun stakingGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("yield", template = "staking").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // SPONSOR-FUNDED: exactly one inflow into the pool, paid for by the caller's own balance.
+        assertEquals(listOf("amount"), Regex("pool\\.undistributed \\+= (\\w+);").findAll(code).map { it.groupValues[1] }.toList(), "pool.undistributed must have exactly one inflow")
+        val fund = opBody(code, "fund_rewards")
+        assertTrue(fund.contains("update m ( .balance -= amount );") && fund.contains("pool.undistributed += amount;"), "fund_rewards must debit the sponsor for what it puts in the pool")
+        assertTrue(fund.contains("update_pool();"), "fund_rewards must consume the clock before adding funds (no retroactive release)")
+        // RELEASE-CAPPED: the clock's release is min()'d against the pool, and the pool is debited for it.
+        val updatePool = code.substringAfter("function update_pool()").substringBefore("\n}")
+        assertTrue(updatePool.contains("val earned = min(pool.undistributed, elapsed_ms / 1000 * REWARD_PER_SECOND);"), "the release must be capped by the pool")
+        assertTrue(updatePool.contains("pool.undistributed -= earned;") && updatePool.contains("pool.unclaimed += earned;"), "a release must move points from undistributed to unclaimed")
+        assertTrue(updatePool.indexOf("pool.last_update = now;") < updatePool.indexOf("if (pool.total_staked == 0 or pool.undistributed == 0) return;"), "the clock must be consumed even when nothing is released")
+        // The round-4 formula is unwritable: no expression multiplies stake by the rate, and the
+        // rate is used ONLY inside the capped release (declaration + update_pool + its read-only mirror).
+        assertFalse(Regex("staked[^;]*\\*[^;]*REWARD_PER_SECOND|REWARD_PER_SECOND[^;]*\\*[^;]*staked").containsMatchIn(code), "no line may multiply stake by the rate")
+        val cappedUses = Regex("min\\(pool\\.undistributed, elapsed_ms / 1000 \\* REWARD_PER_SECOND\\)").findAll(code).count()
+        assertEquals(2, cappedUses, "update_pool and projected_acc")
+        assertEquals(cappedUses + 1, Regex("\\bREWARD_PER_SECOND\\b").findAll(code).count(), "the rate constant must appear only in its declaration and the capped release")
+        // PAIRED CREDIT: claim_rewards refuses what the pool cannot cover and debits it for what it pays.
+        val claim = opBody(code, "claim_rewards")
+        assertTrue(claim.contains("require(reward > 0, \"nothing to claim\");"))
+        assertTrue(claim.contains("require(pool.unclaimed >= reward, \"pool cannot cover the claim\");"))
+        assertTrue(claim.indexOf("pool.unclaimed -= reward;") in 0 until claim.indexOf(".balance += reward"), "the pool debit must precede the member credit")
+        // Every operation that credits a balance debits the same amount in the same body.
+        Regex("operation (\\w+)\\(").findAll(code).map { it.groupValues[1] }.forEach { op ->
+            val body = opBody(code, op)
+            Regex("\\.balance \\+= (\\w+)").findAll(body).map { it.groupValues[1] }.forEach { amount ->
+                val debited = body.contains("-= $amount") ||
+                    (op == "withdraw_unstaked" && body.contains("val $amount = r.amount;") && body.contains("delete r;"))
+                assertTrue(debited, "$op credits .balance += $amount without debiting $amount in the same operation")
+            }
+        }
+        // ACCUMULATOR: settle before the stake changes; stake bounded before the multiplication.
+        val stake = opBody(code, "stake")
+        assertTrue(stake.indexOf("settle(m);") in 0 until stake.indexOf(".staked += amount"), "stake must settle before the stake grows")
+        assertTrue(stake.contains("require(amount <= MAX_STAKE, \"amount too large\");"))
+        assertTrue(opBody(code, "request_unstake").indexOf("settle(m);") in 0 until opBody(code, "request_unstake").indexOf(".staked -= amount"))
+        // COOLDOWN: a constant, not a parameter; enforced in the withdrawing operation.
+        assertTrue(code.contains("val COOLDOWN_MS ="), "cooldown must be a named constant")
+        assertFalse(Regex("operation\\s+request_unstake\\s*\\([^)]*(cooldown|ready)").containsMatchIn(code), "request_unstake must not take a cooldown parameter")
+        assertTrue(code.contains("ready_at = op_context.last_block_time + COOLDOWN_MS"))
+        assertTrue(opBody(code, "withdraw_unstaked").contains("require(op_context.last_block_time >= r.ready_at, \"cooldown not over\");"))
+        // Every field the guards need exists as declared state.
+        listOf("mutable undistributed: integer", "mutable unclaimed: integer", "mutable acc_reward_per_share: big_integer", "mutable reward_snapshot: big_integer", "mutable pending_reward: integer", "key member;").forEach {
+            assertTrue(code.contains(it), "staking state must declare $it")
+        }
+        assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the staking source")
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
-        listOf("governance", "vault").forEach { template ->
+        secureTemplates.forEach { template ->
             val main = DappScaffold.files("t", template = template).getValue("src/main.rell")
             val compile = RellCheck.check(mapOf("main.rell" to main), null)
             assertTrue(compile.ok, "$template template must compile with vendored lib: ${compile.errors}")
@@ -145,7 +224,7 @@ class DappScaffoldSecureTemplatesTest {
      */
     @Test
     fun templatesSecurityPassHasNoFindingsAtAll() {
-        listOf("governance", "vault").forEach { template ->
+        secureTemplates.forEach { template ->
             val files = DappScaffold.files("t", template = template)
             val result = RellSecurityCheck.analyze(
                 mapOf(
@@ -153,16 +232,17 @@ class DappScaffoldSecureTemplatesTest {
                     "test/main_test.rell" to files.getValue("src/test/main_test.rell")
                 )
             )
+            println("[$template] gate ok=${result.ok} findings=${result.findings} notes=${result.notes}")
             assertTrue(result.ok, "$template: ${result.findings}")
             assertEquals(emptyList<RellSecurityCheck.Finding>(), result.findings, "$template must produce no advisory either")
         }
     }
 
     /**
-     * The ft4 template's key discipline, applied to both new ymls: every 64+ hex
-     * run is FT4's published test keypair or a library RID, the admin args sit
-     * under test:, and - vault only - the production moduleArgs block carries NO
-     * oracle key (only the comment telling the deployer to add theirs), while
+     * The ft4 template's key discipline, applied to every secure yml: every 64+
+     * hex run is FT4's published test keypair or a library RID, the admin args
+     * sit under test:, and - vault only - the production moduleArgs block carries
+     * NO oracle key (only the comment telling the deployer to add theirs), while
      * test.moduleArgs wires FT4's test key as the oracle for the shipped tests.
      */
     @Test
@@ -173,7 +253,7 @@ class DappScaffoldSecureTemplatesTest {
             DappScaffold.FT4_RID.uppercase().filter { it in "0123456789ABCDEF" },
             Ft4ModuleArgs.ICCF_GIT_RID.uppercase().filter { it in "0123456789ABCDEF" }
         )
-        listOf("governance", "vault").forEach { template ->
+        secureTemplates.forEach { template ->
             val files = DappScaffold.files("t", template = template)
             files.forEach { (path, content) ->
                 Regex("[0-9A-Fa-f]{64,}").findAll(content).forEach { m ->
@@ -207,23 +287,19 @@ class DappScaffoldSecureTemplatesTest {
                     "vaultTestModuleArgs must mirror the yml"
                 )
             } else {
-                assertFalse(yml.contains("oracle_pubkey"), "governance yml carries no oracle key")
+                assertFalse(yml.contains("oracle_pubkey"), "$template yml carries no oracle key")
             }
             val ymlCheck = org.chromia.tools.ChromiaYmlValidator.validate(yml)
             assertTrue(ymlCheck.errors.isEmpty(), "$template yml must validate: ${ymlCheck.errors}")
         }
     }
 
-    private fun runShipped(
-        template: String,
-        files: Map<String, String> = rellOf(template),
-        label: String = template
-    ): RunRellTests.Result {
         // Module args are keyed by the TEMPLATE, never by the label: the vault
         // mutants used to be run under a label that fell back to the ft4 args,
         // so main.oracle_pubkey was missing and every case died with "Unable to
         // create GTX module" - a failure that satisfied the old
         // wrong-reason check while proving nothing about the guard.
+    private fun runShipped(template: String, label: String = template, files: Map<String, String> = rellOf(template)): RunRellTests.Result {
         val result = RunRellTests.run(files, databaseUrl = dbUrl, moduleArgs = moduleArgsOf(template))
         // Printed so the gradle XML carries the per-case verdicts the report pastes.
         println("[$label] ok=${result.ok} total=${result.total} passed=${result.passed} failed=${result.failed}")
@@ -264,50 +340,87 @@ class DappScaffoldSecureTemplatesTest {
         )
     )
 
+    @Test
+    fun stakingShippedTestsRunGreen() = assertShippedGreen(
+        "staking",
+        setOf(
+            "test_round4_unbacked_reward_must_fail",
+            "test_rewards_come_only_from_sponsor_funding",
+            "test_late_staker_earns_nothing_for_the_past_and_cooldown_holds",
+            "test_bounds_and_ownership"
+        )
+    )
+
+    /** What the Rell runner reports when a run_must_fail transaction succeeds - the attack landed. */
+    private val attackLanded = "did not fail"
+
     /**
-     * The proof the exploit is unwritable: delete ONE guard from the template
-     * and the shipped round-1 replay must go red - for the exploit's reason,
-     * i.e. the attack now SUCCEEDS where the test required it to be refused.
-     * A must-fail test that stayed green without its guard would be theatre.
+     * The proof the exploit is unwritable: mutate ONE guard in the template and
+     * the shipped replay must go red - for the exploit's reason, i.e. the attack
+     * now SUCCEEDS where the test required it to be refused (or the conservation
+     * assertion trips because value was created). A must-fail test that stayed
+     * green without its guard would be theatre; so would one that went red
+     * because the mutant no longer compiled or ran without its module_args.
      */
+    private fun assertGuardMutationRedensExploitTest(
+        template: String,
+        guard: String,
+        replacement: String,
+        exploitTest: String,
+        stillRefusedFragment: String,
+        redFragment: String,
+        alsoRemove: List<String> = emptyList()
+    ) {
+        if (dbUrl == null) return // these run real transactions; the DB branch is authoritative and CI provides one
+        val files = rellOf(template).toMutableMap()
+        var main = files.getValue("main.rell")
+        assertTrue(main.contains(guard), "$template guard must exist verbatim: $guard")
+        main = main.replace(guard, replacement)
+        // Defense in depth: some exploits are refused by a second guard once the
+        // first is gone, so a mutant may have to strip several before the attack
+        // can land. Each must exist verbatim, or the mutant proves nothing.
+        alsoRemove.forEach { g ->
+            assertTrue(main.contains(g), "$template guard must exist verbatim: $g")
+            main = main.replace(g, "")
+        }
+        files["main.rell"] = main
+        val mutant = runShipped(template, label = "$template-without[${guard.take(48)}]", files = files)
+        // The mutant must still be a working dapp: the OTHER shipped tests keep
+        // passing, so the only thing the mutated guard changes is the exploit.
+        // (Rules out a mutant that fails for environmental reasons - a missing
+        // module arg, a compile error - which is exactly what the first vault
+        // mutants did while looking green.)
+        // The mutant must still be a RUNNING dapp: no case may fail for an
+        // environmental reason (module args, compile, schema) - that is the
+        // vacuous-mutant failure mode. Other shipped tests MAY go red too: when a
+        // guard is removed, value gets created, and the conservation test and the
+        // exploit replay can both trip. Two independent proofs, not a broken run.
+        mutant.cases.forEach {
+            val e = it.error.orEmpty()
+            assertFalse(
+                e.contains("Unable to create GTX module") || e.contains("do not compile") || e.contains("Missing metadata"),
+                "$template mutant failed for an environmental reason, proving nothing about the guard: ${it.name} - $e"
+            )
+        }
+        val case = mutant.cases.single { it.name.endsWith(exploitTest) }
+        assertFalse(case.ok, "$template: $exploitTest must FAIL once '$guard' is mutated - it stayed green, so it proves nothing")
+        val error = case.error.orEmpty()
+        // Right reason: the attack step now SUCCEEDS (run_must_fail reports that the
+        // transaction did not fail) or the created value trips the conservation /
+        // capped-payout assertion. Wrong reason would be the attack still refused
+        // by some other guard (quotes the guard's text), or an environment failure.
+        assertFalse(error.contains(stillRefusedFragment), "$template: $exploitTest failed for the wrong reason - the attack was still refused: $error")
+        assertFalse(error.contains("Unable to create GTX module"), "$template: mutant ran without its module_args - vacuous: $error")
+        assertTrue(error.contains(redFragment, ignoreCase = true), "$template: $exploitTest must fail because the attack landed ('$redFragment'), got: $error")
+    }
+
     private fun assertGuardRemovalRedensExploitTest(
         template: String,
         guard: String,
         exploitTest: String,
         expectedFailureFragment: String,
         alsoRemove: List<String> = emptyList()
-    ) {
-        if (dbUrl == null) return // these run real transactions; the DB branch is authoritative and CI provides one
-        val files = rellOf(template).toMutableMap()
-        var main = files.getValue("main.rell")
-        (listOf(guard) + alsoRemove).forEach { g ->
-            assertTrue(main.contains(g), "$template guard must exist verbatim: $g")
-            main = main.replace(g, "")
-        }
-        files["main.rell"] = main
-        val mutant = runShipped(template, files, label = "$template-without[${guard.take(48)}]")
-        // The mutant must still be a working dapp: the OTHER shipped tests keep
-        // passing, so the only thing the removed guard changes is the exploit.
-        // (Rules out a mutant that fails for environmental reasons - a missing
-        // module arg, a compile error - which is what the vault mutants did.)
-        mutant.cases.filter { !it.name.endsWith(exploitTest) }.forEach {
-            assertTrue(it.ok, "$template mutant must otherwise run: ${it.name} - ${it.error}")
-        }
-        val case = mutant.cases.single { it.name.endsWith(exploitTest) }
-        assertFalse(case.ok, "$template: $exploitTest must FAIL once '$guard' is removed - it stayed green, so it proves nothing")
-        // Right reason: the attack step now SUCCEEDS - run_must_fail reports
-        // "Transaction did not fail". Wrong reason would be the attack still
-        // refused by some other guard, or a message mismatch (both quote the
-        // guard's text), or the chain not starting at all.
-        assertTrue(
-            case.error?.contains(RUN_MUST_FAIL_UNEXPECTED_SUCCESS) == true,
-            "$template: $exploitTest must fail because the attack now succeeds, got: ${case.error}"
-        )
-        assertFalse(
-            case.error?.contains(expectedFailureFragment) == true,
-            "$template: $exploitTest failed for the wrong reason - the attack was still refused: ${case.error}"
-        )
-    }
+    ) = assertGuardMutationRedensExploitTest(template, guard, "", exploitTest, expectedFailureFragment, attackLanded, alsoRemove)
 
     @Test
     fun governanceExploitTestGoesRedWithoutTheQuorumGuard() = assertGuardRemovalRedensExploitTest(
@@ -356,7 +469,7 @@ class DappScaffoldSecureTemplatesTest {
         val files = rellOf("vault").toMutableMap()
         val bound = "require(price * 10000 >= prev * (10000 - MAX_PRICE_MOVE_BPS), \"price move exceeds bound\");"
         files["main.rell"] = files.getValue("main.rell").replace(bound, "")
-        val mutant = runShipped("vault", files, label = "vault-without-lower-bound-only")
+        val mutant = runShipped("vault", label = "vault-without-lower-bound-only", files = files)
         val case = mutant.cases.single { it.name.endsWith("test_round1_price_crash_must_fail") }
         assertFalse(case.ok, "the exploit test asserts the bound's message, so it must go red")
         assertTrue(
@@ -364,4 +477,37 @@ class DappScaffoldSecureTemplatesTest {
             "the crash must still be REFUSED - by the rate limit - not succeed: ${'$'}{case.error}"
         )
     }
+    /** Uncap the release: the clock alone now creates points, and the round-4 claim from an empty pool lands. */
+    @Test
+    fun stakingExploitTestGoesRedWithoutTheReleaseCap() = assertGuardMutationRedensExploitTest(
+        "staking",
+        "min(pool.undistributed, elapsed_ms / 1000 * REWARD_PER_SECOND)",
+        "elapsed_ms / 1000 * REWARD_PER_SECOND",
+        "test_round4_unbacked_reward_must_fail",
+        "nothing to claim",
+        // The release cap is a CAP, not a refusal: with it gone the claim succeeds and
+        // the capped-payout assertion trips (50 -> 31,536,010). That assertion tripping
+        // IS the attack landing - value was created - so it is the success marker here,
+        // and the wrong-reason check still excludes the guard's own refusal text.
+        "assert_equals"
+    )
+
+    /** Stop debiting the pool for what it releases: sponsors' 300 pays out again and again, and conservation trips. */
+    @Test
+    fun stakingConservationTestGoesRedWithoutThePoolDebit() = assertGuardMutationRedensExploitTest(
+        "staking",
+        "pool.undistributed -= earned;",
+        "",
+        "test_rewards_come_only_from_sponsor_funding",
+        "pool cannot cover the claim",
+        "expected"
+    )
+
+    @Test
+    fun stakingCooldownTestGoesRedWithoutTheCooldownGuard() = assertGuardRemovalRedensExploitTest(
+        "staking",
+        "require(op_context.last_block_time >= r.ready_at, \"cooldown not over\");",
+        "test_late_staker_earns_nothing_for_the_past_and_cooldown_holds",
+        "cooldown not over"
+    )
 }

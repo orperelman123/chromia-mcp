@@ -173,6 +173,17 @@ class TranslateErrorToolTest {
     fun gtvDouble() =
         assertRule("gtv_double", "Cannot convert object of type Double to GTV")
 
+    @Test
+    fun gtvByteArrayFromWrappedHexLiteral() =
+        // Adversary round 4: the scaffold's yml writes admin_pubkey: x"02C4...",
+        // the agent pasted it into run_rell_tests moduleArgs, every case failed
+        // with this, and translate_error answered matched:false.
+        assertRule(
+            "gtv_bytearray_from_string",
+            "net.postchain.common.exception.UserMistake: Can't create ByteArray from string 'x\"02C4049F9550DCFF6003347BB3944DF2AA2D6EF5202C22834284B085C56DE8C6DD\"'",
+            context = "calling run_rell_tests with moduleArgs from chromia.yml"
+        )
+
     // ---- family: postchain runtime / postgres ------------------------------
 
     @Test

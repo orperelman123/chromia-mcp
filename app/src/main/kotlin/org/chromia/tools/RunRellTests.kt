@@ -346,12 +346,40 @@ object RunRellTests {
     ): Map<String, Map<String, net.postchain.gtv.Gtv>> =
         moduleArgs.mapValues { (_, args) -> args.mapValues { (_, v) -> jsonToGtv(v) } }
 
+    /**
+     * A byte_array literal in the shapes agents paste: chromia.yml's `x"02C4..."`
+     * (what `chr` itself parses into bytes), the client-side `0x02c4...`, or the
+     * single-quoted `x'...'`. Bare hex is NOT matched here - GtvString already
+     * decodes it when bound to a byte_array, and a bare hex text arg must stay text.
+     */
+    private val HEX_LITERAL_REGEX = Regex("""^(?:x"([0-9A-Fa-f]*)"|x'([0-9A-Fa-f]*)'|0[xX]([0-9A-Fa-f]+))$""")
+
+    /**
+     * Bytes for a wrapped hex literal, or null when [value] is not one (odd
+     * length included - that is not a byte string, and passing it through as
+     * text keeps the runtime's own "Can't create ByteArray" diagnosis intact).
+     * Adversary round 4 stalled every non-expert here: the scaffold's own yml
+     * writes `admin_pubkey: x"02C4..."`, the notes said "pass moduleArgs plus
+     * test.moduleArgs", and pasting the literal verbatim failed every case with
+     * `Can't create ByteArray from string 'x"02C4..."'`.
+     */
+    internal fun hexLiteralBytes(value: String): ByteArray? {
+        val m = HEX_LITERAL_REGEX.matchEntire(value.trim()) ?: return null
+        val hex = m.groups[1]?.value ?: m.groups[2]?.value ?: m.groups[3]?.value ?: return null
+        if (hex.length % 2 != 0) return null
+        return ByteArray(hex.length / 2) { i -> hex.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
+    }
+
     /** Internal for tests (audit F4: past-Long integers must become GtvBigInteger). */
     internal fun jsonToGtv(element: kotlinx.serialization.json.JsonElement): net.postchain.gtv.Gtv = when (element) {
         is kotlinx.serialization.json.JsonNull -> net.postchain.gtv.GtvNull
         is kotlinx.serialization.json.JsonPrimitive ->
             when {
-                element.isString -> net.postchain.gtv.GtvFactory.gtv(element.content)
+                // x"..." / 0x... become real bytes; any other string stays a string
+                // (bare hex still binds to byte_array through GtvString's own decode).
+                element.isString ->
+                    hexLiteralBytes(element.content)?.let { net.postchain.gtv.GtvFactory.gtv(it) }
+                        ?: net.postchain.gtv.GtvFactory.gtv(element.content)
                 element.content == "true" || element.content == "false" ->
                     net.postchain.gtv.GtvFactory.gtv(element.content.toBoolean())
                 // An integer past Long.MAX_VALUE used to fall through to GtvString,
