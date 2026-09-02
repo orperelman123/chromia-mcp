@@ -208,8 +208,9 @@ class InputAbuseAndLifecycleRegressionTest {
         assertEquals("true", userModule.structuredContent!!.getValue("ok").jsonPrimitive.content, text(userModule))
 
         // A directory module whose header-less file declares module_args resolves
-        // at the resolver level (the compiler's own handling of module_args in
-        // directory layouts is out of scope here - see the QA report).
+        // at the resolver level. (The QA round's "module_args + directory test
+        // module fails to compile" suspicion was a syntax error masked by the
+        // compiler - `limit` is a keyword; see ModuleArgsLayoutMatrixTest.)
         val dir = java.nio.file.Files.createTempDirectory("module-args-resolve")
         try {
             java.nio.file.Files.createDirectories(dir.resolve("app"))

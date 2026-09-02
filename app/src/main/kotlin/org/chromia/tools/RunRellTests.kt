@@ -495,10 +495,22 @@ object RunRellTests {
                 // without printing through cliEnv - falling back to the exception
                 // message beats an empty diagnostics block (price-oracle,
                 // real-world round 1).
-                val diagnostics = messages
+                val printed = messages
                     .filter { it.isNotBlank() && !isVendoredFt4Warning(it) }
                     .joinToString("\n")
                     .ifBlank { cause.message ?: "no compiler diagnostics captured" }
+                // "Module 'tests' is not a test module" is the compiler's verdict
+                // on a @test module whose file failed to PARSE - the syntax error
+                // itself was discarded (see RellCheck.recoverMaskedTestModuleErrors).
+                // Agents read it as a layout/module_args problem (QA 2026-09-02);
+                // surface the real error and say why the compiler said what it said.
+                val masked = RellCheck.NOT_TEST_MODULE_REGEX.find(printed)
+                val diagnostics = if (masked == null) printed else {
+                    val module = masked.groupValues[1]
+                    val recovered = RellCheck.recoverMaskedTestModuleErrors(sourceDir, module, appModules.orEmpty())
+                    (recovered.ifEmpty { listOf(printed) } + RellCheck.maskedTestModuleHint(module, recovered.isNotEmpty()))
+                        .joinToString("\n")
+                }
                 throw IllegalArgumentException(
                     "Rell test sources do not compile:\n$diagnostics".trimEnd()
                 )
