@@ -264,12 +264,20 @@ object RellSecurityCheck {
      * that only saw cross-file duplicates (audit 2026-09-01). Callers must
      * merge per name over all definitions, never assume the name is unique.
      */
-    internal fun functionBodies(maskedContent: String): List<Pair<String, String>> {
-        val functions = mutableListOf<Pair<String, String>>()
+    internal fun functionBodies(maskedContent: String): List<Pair<String, String>> =
+        functionDefinitions(maskedContent).map { it.name to it.body }
+
+    /** One `function name(params) { body }` / `= expr;` definition, masked. */
+    internal data class FunctionDef(val name: String, val params: String, val body: String)
+
+    /** Every function definition in the (masked) source with its raw parameter list - see [functionBodies]. */
+    internal fun functionDefinitions(maskedContent: String): List<FunctionDef> {
+        val functions = mutableListOf<FunctionDef>()
         FUNCTION_REGEX.findAll(maskedContent).forEach { match ->
             val name = match.groupValues[1]
             val parenStart = maskedContent.indexOf('(', match.range.first)
             val parenEnd = matchDelimiter(maskedContent, parenStart, '(', ')') ?: return@forEach
+            val params = maskedContent.substring(parenStart + 1, parenEnd)
             val braceStart = maskedContent.indexOf('{', parenEnd)
             val eqIdx = maskedContent.indexOf('=', parenEnd)
             val body = when {
@@ -283,7 +291,7 @@ object RellSecurityCheck {
                 }
                 else -> return@forEach
             }
-            functions.add(name to body)
+            functions.add(FunctionDef(name, params, body))
         }
         return functions
     }
@@ -481,6 +489,7 @@ object RellSecurityCheck {
             PRICE_STATE_READ_REGEX
         )
         val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
+        val inlinable = inlinableFunctions(fullyMasked)
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -526,7 +535,7 @@ object RellSecurityCheck {
                 findings += bannedModuleFindings(path, masked, allowAdminModules)
             }
             findings += hardcodedSecretFindings(path, commentMasked)
-            findings += massMutationFindings(path, masked)
+            findings += massMutationFindings(path, masked, commentMasked)
             findings += icmfReceiverFindings(
                 path, masked, mutatingFunctions, requireFunctions, knownFunctions, allEntityNames
             )
@@ -541,7 +550,8 @@ object RellSecurityCheck {
             ops.forEach { op ->
                 findings += operationFindings(
                     path, op, authFunctions, mutatingFunctions, authMarkers,
-                    valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
+                    valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions,
+                    inlinable, allEntityNames, RunRellTests.isTestModuleSource(content)
                 )
                 findings += amountLowerBoundFindings(
                     path, op, requireFunctions, knownFunctions, valueMutatingFunctions,
@@ -826,6 +836,132 @@ object RellSecurityCheck {
         return null
     }
 
+    // ---- helper inlining: keyed per-operation rules must see through calls ----
+    // The submission-wide auth/mutation closures answer "does this op reach a
+    // mutation / an auth marker" but not "keyed by WHICH identifier". The
+    // confused-deputy and phantom-signer rules key on operation parameters, so
+    // an attacker moved the keyed mutation (`.balance -= amount` keyed by the
+    // caller-supplied `from`) or the phantom gate (`is_signer(admin)`) one call
+    // deep and both rules went silent while the exploit still ran (adversary
+    // round 3, verified against the built jar). [inlineHelpers] rewrites every
+    // reachable app-owned helper body into the operation's own namespace -
+    // formals become the caller's argument text, so "caller-supplied" survives
+    // the call, and helper locals get fresh names so they can never capture a
+    // caller identifier - recursively, cross-file, through namespaced calls.
+
+    /** Bare name -> every definition of an app-owned function (all files, all namespaces). */
+    internal fun inlinableFunctions(fullyMasked: Map<String, String>): Map<String, List<FunctionDef>> {
+        val out = mutableMapOf<String, MutableList<FunctionDef>>()
+        fullyMasked.forEach { (path, masked) ->
+            // Library code (vendored FT4, third-party lib/) is not inlined: its
+            // functions stay opaque callees, exactly as they are for the
+            // per-parameter validation rules (benefit of the doubt).
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            functionDefinitions(masked).forEach { def -> out.getOrPut(def.name) { mutableListOf() }.add(def) }
+        }
+        return out
+    }
+
+    private const val INLINE_MAX_DEPTH = 6
+    private const val INLINE_MAX_CHARS = 200_000
+    private val NAMED_ARG_REGEX = Regex("""^([A-Za-z_]\w*)\s*=(?!=)(.*)$""", RegexOption.DOT_MATCHES_ALL)
+    private val LOCAL_DECL_REGEX = Regex("""\b(?:val|var)\s+([A-Za-z_]\w*)""")
+    /** An identifier that is not a member access (`.owner` and the `id` of `account.id` are left alone). */
+    private val FREE_IDENT_REGEX = Regex("""(?<![.\w])[A-Za-z_]\w*""")
+
+    /** Top-level comma split of a call's argument text (`(`, `[`, `{` nest; `<` is a comparison here). */
+    private fun splitArgs(text: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var depth = 0
+        for (c in text) {
+            when (c) {
+                '(', '[', '{' -> { depth++; cur.append(c) }
+                ')', ']', '}' -> { depth--; cur.append(c) }
+                ',' -> if (depth == 0) { out.add(cur.toString()); cur.clear() } else cur.append(c)
+                else -> cur.append(c)
+            }
+        }
+        if (cur.isNotBlank()) out.add(cur.toString())
+        return out.map { it.trim() }
+    }
+
+    /**
+     * The helper body rewritten in the caller's namespace: each formal becomes
+     * the actual argument text bound to it (positional or `name = expr`), and
+     * every unbound formal or helper-declared local is renamed to a fresh
+     * identifier. Substitution is a single pass over free identifiers, so a
+     * replacement is never itself rewritten.
+     */
+    private fun bindHelperBody(def: FunctionDef, argText: String, serial: Int): String {
+        val formals = parseParams(def.params).map { it.first }
+        val binding = mutableMapOf<String, String>()
+        var positional = 0
+        splitArgs(argText).forEach { actual ->
+            val named = NAMED_ARG_REGEX.find(actual)
+            if (named != null && named.groupValues[1] in formals) {
+                binding[named.groupValues[1]] = named.groupValues[2].trim()
+            } else if (positional < formals.size) {
+                binding[formals[positional]] = actual
+                positional++
+            }
+        }
+        formals.forEach { binding.putIfAbsent(it, "${it}__h$serial") }
+        LOCAL_DECL_REGEX.findAll(def.body).forEach { m ->
+            binding.putIfAbsent(m.groupValues[1], "${m.groupValues[1]}__h$serial")
+        }
+        return FREE_IDENT_REGEX.replace(def.body) { m -> binding[m.value] ?: m.value }
+    }
+
+    /**
+     * [body] with every call to an app-owned helper expanded in place: the
+     * call keeps its name but its argument list is replaced by the bound
+     * helper body (`check(admin)` -> `check( ; require(is_signer(admin)); )`),
+     * so an identifier whose only use was as an argument to an inlined helper
+     * no longer reads as "used" at the call site. Recursive to
+     * [INLINE_MAX_DEPTH] (chains of helpers), cycle-guarded, every same-named
+     * definition expanded (conservative, as for the closures), capped at
+     * [INLINE_MAX_CHARS]. A name preceded by update/delete is a mutation
+     * target, never a callee ([isMutationTarget] precedent).
+     */
+    internal fun inlineHelpers(
+        body: String,
+        functions: Map<String, List<FunctionDef>>,
+        entities: Set<String>
+    ): String {
+        if (functions.isEmpty()) return body
+        var serial = 0
+        var budget = INLINE_MAX_CHARS
+        fun expand(text: String, depth: Int, stack: Set<String>): String {
+            if (depth >= INLINE_MAX_DEPTH || budget <= 0) return text
+            val sb = StringBuilder()
+            var last = 0
+            CALL_SITE_REGEX.findAll(text).forEach { m ->
+                if (m.range.first < last) return@forEach
+                val callee = m.groupValues[1]
+                val defs = functions[callee] ?: return@forEach
+                if (callee in stack || callee in CONTROL_KEYWORDS || callee in entities || isMutationTarget(text, m)) {
+                    return@forEach
+                }
+                val parenStart = text.indexOf('(', m.range.first)
+                val parenEnd = matchDelimiter(text, parenStart, '(', ')') ?: return@forEach
+                val args = text.substring(parenStart + 1, parenEnd)
+                sb.append(text, last, parenStart + 1)
+                defs.forEach { def ->
+                    serial++
+                    val bound = bindHelperBody(def, args, serial)
+                    budget -= bound.length
+                    sb.append(" ;").append(expand(bound, depth + 1, stack + callee)).append("; ")
+                }
+                sb.append(')')
+                last = parenEnd + 1
+            }
+            sb.append(text, last, text.length)
+            return sb.toString()
+        }
+        return expand(body, 0, emptySet())
+    }
+
     /**
      * HIGH when an authenticated operation debits/deletes rows selected by an
      * account-ish operation parameter that is never bound to the caller: no
@@ -833,13 +969,16 @@ object RellSecurityCheck {
      * `is_signer(<param>)`, and the operation is not an admin op keyed to
      * `chain_context.args.*`. Runs only when the operation authenticates -
      * the unauthenticated case is already `unauthenticated-mutation`.
+     * [body] is the operation body with reachable helpers inlined
+     * ([inlineHelpers]) - the keyed mutation and the binding are found
+     * wherever the call chain puts them.
      */
     private fun confusedDeputyFindings(
         path: String,
         op: OperationBlock,
+        body: String,
         authFunctions: Set<String>
     ): List<Finding> {
-        val body = op.body
         // Admin ops keyed to blockchain config are the sanctioned break-glass
         // pattern (require(account.id == chain_context.args.admin, ...)).
         if (body.contains("chain_context.args")) return emptyList()
@@ -857,9 +996,15 @@ object RellSecurityCheck {
         val statements = body.split(';')
         val findings = mutableListOf<Finding>()
         accountParams.forEach { param ->
-            val paramRef = Regex("""\b${Regex.escape(param)}\b""")
+            // The parameter plus every local assigned from it: `val victim = from;`
+            // then keying on `victim` (in the body or handed to a helper) is
+            // the same caller-controlled selection under another name.
+            val names = taintedNames(body, param)
+            val alternatives = names.joinToString("|") { Regex.escape(it) }
+            // Free identifiers only: `.from` is an attribute, not the parameter.
+            val paramRef = Regex("""(?<![.\w])(?:$alternatives)\b""")
             // is_signer(<param>) proves the caller controls that key - bound.
-            if (Regex("""is_signer\s*\(\s*${Regex.escape(param)}\s*\)""").containsMatchIn(body)) return@forEach
+            if (Regex("""is_signer\s*\(\s*(?:$alternatives)\s*\)""").containsMatchIn(body)) return@forEach
             // Any single statement relating the param to the authenticated
             // identity counts: require(param == account.id, ...), or a mutation
             // co-keyed by both (.grantee == param, .granter == account.id).
@@ -897,18 +1042,35 @@ object RellSecurityCheck {
      * used (keying the write, passed onward) it is the idiomatic self-binding
      * pattern and stays clean; the raw "any is_signer(param)" version of this
      * rule would flag every self-registration op and train agents to ignore
-     * the gate.
+     * the gate. [body] is the operation body with reachable helpers inlined:
+     * `check(admin)` over `function check(k) { require(is_signer(k)); }` is
+     * the same phantom gate one call deep, and the inlined call site no longer
+     * counts the argument as a use.
      */
-    private fun phantomSignerGateFindings(path: String, op: OperationBlock, mutates: Boolean): List<Finding> {
+    private fun phantomSignerGateFindings(
+        path: String,
+        op: OperationBlock,
+        body: String,
+        mutates: Boolean
+    ): List<Finding> {
         if (!mutates) return emptyList()
         val paramNames = parseParams(op.params).mapTo(mutableSetOf()) { it.first }
         if (paramNames.isEmpty()) return emptyList()
-        val checkedParams = IS_SIGNER_ARG_REGEX.findAll(op.body)
-            .map { it.groupValues[1] }.filter { it in paramNames }.toSet()
+        // `val k = admin; require(is_signer(k));` is the same phantom gate
+        // through a local: the check is matched against the parameter's taint
+        // set, and the binding statements themselves do not count as a use.
+        val taints = paramNames.associateWith { taintedNames(body, it) }
+        val signerArgs = IS_SIGNER_ARG_REGEX.findAll(body).map { it.groupValues[1] }.toSet()
+        val checkedParams = paramNames.filter { p -> taints.getValue(p).any { it in signerArgs } }
         if (checkedParams.isEmpty()) return emptyList()
-        val residual = IS_SIGNER_CALL_REGEX.replace(op.body, "is_signer(_)")
+        val withoutGates = IS_SIGNER_CALL_REGEX.replace(body, "is_signer(_)")
         return checkedParams.mapNotNull { param ->
-            if (Regex("""\b${Regex.escape(param)}\b""").containsMatchIn(residual)) return@mapNotNull null
+            val names = taints.getValue(param)
+            val residual = VAL_BINDING_REGEX.replace(withoutGates) { m ->
+                if (m.groupValues[1] in names) "" else m.value
+            }
+            val used = Regex("""(?<![.\w])(?:${names.joinToString("|") { Regex.escape(it) }})\b""")
+            if (used.containsMatchIn(residual)) return@mapNotNull null
             Finding(
                 "HIGH", "signer-check-on-untrusted-argument", path, op.line,
                 "operation ${op.name} gates a mutation on is_signer('$param') where '$param' is a " +
@@ -971,21 +1133,187 @@ object RellSecurityCheck {
     }
 
     // ---- mass-mutation ----
-    /** `update x @* {}` / `delete x @* {}`: an empty where-clause hits EVERY row. */
-    private val MASS_MUTATION_REGEX = Regex("""\b(update|delete)\s+[A-Za-z_][\w.]*\s*@\*\s*\{\s*\}""")
+    /** `update x @* {` / `delete x @* {`: a set-mutation; the where-clause decides how many rows. */
+    private val BULK_MUTATION_REGEX = Regex("""\b(update|delete)\s+[A-Za-z_][\w.]*\s*@\*\s*\{""")
+    /** `x""` / `""` / `''` - the empty literal no real key equals. Read from comment-masked text. */
+    private val EMPTY_LITERAL = Regex("""^x?(?:""|'')$""")
+    private val EMPTY_LITERAL_BLANKED = Regex("""^x?$""")
+    /** A member/attribute reference that is not `op_context.*` / `chain_context.*`. */
+    private val ATTRIBUTE_REF_REGEX = Regex("""(?<!\bop_context|\bchain_context)\.[A-Za-z_]""")
 
-    private fun massMutationFindings(path: String, masked: String): List<Finding> =
-        MASS_MUTATION_REGEX.findAll(masked).map { m ->
-            val keyword = m.groupValues[1]
+    /** One `update|delete <entity> @* { where }` site in a masked text. */
+    private data class BulkMutation(val keyword: String, val start: Int, val whereStart: Int, val whereEnd: Int)
+
+    private fun bulkMutations(masked: String): List<BulkMutation> =
+        BULK_MUTATION_REGEX.findAll(masked).mapNotNull { m ->
+            val braceStart = m.range.last
+            val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@mapNotNull null
+            BulkMutation(m.groupValues[1], m.range.first, braceStart + 1, braceEnd)
+        }.toList()
+
+    /** Top-level split on a keyword (`and` / `or`) - parentheses and brackets nest. */
+    private fun splitTopLevelKeyword(text: String, keyword: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var depth = 0
+        var i = 0
+        val kw = Regex("""\b$keyword\b""")
+        while (i < text.length) {
+            val c = text[i]
+            if (c == '(' || c == '[') depth++
+            if (c == ')' || c == ']') depth--
+            val m = if (depth == 0 && c == keyword[0]) kw.find(text, i)?.takeIf { it.range.first == i } else null
+            if (m != null) {
+                out.add(cur.toString())
+                cur.clear()
+                i = m.range.last + 1
+                continue
+            }
+            cur.append(c)
+            i++
+        }
+        out.add(cur.toString())
+        return out
+    }
+
+    /**
+     * True when the where-clause cannot exclude a real row. Two provable
+     * shapes: no attribute is referenced at all (`1 == 1`, `true`, `flag`,
+     * `op_context.last_block_time > 0` - the condition is the same for every
+     * row, so it selects all rows or none), or `<attr> != <empty literal>`
+     * (`.account_id != x""` - no real key is the empty value). A disjunction
+     * with a tautological branch is a tautology; a conjunction needs every
+     * conjunct. [whereText] is comment-masked (strings kept) so the literal
+     * is readable.
+     */
+    internal fun isTautologicalWhere(whereText: String, literalsBlanked: Boolean = false): Boolean {
+        if (whereText.isBlank()) return true
+        // With string contents AND quotes blanked (the fully masked text the
+        // per-operation rules run on) an empty literal and a non-empty one
+        // are the same run of spaces; that mode only ever SUPPRESSES the
+        // advisory rule, so it errs toward "tautology".
+        val empty = if (literalsBlanked) EMPTY_LITERAL_BLANKED else EMPTY_LITERAL
+        fun atomTautological(atom: String): Boolean {
+            val t = atom.trim()
+            if (t.isEmpty()) return false
+            if (!ATTRIBUTE_REF_REGEX.containsMatchIn(t) && !t.contains('$')) return true
+            val sides = t.split("!=")
+            if (sides.size != 2) return false
+            val l = sides[0].trim()
+            val r = sides[1].trim()
+            return (empty.matches(r) && ATTRIBUTE_REF_REGEX.containsMatchIn(l)) ||
+                (empty.matches(l) && ATTRIBUTE_REF_REGEX.containsMatchIn(r))
+        }
+        return splitTopLevelKeyword(whereText, "or").any { disjunct ->
+            splitTopLevelKeyword(disjunct, "and").all { atomTautological(it) }
+        }
+    }
+
+    /**
+     * HIGH `mass-mutation` for a set-mutation whose where-clause is empty or
+     * tautological ([isTautologicalWhere]). [masked] (strings blanked) gives
+     * the structure; [commentMasked] (strings kept) is read at the same
+     * offsets for the literal - both maskings are length-preserving.
+     */
+    private fun massMutationFindings(path: String, masked: String, commentMasked: String): List<Finding> =
+        bulkMutations(masked).mapNotNull { b ->
+            // Quotes come from the comment-masked text, everything else from
+            // the fully masked one: `and`/`or` inside a literal must not split
+            // the clause, but `""` vs `"x"` must stay distinguishable.
+            val whereRaw = buildString {
+                for (i in b.whereStart until b.whereEnd) {
+                    val q = commentMasked[i]
+                    append(if (q == '"' || q == '\'') q else masked[i])
+                }
+            }
+            if (!isTautologicalWhere(whereRaw)) return@mapNotNull null
+            val keyword = b.keyword
+            val site = masked.substring(b.start, b.whereEnd + 1).replace(Regex("""\s+"""), " ")
+            val verb = if (keyword == "delete") "deletes" else "rewrites"
+            val shape = if (whereRaw.isBlank()) "an empty where-clause" else
+                "a where-clause that excludes no real row (${whereRaw.trim().replace(Regex("""\s+"""), " ")})"
             Finding(
                 "HIGH", "mass-mutation", path,
-                masked.substring(0, m.range.first).count { it == '\n' } + 1,
-                m.value.replace(Regex("""\s+"""), " "),
-                "$keyword with an empty where-clause ${if (keyword == "delete") "deletes" else "rewrites"} " +
-                    "EVERY row of the entity. Filter the rows (delete x @* { .owner == account.id }); " +
-                    "if a full wipe really is intended, it belongs behind an explicit admin gate."
+                masked.substring(0, b.start).count { it == '\n' } + 1,
+                site,
+                "$keyword with $shape $verb EVERY row of the entity. Filter the rows " +
+                    "(delete x @* { .owner == account.id }); if a full wipe really is intended, it belongs " +
+                    "behind an explicit admin gate."
             )
-        }.toList()
+        }
+
+    /**
+     * ADVISORY MEDIUM `bulk-mutation-not-caller-bound`: a set-mutation whose
+     * where-clause references nothing the caller or the chain supplies - no
+     * operation parameter (or local derived from one), no authenticated
+     * identity, no `op_context`/`chain_context` term, no function call. Such a
+     * filter (`.status == "pending"`, `.tier > 0`) selects the same rows for
+     * every caller, so any account that can reach the operation rewrites or
+     * deletes rows it does not own. A tautology dressed up as a filter
+     * (`.account_id.size() >= 0`, `not (.id == x"")`) lands here too, so the
+     * provable HIGH rule cannot be sidestepped in silence. Whether that is a
+     * wipe or a legitimate
+     * batch job is not decidable from the filter text, so this is advisory
+     * only and never blocks; the tautological shapes that ARE provable are
+     * the HIGH `mass-mutation` rule. Skipped for admin ops keyed to
+     * `chain_context.args` and for @test modules (fixtures wipe tables).
+     * [body] is the helper-inlined operation body.
+     */
+    private fun bulkMutationNotCallerBoundFindings(
+        path: String,
+        op: OperationBlock,
+        body: String,
+        authFunctions: Set<String>,
+        knownFunctions: Set<String>
+    ): List<Finding> {
+        // A call to code the submission does not define (`now()`, a library
+        // predicate) may bind the filter where we cannot see - benefit of the
+        // doubt, as for paramDelegated. A method on an attribute
+        // (`.account_id.size() >= 0`), a control keyword (`not (...)`) or an
+        // app helper (already inlined) is not that.
+        fun callsUnknown(where: String): Boolean = CALL_SITE_REGEX.findAll(where).any { m ->
+            val callee = m.groupValues[1]
+            val precededByDot = m.range.first > 0 && where[m.range.first - 1] == '.'
+            !precededByDot && callee !in CONTROL_KEYWORDS && callee !in knownFunctions
+        }
+        if (body.contains("chain_context.args")) return emptyList()
+        val sites = bulkMutations(body)
+        if (sites.isEmpty()) return emptyList()
+        val seeds = parseParams(op.params).mapTo(mutableSetOf()) { it.first }
+        VAL_CALL_REGEX.findAll(body).forEach { m ->
+            val callee = m.groupValues[2].substringAfterLast('.')
+            if (callee == "authenticate" || callee in authFunctions) seeds.add(m.groupValues[1])
+        }
+        VAL_BINDING_REGEX.findAll(body).forEach { m ->
+            if (m.groupValues[2].contains("op_context") || m.groupValues[2].contains("chain_context")) {
+                seeds.add(m.groupValues[1])
+            }
+        }
+        val trusted = seeds.flatMapTo(mutableSetOf()) { taintedNames(body, it) }
+        return sites.mapNotNull { b ->
+            val where = body.substring(b.whereStart, b.whereEnd)
+            // Empty/tautological filters are the HIGH rule's; a call, a chain
+            // term or a trusted name in the filter gets the benefit of the doubt.
+            if (where.isBlank() || isTautologicalWhere(where, literalsBlanked = true)) return@mapNotNull null
+            if (where.contains("op_context") || where.contains("chain_context") || callsUnknown(where)) {
+                return@mapNotNull null
+            }
+            if (trusted.any { Regex("""(?<![.\w])${Regex.escape(it)}\b""").containsMatchIn(where) }) {
+                return@mapNotNull null
+            }
+            val verb = if (b.keyword == "delete") "deletes" else "rewrites"
+            Finding(
+                "MEDIUM", "bulk-mutation-not-caller-bound", path, op.line,
+                "operation ${op.name} $verb every row matching { ${where.trim().replace(Regex("""\s+"""), " ")} } - " +
+                    "the filter references no parameter, no authenticated identity and no chain state, so it " +
+                    "selects the same rows for every caller",
+                "If this is a per-caller change, key the rows off the authenticated identity " +
+                    "(.owner == account.id). If it is a batch job, gate it explicitly (an admin from " +
+                    "chain_context.args, or a stored role). Advisory only: the filter text cannot show " +
+                    "whether the selection is intended."
+            )
+        }
+    }
 
     // ---- economic-invariant advisories (MEDIUM, never blocking) ----
     // The adversary round proved the drainable dApps were drainable by DESIGN:
@@ -1976,10 +2304,16 @@ object RellSecurityCheck {
         valueMutatingFunctions: Set<String> = emptySet(),
         ft4AuthCallers: Set<String> = emptySet(),
         emptyFlagsOnly: Boolean = false,
-        requireFunctions: Set<String> = emptySet()
+        requireFunctions: Set<String> = emptySet(),
+        helpers: Map<String, List<FunctionDef>> = emptyMap(),
+        entities: Set<String> = emptySet(),
+        testModule: Boolean = false
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
         val calls = calledNames(op.body)
+        // The keyed rules (confused deputy, phantom signer gate) analyze the
+        // operation with every reachable app-owned helper inlined.
+        val effectiveBody = inlineHelpers(op.body, helpers, entities)
         val hasAuth = containsAuthMarker(op.body, authMarkers) ||
             authFunctions.any { it in calls }
         val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body) ||
@@ -1997,7 +2331,7 @@ object RellSecurityCheck {
             )
         }
         if (hasAuth) {
-            findings += confusedDeputyFindings(path, op, authFunctions)
+            findings += confusedDeputyFindings(path, op, effectiveBody, authFunctions)
         }
         if (mutates && hasAuth) {
             val scan = scanAuthPaths(op.body, authMarkers, authFunctions, mutatingFunctions)
@@ -2016,7 +2350,10 @@ object RellSecurityCheck {
                 )
             }
         }
-        findings += phantomSignerGateFindings(path, op, mutates)
+        findings += phantomSignerGateFindings(path, op, effectiveBody, mutates)
+        if (!testModule) {
+            findings += bulkMutationNotCallerBoundFindings(path, op, effectiveBody, authFunctions, helpers.keys)
+        }
         if (emptyFlagsOnly) {
             val ft4Authed = "authenticate" in calls || calls.any { it in ft4AuthCallers }
             val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) ||
