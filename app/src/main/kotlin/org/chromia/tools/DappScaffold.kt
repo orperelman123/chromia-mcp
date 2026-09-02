@@ -14,6 +14,33 @@ import kotlinx.serialization.json.put
  * Does not send signed transactions.
  */
 object DappScaffold {
+
+    /**
+     * The FT4 module_args the ft4 template writes into chromia.yml, in the shape
+     * run_rell_tests takes. FT4 will not initialize without them: the tool
+     * accepts module_args as a PARAMETER and does not read the generated yml, so
+     * running the shipped tests without these fails every case with an opaque
+     * "Unable to create GTX module". Kept beside the yml it mirrors so the two
+     * cannot drift.
+     */
+    fun ft4TestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = mapOf(
+        "lib.ft4" to mapOf("query_max_page_size" to JsonPrimitive(100)),
+        "lib.ft4.core.accounts" to mapOf(
+            "rate_limit" to buildJsonObject {
+                put("active", JsonPrimitive(true))
+                put("max_points", JsonPrimitive(10))
+                put("recovery_time", JsonPrimitive(5000))
+                put("points_at_account_creation", JsonPrimitive(1))
+            },
+            "auth_descriptor" to buildJsonObject {
+                put("max_rules", JsonPrimitive(8))
+                put("max_number_per_account", JsonPrimitive(10))
+            },
+            "auth_flags" to buildJsonObject {
+                put("mandatory", buildJsonArray { add(JsonPrimitive("A")); add(JsonPrimitive("T")) })
+            }
+        )
+    )
     // Git tag / source revision of the Rell language sources and docs we reference.
     // NOT what goes into generated chromia.yml.
     const val RELL_SOURCE_TAG = "0.16.7"

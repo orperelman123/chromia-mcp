@@ -113,7 +113,16 @@ class DappScaffoldFt4TemplateTest {
             .filterKeys { it.endsWith(".rell") }
             .mapKeys { (path, _) -> path.removePrefix("src/") }
         val dbUrl = System.getenv(org.chromia.tools.RunRellTests.DATABASE_URL_ENV)
-        val tests = org.chromia.tools.RunRellTests.run(rell, databaseUrl = dbUrl)
+        // FT4 cannot initialize without its module_args: run_rell_tests takes
+        // them as a PARAMETER and does not read the generated chromia.yml, so
+        // omitting them fails every case with an opaque "Unable to create GTX
+        // module". Pass the same args the scaffold writes into that yml - this
+        // is exactly what an agent must do, and the scaffold notes say so.
+        val tests = org.chromia.tools.RunRellTests.run(
+            rell,
+            databaseUrl = dbUrl,
+            moduleArgs = DappScaffold.ft4TestModuleArgs()
+        )
         assertEquals(3, tests.total, "all three shipped invariant tests must be discovered: ${tests.cases}")
         if (dbUrl != null) {
             assertTrue(tests.ok, "shipped invariant tests must pass against the database: ${tests.notes} ${tests.cases}")
