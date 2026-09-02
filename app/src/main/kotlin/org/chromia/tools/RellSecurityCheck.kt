@@ -249,12 +249,19 @@ object RellSecurityCheck {
      * operation that mutates only via a helper (`operation transfer() { do_transfer(); }`)
      * must still get an unauthenticated-mutation finding (audit 2026-09-01).
      */
-    internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> {
-        // Same-named functions across files used to clobber the map (last file
-        // won), hiding a mutating definition behind a later benign one (audit
-        // round 4 minor). Conservative for security: a name is mutating if ANY
-        // definition mutates - concatenating all bodies per name gives exactly
-        // that ("any body matches" / "any body calls").
+    internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> =
+        functionNamesMatchingSeed(maskedFiles, MUTATION_REGEX)
+
+    /**
+     * Names of user functions whose body matches [seed], closed over calls
+     * (a function calling a matching function matches). Same-named functions
+     * across files used to clobber a name-keyed map (last file won), hiding a
+     * matching definition behind a later benign one (audit round 4 minor).
+     * Conservative for security: a name matches if ANY definition matches -
+     * concatenating all bodies per name gives exactly that ("any body
+     * matches" / "any body calls").
+     */
+    internal fun functionNamesMatchingSeed(maskedFiles: Map<String, String>, seed: Regex): Set<String> {
         val bodies = mutableMapOf<String, StringBuilder>()
         maskedFiles.forEach { (_, masked) ->
             functionBodies(masked).forEach { (name, body) ->
@@ -262,8 +269,7 @@ object RellSecurityCheck {
             }
         }
         val functions = bodies.mapValues { (_, sb) -> sb.toString() }
-        val seed = functions.filterValues { MUTATION_REGEX.containsMatchIn(it) }.keys.toSet()
-        return closeOverCalls(functions, seed)
+        return closeOverCalls(functions, functions.filterValues { seed.containsMatchIn(it) }.keys.toSet())
     }
 
     /** `import name;` / `import alias: name;` - captures the dotted module path. */
@@ -345,6 +351,13 @@ object RellSecurityCheck {
         // or a mutating helper defined in a sibling file must be recognized.
         val authFunctions = authFunctionNames(fullyMasked)
         val mutatingFunctions = mutatingFunctionNames(fullyMasked)
+        val valueMutatingFunctions = functionNamesMatchingSeed(fullyMasked, VALUE_MUTATION_REGEX)
+        val ft4AuthCallers = functionNamesMatchingSeed(fullyMasked, AUTHENTICATE_CALL_REGEX)
+        // Validation done in a helper is still validation: the auth and mutation
+        // closures already walk helpers, so an op-body-only require() scan
+        // false-flagged every validate_x() helper pattern (gate fatigue).
+        val requireFunctions = functionNamesMatchingSeed(fullyMasked, REQUIRE_REGEX)
+        val emptyFlagsOnly = allAuthHandlersHaveEmptyFlags(files)
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -390,11 +403,15 @@ object RellSecurityCheck {
                 findings += bannedModuleFindings(path, masked, allowAdminModules)
             }
             findings += hardcodedSecretFindings(path, commentMasked)
+            findings += massMutationFindings(path, masked)
             val authMarkers = authMarkersFor(masked)
             val ops = scanOperations(path, masked)
             operationsScanned += ops.size
             ops.forEach { op ->
-                findings += operationFindings(path, op, authFunctions, mutatingFunctions, authMarkers)
+                findings += operationFindings(
+                    path, op, authFunctions, mutatingFunctions, authMarkers,
+                    valueMutatingFunctions, ft4AuthCallers, emptyFlagsOnly, requireFunctions
+                )
             }
         }
 
@@ -441,8 +458,10 @@ object RellSecurityCheck {
                 append("allowAdminModules=true: banned-module findings reported as MEDIUM, not CRITICAL. ")
             }
             append(
-                "Heuristic static checks only (auth, require() validation, banned FT4 admin modules, " +
-                    "hardcoded secrets) - a clean report does not replace a security audit."
+                "Heuristic static checks only (authentication AND authorization binding, signer-gate " +
+                    "integrity, auth-handler flags, mass mutations, require() validation, banned FT4 " +
+                    "admin modules, hardcoded secrets) - a clean report does not replace a security " +
+                    "audit, and economic invariants (conservation, quorum) are not checked."
             )
         }
         return Result(!blocking, adjusted.sortedWith(compareBy({ severityRank(it.severity) }, { it.file }, { it.line })), operationsScanned, notes)
@@ -498,21 +517,274 @@ object RellSecurityCheck {
         return findings
     }
 
+    /** `name = x"..."` / `name: type = "..."` - the identifier the hex literal is assigned to. */
+    private val HEX_ASSIGN_NAME_REGEX = Regex("""([A-Za-z_]\w*)\s*(?::\s*[A-Za-z_][\w<>.?\[\]]*)?\s*=\s*$""")
+    // Secret-looking name parts always win: a "priv_key_id" is a key, not an id.
+    private val SECRET_NAME_PARTS = setOf("priv", "private", "secret", "seed", "mnemonic", "sk", "key")
+    // Public 32-byte identifiers (BRIDs, tx/block hashes, asset ids): hardcoding
+    // one is a config smell, not leaked key material. Reporting it HIGH trained
+    // agents to wave the whole rule through (gate-fatigue, audit 2026-09-02).
+    private val CHAIN_ID_NAME_PARTS = setOf("brid", "rid", "hash", "tx", "txid", "block", "blockchain", "chain", "asset", "id")
+
     private fun hardcodedSecretFindings(path: String, content: String): List<Finding> {
         val findings = mutableListOf<Finding>()
         content.lineSequence().forEachIndexed { idx, line ->
             if (line.trim().startsWith("//")) return@forEachIndexed
-            HEX_SECRET_REGEX.findAll(line).forEach { _ ->
+            HEX_SECRET_REGEX.findAll(line).forEach { match ->
+                val name = HEX_ASSIGN_NAME_REGEX.find(line.substring(0, match.range.first))?.groupValues?.get(1)
+                val parts = name?.lowercase()?.split('_')?.toSet() ?: emptySet()
+                val isChainId = parts.none { it in SECRET_NAME_PARTS } && parts.any { it in CHAIN_ID_NAME_PARTS }
                 findings.add(
-                    Finding(
-                        "HIGH", "hardcoded-key-material", path, idx + 1, line.trim().take(120),
-                        "A 64+ char hex literal looks like key material or a BRID that should come from configuration/module args, not source."
-                    )
+                    if (isChainId) {
+                        Finding(
+                            "MEDIUM", "hardcoded-chain-identifier", path, idx + 1, line.trim().take(120),
+                            "'$name' looks like a public chain/asset identifier (BRID, hash), not key material - " +
+                                "still prefer configuration/module args over source constants so environments can differ."
+                        )
+                    } else {
+                        Finding(
+                            "HIGH", "hardcoded-key-material", path, idx + 1, line.trim().take(120),
+                            "A 64+ char hex literal looks like key material that should come from configuration/module args, not source."
+                        )
+                    }
                 )
             }
         }
         return findings
     }
+
+    // ---- authorization-not-bound-to-caller (confused deputy) ----
+    // "Authenticated + a require() somewhere" used to be certified secure; the
+    // adversary round drained a vault through exactly that shape: authenticate,
+    // then mutate rows SELECTED by a caller-supplied account parameter that is
+    // never related to the authenticated identity. Anyone drains anyone.
+    /** Parameter names that denote an account/identity being acted UPON. */
+    private val ACCOUNT_PARAM_NAME_REGEX = Regex(
+        """(?:^|_)(account|owner|from|sender|user|holder|wallet|member|spender|payer)(?:$|_)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** `val x = something(` - candidate bindings of the authenticated identity. */
+    private val VAL_CALL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_][\w.]*)\s*\(""")
+
+    /** Top-level `name: type` / bare `name` pairs of an operation's parameter list. */
+    internal fun parseParams(params: String): List<Pair<String, String>> {
+        if (params.isBlank()) return emptyList()
+        val out = mutableListOf<Pair<String, String>>()
+        var depth = 0
+        val cur = StringBuilder()
+        fun flush() {
+            val raw = cur.toString().substringBefore('=').trim()
+            cur.clear()
+            if (raw.isEmpty()) return
+            val colon = raw.indexOf(':')
+            if (colon >= 0) out.add(raw.substring(0, colon).trim() to raw.substring(colon + 1).trim())
+            else out.add(raw to raw) // `operation f(pubkey)` - the name IS the type
+        }
+        for (c in params) {
+            when (c) {
+                '(', '<', '[', '{' -> { depth++; cur.append(c) }
+                ')', '>', ']', '}' -> { depth--; cur.append(c) }
+                ',' -> if (depth == 0) flush() else cur.append(c)
+                else -> cur.append(c)
+            }
+        }
+        flush()
+        return out
+    }
+
+    /** A set-clause consisting purely of `+=` credits cannot drain the selected row. */
+    private fun isCreditOnly(setPart: String): Boolean {
+        val residue = setPart
+            .replace("+=", "").replace("==", "").replace("!=", "").replace(">=", "").replace("<=", "")
+        return !residue.contains('=')
+    }
+
+    /**
+     * "deletes" / "updates" when the (masked) body contains a delete, or an
+     * update whose set-clause is not credit-only, whose where-clause references
+     * [paramRef]; null otherwise. Credit-only updates (`.balance += x`) of a
+     * caller-named row are the receiving half of every idiomatic transfer and
+     * must not read as a drain.
+     */
+    private fun harmfulMutationKindKeyedBy(body: String, paramRef: Regex): String? {
+        MUTATION_REGEX.findAll(body).forEach { m ->
+            val keyword = m.groupValues[1]
+            if (keyword == "create") return@forEach
+            val end = body.indexOf(';', m.range.first).let { if (it < 0) body.length else it }
+            val stmt = body.substring(m.range.first, end)
+            val braceStart = stmt.indexOf('{')
+            if (braceStart < 0) return@forEach
+            val braceEnd = matchDelimiter(stmt, braceStart, '{', '}') ?: return@forEach
+            if (!paramRef.containsMatchIn(stmt.substring(braceStart + 1, braceEnd))) return@forEach
+            if (keyword == "delete") return "deletes"
+            if (!isCreditOnly(stmt.substring(braceEnd + 1))) return "updates"
+        }
+        return null
+    }
+
+    /**
+     * HIGH when an authenticated operation debits/deletes rows selected by an
+     * account-ish operation parameter that is never bound to the caller: no
+     * statement relates it to an authenticated-identity variable, no
+     * `is_signer(<param>)`, and the operation is not an admin op keyed to
+     * `chain_context.args.*`. Runs only when the operation authenticates -
+     * the unauthenticated case is already `unauthenticated-mutation`.
+     */
+    private fun confusedDeputyFindings(
+        path: String,
+        op: OperationBlock,
+        authFunctions: Set<String>
+    ): List<Finding> {
+        val body = op.body
+        // Admin ops keyed to blockchain config are the sanctioned break-glass
+        // pattern (require(account.id == chain_context.args.admin, ...)).
+        if (body.contains("chain_context.args")) return emptyList()
+        val accountParams = parseParams(op.params)
+            .filter { (name, type) ->
+                ACCOUNT_PARAM_NAME_REGEX.containsMatchIn(name) || type.lowercase().contains("account")
+            }
+            .map { it.first }
+        if (accountParams.isEmpty()) return emptyList()
+        val authVars = VAL_CALL_REGEX.findAll(body)
+            .filter { m ->
+                val callee = m.groupValues[2].substringAfterLast('.')
+                callee == "authenticate" || callee in authFunctions
+            }
+            .map { it.groupValues[1] }
+            .toList()
+        val statements = body.split(';')
+        val findings = mutableListOf<Finding>()
+        accountParams.forEach { param ->
+            val paramRef = Regex("""\b${Regex.escape(param)}\b""")
+            // is_signer(<param>) proves the caller controls that key - bound.
+            if (Regex("""is_signer\s*\(\s*${Regex.escape(param)}\s*\)""").containsMatchIn(body)) return@forEach
+            // Any single statement relating the param to the authenticated
+            // identity counts: require(param == account.id, ...), or a mutation
+            // co-keyed by both (.grantee == param, .granter == account.id).
+            val bound = authVars.any { v ->
+                val authRef = Regex("""\b${Regex.escape(v)}\b""")
+                statements.any { paramRef.containsMatchIn(it) && authRef.containsMatchIn(it) }
+            }
+            if (bound) return@forEach
+            val kind = harmfulMutationKindKeyedBy(body, paramRef) ?: return@forEach
+            findings.add(
+                Finding(
+                    "HIGH", "authorization-not-bound-to-caller", path, op.line,
+                    "operation ${op.name} authenticates but $kind rows selected by caller-supplied " +
+                        "parameter '$param' never bound to the authenticated account",
+                    "Key the mutation off the authenticated identity (.owner == account.id), or bind the " +
+                        "parameter first: require($param == account.id, ...) or op_context.is_signer($param). " +
+                        "Authentication says who is calling - it does not say the caller may touch the rows " +
+                        "'$param' selects."
+                )
+            )
+        }
+        return findings
+    }
+
+    // ---- signer-check-on-untrusted-argument (phantom gate) ----
+    /** `is_signer(x)` with a single bare identifier argument. */
+    private val IS_SIGNER_ARG_REGEX = Regex("""\bis_signer\s*\(\s*([A-Za-z_]\w*)\s*\)""")
+    private val IS_SIGNER_CALL_REGEX = Regex("""\bis_signer\s*\([^)]*\)""")
+
+    /**
+     * HIGH when a mutating operation's only use of a parameter is inside
+     * `is_signer(<param>)`: the caller supplies the very key being checked and
+     * signs with it, so the "gate" always passes - a phantom admin check.
+     * `is_signer(p)` DOES prove the caller controls key p, so when p is also
+     * used (keying the write, passed onward) it is the idiomatic self-binding
+     * pattern and stays clean; the raw "any is_signer(param)" version of this
+     * rule would flag every self-registration op and train agents to ignore
+     * the gate.
+     */
+    private fun phantomSignerGateFindings(path: String, op: OperationBlock, mutates: Boolean): List<Finding> {
+        if (!mutates) return emptyList()
+        val paramNames = parseParams(op.params).mapTo(mutableSetOf()) { it.first }
+        if (paramNames.isEmpty()) return emptyList()
+        val checkedParams = IS_SIGNER_ARG_REGEX.findAll(op.body)
+            .map { it.groupValues[1] }.filter { it in paramNames }.toSet()
+        if (checkedParams.isEmpty()) return emptyList()
+        val residual = IS_SIGNER_CALL_REGEX.replace(op.body, "is_signer(_)")
+        return checkedParams.mapNotNull { param ->
+            if (Regex("""\b${Regex.escape(param)}\b""").containsMatchIn(residual)) return@mapNotNull null
+            Finding(
+                "HIGH", "signer-check-on-untrusted-argument", path, op.line,
+                "operation ${op.name} gates a mutation on is_signer('$param') where '$param' is a " +
+                    "caller-supplied parameter used nowhere else - the caller passes their own key and " +
+                    "signs with it, so the check always passes",
+                "Check the signer against a trusted constant instead: " +
+                    "op_context.is_signer(chain_context.args.admin_pubkey) (module args), or authenticate " +
+                    "with ft4 auth and authorize against stored state. A caller-chosen key is not a gate."
+            )
+        }
+    }
+
+    // ---- value-op-without-transfer-flag ----
+    // Ground truth: FT4 has_flags = flags.contains_all(required_flags), and
+    // contains_all([]) is ALWAYS true (raw-ft4-src v1.1.0r
+    // rell/src/lib/ft4/core/accounts/module.rell:502-504). A handler with
+    // flags = [] admits EVERY auth descriptor on the account - including a
+    // limited session/login key the user believed could not spend.
+    /**
+     * Value-moving state change: a debit (`-=`) on any field, or any write
+     * (`+=` / `-=` / `=`) to a balance-named field. Credits/assignments to
+     * non-value fields (counters, timestamps) deliberately do not count - a
+     * session key bumping a view counter is not the exploit, and flagging it
+     * would train agents to ignore the gate.
+     */
+    private val VALUE_MUTATION_REGEX = Regex(
+        """\.\w*(?:balance|amount|credit|fund|supply|share|debt|stake|reward|coin|token)\w*\s*(?:\+=|-=|=(?!=))|\.\w+\s*-=""",
+        RegexOption.IGNORE_CASE
+    )
+    private val AUTHENTICATE_CALL_REGEX = Regex("""\bauthenticate\s*\(""")
+    private val ADD_AUTH_HANDLER_CALL_REGEX = Regex("""\badd_auth_handler\s*\(""")
+    private val FLAGS_LIST_REGEX = Regex("""flags\s*=\s*\[([^\]]*)]""")
+    private val ANY_LIST_REGEX = Regex("""\[([^\]]*)]""")
+
+    /**
+     * True when the app (non-lib, non-test) files register at least one FT4
+     * auth handler and EVERY one of them has an empty flags list. With mixed
+     * handlers we cannot statically tell which scope governs which operation,
+     * so the rule stays quiet rather than guessing; a flags-by-variable
+     * handler counts as non-empty for the same reason.
+     */
+    internal fun allAuthHandlersHaveEmptyFlags(files: Map<String, String>): Boolean {
+        var empty = 0
+        var nonEmptyOrUnknown = 0
+        files.forEach { (path, content) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            if (RunRellTests.isTestModuleSource(content)) return@forEach
+            // Comment-masked, strings KEPT: fully masked text blanks "T" and
+            // makes flags = ["T"] indistinguishable from flags = [].
+            val masked = maskRellSource(content, maskStrings = false)
+            ADD_AUTH_HANDLER_CALL_REGEX.findAll(masked).forEach { m ->
+                val parenStart = masked.indexOf('(', m.range.first)
+                val parenEnd = matchDelimiter(masked, parenStart, '(', ')') ?: return@forEach
+                val args = masked.substring(parenStart + 1, parenEnd)
+                val list = FLAGS_LIST_REGEX.find(args) ?: ANY_LIST_REGEX.find(args)
+                if (list != null && list.groupValues[1].isBlank()) empty++ else nonEmptyOrUnknown++
+            }
+        }
+        return empty > 0 && nonEmptyOrUnknown == 0
+    }
+
+    // ---- mass-mutation ----
+    /** `update x @* {}` / `delete x @* {}`: an empty where-clause hits EVERY row. */
+    private val MASS_MUTATION_REGEX = Regex("""\b(update|delete)\s+[A-Za-z_][\w.]*\s*@\*\s*\{\s*\}""")
+
+    private fun massMutationFindings(path: String, masked: String): List<Finding> =
+        MASS_MUTATION_REGEX.findAll(masked).map { m ->
+            val keyword = m.groupValues[1]
+            Finding(
+                "HIGH", "mass-mutation", path,
+                masked.substring(0, m.range.first).count { it == '\n' } + 1,
+                m.value.replace(Regex("""\s+"""), " "),
+                "$keyword with an empty where-clause ${if (keyword == "delete") "deletes" else "rewrites"} " +
+                    "EVERY row of the entity. Filter the rows (delete x @* { .owner == account.id }); " +
+                    "if a full wipe really is intended, it belongs behind an explicit admin gate."
+            )
+        }.toList()
 
     internal data class OperationBlock(val name: String, val line: Int, val params: String, val body: String)
 
@@ -557,13 +829,18 @@ object RellSecurityCheck {
         op: OperationBlock,
         authFunctions: Set<String> = emptySet(),
         mutatingFunctions: Set<String> = emptySet(),
-        authMarkers: List<String> = AUTH_MARKERS
+        authMarkers: List<String> = AUTH_MARKERS,
+        valueMutatingFunctions: Set<String> = emptySet(),
+        ft4AuthCallers: Set<String> = emptySet(),
+        emptyFlagsOnly: Boolean = false,
+        requireFunctions: Set<String> = emptySet()
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
         val calls = calledNames(op.body)
         val hasAuth = containsAuthMarker(op.body, authMarkers) ||
             authFunctions.any { it in calls }
-        val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body)
+        val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body) ||
+            requireFunctions.any { it in calls }
         val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
             mutatingFunctions.any { it in calls }
 
@@ -575,6 +852,28 @@ object RellSecurityCheck {
                     "Authenticate the caller (ft4 auth.authenticate() or an explicit op_context.is_signer / require(...) signer check) before create/update/delete."
                 )
             )
+        }
+        if (hasAuth) {
+            findings += confusedDeputyFindings(path, op, authFunctions)
+        }
+        findings += phantomSignerGateFindings(path, op, mutates)
+        if (emptyFlagsOnly) {
+            val ft4Authed = "authenticate" in calls || calls.any { it in ft4AuthCallers }
+            val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) ||
+                calls.any { it in valueMutatingFunctions }
+            if (ft4Authed && movesValue) {
+                findings.add(
+                    Finding(
+                        "MEDIUM", "value-op-without-transfer-flag", path, op.line,
+                        "operation ${op.name} moves value but every registered auth handler has flags = [] - " +
+                            "FT4 checks flags with contains_all(), and contains_all([]) is always true, so ANY " +
+                            "descriptor on the account (including limited session keys) can call it",
+                        "Require the Transfer flag on the handler governing value-moving operations: " +
+                            "auth.add_auth_handler(flags = [\"T\"]). Keep flags = [] only for operations that " +
+                            "move no value."
+                    )
+                )
+            }
         }
         if (op.params.isNotBlank() && !hasRequire && !hasAuth) {
             findings.add(

@@ -145,8 +145,27 @@ tasks.named<Test>("test") {
     // applies to every run, so the default here is zero skips rather than a
     // green suite that quietly covered less than it claims. Real env vars still
     // win, so CI is unaffected.
-    val localTestEnv = rootProject.layout.projectDirectory.file("local-test-env.properties").asFile
-    if (localTestEnv.isFile) {
+    // Look in the main clone too, not just this checkout: the file is gitignored,
+    // so `git worktree add` does not carry it over and every worktree build
+    // silently went back to skipping - the exact failure this wiring exists to
+    // prevent, hidden by the fact that the main clone looked fine. `git rev-parse
+    // --git-common-dir` points at the main clone's .git for a worktree, and at
+    // our own .git otherwise, so the fallback costs nothing in a normal clone.
+    val localTestEnv = sequenceOf(
+        rootProject.layout.projectDirectory.file("local-test-env.properties").asFile,
+        runCatching {
+            val commonGitDir = providers.exec {
+                commandLine("git", "rev-parse", "--git-common-dir")
+                workingDir = rootProject.layout.projectDirectory.asFile
+            }.standardOutput.asText.get().trim()
+            rootProject.layout.projectDirectory.file(commonGitDir).asFile
+                .parentFile.resolve("local-test-env.properties")
+        }.getOrNull()
+    ).filterNotNull().firstOrNull { it.isFile }
+    if (localTestEnv != null) {
+        // NOT `java.util.Properties()`: inside this block `java` resolves to the
+        // JavaPluginExtension and shadows the package - the script then fails to
+        // compile ("Unresolved reference: util"), taking every Gradle task with it.
         val props = Properties()
         localTestEnv.inputStream().use(props::load)
         props.stringPropertyNames()

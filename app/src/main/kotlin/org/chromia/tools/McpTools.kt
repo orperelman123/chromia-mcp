@@ -1859,8 +1859,18 @@ object McpTools {
               registration/transfer strategies (ras_open, ras_transfer_open)
             - HIGH: operations that create/update/delete state without any auth check
               (ft4 auth.authenticate, op_context.is_signer, signer require)
+            - HIGH: authenticated operations that debit/delete rows selected by a caller-supplied
+              account parameter never bound to the authenticated identity (confused deputy:
+              anyone drains anyone)
+            - HIGH: is_signer(<param>) gates where the caller supplies the very key being checked
+              and the parameter is used nowhere else (a phantom admin gate)
+            - HIGH: update/delete @* {} with an empty where-clause (hits every row)
             - HIGH: hardcoded 64+ char hex literals that look like key material
+            - MEDIUM: value-moving operations when every registered auth handler has flags = []
+              (FT4 contains_all([]) is always true, so limited session keys can spend)
+            - MEDIUM: hardcoded 64-hex constants named like BRIDs/hashes (public identifiers)
             - MEDIUM: operations with parameters but no require(...) input validation
+              (validation inside called helper functions counts)
             HIGH findings in test-only code (@test modules, files under test/ or tests/, and
             modules imported only from @test modules) are reported as MEDIUM with a
             "-test-surface" rule suffix. @test modules are fully exempt from the banned-module/
