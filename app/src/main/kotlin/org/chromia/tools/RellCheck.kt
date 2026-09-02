@@ -296,8 +296,10 @@ object RellCheck {
             .build()
 
         val compiledModules = mutableListOf<String>()
+        var compiledTestModules = 0
         val failure = runCatching {
             val app = RellApiCompile.compileApp(config, sourceDir.toFile(), modules, testModules)
+            compiledTestModules = app.modules.count { it.test }
             app.modules
                 .filter { !it.test && !it.abstract && !it.external }
                 .forEach { compiledModules.add(it.name.toString()) }
@@ -319,7 +321,15 @@ object RellCheck {
 
         val ok = failure == null
         val notes = if (ok) {
-            "Compiled ${compiledModules.size} module(s) successfully with Rell ${rellVersion()}."
+            // An only-@test submission used to read "Compiled 0 module(s)
+            // successfully" although the test modules DID compile (reality
+            // audit D7) - count them explicitly.
+            val parts = mutableListOf<String>()
+            if (compiledModules.isNotEmpty() || compiledTestModules == 0) {
+                parts += "${compiledModules.size} module(s)"
+            }
+            if (compiledTestModules > 0) parts += "$compiledTestModules @test module(s)"
+            "Compiled ${parts.joinToString(" and ")} successfully with Rell ${rellVersion()}."
         } else {
             "Compilation failed with ${errors.size} error(s). Fix the first error and re-run; later errors often cascade."
         }

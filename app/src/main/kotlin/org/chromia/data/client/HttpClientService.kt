@@ -58,6 +58,29 @@ class HttpClientService(
     ): JsonResult = withContext(Dispatchers.IO) {
         val targetNetwork = network ?: config.defaultNetwork
 
+        // The explorer takes a network NAME as a query parameter and is not
+        // guaranteed to reject unknown values - a typo ("tesnet") could come
+        // back as data from the explorer's default network labelled as the
+        // requested one (reality audit D5). The postchain path validates the
+        // name against predefinedNetworks; do the same here. There is no
+        // custom-URL form on this path: the explorer endpoint is fixed and
+        // node URLs only make sense for node-direct tools.
+        if (targetNetwork !in config.predefinedNetworks) {
+            val valid = config.predefinedNetworks.keys.joinToString(", ")
+            val urlHint = if (
+                targetNetwork.startsWith("http://") || targetNetwork.startsWith("https://")
+            ) {
+                " Direct node URLs work only for node-direct tools (chromia_dapp_query / " +
+                    "verify_deployment); explorer analytics tools take a network name."
+            } else {
+                ""
+            }
+            return@withContext NetworkResult.Error(
+                "Unknown network \"$targetNetwork\" - explorer-backed tools accept: $valid.$urlHint",
+                IllegalArgumentException("unknown explorer network: $targetNetwork")
+            )
+        }
+
         runCatching {
             httpClient.post(config.explorerUrl) {
                 parameter("network", targetNetwork)

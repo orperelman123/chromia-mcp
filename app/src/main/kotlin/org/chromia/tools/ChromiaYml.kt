@@ -189,6 +189,30 @@ object ChromiaYmlValidator {
             }
         }
 
+        // `!include other.yml` is official chr CLI syntax (our own
+        // chromia_yml_definitions_help teaches it), but SimpleYaml does not
+        // resolve includes: the included file parses as an opaque scalar, so
+        // every check that would have run on its content - the libs
+        // forbidden-module gate, the moduleArgs key checks, the merkle pin -
+        // silently does not run (reality audit D4: `libs: !include libs.yml`
+        // reached ok:true even when libs.yml pulled lib.ft4.admin). Say so
+        // loudly: always at least a warning naming the file; in strict mode
+        // the security-relevant positions (libs, moduleArgs) are ERRORS,
+        // because a gate that cannot see that part of the config must not
+        // report it clean.
+        collectIncludes(mapping, "").forEach { (path, target) ->
+            val sensitive = isSecuritySensitiveIncludePath(path)
+            val message = "$path: `!include $target` is not resolved by this validator - the " +
+                "content of $target was NOT validated" +
+                (if (sensitive) {
+                    " and the forbidden-module / moduleArgs key checks did not run on it"
+                } else {
+                    ""
+                }) +
+                "; inline the file or validate its content separately."
+            if (sensitive && strict) errors += message else warnings += message
+        }
+
         val driver = mapping.mapping("database")?.scalar("driver")
         if (!driver.isNullOrBlank() && driver != "org.postgresql.Driver") {
             warnings += "database.driver must be org.postgresql.Driver (found $driver)"
@@ -356,6 +380,42 @@ object ChromiaYmlValidator {
             if (!ident(before) && !ident(after)) return true
             from = idx + 1
         }
+    }
+
+    /**
+     * Every unresolved `!include` in the tree as (path, included file). The
+     * scalar shape is what SimpleYaml produces for a tagged value; a missing
+     * file name is reported as <unnamed> rather than dropped.
+     */
+    internal fun collectIncludes(node: YamlNode, path: String): List<Pair<String, String>> {
+        val out = mutableListOf<Pair<String, String>>()
+        fun walk(n: YamlNode, p: String) {
+            when (n) {
+                is YamlNode.Scalar -> {
+                    val raw = n.raw.trim()
+                    if (raw == "!include" || raw.startsWith("!include ")) {
+                        val target = raw.removePrefix("!include").trim().ifEmpty { "<unnamed>" }
+                        out += p to target
+                    }
+                }
+                is YamlNode.Mapping -> n.entries.forEach { (key, child) ->
+                    walk(child, if (p.isEmpty()) key else "$p.$key")
+                }
+                is YamlNode.Sequence -> n.items.forEachIndexed { i, child -> walk(child, "$p[$i]") }
+            }
+        }
+        walk(node, path)
+        return out
+    }
+
+    /**
+     * Positions whose content feeds the forbidden-module / key checks: the
+     * root `libs` block and any `moduleArgs` block. An include there hides
+     * exactly the config the security gates exist for.
+     */
+    internal fun isSecuritySensitiveIncludePath(path: String): Boolean {
+        val segments = path.split('.').map { it.substringBefore('[') }
+        return segments.firstOrNull() == "libs" || "moduleArgs" in segments
     }
 
     private fun collectKeys(

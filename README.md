@@ -118,6 +118,80 @@ Heuristic static analysis — it does not replace a security audit. The agent lo
 instead of the ~31 individual `*_help` tools (same content, one schema — call it with no topic
 for the topic index). Default is the full catalog for backward compatibility.
 
+## Run it locally (the primary path)
+
+Local is the first-class way to run this server: no memory constraints, no disabled tools,
+`local_chain_up` fully usable, no hosting cost. (The hosted service is deliberately a
+reduced docs/analytics surface — see [docs/Deployment.md](docs/Deployment.md).) Both
+client shapes work:
+
+**Requirements (honest list):**
+
+- **Java 21+** — the only hard requirement. Docs search (RAG), all analytics, `chromia_help`,
+  `rell_check`, `rell_security_check`, `check_dapp_project`, `scaffold_dapp`, and pure-logic
+  `run_rell_tests` all work with Java alone.
+- **PostgreSQL** — only for the DB-backed tools: `run_rell_tests` on tests that touch
+  entities, and `local_chain_up`. Point `CHROMIA_TEST_DATABASE_URL` at any local database
+  (byte-order collation, e.g. `LC_COLLATE 'C.UTF-8'`); without it those tools refuse with a
+  clean message and everything else keeps working.
+- The jar: `.\gradlew.bat :app:shadowJar` builds `app/build/libs/chromia-mcp-server.jar`
+  (or download a release via `node scripts/install.mjs`).
+
+### Shape 1: stdio (Claude Code and most MCP clients)
+
+Register the jar directly — this is the exact working registration:
+
+```bash
+claude mcp add chromia --scope user \
+  --env "CHROMIA_TEST_DATABASE_URL=jdbc:postgresql://localhost:5432/rell_mcp_tests?user=postchain&password=postchain" \
+  -- java -jar "C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar" --stdio
+```
+
+Or as MCP JSON for other stdio clients (Cursor, Claude Desktop, JetBrains):
+
+```json
+{
+  "mcpServers": {
+    "chromia": {
+      "command": "java",
+      "args": ["-jar", "C:\\Users\\Orpe7\\chromia-mcp\\app\\build\\libs\\chromia-mcp-server.jar", "--stdio"],
+      "env": {
+        "CHROMIA_TEST_DATABASE_URL": "jdbc:postgresql://localhost:5432/rell_mcp_tests?user=postchain&password=postchain"
+      }
+    }
+  }
+}
+```
+
+(`postchain`/`postchain` is the standard public Chromia dev credential, not a secret.
+Leave the env var out entirely if you have no local PostgreSQL.)
+
+### Shape 2: local SSE server (clients that want a URL)
+
+For ChatGPT-style connectors, browser clients, or anything else on this machine or LAN
+that connects by URL:
+
+```powershell
+.\serve-local.ps1        # or double-click serve-local.cmd
+```
+
+It finds the jar, auto-picks a free port (from 3001), applies the DB URL from your
+environment (or the standard dev default), forces the **full 70-tool catalog** (no compact
+mode, no disabled tools), gives the JVM a fixed 2 GB heap (locally there is no container
+limit; measured steady state is ~1.5 GB), waits for `/health`, and prints the URL:
+
+```
+  Chromia MCP server is UP (v0.5.0, pid 12240)
+    MCP SSE endpoint : http://127.0.0.1:3010/
+    Health check     : http://127.0.0.1:3010/health
+```
+
+Connect any URL-based MCP client with `{ "url": "http://127.0.0.1:<port>/" }`.
+Ctrl+C stops it cleanly and frees the port. Options: `-Port 3005` pins a port,
+`-BindHost 0.0.0.0` serves the LAN (set `CHROMIA_MCP_AUTH_TOKEN` first!), `-Heap 4g`,
+`-NoDb`, `-Jar <path>`. Auto-start on login (optional, nothing installed by default) is
+documented in [docs/Deployment.md](docs/Deployment.md#optional-auto-start-the-sse-server-on-login-windows).
+
 ## Install (one command)
 
 With `gh` and `claude` CLIs available:
@@ -163,17 +237,16 @@ applies as before. To pick up refreshed embeddings, redeploy (rebuild the image)
 `CHROMIA_MCP_DISABLE_TOOLS`, startup logs `docs tools disabled - skipping index warmup` and
 never loads the embeddings index, so a small instance pays no RAG memory at all.
 
-**Memory sizing (measured in production):** docs + analytics + RAG fit in a 512MB instance, but
-the in-process Rell compiler tools (`rell_check`, `rell_security_check`, `run_rell_tests`) push
-the process past 512MB and get the container OOM-killed. Either:
-
-- run a **2GB instance** for the full toolset, or
-- on small instances set
-  `CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests,chromia_dapp_query`
-  (the on-chain query client is a second memory spike measured past 512MB) — the hosted server
-  stays a rock-solid docs/analytics endpoint (ChatGPT `search`/`fetch` included) and developers
-  run the compiler loop and on-chain queries through the local jar/stdio install, which has no
-  such limit.
+**Memory sizing (measured 2026-09-02, full breakdown in
+[docs/Deployment.md](docs/Deployment.md)):** with the hosted reduced surface
+(`CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests,chromia_dapp_query,local_chain_up`)
+and the tuned JVM flags in the Dockerfile, the server measures **~240MB steady state,
+~340–370MB transient peak at boot warmup, ~250MB under docs-search load** — comfortable
+on a **512MB instance**. The hosted server is a rock-solid docs/analytics endpoint (ChatGPT
+`search`/`fetch` included); developers run the compiler loop, on-chain queries, and local
+chains through the local jar/stdio install, which has no such limit. The in-process Rell
+compiler tools were measured past 512MB under load — hosting the *full* toolset needs a
+**2GB instance** (and PostgreSQL for entity tests / `local_chain_up`).
 
 ## Upstreaming
 
@@ -193,18 +266,29 @@ Every push runs the full pyramid — none of these can be skipped:
    asserts they always return structured results, never crash or hang (found a real crash on
    its first run: unterminated `operation x() {` at EOF).
 2. **E2E sweep** (`scripts/e2e-sweep.mjs <url>`) — every advertised tool must respond (100%
-   coverage gate), MCP resources, all help topics, the agent journey, error paths; reconnecting
-   session, upstream explorer latency classified separately from real failures.
-3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — 17 checks over the transport
-   Claude Code uses, run against the jar and through the npm launcher.
+   coverage gate), MCP resources, all help topics, the agent journey, error paths; real
+   behavioral checks for the newest tools (local chain up/query-over-HTTP/down,
+   deployment preflight incl. the `files`-alias regression, live + bogus verify_deployment,
+   the onboarding walk, translate_error on real in-sweep errors); reconnecting session,
+   upstream explorer latency classified separately from real failures; DB- or
+   loopback-dependent checks degrade to SKIP with the reason.
+3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — checks over the transport
+   Claude Code uses. `--launcher` runs the same checks through the real npm launcher
+   (`packages/npm/bin/chromia-mcp.mjs`) pointed at the local shadowJar via `CHROMIA_MCP_JAR`;
+   the launcher's release-download path itself is not testable while the repo is private
+   (it needs a public GitHub release asset), so that mode skips with the reason when no
+   local jar exists instead of faking a download.
 4. **Nightly deep fuzz** (`scripts/fuzz-marathon.mjs <url> [iterations]`) — random-seeded
    programs fired at the live compiler tools; `.github/workflows/nightly-fuzz.yml` runs 600
    iterations every night and opens an issue with a reproducible seed on any crash, hang, or
    leaked exception.
 5. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
    using only tool outputs: discovery → doc search → scaffold → plant a bug → locate it purely
-   from compiler diagnostics → repair → security gate → behavior gate → validated deploy config.
-   If any tool output lacks what an agent needs to act, this fails.
+   from compiler diagnostics → repair → security gate → behavior gate → validated deploy config
+   → onboarding names the next step → the dapp runs on a live local chain and answers a real
+   REST query → deployment preflight (placeholder container blocks; a real lease id clears it)
+   → chain down. If any tool output lacks what an agent needs to act, this fails; the
+   local-chain leg skips with a reason when the server has no PostgreSQL.
 
 ## Continuous Integration
 
@@ -238,7 +322,7 @@ Run the application using gradle run in sse mode:
 
 This will start the MCP server in SSE mode on `127.0.0.1:3001` by default.
 
-> **Note for local development**: When running locally, configure your MCP client to use `http://127.0.0.1:3001/sse` instead of `https://mcp.chromia.dev/sse`.
+> **Note for local development**: When running locally, configure your MCP client to use `http://127.0.0.1:3001/` (this fork serves the SSE endpoint at the root path, not `/sse`) instead of `https://mcp.chromia.dev/sse`.
 
 ## Setup
 
@@ -266,7 +350,7 @@ All AI assistants use the same MCP configuration format. Add the following JSON 
 {
   "mcpServers": {
     "chromia-mcp": {
-      "url": "http://127.0.0.1:3001/sse"
+      "url": "http://127.0.0.1:3001/"
     }
   }
 }
@@ -299,7 +383,7 @@ All AI assistants use the same MCP configuration format. Add the following JSON 
 2. Import Chromia MCP:
    - Open Workspace settings → Connectors → Create
    - Enter the following:
-     - MCP Server URL: `https://mcp.chromia.dev/sse` (or `http://127.0.0.1:3001/sse` for local development)
+     - MCP Server URL: `https://mcp.chromia.dev/sse` (or `http://127.0.0.1:3001/` for local development - root path on this fork)
      - Authentication: No authentication
    - Click Create
    - In connector details, new tool lists and descriptions from the MCP server will be shown

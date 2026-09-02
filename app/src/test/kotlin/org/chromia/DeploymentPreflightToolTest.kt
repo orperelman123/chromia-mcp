@@ -492,4 +492,48 @@ class DeploymentPreflightToolTest {
         val notes = s["notes"]!!.jsonPrimitive.content
         assertFalse(notes.contains("alias"), notes)
     }
+
+    // ---- reality audit D4: unresolved !include must not pass the mainnet gate
+
+    @Test
+    fun mainnetLibsIncludeBlocksBecauseTheIncludedFileWasNotValidated() {
+        repo.nextHeight = NetworkResult.Success(42L)
+        val result = call(
+            buildJsonObject {
+                put("yaml", mainnetYaml + "libs: !include libs.yml\n")
+                put("target", "mainnet")
+                put("rell", buildJsonObject { put("main.rell", cleanRell) })
+            }
+        )
+        val s = result.structuredContent!!
+        assertFalse(s["ready"]!!.jsonPrimitive.boolean, s.toString())
+        val finding = findings(s).first {
+            it["check"]!!.jsonPrimitive.content == "chromia_yml" &&
+                it["message"]!!.jsonPrimitive.content.contains("!include")
+        }
+        assertEquals("BLOCKER", finding["severity"]!!.jsonPrimitive.content)
+        assertTrue(
+            finding["message"]!!.jsonPrimitive.content.contains("libs.yml"),
+            finding.toString()
+        )
+    }
+
+    @Test
+    fun testnetLibsIncludeWarnsButDoesNotBlock() {
+        repo.nextHeight = NetworkResult.Success(42L)
+        val result = call(
+            buildJsonObject {
+                put("yaml", testnetYaml + "libs: !include libs.yml\n")
+                put("target", "testnet")
+                put("rell", buildJsonObject { put("main.rell", cleanRell) })
+            }
+        )
+        val s = result.structuredContent!!
+        assertTrue(s["ready"]!!.jsonPrimitive.boolean, s.toString())
+        val finding = findings(s).first {
+            it["check"]!!.jsonPrimitive.content == "chromia_yml" &&
+                it["message"]!!.jsonPrimitive.content.contains("!include")
+        }
+        assertEquals("WARNING", finding["severity"]!!.jsonPrimitive.content)
+    }
 }

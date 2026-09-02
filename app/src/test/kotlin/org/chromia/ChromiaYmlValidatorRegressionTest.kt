@@ -316,4 +316,86 @@ class ChromiaYmlValidatorRegressionTest {
         assertEquals("2", a.scalar("m"))
         assertEquals("it''s, ok", a.scalar("k"))
     }
+
+    // ---- reality audit D4: unresolved `!include` must never be silent --------
+    // SimpleYaml parses `libs: !include libs.yml` as an opaque scalar, so the
+    // forbidden-module gate simply did not run - no error, no warning - and
+    // ok:true was reachable on a config whose included file pulls
+    // lib.ft4.admin. Our own chromia_yml_definitions_help TEACHES !include, so
+    // the validator must at least say the included content was not checked.
+
+    @Test
+    fun libsIncludeGetsLoudWarningNamingTheFileNotASilentPass() {
+        val result = ChromiaYmlValidator.validate(baseYml("libs: !include libs.yml"))
+        val hit = result.warnings.filter { it.contains("!include") }
+        assertEquals(1, hit.size, "warnings: ${result.warnings}")
+        assertTrue(hit[0].startsWith("libs:"), hit[0])
+        assertTrue(hit[0].contains("libs.yml"), hit[0])
+        assertTrue(hit[0].contains("NOT validated"), hit[0])
+        assertTrue(hit[0].contains("forbidden-module"), hit[0])
+    }
+
+    @Test
+    fun moduleArgsIncludeGetsLoudWarningInDefaultMode() {
+        val yaml = baseYml().replace("module: main", "module: main\n    moduleArgs: !include args.yml")
+        val result = ChromiaYmlValidator.validate(yaml)
+        val hit = result.warnings.filter { it.contains("!include") }
+        assertEquals(1, hit.size, "warnings: ${result.warnings}")
+        assertTrue(hit[0].startsWith("blockchains.hello.moduleArgs:"), hit[0])
+        assertTrue(hit[0].contains("args.yml"), hit[0])
+        assertTrue(hit[0].contains("NOT validated"), hit[0])
+    }
+
+    @Test
+    fun securitySensitiveIncludeIsAnErrorInStrictMode() {
+        listOf(
+            baseYml("libs: !include libs.yml"),
+            baseYml().replace("module: main", "module: main\n    moduleArgs: !include args.yml")
+        ).forEach { yaml ->
+            val result = ChromiaYmlValidator.validate(yaml, strict = true)
+            assertFalse(result.ok, "strict mode must not report clean: ${result.errors}")
+            assertTrue(
+                result.errors.any { it.contains("!include") && it.contains("NOT validated") },
+                result.errors.toString()
+            )
+        }
+    }
+
+    @Test
+    fun harmlessPositionIncludeIsStillNotedButNeverAStrictError() {
+        val yaml = baseYml("deployments:\n  testnet:\n    container: !include container.yml")
+        val relaxed = ChromiaYmlValidator.validate(yaml)
+        assertTrue(
+            relaxed.warnings.any {
+                it.startsWith("deployments.testnet.container:") && it.contains("container.yml")
+            },
+            relaxed.warnings.toString()
+        )
+        val strict = ChromiaYmlValidator.validate(yaml, strict = true)
+        assertTrue(
+            strict.errors.none { it.contains("!include") },
+            "harmless-position include must stay a warning in strict mode: ${strict.errors}"
+        )
+        assertTrue(strict.warnings.any { it.contains("!include") }, strict.warnings.toString())
+    }
+
+    @Test
+    fun configWithoutIncludesIsUnchangedByTheIncludeScan() {
+        val result = ChromiaYmlValidator.validate(baseYml())
+        assertTrue(result.ok, result.errors.toString())
+        assertTrue(result.errors.none { it.contains("!include") })
+        assertTrue(result.warnings.none { it.contains("!include") })
+    }
+
+    @Test
+    fun sensitiveIncludePathClassifierCoversLibsAndModuleArgsOnly() {
+        assertTrue(ChromiaYmlValidator.isSecuritySensitiveIncludePath("libs"))
+        assertTrue(ChromiaYmlValidator.isSecuritySensitiveIncludePath("libs.ft4"))
+        assertTrue(ChromiaYmlValidator.isSecuritySensitiveIncludePath("blockchains.hello.moduleArgs"))
+        assertTrue(
+            ChromiaYmlValidator.isSecuritySensitiveIncludePath("blockchains.hello.moduleArgs.lib.ft4")
+        )
+        assertFalse(ChromiaYmlValidator.isSecuritySensitiveIncludePath("deployments.testnet.container"))
+        assertFalse(ChromiaYmlValidator.isSecuritySensitiveIncludePath("blockchains.hello.module"))
+    }
 }

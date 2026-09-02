@@ -734,18 +734,24 @@ class SearchFetchToolsTest {
     }
 
     @Test
-    fun loadedStoreWithNullEmbeddingModelDoesNotBuildRetrieverOrInventHits() = runBlocking {
+    fun loadedStoreWithNoSimilarDocsReturnsEmptyHitsNotError() = runBlocking {
+        // Deterministic no-match: the injected model embeds every query to the
+        // OPPOSITE of the stored vector (cosine -1, far below minScore), so the
+        // retriever succeeds with zero hits. (The previous version of this test
+        // left embeddingModel null and relied on the SPI model's dimension
+        // mismatch being swallowed into emptyList() - reality audit D6 made
+        // that swallow an explicit retrieval error, tested separately below.)
         val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
             store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
         }
         val store = RagStore(
             loadFromRegistry = false,
-            initialStore = fixture
+            initialStore = fixture,
+            embeddingModel = fixedVectorModel(floatArrayOf(-0.1f, -0.2f, -0.3f))
         )
-        assertNull(store.embeddingModel)
         val hits = store.query("FT4 authentication")
         assertNotNull(hits)
-        assertTrue(hits!!.isEmpty(), "null embeddingModel must not rank or invent hits")
+        assertTrue(hits!!.isEmpty(), "a dissimilar query must yield no hits, not invented ones")
 
         val deferred = CompletableDeferred(store)
         val search = SearchDocsStrategy(deferred).execute(
@@ -793,4 +799,78 @@ class SearchFetchToolsTest {
         assertTrue((fetchDocs.content.first() as TextContent).text!!.contains("Documentation not found"))
         assertEquals(0, fetchDocs.structuredContent!!["hits"]!!.jsonArray.size)
     }
+
+    // ---- reality audit D6: a THROWING retriever is a retrieval error, ------
+    // never "Documentation not found". A broken index (e.g. embedding
+    // dimension mismatch) used to be swallowed into emptyList(), so agents
+    // were told the docs do not exist while the index was simply broken.
+
+    @Test
+    fun throwingRetrieverSurfacesRetrievalErrorNotDocumentationNotFound() = runBlocking {
+        val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
+            store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
+        }
+        val store = RagStore(
+            loadFromRegistry = false,
+            initialStore = fixture,
+            embeddingModel = throwingModel("embedding dimension mismatch: 384 vs 3")
+        )
+        val thrown = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            store.query("FT4 authentication")
+        }
+        assertTrue(thrown.message!!.contains("NOT a no-match"), thrown.message)
+        assertTrue(thrown.message!!.contains("dimension mismatch"), thrown.message)
+
+        val deferred = CompletableDeferred(store)
+        val search = SearchDocsStrategy(deferred).execute(
+            CallToolRequest(
+                name = "search",
+                arguments = buildJsonObject { put("query", "FT4 authentication") }
+            ),
+            ChromiaRepositoryImpl()
+        )
+        assertEquals(true, search.isError)
+        val searchText = (search.content.first() as TextContent).text!!
+        assertTrue(searchText.contains("Error searching documentation"), searchText)
+        assertTrue(searchText.contains("NOT a no-match"), searchText)
+        assertFalse(searchText.contains("Documentation not found"), searchText)
+
+        val fetchDocs = FetchDocsStrategy(deferred).execute(
+            CallToolRequest(
+                name = "fetch_docs",
+                arguments = buildJsonObject { put("query", "FT4 authentication") }
+            ),
+            ChromiaRepositoryImpl()
+        )
+        assertEquals(true, fetchDocs.isError)
+        val docsText = (fetchDocs.content.first() as TextContent).text!!
+        assertTrue(docsText.contains("Error fetching documentation"), docsText)
+        assertFalse(docsText.contains("Documentation not found"), docsText)
+
+        // fetch by id does not rank - the id index keeps answering.
+        val knownId = segmentId(authSegment)
+        val fetchKnown = FetchDocumentStrategy(deferred).execute(
+            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", knownId) }),
+            ChromiaRepositoryImpl()
+        )
+        assertTrue(fetchKnown.isError != true)
+    }
+
+    /** Embeds every text to the same [vector] - deterministic similarity. */
+    private fun fixedVectorModel(vector: FloatArray): dev.langchain4j.model.embedding.EmbeddingModel =
+        object : dev.langchain4j.model.embedding.EmbeddingModel {
+            override fun embedAll(
+                segments: List<TextSegment>
+            ): dev.langchain4j.model.output.Response<List<Embedding>> =
+                dev.langchain4j.model.output.Response.from(segments.map { Embedding.from(vector) })
+        }
+
+    /** Every embed attempt throws - deterministic retrieval failure. */
+    private fun throwingModel(message: String): dev.langchain4j.model.embedding.EmbeddingModel =
+        object : dev.langchain4j.model.embedding.EmbeddingModel {
+            override fun embedAll(
+                segments: List<TextSegment>
+            ): dev.langchain4j.model.output.Response<List<Embedding>> =
+                throw RuntimeException(message)
+        }
 }

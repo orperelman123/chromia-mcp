@@ -71,6 +71,27 @@ class OnboardingNextStepToolTest {
         assertTrue(tested.nextAction.how.contains("run_rell_tests"))
     }
 
+    @Test
+    fun securityStageProseNamesRellSecurityCheckOnlyWhenEnabled() {
+        // Live probe 2026-09-02 (D2): the security stage's `how` prose kept a
+        // parenthetical name-drop of rell_security_check even on deployments
+        // that disable the tool - 7e718c0 fixed the tool RECOMMENDATIONS but
+        // not this prose. Both branches must respect the enabled set.
+        val atSecurity = OnboardingNextStep.State(hasProject = true, compiles = true)
+
+        val with = plan(atSecurity)
+        assertEquals("security", with.stage)
+        assertTrue("rell_security_check" in tools, "rell_security_check expected in shipped registry")
+        assertTrue(with.nextAction.how.contains("rell_security_check"), with.nextAction.how)
+
+        val without = plan(atSecurity, registered = tools - "rell_security_check")
+        assertEquals("security", without.stage)
+        assertFalse(without.nextAction.how.contains("rell_security_check"), without.nextAction.how)
+        // The always-available path is still recommended.
+        assertTrue(without.nextAction.how.contains("check_dapp_project"), without.nextAction.how)
+        assertTrue(without.nextAction.how.contains("CRITICAL/HIGH"), without.nextAction.how)
+    }
+
     // ---- testnet journey -----------------------------------------------------
 
     private val built = OnboardingNextStep.State(

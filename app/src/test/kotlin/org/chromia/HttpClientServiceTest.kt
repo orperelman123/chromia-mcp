@@ -211,6 +211,63 @@ class HttpClientServiceTest {
         assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
     }
 
+    // ---- reality audit D5: unknown network must fail locally, never be
+    // forwarded upstream where the explorer may silently default it ----------
+
+    @Test
+    fun typoNetworkIsRejectedLocallyNamingTheValidValues() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"data":{"ok":true}}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val result = service(engine).executeGraphQLQuery(graphqlQuery { query("{ ping }") }, "tesnet")
+        assertTrue(result is NetworkResult.Error, result.toString())
+        val message = (result as NetworkResult.Error).message
+        assertTrue(message.contains("Unknown network \"tesnet\""), message)
+        assertTrue(message.contains("mainnet"), message)
+        assertTrue(message.contains("testnet"), message)
+        assertEquals(0, engine.requestHistory.size, "a typo must never reach the explorer")
+    }
+
+    @Test
+    fun nodeUrlAsNetworkGetsExplorerVsNodeDirectHint() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"data":{"ok":true}}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val result = service(engine).executeGraphQLQuery(
+            graphqlQuery { query("{ ping }") },
+            "https://mynode.example:7740"
+        )
+        assertTrue(result is NetworkResult.Error, result.toString())
+        val message = (result as NetworkResult.Error).message
+        assertTrue(message.contains("chromia_dapp_query"), message)
+        assertTrue(message.contains("network name"), message)
+        assertEquals(0, engine.requestHistory.size)
+    }
+
+    @Test
+    fun allPredefinedNetworkNamesStillPassThroughUnchanged() = runBlocking {
+        ChromiaConfig().predefinedNetworks.keys.forEach { name ->
+            val engine = MockEngine {
+                respond(
+                    content = """{"data":{"ok":true}}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+            val result = service(engine).executeGraphQLQuery(graphqlQuery { query("{ ping }") }, name)
+            assertTrue(result is NetworkResult.Success, "$name: $result")
+            assertEquals(name, engine.requestHistory.first().url.parameters["network"])
+        }
+    }
+
     @Test
     fun createProductionClientInstallsContentNegotiationAndTimeoutsWithoutNetwork() {
         val config = ChromiaConfig(

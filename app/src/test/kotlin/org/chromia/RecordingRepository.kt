@@ -42,6 +42,13 @@ class RecordingRepository : ChromiaRepository {
     var lastHeightNetwork: String? = null
     var lastHeightBrid: String? = null
 
+    // Per-call artificial latency for the height probe / dapp query, letting
+    // verify_deployment's overall-deadline tests (D1) simulate a probe that
+    // outlives the budget. The queue is consumed one delay per height call;
+    // when empty, calls answer immediately.
+    val heightDelaysMs: ArrayDeque<Long> = ArrayDeque()
+    var dappDelayMs: Long = 0
+
     data class DappCall(
         val network: String?,
         val brid: String,
@@ -57,6 +64,7 @@ class RecordingRepository : ChromiaRepository {
         heightCalls++
         lastHeightNetwork = network
         lastHeightBrid = blockchainRid.toHex()
+        heightDelaysMs.removeFirstOrNull()?.let { kotlinx.coroutines.delay(it) }
         return heightQueue.removeFirstOrNull() ?: nextHeight
     }
 
@@ -88,6 +96,7 @@ class RecordingRepository : ChromiaRepository {
     ): JsonResult {
         lastCall = "executeCustomQuery"
         lastDapp = DappCall(network, blockchainRid.toHex(), queryName, arguments)
+        if (dappDelayMs > 0) kotlinx.coroutines.delay(dappDelayMs)
         return next
     }
 

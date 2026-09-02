@@ -52,6 +52,14 @@ class TranslateErrorToolTest {
         assertRule("own_unknown_tool", "Unknown tool: get_dashboard_data")
 
     @Test
+    fun ownUnknownToolSdkShapedText() =
+        // The gated session (App.callToolGated) answers a bogus tool name with
+        // the SDK-shaped "Tool X not found" - the text a LIVE server actually
+        // returns. It went unmatched until the e2e sweep fed it back through
+        // translate_error (found 2026-09-02); this pins the fix.
+        assertRule("own_unknown_tool", "Tool definitely_no_such_tool not found")
+
+    @Test
     fun ownMissingParameter() =
         assertRule(
             "own_missing_parameter",
@@ -121,6 +129,28 @@ class TranslateErrorToolTest {
             "graphql_wrong_type_variable",
             "Validation error (WrongType@[getAllTransactions]) : argument 'accountTypes' with value 'StringValue{value='[FT4_USER]'}' has an invalid value"
         )
+
+    @Test
+    fun graphqlInternalErrorWithRequestId() {
+        // Real incident text (live explorer outage 2026-09-02): several
+        // explorer-backed tools failed with exactly this shape at once while
+        // non-explorer tools kept working - the translation must say upstream
+        // incident, not bad arguments, and point at retry / chromia_dapp_query.
+        val t = ErrorTranslator.translate(
+            "GraphQL Error: INTERNAL_ERROR for 6f6a1b2c-3d4e-4f50-8182-93a4b5c6d7e8"
+        )
+        assertTrue(t.matched)
+        assertEquals("graphql_internal_error", t.ruleId)
+        assertTrue(t.meaning.contains("upstream incident"), t.meaning)
+        assertTrue(t.meaning.contains("not a fault in your call"), t.meaning)
+        assertTrue(t.nextAction.contains("retry later"), t.nextAction)
+        assertTrue(t.nextAction.contains("chromia_dapp_query"), t.nextAction)
+        assertTrue("chromia_dapp_query" in t.relatedTools)
+    }
+
+    @Test
+    fun graphqlInternalErrorWithoutRequestId() =
+        assertRule("graphql_internal_error", "GraphQL Error: INTERNAL_ERROR")
 
     @Test
     fun httpRateLimited() =

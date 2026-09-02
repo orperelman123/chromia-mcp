@@ -183,12 +183,21 @@ object OnboardingNextStep {
     private fun securityStep() = Step(
         stage = "security",
         done = { it.securityClean }
-    ) { _, _ ->
+    ) { _, tools ->
+        // Same dynamic-registry rule as the tool RECOMMENDATIONS (7e718c0):
+        // prose must not name-drop rell_security_check on deployments that
+        // disable it (CHROMIA_MCP_DISABLE_TOOLS) - the parenthetical sent
+        // agents into the disabled-tool refusal (live probe 2026-09-02, D2).
+        val detail = if ("rell_security_check" in tools) {
+            " (rell_security_check gives the per-rule detail)"
+        } else {
+            ""
+        }
         NextAction(
             what = "Clear the security scan",
             who = "agent",
             how = "check_dapp_project already runs the security pass when the code compiles; " +
-                "fix every CRITICAL/HIGH finding (rell_security_check gives the per-rule detail).",
+                "fix every CRITICAL/HIGH finding$detail.",
             verify = "check_dapp_project returns ok:true - no CRITICAL/HIGH security findings remain."
         )
     }

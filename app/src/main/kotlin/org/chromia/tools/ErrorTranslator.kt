@@ -76,7 +76,11 @@ object ErrorTranslator {
         rule(
             id = "own_unknown_tool",
             family = "mcp-server",
-            pattern = "unknown tool:",
+            // Two real texts: ToolExecutor's "Unknown tool: X" and the gated
+            // session's SDK-shaped "Tool X not found" (App.callToolGated) - the
+            // latter is what a live server answers for a bogus tool name, and
+            // it went unmatched until the e2e sweep translated it (2026-09-02).
+            pattern = "unknown tool:|\\btool \\S+ not found",
             meaning = "The MCP server has no tool registered under that name.",
             likelyCause = "Typo in the tool name, a *_help tool hidden by compact mode (CHROMIA_MCP_COMPACT_TOOLS=true), or the tool was dropped via CHROMIA_MCP_DISABLE_TOOLS.",
             nextAction = "List the advertised tools; for help topics call chromia_help without a topic to get the index, then chromia_help(topic).",
@@ -191,6 +195,19 @@ object ErrorTranslator {
             meaning = "A GraphQL variable was sent with the wrong JSON shape for its declared type.",
             likelyCause = "Classic upstream bug: list variables serialized via toString(), sending the string \"[FT4_USER]\" instead of the array [\"FT4_USER\"] (docs/UPSTREAM.md #1). The explorer may also answer HTTP 200 with silently EMPTY results for this.",
             nextAction = "Encode list variables as real JSON arrays; if a list filter returns suspiciously empty data with no error, assume the same serialization bug.",
+        ),
+        // Real incident text (live 2026-09-02): "GraphQL Error: INTERNAL_ERROR
+        // for 6f6a...<uuid>" from several explorer-backed tools at once
+        // (get_asset_top_holders, get_all_transactions, filter_blockchains,
+        // get_blockchain_details) while non-explorer tools kept working.
+        rule(
+            id = "graphql_internal_error",
+            family = "explorer",
+            pattern = "(?=.*graphql)(?=.*internal_error)",
+            meaning = "The explorer's backend answered INTERNAL_ERROR - an upstream incident inside the explorer service, not a fault in your call or its arguments.",
+            likelyCause = "A live explorer outage or degraded backend: during a real incident several explorer-backed tools fail with this at once while chain-direct tools keep working. The opaque id after 'for' is the explorer's request id - useful only to its operators. (One known self-inflicted variant - negative/zero pagination values - is already rejected locally by this server before reaching the explorer.)",
+            nextAction = "Not your fault - retry later with the SAME call; meanwhile try a different explorer tool for the data, or go chain-direct with chromia_dapp_query for on-chain data (it does not pass through the explorer). If it persists across tools for hours, it is an upstream incident to wait out.",
+            relatedTools = listOf("chromia_dapp_query", "get_network_stats")
         ),
         rule(
             id = "http_rate_limited",

@@ -171,10 +171,20 @@ open class RagStore(
         return runCatching {
             retriever.retrieve(Query.from(query))?.mapNotNull { it.textSegment() }?.also { rememberQueryHits(it) }
         }.getOrElse { error ->
-            // Dimension mismatch between the model and a foreign store must degrade
-            // to "no hits", not crash the tool call.
+            // A throwing retriever (e.g. embedding-dimension mismatch against a
+            // foreign store) used to degrade to emptyList(), so a BROKEN index
+            // answered exactly like "no such docs" (reality audit D6). The
+            // index-missing path (null) already reports honestly - mirror that
+            // honesty here by surfacing a retrieval ERROR; the search/fetch_docs
+            // strategies' error paths render it with isError=true.
             logger.warn("Embedding search failed for '$query': ${error.message}")
-            emptyList()
+            throw IllegalStateException(
+                "documentation retrieval failed (this is NOT a no-match answer): ${error.message}. " +
+                    "The embeddings index may be corrupt or built with a different embedding model " +
+                    "(dimension mismatch) - rebuild/redeploy the embeddings; repeating the same " +
+                    "query will not help until the index is fixed.",
+                error
+            )
         }
     }
 

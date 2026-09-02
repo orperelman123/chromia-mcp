@@ -1659,8 +1659,40 @@ class OnboardingNextStepStrategy(
 
 class VerifyDeploymentStrategy(
     /** Test seam so the height-progression wait costs no suite time. */
-    private val delayFn: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) }
+    private val delayFn: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+    /**
+     * Overall wall-clock deadline across ALL probe work (client construction
+     * with its signer discovery, both height reads, the wait, the smoke
+     * query); clamped. Live probe 2026-09-02 (D1): without it, a chain the
+     * queried nodes do not serve kept the probe running past the hosting
+     * platform's 60s proxy write timeout, and the caller got a closed socket
+     * instead of the not-served hint. See [VerifyDeployment.DEFAULT_DEADLINE_MS].
+     */
+    deadlineMs: Long? = null
 ) : BaseToolStrategy() {
+    private val deadlineMs: Long =
+        VerifyDeployment.clampDeadlineMs(deadlineMs ?: VerifyDeployment.configuredDeadlineMs())
+
+    /**
+     * Runs one probe on its own IO-dispatched job and abandons it when
+     * [budgetMs] runs out. The postchain client's network calls are blocking,
+     * so a plain withTimeout around them would not return until the blocking
+     * call itself does - instead the deferred is awaited with a timeout and
+     * cancelled, letting the abandoned call finish (or fail) on a pool thread
+     * while the tool answers within its deadline. Returns null on an exhausted
+     * budget.
+     */
+    private suspend fun <T : Any> probeWithBudget(budgetMs: Long, work: suspend () -> T): T? {
+        if (budgetMs <= 0) return null
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        return try {
+            val deferred = scope.async { work() }
+            withTimeoutOrNull(budgetMs) { deferred.await() }
+        } finally {
+            scope.cancel()
+        }
+    }
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val brid = VerifyDeployment.parseBrid(requireParameter(args, "brid"))
@@ -1670,8 +1702,20 @@ class VerifyDeploymentStrategy(
         val queryArgs = extractArgumentsMap(args, "arguments")
         val rid = BlockchainRid.buildFromHex(brid)
 
+        // One deadline across ALL attempts: each stage gets only what is left.
+        val startNanos = System.nanoTime()
+        fun remainingMs(): Long = deadlineMs - (System.nanoTime() - startNanos) / 1_000_000
+
         val notes = mutableListOf<String>()
-        val first = repository.getBlockchainHeight(network, rid)
+        val first = probeWithBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
+            ?: return toolSuccessResult(
+                buildJsonObject {
+                    put("live", false)
+                    put("brid", brid)
+                    put("heightProgressing", false)
+                    put("notes", VerifyDeployment.timeoutHint(network, deadlineMs))
+                }
+            )
         if (first is NetworkResult.Error) {
             notes += "Height probe failed: ${VerifyDeployment.failureHint(first.message, network)}"
             notes += "Node error: ${first.message}"
@@ -1686,10 +1730,13 @@ class VerifyDeploymentStrategy(
         }
         val firstHeight = (first as NetworkResult.Success).data
 
-        delayFn(waitMs)
-        val second = repository.getBlockchainHeight(network, rid)
+        delayFn(waitMs.coerceAtMost(remainingMs().coerceAtLeast(0L)))
+        val second = probeWithBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
         val secondHeight = (second as? NetworkResult.Success)?.data ?: firstHeight
-        if (second is NetworkResult.Error) {
+        if (second == null) {
+            notes += "Second height probe skipped - the overall ${deadlineMs}ms deadline was " +
+                "reached; reporting the first reading."
+        } else if (second is NetworkResult.Error) {
             notes += "Second height probe failed (${second.message}) - reporting the first reading."
         }
         val progressing = secondHeight > firstHeight
@@ -1701,7 +1748,12 @@ class VerifyDeploymentStrategy(
 
         var queryResult: kotlinx.serialization.json.JsonObject? = null
         if (queryName != null) {
-            when (val q = repository.executeCustomQuery(network, rid, queryName, queryArgs)) {
+            when (val q = probeWithBudget(remainingMs()) {
+                repository.executeCustomQuery(network, rid, queryName, queryArgs)
+            }) {
+                null -> notes += "Smoke query '$queryName' skipped - the overall ${deadlineMs}ms " +
+                    "deadline was reached (the chain itself is live; retry the query via " +
+                    "chromia_dapp_query)."
                 is NetworkResult.Success -> queryResult = q.data
                 is NetworkResult.Error -> notes +=
                     "Smoke query '$queryName' failed: ${q.message} " +

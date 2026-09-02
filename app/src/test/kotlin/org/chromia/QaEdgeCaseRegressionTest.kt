@@ -14,6 +14,7 @@ import org.chromia.tools.RellCheck
 import org.chromia.tools.RunRellTests
 import org.chromia.tools.ScaffoldDappStrategy
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -67,6 +68,40 @@ class QaEdgeCaseRegressionTest {
         val bom = "﻿"
         val result = RellCheck.check(mapOf("main.rell" to bom + "module;\nquery ping() = \"pong\";"), null)
         assertTrue(result.ok, "BOM-prefixed source must compile: ${result.errors}")
+    }
+
+    // Reality audit D7: an only-@test submission used to report "Compiled 0
+    // module(s) successfully" although the test modules did compile.
+    @Test
+    fun onlyTestModuleSubmissionCountsTestModulesInNotes() {
+        val result = RellCheck.check(
+            mapOf("my_test.rell" to "@test module;\nfunction test_nothing() {}"),
+            null
+        )
+        assertTrue(result.ok, result.errors.toString())
+        assertTrue(result.notes.contains("1 @test module(s)"), result.notes)
+        assertFalse(result.notes.contains("0 module(s)"), result.notes)
+    }
+
+    @Test
+    fun mixedSubmissionCountsAppAndTestModulesSeparately() {
+        val result = RellCheck.check(
+            mapOf(
+                "main.rell" to "module;\nquery ping() = \"pong\";",
+                "my_test.rell" to "@test module;\nfunction test_nothing() {}"
+            ),
+            null
+        )
+        assertTrue(result.ok, result.errors.toString())
+        assertTrue(result.notes.contains("1 module(s) and 1 @test module(s)"), result.notes)
+    }
+
+    @Test
+    fun plainSubmissionNotesStayUnchanged() {
+        val result = RellCheck.check(mapOf("main.rell" to "module;\nquery ping() = \"pong\";"), null)
+        assertTrue(result.ok, result.errors.toString())
+        assertTrue(result.notes.contains("Compiled 1 module(s) successfully"), result.notes)
+        assertFalse(result.notes.contains("@test"), result.notes)
     }
 
     @Test

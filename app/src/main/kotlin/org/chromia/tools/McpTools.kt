@@ -3179,6 +3179,10 @@ object McpTools {
             Failure text is actionable: an unknown BRID means the chain is not on that network; an
             unreachable node names the network/URL as the thing to check. An idle chain that produces
             no blocks is reported live with heightProgressing:false and an explanatory note.
+            The whole verification is bounded by an overall deadline (default 20s, env
+            CHROMIA_MCP_VERIFY_DEADLINE_MS, capped at 45s) so it can never hang; a probe that
+            outlives it returns live:false with the likely cause (usually a chain the queried
+            nodes do not serve - pass the dapp's own node URL as network).
             Does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
         inputSchema = Tool.Input(

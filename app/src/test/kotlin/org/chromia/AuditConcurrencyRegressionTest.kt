@@ -284,12 +284,16 @@ class AuditConcurrencyRegressionTest {
         assertNull(store.query("anything"))
         assertEquals(1, loaderCalls.get())
 
-        // After the cooldown the next use retries and recovers.
+        // After the cooldown the next use retries and recovers. The retry is what
+        // this test is about; the search itself cannot succeed here because the
+        // fixture embeds 3 dimensions against the real model's 384, which the
+        // store now reports as a retrieval failure instead of swallowing into an
+        // empty result (audit F5's sibling fix). Either outcome proves the retry.
         registryUp.set(true)
         store.clock = { System.currentTimeMillis() + 2 * RagStore.LOAD_RETRY_COOLDOWN_MS }
-        assertNotNull(store.query("anything"), "query must retry the load after the cooldown")
-        assertEquals(2, loaderCalls.get())
-        assertNotNull(store.embeddingStore)
+        runCatching { store.query("anything") }
+        assertEquals(2, loaderCalls.get(), "query must retry the load after the cooldown")
+        assertNotNull(store.embeddingStore, "the retry must have loaded the store")
     }
 
     // ---------------------------------------------------------------- minors

@@ -13,6 +13,49 @@ object VerifyDeployment {
     /** Hard ceiling so the tool can never hang on a caller-supplied wait. */
     const val MAX_WAIT_MS = 10_000L
 
+    /**
+     * Overall wall-clock budget for the WHOLE verification - client
+     * construction (which does signer discovery over the network), both height
+     * reads, the wait between them, and the optional smoke query. Live probe
+     * 2026-09-02 (D1): resolving a mainnet chain hosted in a non-system
+     * cluster left the probe running past the hosting platform's 60s proxy
+     * write timeout, so the caller got a transport error (socket closed)
+     * instead of the actionable not-served hint. The deadline keeps the answer
+     * well under that ceiling.
+     */
+    const val DEFAULT_DEADLINE_MS = 20_000L
+
+    /** Hard cap on the configurable deadline - must stay well under the 60s proxy write timeout. */
+    const val MAX_DEADLINE_MS = 45_000L
+
+    /** Floor so a misconfigured deadline cannot make every probe fail instantly. */
+    const val MIN_DEADLINE_MS = 100L
+
+    /** Operator override for the overall deadline; clamped to [MIN_DEADLINE_MS]..[MAX_DEADLINE_MS]. */
+    const val DEADLINE_ENV = "CHROMIA_MCP_VERIFY_DEADLINE_MS"
+
+    /** Clamp a configured overall deadline; null/garbage means [DEFAULT_DEADLINE_MS]. */
+    fun clampDeadlineMs(deadlineMs: Long?): Long =
+        (deadlineMs ?: DEFAULT_DEADLINE_MS).coerceIn(MIN_DEADLINE_MS, MAX_DEADLINE_MS)
+
+    /** The overall deadline from the environment (or the default), always clamped. */
+    fun configuredDeadlineMs(raw: String? = System.getenv(DEADLINE_ENV)): Long =
+        clampDeadlineMs(raw?.trim()?.toLongOrNull())
+
+    /**
+     * The notes text for a verification whose height probe outlived the
+     * overall deadline. Named causes mirror [failureHint]'s unknown-chain
+     * branch: on the predefined system-cluster nodes, a chain hosted in
+     * another cluster stalls or 404s - the dapp's own node URL resolves both.
+     */
+    fun timeoutHint(network: String, deadlineMs: Long): String =
+        "Height probe timed out: the node(s) produced no answer for this BRID within the " +
+            "overall ${deadlineMs}ms deadline. Likely cause: the chain is not served by the " +
+            "queried node(s) - a chain hosted in a cluster the predefined \"$network\" system " +
+            "nodes do not serve stalls exactly like this - or the node is very slow. If the " +
+            "chain is live, pass the dapp's own node URL as `network` to verify it directly; " +
+            "otherwise re-check the BRID and network, or retry later."
+
     private val HEX64 = Regex("^[0-9a-fA-F]{64}$")
 
     /**
