@@ -123,7 +123,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -143,6 +143,11 @@ object DappScaffold {
                 "chromia.yml" to vaultChromiaYml(chain),
                 "src/main.rell" to vaultMainRell(),
                 "src/test/main_test.rell" to vaultTestRell()
+            )
+            "staking" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to stakingMainRell(),
+                "src/test/main_test.rell" to stakingTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -172,6 +177,11 @@ object DappScaffold {
             helpers need the test-only lib.ft4.core.admin/lib.ft4.test.core.auth keys) or `chr test`
             (green as scaffolded; needs `chr install` and a C.UTF-8 PostgreSQL in `database:`),
             and copy test_transfer_conserves_total_points for your own app's economic invariant.
+            HOW TO PASS module_args to run_rell_tests: one JSON object keyed by module name that
+            merges blockchains.<name>.moduleArgs with test.moduleArgs, e.g.
+            {"lib.ft4": {...}, "lib.ft4.core.accounts": {...}, "lib.ft4.core.admin": {"admin_pubkey": "x\"02C4...\""},
+            "lib.ft4.test.core.auth": {"admin_priv_key": "x\"00CE...\""}} - byte_array values may be
+            pasted as the yml's x"..." literal, as 0x..., or as bare hex; all three decode to bytes.
             test.moduleArgs admin keys are FT4's published TEST keys, scoped to `chr test` only -
             never move them under blockchains.<name> and never import admin modules in code.
             A passing security check is NOT economic soundness: missing authorization, unbacked
@@ -187,6 +197,11 @@ object DappScaffold {
             main.oracle_pubkey from chromia.yml test.moduleArgs in the module_args you pass to
             run_rell_tests, and you must set main.oracle_pubkey under blockchains.<name>.moduleArgs
             before `chr build` - it is deliberately absent so no placeholder key can ship.
+            Building staking, yield, rewards or vesting - anything that pays out over time: start
+            from template=staking (rewards come only from a sponsor-funded pool, the clock releases
+            at most what the pool holds, every credit is a pool debit in the same operation, unstaking
+            has a cooldown; the shipped tests replay the round-4 stake-times-elapsed-times-rate mint
+            from an empty pool and require it to fail).
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -1392,6 +1407,483 @@ object DappScaffold {
             post_price(main.PRICE_SCALE);
             signed(alice.keypair, main.buy_tokens(10));
             assert_equals(main.get_token_balance(alice.account.id), 20);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    // ---- staking template: rewards are released from a sponsor-funded pool, never computed from a rate ----
+    //
+    // Adversary round 4 (exploit-corpus/realworld/adversary-round4/dapp_c_staking V8,
+    // corpus row r4-staking-unbacked-mint) drained a staking dapp the gate certified
+    // with zero findings: claim_rewards credited `staked * elapsed * REWARD_PER_SECOND`
+    // straight into the balance with no pool debit, so a staker who simply waited
+    // minted from an empty pool. No static rule can see that - a rate constant times
+    // elapsed time is ordinary arithmetic - so this template makes the formula
+    // unwritable: there is no reward expression at all, only a RELEASE from
+    // pool.undistributed (funded by sponsors, debited in the same operation) that the
+    // clock can never make larger than what the pool holds, and a per-share
+    // accumulator that splits what was released among the stakers of the moment.
+
+    private fun stakingMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Staking template: stake points, earn a share of a reward pool, unstake
+        // through a cooldown. Four guards are STRUCTURAL - they live in the pool
+        // object and the settlement helpers, not in a require() a future operation
+        // can forget:
+        //   SPONSOR-FUNDED  - pool.undistributed has exactly one inflow: fund_rewards,
+        //                     which debits the sponsor's own balance in the same
+        //                     operation. There is no rate that creates points.
+        //   RELEASE-CAPPED  - update_pool releases min(elapsed * REWARD_PER_SECOND,
+        //                     pool.undistributed). The clock decides WHEN, the sponsors
+        //                     decided HOW MUCH: an empty pool releases nothing however
+        //                     long a staker waits, so the round-4 mint (stake * elapsed
+        //                     * rate credited from nothing) has no line to live on.
+        //   PAIRED CREDIT   - claim_rewards debits pool.unclaimed and credits the
+        //                     member in the same operation, and refuses a claim the
+        //                     pool cannot cover. Every credit in this file is a debit
+        //                     of a real row or pool field in the same operation.
+        //   COOLDOWN        - unstaked points stop earning at once and leave only
+        //                     after COOLDOWN_MS, so nobody can stake for one block,
+        //                     take the reward and run.
+        // The per-share accumulator (acc_reward_per_share, big_integer) splits each
+        // release across the stakers of that moment, so claiming often, staking late
+        // or a large stake cannot inflate a claim. src/test/main_test.rell replays the
+        // round-4 mint and REQUIRES it to fail, and asserts after every step that
+        // points in circulation equal the welcome grants: rewards are sponsor points
+        // moved, never created. Keep those tests passing as this file grows.
+        // What no template can fix: REWARD_PER_SECOND and COOLDOWN_MS are your
+        // economics - a rate the sponsors cannot keep funded simply stops paying.
+
+        entity member {
+            key owner: byte_array;
+            mutable balance: integer = 0;       // spendable points
+            mutable staked: integer = 0;        // points locked in the pool, earning
+            // The accumulator value at the member's last settlement: the pending
+            // reward is staked * (pool.acc_reward_per_share - reward_snapshot) / ACC_SCALE.
+            mutable reward_snapshot: big_integer = 0L;
+            mutable pending_reward: integer = 0;
+        }
+
+        // One cooldown per member at a time: the key refuses a second request.
+        entity unstake_request {
+            key member;
+            amount: integer;
+            ready_at: timestamp;
+        }
+
+        object pool {
+            mutable total_staked: integer = 0;
+            // Sponsored, not yet released to any staker. The ONLY source of rewards.
+            mutable undistributed: integer = 0;
+            // Released to stakers by the accumulator but not yet claimed. Rounding
+            // dust stays here; it is never paid twice.
+            mutable unclaimed: integer = 0;
+            mutable acc_reward_per_share: big_integer = 0L;
+            mutable last_update: timestamp = 0;
+        }
+
+        // The one-time welcome grant is the ONLY place points are created (a
+        // stand-in for a real deposit - replace with an FT4 asset transfer and keep
+        // the same discipline: every credit is debited from somewhere real).
+        val WELCOME_POINTS = 1000;
+        // Points released from the pool to all stakers per second - while the pool
+        // has them. This is a release schedule, not a mint: see update_pool.
+        val REWARD_PER_SECOND = 1;
+        // One day. A constant: there is no parameter that shortens it.
+        val COOLDOWN_MS = 24 * 60 * 60 * 1000;
+        // Bound every stake BEFORE the accumulator multiplies it (i64 overflow aborts).
+        val MAX_STAKE = 1000000000;
+        val ACC_SCALE = 1000000000000L;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
+        // with contains_all(), and contains_all([]) is always true - never weaken
+        // this default; grant flags = [] only per operation, scoped, for
+        // operations that cannot move value.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function member_of(owner: byte_array): member =
+            require(member @? { .owner == owner }, "register as a member first");
+
+        // Release what the clock has earned since the last update - out of
+        // pool.undistributed and into the accumulator. Never more than the pool
+        // holds, nothing while nobody is staked, and the clock is consumed even
+        // when nothing is released so a later sponsor cannot fund the past.
+        function update_pool() {
+            val now = op_context.last_block_time;
+            if (pool.last_update == 0) {
+                pool.last_update = now;
+                return;
+            }
+            val elapsed_ms = now - pool.last_update;
+            if (elapsed_ms <= 0) return;
+            pool.last_update = now;
+            if (pool.total_staked == 0 or pool.undistributed == 0) return;
+            // THE guard against the round-4 mint: the schedule is capped by the
+            // pool. Delete the min() and a staker mints from nothing again.
+            val earned = min(pool.undistributed, elapsed_ms / 1000 * REWARD_PER_SECOND);
+            if (earned <= 0) return;
+            pool.undistributed -= earned;
+            pool.unclaimed += earned;
+            pool.acc_reward_per_share += earned.to_big_integer() * ACC_SCALE / pool.total_staked.to_big_integer();
+        }
+
+        // Settle a member against the accumulator before its stake changes.
+        function settle(m: member) {
+            update_pool();
+            val owed = (m.staked.to_big_integer() * (pool.acc_reward_per_share - m.reward_snapshot) / ACC_SCALE).to_integer();
+            update m ( .pending_reward += owed, .reward_snapshot = pool.acc_reward_per_share );
+        }
+
+        operation register_member() {
+            val account = auth.authenticate();
+            require(member @? { .owner == account.id } == null, "already a member");
+            create member(owner = account.id, balance = WELCOME_POINTS);
+        }
+
+        operation transfer_points(to: byte_array, amount: integer) {
+            // 1. AUTHENTICATE  2. AUTHORIZE - spend only from the CALLER's row.
+            val account = auth.authenticate();
+            val from = member_of(account.id);
+            // 3. VALIDATE - each input separately.
+            require(to != account.id, "cannot transfer to yourself");
+            val recipient = member_of(to);
+            require(amount > 0, "amount must be positive");
+            require(from.balance >= amount, "insufficient balance");
+            // 4. INVARIANTS - the same amount leaves one row and lands in another.
+            update from ( .balance -= amount );
+            update recipient ( .balance += amount );
+        }
+
+        // Sponsor the reward pool from your own balance. This is the pool's only
+        // inflow, and it is paid for in the same operation.
+        operation fund_rewards(amount: integer) {
+            val account = auth.authenticate();
+            val m = member_of(account.id);
+            require(amount > 0, "amount must be positive");
+            require(m.balance >= amount, "insufficient balance");
+            // Consume the clock first so the new funding is released from now on,
+            // not retroactively over the time before it arrived.
+            update_pool();
+            update m ( .balance -= amount );
+            pool.undistributed += amount;
+        }
+
+        operation stake(amount: integer) {
+            val account = auth.authenticate();
+            val m = member_of(account.id);
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_STAKE, "amount too large");
+            require(m.balance >= amount, "insufficient balance");
+            require(m.staked + amount <= MAX_STAKE, "stake cap exceeded");
+            // Settle BEFORE the stake grows: the new stake starts at the current
+            // accumulator and earns nothing for the past.
+            settle(m);
+            update m ( .balance -= amount, .staked += amount );
+            pool.total_staked += amount;
+        }
+
+        // Start the cooldown for part of the stake. The amount stops earning now
+        // and leaves the stake; it can be withdrawn after COOLDOWN_MS.
+        operation request_unstake(amount: integer) {
+            val account = auth.authenticate();
+            val m = member_of(account.id);
+            require(amount > 0, "amount must be positive");
+            require(m.staked >= amount, "insufficient stake");
+            require(unstake_request @? { .member == m } == null, "an unstake is already pending");
+            settle(m);
+            update m ( .staked -= amount );
+            pool.total_staked -= amount;
+            create unstake_request(member = m, amount = amount, ready_at = op_context.last_block_time + COOLDOWN_MS);
+        }
+
+        operation withdraw_unstaked() {
+            val account = auth.authenticate();
+            val m = member_of(account.id);
+            val r = require(unstake_request @? { .member == m }, "no pending unstake");
+            require(op_context.last_block_time >= r.ready_at, "cooldown not over");
+            val amount = r.amount;
+            // The cooling row is the debit; deleting it and crediting the balance
+            // happen in the same operation.
+            delete r;
+            update m ( .balance += amount );
+        }
+
+        operation claim_rewards() {
+            val account = auth.authenticate();
+            val m = member_of(account.id);
+            settle(m);
+            val reward = m.pending_reward;
+            require(reward > 0, "nothing to claim");
+            // Paid out of what the accumulator released, never more than the pool
+            // holds: the credit below cannot exist without this debit.
+            require(pool.unclaimed >= reward, "pool cannot cover the claim");
+            pool.unclaimed -= reward;
+            update m ( .pending_reward = 0, .balance += reward );
+        }
+
+        query get_balance(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            return if (m != null) m.balance else 0;
+        }
+
+        query get_staked(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            return if (m != null) m.staked else 0;
+        }
+
+        // What the accumulator will be once the next operation settles the clock
+        // up to the latest block. Read-only: the same arithmetic as update_pool.
+        function projected_acc(): big_integer {
+            val last_block = block @? {} ( @max .timestamp );
+            if (last_block == null or pool.last_update == 0) return pool.acc_reward_per_share;
+            val elapsed_ms = last_block - pool.last_update;
+            if (elapsed_ms <= 0 or pool.total_staked == 0 or pool.undistributed == 0) return pool.acc_reward_per_share;
+            val earned = min(pool.undistributed, elapsed_ms / 1000 * REWARD_PER_SECOND);
+            if (earned <= 0) return pool.acc_reward_per_share;
+            return pool.acc_reward_per_share + earned.to_big_integer() * ACC_SCALE / pool.total_staked.to_big_integer();
+        }
+
+        // Pending reward as of the latest block (read-only: does not settle).
+        query get_pending_reward(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            if (m == null) return 0;
+            val owed = (m.staked.to_big_integer() * (projected_acc() - m.reward_snapshot) / ACC_SCALE).to_integer();
+            return m.pending_reward + owed;
+        }
+
+        query get_unstake_request(owner: byte_array) {
+            val r = unstake_request @? { .member.owner == owner };
+            return if (r != null) (amount = r.amount, ready_at = r.ready_at) else null;
+        }
+
+        query pool_state() = (
+            total_staked = pool.total_staked,
+            undistributed = pool.undistributed,
+            unclaimed = pool.unclaimed,
+            last_update = pool.last_update
+        );
+
+        query member_count(): integer = member @* {} ( .owner ).size();
+
+        // INVARIANT: every point in circulation came from a welcome grant. Points
+        // are spendable, staked, cooling, or in the pool (undistributed or released
+        // but unclaimed); staking, funding, releasing and claiming move them, they
+        // never create or destroy them. The shipped tests compare this to
+        // member_count() * WELCOME_POINTS after every step.
+        query points_in_circulation(): integer {
+            var total = pool.undistributed + pool.unclaimed;
+            for (m in member @* {} ( .balance, .staked )) total += m.balance + m.staked;
+            for (a in unstake_request @* {} ( .amount )) total += a;
+            return total;
+        }
+
+        // INVARIANT: the stake ledger and the pool's total agree.
+        query staked_points(): integer {
+            var total = 0;
+            for (s in member @* {} ( .staked )) total += s;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun stakingTestRell(): String = """
+        @test module;
+
+        // The staking template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // test_round4_unbacked_reward_must_fail replays the adversary's staking
+        // drain against this template and REQUIRES it to be refused: nobody funds
+        // the pool, a staker waits a year, and the claim that minted 31 million
+        // points in round 4 must find nothing to claim here. It can only pass while
+        // the release cap stands, so deleting it goes red before an attacker finds
+        // out. test_rewards_come_only_from_sponsor_funding is the conservation
+        // proof: what stakers receive plus the dust left in the pool is exactly
+        // what sponsors paid in, and points in circulation never change.
+        // Test blocks are DEFAULT_BLOCK_INTERVAL (10 s) apart, so amounts that
+        // depend on how many blocks a setup took are asserted as bounds and the
+        // totals exactly.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Stamp the next block `ms` after the last one.
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+        function assert_conserved() {
+            assert_equals(main.points_in_circulation(), main.member_count() * main.WELCOME_POINTS);
+            assert_equals(main.staked_points(), main.pool_state().total_staked);
+        }
+
+        function reward_of(owner: byte_array, staked: integer): integer =
+            main.get_balance(owner) - (main.WELCOME_POINTS - staked);
+
+        // EXPLOIT MUST FAIL. Round 4: nobody funds the pool, alice stakes everything
+        // and waits a year. The adversary's claim_rewards credited
+        // stake * seconds * REWARD_PER_SECOND from nothing; here the pool released
+        // nothing, so there is nothing to claim and nothing was created. Then a
+        // sponsor funds 50 and a second year passes: exactly 50 is claimable, and
+        // not a point more.
+        function test_round4_unbacked_reward_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_member());
+            assert_equals(main.pool_state().undistributed, 0);
+            signed(alice.keypair, main.stake(main.WELCOME_POINTS));
+            assert_conserved();
+
+            after(ONE_YEAR_MS);
+            // The exploit step: in round 4 this claim credited 31,536,000 points.
+            signed_must_fail(alice.keypair, main.claim_rewards(), "nothing to claim");
+            assert_equals(main.get_balance(alice.account.id), 0);
+            assert_equals(main.get_pending_reward(alice.account.id), 0);
+            assert_equals(main.pool_state().unclaimed, 0);
+            assert_conserved();
+
+            val bob = register_bob();
+            signed(bob.keypair, main.register_member());
+            signed(bob.keypair, main.fund_rewards(50));
+            after(ONE_YEAR_MS);
+            signed(alice.keypair, main.claim_rewards());
+            assert_equals(main.get_balance(alice.account.id), 50);
+            assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS - 50);
+            assert_equals(main.pool_state().undistributed, 0);
+            assert_equals(main.pool_state().unclaimed, 0);
+            after(ONE_YEAR_MS);
+            signed_must_fail(alice.keypair, main.claim_rewards(), "nothing to claim");
+            assert_conserved();
+        }
+
+        // CONSERVATION: total value = welcome grants; rewards are sponsor points
+        // moved. trudy sponsors 300; alice and bob stake 600 / 200; after an hour the
+        // pool is out and what they received plus the dust left unclaimed is exactly
+        // 300 - and another hour releases nothing, because the clock alone creates
+        // nothing.
+        function test_rewards_come_only_from_sponsor_funding() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            signed(trudy.keypair, main.fund_rewards(300));
+            assert_equals(main.pool_state().undistributed, 300);
+            assert_conserved();
+
+            signed(alice.keypair, main.stake(600));
+            signed(bob.keypair, main.stake(200));
+            assert_conserved();
+
+            after(60 * 60 * 1000);
+            signed(alice.keypair, main.claim_rewards());
+            signed(bob.keypair, main.claim_rewards());
+            assert_equals(main.pool_state().undistributed, 0);
+            val alice_reward = reward_of(alice.account.id, 600);
+            val bob_reward = reward_of(bob.account.id, 200);
+            // alice staked a block before bob and earned those seconds alone, so she
+            // gets at least her 3/4 share; together they got the 300 sponsored, less
+            // rounding dust that stays in the pool and is never paid to anyone.
+            assert_true(alice_reward >= 225 and bob_reward <= 75);
+            assert_true(alice_reward + bob_reward >= 298);
+            assert_equals(alice_reward + bob_reward + main.pool_state().unclaimed, 300);
+            assert_equals(main.get_balance(trudy.account.id), main.WELCOME_POINTS - 300);
+            assert_conserved();
+
+            after(60 * 60 * 1000);
+            signed_must_fail(alice.keypair, main.claim_rewards(), "nothing to claim");
+            signed_must_fail(bob.keypair, main.claim_rewards(), "nothing to claim");
+            assert_conserved();
+        }
+
+        // ACCUMULATOR + COOLDOWN: staking just before a claim earns nothing for the
+        // past; unstaked points stop earning at once and only leave after the
+        // cooldown - withdrawing early must fail.
+        function test_late_staker_earns_nothing_for_the_past_and_cooldown_holds() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(bob.keypair, main.fund_rewards(500));
+            signed(alice.keypair, main.stake(100));
+            after(50 * 1000);
+            // bob stakes after ~50 seconds of accrual: none of it is his. (An
+            // operation sees the PREVIOUS block's time, so a new stake is credited
+            // from one block interval before its inclusion - 10 s in tests, at most
+            // 8 of the 400/500 share here - never the 50 s before it.)
+            signed(bob.keypair, main.stake(400));
+            assert_true(main.get_pending_reward(bob.account.id) <= 10);
+            assert_true(main.get_pending_reward(alice.account.id) >= 50);
+            signed(alice.keypair, main.claim_rewards());
+            assert_true(main.get_balance(alice.account.id) >= main.WELCOME_POINTS - 100 + 50);
+            assert_conserved();
+
+            // alice starts a cooldown for all of it and settles what was pending;
+            // from here on she earns nothing, and cannot withdraw early.
+            signed_must_fail(alice.keypair, main.request_unstake(101), "insufficient stake");
+            signed(alice.keypair, main.request_unstake(100));
+            signed_must_fail(alice.keypair, main.request_unstake(1), "insufficient stake");
+            signed_must_fail(alice.keypair, main.withdraw_unstaked(), "cooldown not over");
+            val pending = main.get_pending_reward(alice.account.id);
+            if (pending > 0) signed(alice.keypair, main.claim_rewards());
+            val settled = main.get_balance(alice.account.id);
+            after(50 * 1000);
+            assert_equals(main.get_pending_reward(alice.account.id), 0);
+            signed_must_fail(alice.keypair, main.claim_rewards(), "nothing to claim");
+            assert_true(main.get_pending_reward(bob.account.id) >= 50);
+            assert_conserved();
+
+            after(main.COOLDOWN_MS);
+            signed(alice.keypair, main.withdraw_unstaked());
+            signed_must_fail(alice.keypair, main.withdraw_unstaked(), "no pending unstake");
+            assert_equals(main.get_balance(alice.account.id), settled + 100);
+            assert_equals(main.get_staked(alice.account.id), 0);
+            assert_conserved();
+        }
+
+        // INPUT BOUNDS + OWNERSHIP: negative or oversized amounts abort, a
+        // non-member cannot stake, and transfers move only spendable points.
+        function test_bounds_and_ownership() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed_must_fail(bob.keypair, main.stake(1), "register as a member first");
+            signed_must_fail(alice.keypair, main.stake(-1), "amount must be positive");
+            signed_must_fail(alice.keypair, main.stake(main.WELCOME_POINTS + 1), "insufficient balance");
+            signed_must_fail(alice.keypair, main.fund_rewards(0), "amount must be positive");
+            signed(bob.keypair, main.register_member());
+            signed_must_fail(alice.keypair, main.transfer_points(alice.account.id, 1), "cannot transfer to yourself");
+            signed_must_fail(alice.keypair, main.transfer_points(bob.account.id, main.WELCOME_POINTS + 1), "insufficient balance");
+            signed(alice.keypair, main.stake(main.WELCOME_POINTS));
+            signed_must_fail(alice.keypair, main.transfer_points(bob.account.id, 1), "insufficient balance");
             assert_conserved();
         }
     """.trimIndent() + "\n"

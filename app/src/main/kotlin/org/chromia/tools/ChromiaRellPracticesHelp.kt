@@ -190,7 +190,10 @@ object ChromiaRellPracticesHelp {
         a fixed voting window, stake-weighted votes and execute-once are structural there, not a
         require() to remember. Oracle-priced value (exchange, vault, redemption): start from
         template=vault - every credit is paid out of a reserve row in the same operation and price
-        posts are bounded, rate-limited and time-checked. Both ship the real drain as a must-fail test.
+        posts are bounded, rate-limited and time-checked. Staking, yield, rewards, vesting - anything
+        paid out over time: start from template=staking - rewards are released from a sponsor-funded
+        pool (never computed from a rate), capped by what the pool holds, and unstaking has a
+        cooldown. All three ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.
@@ -241,7 +244,8 @@ object ChromiaRellPracticesHelp {
             "invariant_tests",
             "Conservation, no-negative-balance, and non-owner-must-fail tests: scaffold_dapp " +
                 "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests. " +
-                "DAO / treasury: template=governance; oracle-priced exchange or vault: template=vault - " +
+                "DAO / treasury: template=governance; oracle-priced exchange or vault: template=vault; " +
+                "staking / rewards / vesting: template=staking - " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail."
         )
         put("security_keys", buildJsonArray { securityKeys.forEach { add(JsonPrimitive(it)) } })
