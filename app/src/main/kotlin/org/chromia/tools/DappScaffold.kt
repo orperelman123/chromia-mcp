@@ -39,8 +39,28 @@ object DappScaffold {
             "auth_flags" to buildJsonObject {
                 put("mandatory", buildJsonArray { add(JsonPrimitive("A")); add(JsonPrimitive("T")) })
             }
+        ),
+        // TEST-ONLY admin wiring. lib.ft4.test.core (register_alice & co) transitively
+        // imports lib.ft4.admin, whose core.admin module_args has no default - the
+        // block runner refuses to build the chain without an admin_pubkey ("No
+        // moduleArgs for module 'lib.ft4.core.admin'"). These are the WELL-KNOWN
+        // FT4 repo test keys (public in ft4-lib's own chromia.yml) - they gate
+        // nothing in production because the scaffold's main module never imports
+        // admin, so no admin operation is mounted on a deployed chain.
+        "lib.ft4.core.admin" to mapOf(
+            "admin_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY)
+        ),
+        "lib.ft4.test.core.auth" to mapOf(
+            "admin_priv_key" to JsonPrimitive(TEST_ADMIN_PRIVKEY)
         )
     )
+
+    /**
+     * FT4's own published test admin keypair (ft4-lib chromia.yml, tag v1.1.0r).
+     * Test configuration only - never a production credential.
+     */
+    const val TEST_ADMIN_PUBKEY = "02C4049F9550DCFF6003347BB3944DF2AA2D6EF5202C22834284B085C56DE8C6DD"
+    const val TEST_ADMIN_PRIVKEY = "00CED79962D1150BF844CACB76310D4746C4426558A7FD9C827B30203DACC4CE"
     // Git tag / source revision of the Rell language sources and docs we reference.
     // NOT what goes into generated chromia.yml.
     const val RELL_SOURCE_TAG = "0.16.7"
