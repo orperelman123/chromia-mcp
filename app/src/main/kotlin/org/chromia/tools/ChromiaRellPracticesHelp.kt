@@ -186,6 +186,11 @@ object ChromiaRellPracticesHelp {
         authorization (a NON-owner's attempt must run_must_fail - authenticating says who calls,
         require(row.owner == account.id) says they may touch that row). scaffold_dapp template=ft4
         ships runnable examples of all three; run them via run_rell_tests.
+        Governance (DAO, treasury, voting): start from scaffold_dapp template=governance - quorum,
+        a fixed voting window, stake-weighted votes and execute-once are structural there, not a
+        require() to remember. Oracle-priced value (exchange, vault, redemption): start from
+        template=vault - every credit is paid out of a reserve row in the same operation and price
+        posts are bounded, rate-limited and time-checked. Both ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.
@@ -235,7 +240,9 @@ object ChromiaRellPracticesHelp {
         put(
             "invariant_tests",
             "Conservation, no-negative-balance, and non-owner-must-fail tests: scaffold_dapp " +
-                "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests."
+                "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests. " +
+                "DAO / treasury: template=governance; oracle-priced exchange or vault: template=vault - " +
+                "their guards are structural and their shipped tests replay the real drain as must-fail."
         )
         put("security_keys", buildJsonArray { securityKeys.forEach { add(JsonPrimitive(it)) } })
         put("skipped", buildJsonArray { skipped.forEach { add(JsonPrimitive(it)) } })
