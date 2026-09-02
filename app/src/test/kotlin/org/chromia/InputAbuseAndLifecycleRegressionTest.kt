@@ -251,4 +251,33 @@ class InputAbuseAndLifecycleRegressionTest {
         assertTrue(e.message!!.contains("moduleArgs names module 'lib.ft4.accounts', but no such module"), e.message)
     }
 
+    // ---- Lens 2: a failed restart silently took the previous chain down --------
+
+    @Test
+    fun failedRestartSaysThePreviousChainIsGone() {
+        var calls = 0
+        LocalChain.starterOverrideForTests = { plan ->
+            calls++
+            if (calls > 1) throw IllegalStateException("simulated node start failure")
+            LocalChain.Running(
+                node = null,
+                brid = plan.brid,
+                apiPort = plan.apiPort,
+                fingerprint = plan.fingerprint,
+                nodePubkey = plan.pubKeyHex,
+                expiresAtMillis = Long.MAX_VALUE,
+                ttlTask = null
+            )
+        }
+        val dbUrl = "jdbc:postgresql://localhost:5432/db?user=u&password=p"
+        val first = LocalChain.up(mapOf("main.rell" to "module; entity item { name; }"), databaseUrl = dbUrl)
+        assertTrue(first.ok, first.notes)
+
+        val second = LocalChain.up(mapOf("main.rell" to "module; entity other { name; }"), databaseUrl = dbUrl)
+        assertFalse(second.ok, second.notes)
+        assertTrue(second.notes.contains("simulated node start failure"), second.notes)
+        assertTrue(second.notes.contains("previously running chain (${first.brid}) was stopped"), second.notes)
+        assertEquals("not_running", LocalChain.status().status)
+    }
+
 }

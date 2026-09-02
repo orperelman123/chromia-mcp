@@ -160,13 +160,21 @@ object LocalChain {
                 reschedule(current, ttl)
                 return describe(current, "already_running", refreshedTtl = ttl)
             }
+            val replacedBrid = current?.brid
             if (current != null) {
                 stopLocked("restarting with different sources")
             }
             val started = try {
                 startBounded(plan)
             } catch (e: Exception) {
-                return UpResult(ok = false, status = "error", notes = diagnose(e, plan))
+                // The old chain is already gone by now - an error that did not
+                // say so left the agent believing its previous chain (and its
+                // apiUrl) still served (QA lifecycle lens 2026-09-02).
+                val replaced = replacedBrid?.let {
+                    " The previously running chain ($it) was stopped to make room for this start and is no " +
+                        "longer serving; nothing is running now - fix the error and call up again."
+                }.orEmpty()
+                return UpResult(ok = false, status = "error", notes = diagnose(e, plan) + replaced)
             }
             running = started
             installShutdownHook()
