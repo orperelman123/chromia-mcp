@@ -42,9 +42,15 @@ const startedAt = Date.now();
 console.log(`gate: running full suite in ${repo} (forced rerun)`);
 // --rerun-tasks: Gradle's up-to-date check is the single biggest source of
 // "successful" builds that executed nothing.
-const gradle = spawnSync(join(repo, 'gradlew.bat'), ['test', '--rerun-tasks'], {
-  cwd: repo, encoding: 'utf8', shell: false, maxBuffer: 64 * 1024 * 1024,
-});
+// A .bat needs a shell on Windows; without one spawn fails silently and the
+// gate would report "the suite did not run" without saying it never started it.
+const isWin = process.platform === 'win32';
+const gradle = isWin
+  ? spawnSync('cmd', ['/c', join(repo, 'gradlew.bat'), 'test', '--rerun-tasks'],
+      { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  : spawnSync(join(repo, 'gradlew'), ['test', '--rerun-tasks'],
+      { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+if (gradle.error) fail(`could not start gradle: ${gradle.error.message}`);
 const out = `${gradle.stdout ?? ''}${gradle.stderr ?? ''}`;
 for (const line of out.split('\n')) {
   if (/^e: |BUILD (SUCCESSFUL|FAILED)|tests? completed|OutOfMemory|FAILED$/.test(line)) console.log(`  ${line.trim()}`);
