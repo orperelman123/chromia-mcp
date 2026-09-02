@@ -239,9 +239,19 @@ object DappScaffold {
         import lib.ft4.auth;
         import lib.ft4.accounts;
 
-        // Golden FT4 pattern: every state-mutating operation authenticates the
-        // caller and validates its inputs. Never import FT4 admin modules or
-        // open registration/transfer strategies (see the project security pins).
+        // Golden FT4 pattern. Every state-mutating operation must:
+        //   1. AUTHENTICATE - resolve which FT4 account signed the call.
+        //   2. AUTHORIZE    - prove that account may touch THIS row. Authenticating
+        //                     only says who is calling; it does not say the caller
+        //                     owns what they are changing. Key writes off the
+        //                     authenticated id (as add_note does below), or check
+        //                     ownership explicitly: require(row.owner == account.id).
+        //                     Never trust an account id passed in as a parameter.
+        //   3. VALIDATE     - require(...) every input, each parameter separately.
+        //   4. CHECK INVARIANTS - conservation (value created must be backed),
+        //                     bounds, quorum. Nothing below enforces these for you.
+        // Never import FT4 admin modules or open registration/transfer strategies
+        // (see the project security pins).
 
         entity note {
             index owner: byte_array;
@@ -249,6 +259,14 @@ object DappScaffold {
             created_at: timestamp;
         }
 
+        // flags = [] means "any auth descriptor on the account may call this".
+        // FT4 checks flags with contains_all(), and contains_all([]) is ALWAYS
+        // true - so an empty list requires nothing, including from limited
+        // session/login descriptors. That is fine for this note demo, which
+        // moves no value.
+        // If you copy this handler onto an operation that MOVES VALUE, require
+        // the Transfer flag instead: flags = ["T"]. Otherwise a session key the
+        // user believed could not spend their funds can spend them.
         @extend(auth.auth_handler)
         function () = auth.add_auth_handler(
             flags = []

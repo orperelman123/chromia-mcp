@@ -136,6 +136,22 @@ tasks.named<Test>("test") {
     // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).
     maxHeapSize = "1280m"
     timeout.set(Duration.ofMinutes(25))
+
+    // Environment-gated tests (a PostgreSQL with C.UTF-8 collation, the live
+    // testnet probes) skip unless their env vars are set - and a skip is a test
+    // that silently did not run. Once a developer has provisioned the local
+    // environment, record it in local-test-env.properties (gitignored) and it
+    // applies to every run, so the default here is zero skips rather than a
+    // green suite that quietly covered less than it claims. Real env vars still
+    // win, so CI is unaffected.
+    val localTestEnv = rootProject.layout.projectDirectory.file("local-test-env.properties").asFile
+    if (localTestEnv.isFile) {
+        val props = java.util.Properties()
+        localTestEnv.inputStream().use(props::load)
+        props.stringPropertyNames()
+            .filter { System.getenv(it) == null }
+            .forEach { environment(it, props.getProperty(it)) }
+    }
 }
 
 val compileKotlin: KotlinCompile by tasks

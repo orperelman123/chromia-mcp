@@ -62,3 +62,6 @@ node_modules
 # Local RAG embeddings (default lives under build/; ignore stray copies)
 embeddings.json
 scratch-qa/
+
+# Local, machine-specific test environment (endpoints, dev passwords).
+local-test-env.properties
