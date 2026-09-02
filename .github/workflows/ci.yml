@@ -18,8 +18,13 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # v5, not v6: v5 moves the action to the Node 24 runtime (clearing the
+      # Node-20 deprecation warning) with no input changes. v6's release notes
+      # make upgrading constitute acceptance of Terms of Use for its now-
+      # proprietary caching component - a licensing decision for the repo
+      # owner, not a CI chore.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Test and build fat jar
         run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
@@ -41,7 +46,14 @@ jobs:
   e2e:
     needs: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Must fit TWO full sweep attempts plus server startups and the 30s
+    # inter-attempt pause: a healthy attempt is ~8-12 min, and run 33601190754
+    # measured ~16 min for one attempt DURING an upstream outage (before the
+    # dapp_query deadline and the adaptive coverage backoff shrank that case).
+    # 2 x 16 + startup/pause + headroom = 35. The old 20 could not even fit
+    # two healthy attempts, so the retry it was paired with guaranteed a
+    # cancellation instead of a verdict whenever attempt 1 failed slowly.
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:16
@@ -83,6 +95,10 @@ jobs:
       #   bounded retry below absorbs. Each attempt gets a FRESH server on a
       #   freed port (kill + wait), so nothing is double-counted or leaked;
       #   two consecutive failures are fatal - a persistent problem still reds CI.
+      # - Exception to the retry: sweep exit 3 means the ONLY failures were the
+      #   upstream guardrails (all-live-warn / too-many-warns) - deterministic
+      #   for the duration of an outage, so a second 10+ minute attempt cannot
+      #   change the verdict. Fail immediately without retrying (still red).
       - name: Start server (full toolset) and run the end-to-end sweep
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
@@ -103,7 +119,15 @@ jobs:
             wait "$server_pid" 2>/dev/null || true
             return "$rc"
           }
-          if ! run_e2e; then
+          rc=0
+          run_e2e || rc=$?
+          # Exit 3 can only come from the sweep's guardrail-only path (curl
+          # would need a malformed literal URL, node/synthetic-agent exit 0/1).
+          if [ "$rc" -eq 3 ]; then
+            echo "::error::e2e failed on the sweep's upstream guardrails only (exit 3) - deterministic while the upstream outage lasts, so a retry cannot change the verdict"
+            exit "$rc"
+          fi
+          if [ "$rc" -ne 0 ]; then
             echo "::warning::e2e attempt 1 failed - retrying once with a fresh server (a single transient blip must not red-line CI; a persistent failure still will)"
             sleep 30
             run_e2e

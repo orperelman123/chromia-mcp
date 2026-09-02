@@ -21,26 +21,26 @@ object VerifyDeployment {
      * cluster left the probe running past the hosting platform's 60s proxy
      * write timeout, so the caller got a transport error (socket closed)
      * instead of the actionable not-served hint. The deadline keeps the answer
-     * well under that ceiling.
+     * well under that ceiling. Shared with the rest of the blocking
+     * postchain-read family via [ProbeBudget].
      */
-    const val DEFAULT_DEADLINE_MS = 20_000L
+    const val DEFAULT_DEADLINE_MS = ProbeBudget.DEFAULT_DEADLINE_MS
 
     /** Hard cap on the configurable deadline - must stay well under the 60s proxy write timeout. */
-    const val MAX_DEADLINE_MS = 45_000L
+    const val MAX_DEADLINE_MS = ProbeBudget.MAX_DEADLINE_MS
 
     /** Floor so a misconfigured deadline cannot make every probe fail instantly. */
-    const val MIN_DEADLINE_MS = 100L
+    const val MIN_DEADLINE_MS = ProbeBudget.MIN_DEADLINE_MS
 
     /** Operator override for the overall deadline; clamped to [MIN_DEADLINE_MS]..[MAX_DEADLINE_MS]. */
     const val DEADLINE_ENV = "CHROMIA_MCP_VERIFY_DEADLINE_MS"
 
     /** Clamp a configured overall deadline; null/garbage means [DEFAULT_DEADLINE_MS]. */
-    fun clampDeadlineMs(deadlineMs: Long?): Long =
-        (deadlineMs ?: DEFAULT_DEADLINE_MS).coerceIn(MIN_DEADLINE_MS, MAX_DEADLINE_MS)
+    fun clampDeadlineMs(deadlineMs: Long?): Long = ProbeBudget.clampDeadlineMs(deadlineMs)
 
     /** The overall deadline from the environment (or the default), always clamped. */
     fun configuredDeadlineMs(raw: String? = System.getenv(DEADLINE_ENV)): Long =
-        clampDeadlineMs(raw?.trim()?.toLongOrNull())
+        ProbeBudget.clampDeadlineMs(raw?.trim()?.toLongOrNull())
 
     /**
      * The notes text for a verification whose height probe outlived the

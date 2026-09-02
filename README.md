@@ -274,7 +274,11 @@ Every push runs the full pyramid — none of these can be skipped:
    tag demonstrably third-party failures WARN-UPSTREAM instead of FAIL via an allowlisted
    classifier (`scripts/upstream-classifier.mjs`) with guardrails: all-live-warn is a FAIL,
    more than `SWEEP_MAX_UPSTREAM_WARNS` (default 8) warnings is a FAIL, and non-network
-   checks always fail hard.
+   checks always fail hard. Retry spend adapts during an outage: once the same upstream
+   signature has degraded 2 checks in a run, later checks hitting it fail fast to
+   WARN-UPSTREAM instead of paying full 8s retry backoffs (classification and guardrails
+   unchanged). Exit codes: 0 pass, 1 real FAIL (CI retries once), 3 guardrail-only failure
+   (still red, but deterministic during an outage - CI skips the retry).
 3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — checks over the transport
    Claude Code uses. `--launcher` runs the same checks through the real npm launcher
    (`packages/npm/bin/chromia-mcp.mjs`) pointed at the local shadowJar via `CHROMIA_MCP_JAR`;

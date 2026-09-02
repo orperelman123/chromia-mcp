@@ -80,6 +80,22 @@ function liveText(m) {
 const results = [];
 /** [{label, signature}] - checks degraded by a third-party failure. */
 const upstreamWarns = [];
+/**
+ * signature -> how many checks in THIS run it has already degraded. Once a
+ * signature has degraded KNOWN_DEGRADED_AFTER checks, the dependency behind
+ * it is known-degraded for the rest of the run: later checks hitting the SAME
+ * signature stop paying full retry backoffs and fail fast to WARN-UPSTREAM
+ * (the 2026-09-01 explorer incident cost 9 tools x 2 x 8s of pure waiting in
+ * the coverage phase). Failures with a signature not yet at the threshold
+ * still get the full retries - isolated blips keep their chance to recover.
+ * Classification is unchanged; only the retry SPEND adapts, so the guardrails
+ * below (all-live-warn => FAIL, > max warns => FAIL) see the same warnings.
+ */
+const upstreamSignatureCounts = new Map();
+const KNOWN_DEGRADED_AFTER = 2;
+const noteUpstreamSignature = sig =>
+  upstreamSignatureCounts.set(sig, (upstreamSignatureCounts.get(sig) ?? 0) + 1);
+const isKnownDegraded = sig => (upstreamSignatureCounts.get(sig) ?? 0) >= KNOWN_DEGRADED_AFTER;
 /** Live-network checks that actually executed (not SKIPped) - guardrail base. */
 let liveChecksExecuted = 0;
 const RETRYABLE = /timeout|fetch failed|no endpoint event|ECONNRESET|socket/i;
@@ -109,6 +125,7 @@ async function check(label, fn, requiresTool, opts = {}) {
     }
     if (opts.live && e instanceof UpstreamError) {
       upstreamWarns.push({ label, signature: e.signature });
+      noteUpstreamSignature(e.signature);
       results.push([label, true, `WARN-UPSTREAM (${e.message})`]);
       console.log(`WARN-UPSTREAM ${label} - the failure is the upstream dependency's, not ours (${e.message})`);
       return true;
@@ -228,7 +245,18 @@ await check('scaffold ft4 + validate yml', async () => {
   expect(v.ok === true, 'scaffolded yml invalid: ' + JSON.stringify(v.errors).slice(0, 150)); return null;
 });
 await check('dapp_query live on-chain', async () => {
-  const t = liveText(await call('chromia_dapp_query', { blockchainRid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2', query: 'rell.get_app_structure' }, 240000));
+  const m = await call('chromia_dapp_query', { blockchainRid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2', query: 'rell.get_app_structure' }, 240000);
+  // The tool is deadline-bounded now (default 20s, CHROMIA_MCP_QUERY_DEADLINE_MS):
+  // a clean tool error naming its own deadline, for a chain we KNOW is live,
+  // means the mainnet nodes produced no answer in time - upstream, like the
+  // equivalent verify_deployment case below. Structural: fires only on a
+  // clean isError answer carrying the tool's own deadline text, never on
+  // transport errors or rpc timeouts (those keep failing hard - pre-deadline
+  // this exact check hung past its 240s rpc timeout in CI run 33601190754).
+  if (m?.result?.isError === true && /within the overall \d+ms\s+deadline/.test(text(m))) {
+    throw new UpstreamError('mainnet-node-latency', text(m).slice(0, 160));
+  }
+  const t = liveText(m);
   expect(t.length > 100 && (t.includes('module') || t.includes('queries')), t.slice(0, 120)); return null;
 }, 'chromia_dapp_query', { live: true });
 // --- The agent journey: the MCP builds a dapp through its own toolchain ---
@@ -496,7 +524,9 @@ await check('coverage: every advertised tool responds', async () => {
   for (const name of coverageTargets) {
     let lastText = '';
     let outcome = 'fail';
+    let attemptsMade = 0;
     for (let attempt = 1; attempt <= 3; attempt++) {
+      attemptsMade = attempt;
       try {
         const m = await call(name, KNOWN_ARGS[name] ?? {}, 240000);
         lastText = text(m);
@@ -506,9 +536,15 @@ await check('coverage: every advertised tool responds', async () => {
         if (m?.result && (m.result.isError !== true || cleanRefusal)) { outcome = 'ok'; break; }
         // A clean tool-level error matching the upstream allowlist (explorer
         // incident, cold-cache latency, node blip): our server answered
-        // correctly; back off and retry - it often recovers within the sweep.
+        // correctly. An ISOLATED signature gets the full backed-off retries -
+        // it often recovers within the sweep. A signature that already
+        // degraded KNOWN_DEGRADED_AFTER checks this run marks its dependency
+        // known-degraded: fail fast to WARN-UPSTREAM instead of paying more
+        // 8s backoffs per tool (the 2026-09-01 explorer incident degraded 9
+        // tools - minutes of pure waiting for a dependency already proven down).
         if (m?.result?.isError === true && upstreamSignature(lastText)) {
           outcome = 'degraded';
+          if (isKnownDegraded(upstreamSignature(lastText))) break;
           if (attempt < 3) { await new Promise(r => setTimeout(r, 8000)); continue; }
           break;
         }
@@ -518,8 +554,13 @@ await check('coverage: every advertised tool responds', async () => {
     }
     if (outcome === 'ok') continue;
     if (outcome === 'degraded') {
+      const sig = upstreamSignature(lastText);
       degraded.push(name);
-      console.log(`WARN-UPSTREAM ${name}: ${upstreamSignature(lastText)} after 3 attempts (server error path is clean): ${lastText.slice(0, 100)}`);
+      noteUpstreamSignature(sig);
+      const spend = attemptsMade < 3
+        ? `after ${attemptsMade} attempt(s) - ${sig} already degraded ${upstreamSignatureCounts.get(sig) - 1} check(s) this run, dependency known-degraded`
+        : 'after 3 attempts';
+      console.log(`WARN-UPSTREAM ${name}: ${sig} ${spend} (server error path is clean): ${lastText.slice(0, 100)}`);
     } else {
       failures.push(`${name}: ${lastText.slice(0, 100)}`);
     }
@@ -566,4 +607,10 @@ if (upstreamWarns.length) {
 }
 failed.forEach(f => console.log('FAILED:', f[0], '-', f[2]));
 try { session.controller.abort(); } catch {}
-process.exit(failed.length ? 1 : 0);
+// Exit codes: 0 = pass; 1 = at least one real FAIL (possibly transient - a
+// retry may help); 3 = the ONLY failures are the upstream guardrails above
+// (all-live-warn / too-many-warns). 3 still reds CI, but it is deterministic
+// for the duration of an upstream outage - CI uses it to skip the pointless
+// full-sweep retry that made run 33601190754 outlive its job timeout.
+const guardrailOnly = failed.length > 0 && failed.every(f => String(f[0]).startsWith('guardrail:'));
+process.exit(failed.length ? (guardrailOnly ? 3 : 1) : 0);

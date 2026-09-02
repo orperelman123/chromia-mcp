@@ -880,7 +880,22 @@ class FilterBlockchainsStrategy : BaseToolStrategy() {
     }
 }
 
-class DappInteractionStrategy : BaseToolStrategy() {
+class DappInteractionStrategy(
+    /**
+     * Overall wall-clock deadline for the blocking query, client construction
+     * (signer discovery) included; clamped. CI run 33601190754: a query
+     * against a chain the predefined system nodes do not serve made
+     * postchain-client crawl all ~14 endpoints at up to 60s each, outliving
+     * even the e2e sweep's 240s rpc timeout and surfacing as a transport
+     * error instead of an answer. A healthy live query answers in ~1-2s, so
+     * the default leaves ample headroom. See [ProbeBudget].
+     */
+    deadlineMs: Long? = null
+) : BaseToolStrategy() {
+    private val deadlineMs: Long = ProbeBudget.clampDeadlineMs(
+        deadlineMs ?: ProbeBudget.configuredDeadlineMs(ProbeBudget.QUERY_DEADLINE_ENV)
+    )
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
@@ -888,12 +903,14 @@ class DappInteractionStrategy : BaseToolStrategy() {
         val queryName = extractString(args, "query")
         val arguments = extractArgumentsMap(args, "arguments")
 
-        val result = repository.executeCustomQuery(
-            network,
-            BlockchainRid.buildFromHex(blockchainRid),
-            queryName,
-            arguments
-        )
+        val result = ProbeBudget.withBudget(deadlineMs) {
+            repository.executeCustomQuery(
+                network,
+                BlockchainRid.buildFromHex(blockchainRid),
+                queryName,
+                arguments
+            )
+        } ?: return toolErrorResult(ProbeBudget.queryTimeoutHint(network, deadlineMs))
 
         return handleResult(result, "Failed to execute dapp query $queryName --> $arguments")
     }
@@ -1673,26 +1690,6 @@ class VerifyDeploymentStrategy(
     private val deadlineMs: Long =
         VerifyDeployment.clampDeadlineMs(deadlineMs ?: VerifyDeployment.configuredDeadlineMs())
 
-    /**
-     * Runs one probe on its own IO-dispatched job and abandons it when
-     * [budgetMs] runs out. The postchain client's network calls are blocking,
-     * so a plain withTimeout around them would not return until the blocking
-     * call itself does - instead the deferred is awaited with a timeout and
-     * cancelled, letting the abandoned call finish (or fail) on a pool thread
-     * while the tool answers within its deadline. Returns null on an exhausted
-     * budget.
-     */
-    private suspend fun <T : Any> probeWithBudget(budgetMs: Long, work: suspend () -> T): T? {
-        if (budgetMs <= 0) return null
-        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-        return try {
-            val deferred = scope.async { work() }
-            withTimeoutOrNull(budgetMs) { deferred.await() }
-        } finally {
-            scope.cancel()
-        }
-    }
-
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val brid = VerifyDeployment.parseBrid(requireParameter(args, "brid"))
@@ -1707,7 +1704,7 @@ class VerifyDeploymentStrategy(
         fun remainingMs(): Long = deadlineMs - (System.nanoTime() - startNanos) / 1_000_000
 
         val notes = mutableListOf<String>()
-        val first = probeWithBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
+        val first = ProbeBudget.withBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
             ?: return toolSuccessResult(
                 buildJsonObject {
                     put("live", false)
@@ -1731,7 +1728,7 @@ class VerifyDeploymentStrategy(
         val firstHeight = (first as NetworkResult.Success).data
 
         delayFn(waitMs.coerceAtMost(remainingMs().coerceAtLeast(0L)))
-        val second = probeWithBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
+        val second = ProbeBudget.withBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
         val secondHeight = (second as? NetworkResult.Success)?.data ?: firstHeight
         if (second == null) {
             notes += "Second height probe skipped - the overall ${deadlineMs}ms deadline was " +
@@ -1748,7 +1745,7 @@ class VerifyDeploymentStrategy(
 
         var queryResult: kotlinx.serialization.json.JsonObject? = null
         if (queryName != null) {
-            when (val q = probeWithBudget(remainingMs()) {
+            when (val q = ProbeBudget.withBudget(remainingMs()) {
                 repository.executeCustomQuery(network, rid, queryName, queryArgs)
             }) {
                 null -> notes += "Smoke query '$queryName' skipped - the overall ${deadlineMs}ms " +
@@ -1790,7 +1787,21 @@ class VerifyDeploymentStrategy(
     }
 }
 
-class DeploymentPreflightStrategy : BaseToolStrategy() {
+class DeploymentPreflightStrategy(
+    /**
+     * Overall wall-clock deadline for the reachability probe, shared by ALL
+     * probed URLs (never per candidate); clamped. Without it the probe shared
+     * chromia_dapp_query's unbounded blocking-height-read class - up to
+     * [DeploymentPreflight.MAX_PROBED_URLS] full endpoint crawls back to
+     * back. Compile/security gates are local work and run outside this
+     * budget. See [ProbeBudget].
+     */
+    deadlineMs: Long? = null
+) : BaseToolStrategy() {
+    private val probeDeadlineMs: Long = ProbeBudget.clampDeadlineMs(
+        deadlineMs ?: ProbeBudget.configuredDeadlineMs(ProbeBudget.PREFLIGHT_DEADLINE_ENV)
+    )
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
@@ -1809,10 +1820,22 @@ class DeploymentPreflightStrategy : BaseToolStrategy() {
         return runCatching {
             // Compile + security run blocking compiler work; the reachability
             // probe is the repository's suspend height read (same seam as
-            // verify_deployment), so no live network in unit tests.
+            // verify_deployment), so no live network in unit tests. The probe
+            // budget starts at the FIRST probe call (after the local gates)
+            // and is spent across all candidates: a first URL that eats the
+            // whole budget leaves the rest nothing - they answer instantly
+            // with the deadline message instead of starting fresh crawls.
+            var probeStartNanos = -1L
             var result = withContext(Dispatchers.IO) {
                 DeploymentPreflight.run(yaml, target, rell, strict) { network, bridHex ->
-                    repository.getBlockchainHeight(network, BlockchainRid.buildFromHex(bridHex))
+                    if (probeStartNanos < 0) probeStartNanos = System.nanoTime()
+                    val remainingMs =
+                        probeDeadlineMs - (System.nanoTime() - probeStartNanos) / 1_000_000
+                    ProbeBudget.withBudget(remainingMs) {
+                        repository.getBlockchainHeight(network, BlockchainRid.buildFromHex(bridHex))
+                    } ?: NetworkResult.Error(
+                        ProbeBudget.preflightProbeTimeoutMessage(probeDeadlineMs)
+                    )
                 }
             }
             if (filesAlias != null) {

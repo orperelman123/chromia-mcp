@@ -34,6 +34,11 @@ object McpTools {
             - Execute custom dApp queries with specific parameters
             - Analyze dApp architecture and data models
             - Get real-time data from blockchain applications
+
+            The whole query is bounded by an overall deadline (default 20s, env
+            CHROMIA_MCP_QUERY_DEADLINE_MS, capped at 45s) so it can never hang: a chain the queried
+            nodes do not serve returns an actionable error (usually: pass the dapp's own node URL
+            as network) instead of crawling every endpoint for minutes.
         """.trimIndent(),
         inputSchema = Tool.Input(
             properties = JsonObject(
@@ -3262,7 +3267,9 @@ object McpTools {
             (1) the deployments.<target> block - brid present/well-formed, url valid, container a real
             lease id (not a placeholder), chains matching declared blockchains; (2) reachability - a
             read-only height probe of the block's Directory Chain BRID against its own URL(s), with
-            classified failure hints; (3) network sanity - a testnet/mainnet target whose brid or url
+            classified failure hints, bounded by one overall deadline shared by all probed URLs
+            (default 20s, env CHROMIA_MCP_PREFLIGHT_PROBE_DEADLINE_MS, capped at 45s) so an
+            unserved chain can never hang the tool; (3) network sanity - a testnet/mainnet target whose brid or url
             points at the OTHER network is a HIGH blocker (wrong-network deploys are unrecoverable);
             (4) the source gate when `rell` is supplied - code must compile, and for MAINNET targets
             CRITICAL/HIGH security findings are blockers (warnings for testnet); (5) production pins
