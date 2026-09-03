@@ -24,11 +24,14 @@ agent proved nothing, because a disclaimer is not a guard.
 So a redirect is a **debt**, and this is the ledger. Ordered by what an agent is
 most likely to ask for next times how far the redirect target is from the ask.
 
+**Closed so far:** `amm` / `dex` / `swap`, which used to land on `vault`. The
+`amm` template ships the sandwich and JIT liquidity as unwritable rather than
+detected, and the redirect now names it.
+
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| `amm`, `dex`, `swap` | `vault` | the curve itself - constant-product pricing, LP entry/exit | JIT liquidity and sandwiches. **In flight** (`feat/amm-template`) |
 | `stablecoin` | `vault` | the peg, the collateralisation ratio, liquidation of a CDP | a mint-against-collateral position is not a reserve row. Closest sibling is `lending`, not `vault`: it has a ratio that moves with a price, so it inherits every round-8 lesson about re-pricing history, and adds a peg that arbitrage is *supposed* to move |
-| `exchange` | `vault` | an order book: resting orders, partial fills, matching, cancellation | a resting order is a standing commitment at a stale price - the marketplace's timed-auction lesson (no mutable bid field; the standing bid is its own immutable escrow row) is the nearest precedent, and matching adds ordering it does not have |
+| `exchange` | `amm` (was `vault`) | an order book: resting orders, partial fills, matching, cancellation | landing `amm` is closer than `vault` was, but an order book is not a curve. A resting order is a standing commitment at a stale price - the marketplace's timed-auction lesson (no mutable bid field; the standing bid is its own immutable escrow row) is the nearest precedent, and matching adds an ordering neither template has. The word "exchange" moving from one wrong template to a less wrong one is not the same as being covered |
 | `subscription`, `allowance` | `streaming` | recurring PULL billing, where the payer is charged period after period | `streaming` is PREPAID to one named beneficiary and its safety rests on that: the money is already escrowed. A pull model has no escrow, so the failure is a charge that should not have happened - the opposite direction, and none of the streaming guards address it |
 | bridge / cross-chain | *nothing* | everything | not in the redirect map at all, so it falls to the `else` branch, which at least says plainly that nothing covers it. Highest severity if built, lowest likelihood of being asked here |
 
