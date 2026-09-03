@@ -108,13 +108,22 @@ jobs:
         with:
           name: test-report
           path: app/build/reports/tests/test
+          # Long enough to read after a red run, short enough not to accumulate.
+          retention-days: 7
 
+      # retention-days is NOT optional here. The jar is ~266 MB and every push
+      # kept one for the default 90 days, so 54 of them - 14.4 GB - filled the
+      # account's artifact quota in four days and CI went red on the UPLOAD step
+      # with a green 1175-test suite behind it (run 33729077322). The only
+      # consumer is the e2e job below, which downloads it inside the same run,
+      # so a day is already generous; anything older is rebuilt by re-running.
       - name: Upload server jar
         uses: actions/upload-artifact@v7
         with:
           name: chromia-mcp-server
           path: app/build/libs/chromia-mcp-server.jar
           if-no-files-found: error
+          retention-days: 1
 
   e2e:
     needs: build-and-test
