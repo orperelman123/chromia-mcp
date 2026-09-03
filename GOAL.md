@@ -4,11 +4,18 @@
 
 Everything else in this repo serves that. When a change is worth making, it is because it moves this; when a claim is worth doubting, it is because it only appears to.
 
-## The acceptance test
+## The bar: zero exploits
 
-Not "the gate returned `ok:true`" — that is a linter result, and on 2026-09-02 it certified four agent-built dapps of which two were trivially drainable. The test is always:
+**A dapp built from this MCP must contain no exploit an auditor can land. Zero — not "fewer than last round".**
+
+That is a number a round can fail, and most rounds have. It is not "the gate returned `ok:true`" — that is a linter result, and on 2026-09-02 it certified four agent-built dapps of which two were trivially drainable. The test is always:
 
 > An agent builds a dapp using **only** this server's guidance, templates and gates. An independent hostile auditor then attacks it. Whatever they can drain is our failure, not the agent's.
+
+**A round passes only when the auditor reports that they could drain nothing.** Anything less is a red round, however much coverage moved. Two things follow from that, and both have already bitten:
+
+- **A drain in a class we have no template for is our failure too.** Every un-templated class attacked so far has drained. "We never claimed to cover streaming" is not a defence — the agent asked this server how to build, and this server answered.
+- **The prose is part of the attack surface.** Round 7 drained a build whose author followed the template header exactly: the header prescribed a holding period against a step in pool value, and the attack was exit-only, so the advice was the vulnerability. A header sentence that is wrong is a defect of the same kind as a missing guard, and the residual list — where an auditor places the most trust — is the worst place to be wrong.
 
 Run it as a round: build, attack, pin what got through, fix, re-attack. `app/src/test/resources/exploit-corpus/` is the standing scoreboard — every exploit found becomes a sample with a pinned verdict, so coverage is measured on every build instead of claimed in a report.
 
@@ -27,4 +34,6 @@ Run it as a round: build, attack, pin what got through, fix, re-attack. `app/src
 
 ## Where things stand
 
-Honest, and not yet done. Faithful builds on the templates have survived hostile review; hand-written operations that deviate from a template's structure, and value classes with no template, are where drains still land. The corpus records exactly which — read it rather than trusting this paragraph.
+**Not met.** Round 7 drained the lending template as shipped, an extension written by following that template's own header, and an un-templated payment-streaming dapp — all three certified `ok:true` with zero findings. The first two are fixed; the third has no template yet. Earlier rounds drained every un-templated class they touched.
+
+What holds: each template makes its own exploit class unwritable rather than merely detected, and the guards are load-bearing — every one has a mutant that goes red because the attack lands. The corpus at `app/src/test/resources/exploit-corpus/` records exactly which exploits are caught, which are open, and which are open on purpose because a precise rule is impossible. Read it rather than trusting this paragraph.
