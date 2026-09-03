@@ -92,6 +92,39 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(notes.contains("HOW TO PASS module_args to run_rell_tests"), "notes must say how module_args are passed")
         assertTrue(notes.contains("x\"...\" literal, as 0x..., or as bare hex"), "notes must say the yml literal is accepted")
         assertTrue(notes.contains("template=marketplace"), "notes must steer NFT / marketplace / listing builders to the template")
+        assertTrue(notes.contains("AUCTIONS ARE IN THAT TEMPLATE"), "the notes must not advertise an auction the template does not ship")
+    }
+
+    /**
+     * The unknown-template fallback must ROUTE, not just list names. Round 6's drain
+     * landed in the un-templated class: `scaffold_dapp(template="lending")` answered
+     * "Unknown template (valid: ...); scaffolded the 'hello' template", and the agent
+     * wrote the whole value class freehand.
+     */
+    @Test
+    fun unknownTemplateFallbackRoutesToTheClosestTemplate() {
+        listOf("lending", "borrow", "credit_line", "money_market", "loan_pool").forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("NO TEMPLATE COVERS LENDING YET"), "$asked must be told plainly that no template covers it: $warning")
+            assertTrue(warning.contains("`vault`") && warning.contains("`staking`"), "$asked must be routed to the closest two templates: $warning")
+            assertTrue(warning.contains("NEITHER GIVES YOU SHARE PRICING"), "$asked must be told where round 6 was drained: $warning")
+        }
+        assertTrue(
+            DappScaffold.toJson("x", template = "dao").getValue("warnings").toString().contains("template=governance"),
+            "a DAO must be routed to the governance template"
+        )
+        assertTrue(
+            DappScaffold.toJson("x", template = "oracle").getValue("warnings").toString().contains("template=vault"),
+            "an oracle must be routed to the vault template"
+        )
+        assertTrue(
+            DappScaffold.toJson("x", template = "auction").getValue("warnings").toString().contains("template=marketplace"),
+            "an auction must be routed to the marketplace template, which now ships one"
+        )
+        assertTrue(
+            DappScaffold.toJson("x", template = "zzz_nothing_like_this").getValue("warnings").toString().contains("No shipped template covers that name"),
+            "an unrecognisable name must still get the four hardened templates and the write-the-invariant-test-first advice"
+        )
     }
 
     @Test
@@ -256,7 +289,7 @@ class DappScaffoldSecureTemplatesTest {
         // the same operation - the buyer's balance, or the escrow row just deleted.
         val settle = code.substringAfter("function settle_sale(").substringBefore("\n}")
         assertTrue(settle.contains("require(royalty + proceeds == price, \"the split must pay out exactly the price\");"), "settle_sale must assert the split is exact")
-        assertEquals(2, Regex("\\bsettle_sale\\(").findAll(code).count() - 1, "settle_sale must have exactly two callers")
+        assertEquals(3, Regex("\\bsettle_sale\\(").findAll(code).count() - 1, "settle_sale must have exactly three callers")
         assertTrue(buy.contains("update buyer ( .balance -= price );"), "buy_nft must debit the buyer")
         assertTrue(buy.indexOf("delete l;") in 0 until buy.indexOf("settle_sale("), "buy_nft must consume the listing before it pays out")
         assertTrue(accept.indexOf("delete o;") in 0 until accept.indexOf("settle_sale("), "accept_offer must consume the escrow before it pays out")
@@ -267,9 +300,47 @@ class DappScaffoldSecureTemplatesTest {
             val body = opBody(code, op)
             Regex("\\.balance \\+= (\\w+)").findAll(body).map { it.groupValues[1] }.forEach { amount ->
                 val debited = body.contains("-= $amount") ||
-                    (op == "cancel_offer" && body.contains("val $amount = o.amount;") && body.contains("delete o;"))
+                    (op == "cancel_offer" && body.contains("val $amount = o.amount;") && body.contains("delete o;")) ||
+                    // place_bid's debit is the standing bid row it destroys in the same
+                    // operation - an escrow released by deletion, not by a compound assignment.
+                    (op == "place_bid" && body.contains("val $amount = standing.amount;") && body.contains("delete standing;"))
                 assertTrue(debited, "$op credits .balance += $amount without debiting $amount in the same operation")
             }
+        }
+
+        // TIMED AUCTION: no mutable term anywhere, no operation that edits an auction
+        // or a bid, raising is delete-and-recreate, and settlement is permissionless.
+        val auction = code.substringAfter("entity auction {").substringBefore("}")
+        val bidEntity = code.substringAfter("entity bid {").substringBefore("}")
+        assertFalse(auction.contains("mutable"), "no auction field may be mutable - a movable reserve or deadline is the sandwich")
+        assertFalse(bidEntity.contains("mutable"), "no bid field may be mutable - a mutable highest_bid IS the round-5 sandwich")
+        assertFalse(Regex("update\\s+a\\s*\\(").containsMatchIn(code), "no operation may update an auction row")
+        assertFalse(Regex("update\\s+(standing|winning)\\s*\\(").containsMatchIn(code), "no operation may update a bid row")
+        val placeBid = opBody(code, "place_bid")
+        assertTrue(placeBid.indexOf("delete standing;") in 0 until placeBid.indexOf("create bid("), "raising a bid must be delete-and-recreate")
+        assertTrue(placeBid.indexOf("update previous ( .balance += refund );") in 0 until placeBid.indexOf("update bidder ( .balance -= amount );"), "the outbid escrow must be refunded in the operation the new one is taken")
+        assertTrue(opBody(code, "cancel_auction").contains("require(bid @? { .auction == a } == null, \"auction has a bid\");"), "a seller may not cancel out from under a standing bid")
+        val settleAuction = opBody(code, "settle_auction")
+        assertTrue(settleAuction.contains("require(op_context.last_block_time >= a.ends_at, \"auction has not ended\");"), "the deadline is a term, not a suggestion")
+        assertFalse(settleAuction.contains("a.seller == account.id"), "settle_auction must be permissionless - a seller who walks away must not be able to strand the escrow")
+        assertTrue(settleAuction.indexOf("delete winning;") in 0 until settleAuction.indexOf("settle_sale("), "settle_auction must consume the bid escrow before it pays out")
+
+        // ONE ENCUMBRANCE HELPER, consulted by every path that moves a token.
+        assertTrue(code.contains("function require_unencumbered(token: nft) {"), "the encumbrance question must live in one helper")
+        listOf("buy_nft", "transfer_nft", "accept_offer", "list_nft", "start_auction").forEach { op ->
+            assertTrue(opBody(code, op).contains("require_unencumbered(token);"), "$op moves a token or opens a market state and must consult require_unencumbered")
+        }
+
+        // CONSERVATION: every row that holds points is summed.
+        val circulation = code.substringAfter("query points_in_circulation()").substringBefore("\n}")
+        listOf("member", "offer", "bid").forEach { row ->
+            assertTrue(circulation.contains("in $row @* {}"), "points_in_circulation must sum the $row rows that hold points")
+        }
+
+        // The seams a static rule cannot see are written down where an extender reads.
+        assertTrue(main.contains("EXTENDING THIS TEMPLATE"), "the header must tell an extender which invariants are theirs to keep")
+        listOf("MUTUALLY EXCLUSIVE", "ENCUMBRANCE HELPER", "CONSERVATION TOTAL").forEach {
+            assertTrue(main.contains(it), "the EXTENDING section must name the '$it' seam")
         }
 
         // ROYALTY: fixed at mint, capped, never rounded away - and the header says
@@ -435,7 +506,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_round5_price_sandwich_must_fail",
             "test_round5_royalty_bypass_is_documented_not_enforced",
             "test_sale_and_escrow_conserve_points",
-            "test_escrow_and_ownership_hold"
+            "test_escrow_and_ownership_hold",
+            "test_round6_auction_terms_cannot_move_under_a_standing_bid",
+            "test_round6_auction_escrow_cannot_be_stranded"
         )
     )
 
@@ -644,6 +717,51 @@ class DappScaffoldSecureTemplatesTest {
         "val royalty = exact;",
         "test_round5_royalty_bypass_is_documented_not_enforced",
         "royalty cannot exceed the price",
+        "expected"
+    )
+
+    /**
+     * Take away the deadline check and the seller settles the moment a bid they like
+     * arrives - the auction's terms moved under the standing bid after all. The
+     * must-fail settle in the replay now SUCCEEDS.
+     */
+    @Test
+    fun marketplaceAuctionTestGoesRedWithoutTheDeadline() = assertGuardRemovalRedensExploitTest(
+        "marketplace",
+        "require(op_context.last_block_time >= a.ends_at, \"auction has not ended\");",
+        "test_round6_auction_terms_cannot_move_under_a_standing_bid",
+        "auction has not ended"
+    )
+
+    /**
+     * Empty out the ONE encumbrance helper and a plain gift walks the token out from
+     * under the escrowed bid: transfer_nft, list_nft and accept_offer all succeed
+     * where the replay required them to be refused, and the winner's points are
+     * stranded with no settlement left that can pay them out. Nothing is minted, so
+     * no conservation total and no static rule would ever have noticed.
+     */
+    @Test
+    fun marketplaceAuctionEscrowTestGoesRedWithoutTheEncumbranceHelper() = assertGuardRemovalRedensExploitTest(
+        "marketplace",
+        "require(auction @? { .nft == token } == null, \"token is in an auction\");",
+        "test_round6_auction_escrow_cannot_be_stranded",
+        "token is in an auction"
+    )
+
+    /**
+     * Stop refunding the outbid escrow and raising a bid quietly destroys the
+     * previous bidder's points: the row that held them is deleted and nothing pays
+     * them back, so the conservation total drops and the replay's balance assertion
+     * trips. The delete-and-recreate is only safe because the refund is in the same
+     * operation as the delete.
+     */
+    @Test
+    fun marketplaceAuctionTestGoesRedWithoutTheOutbidRefund() = assertGuardMutationRedensExploitTest(
+        "marketplace",
+        "update previous ( .balance += refund );",
+        "",
+        "test_round6_auction_terms_cannot_move_under_a_standing_bid",
+        "insufficient balance",
         "expected"
     )
 }
