@@ -138,7 +138,13 @@ tasks.named<Test>("test") {
     // Explicit bounds so constrained build containers fail fast instead of
     // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).
     maxHeapSize = "1280m"
-    timeout.set(Duration.ofMinutes(25))
+    // 25 was not enough any more and the way it failed was misleading: the task
+    // was KILLED mid-suite, so the run reported a partial tally (935 tests one
+    // run, 588 the next) and Gradle removed the result XMLs on the way out -
+    // which the merge gate then read as "the suite did not run". Round 9 added
+    // four full dapp builds and five samples to the corpus, each analysed on
+    // every run. CI's own job budget is 50 minutes, so this stays inside it.
+    timeout.set(Duration.ofMinutes(45))
 
     // Environment-gated tests (a PostgreSQL with C.UTF-8 collation, the live
     // testnet probes) skip unless their env vars are set - and a skip is a test
