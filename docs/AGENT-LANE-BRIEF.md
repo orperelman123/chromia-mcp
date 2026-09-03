@@ -4,7 +4,7 @@ Read this first. It is the shared context every lane needs; your task message ad
 
 `GOAL.md` at the repo root states what all of this is for. The two commands below exist so the loop's guarantees do not depend on anyone remembering them:
 
-- **`node scripts/loop-gate.mjs --expect-min <n> --allow-skip <Class::test>`** — the merge gate. Forces a rerun (a cached task reports success having run nothing), refuses evidence older than the run, and fails on any unlisted skip or zero results. The orchestrator runs this; you do not.
+- **`node scripts/loop-gate.mjs --expect-min <n> --allow-skip <Class::test>`** — the merge gate. Pass the PREVIOUS VERIFIED test count as `--expect-min`, never an estimate: it exists to catch a suite that silently narrowed, and a guessed floor turns that check into a coin flip (it once blocked a clean 1148-test merge because the floor was invented). Forces a rerun (a cached task reports success having run nothing), refuses evidence older than the run, and fails on any unlisted skip or zero results. The orchestrator runs this; you do not.
 - **`bash scripts/new-lane.sh <branch> [base]`** — provisions a lane: its own worktree, its own C.UTF-8 database, its own test-env file.
 
 ## The goal, and the only test that counts
