@@ -14,6 +14,11 @@ jobs:
     # check needs C-style ordering AND Unicode case mapping at once, which only
     # glibc's C.UTF-8 provides, hence POSTGRES_INITDB_ARGS (same service the e2e
     # job already uses).
+    # Unit suite (~8-10 min) plus the e2e budget that used to be its own job:
+    # two full sweep attempts, server startups and the 30s inter-attempt pause.
+    # A healthy attempt is ~8-12 min and run 33601190754 measured ~16 for one
+    # DURING an upstream outage, so the sweep half keeps its 35.
+    timeout-minutes: 50
     services:
       postgres:
         image: postgres:16
@@ -111,63 +116,24 @@ jobs:
           # Long enough to read after a red run, short enough not to accumulate.
           retention-days: 7
 
-      # retention-days is NOT optional here. The jar is ~266 MB and every push
-      # kept one for the default 90 days, so 54 of them - 14.4 GB - filled the
-      # account's artifact quota in four days and CI went red on the UPLOAD step
-      # with a green 1175-test suite behind it (run 33729077322). The only
-      # consumer is the e2e job below, which downloads it inside the same run,
-      # so a day is already generous; anything older is rebuilt by re-running.
-      - name: Upload server jar
-        uses: actions/upload-artifact@v7
-        with:
-          name: chromia-mcp-server
-          path: app/build/libs/chromia-mcp-server.jar
-          if-no-files-found: error
-          retention-days: 1
-
-  e2e:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    # Must fit TWO full sweep attempts plus server startups and the 30s
-    # inter-attempt pause: a healthy attempt is ~8-12 min, and run 33601190754
-    # measured ~16 min for one attempt DURING an upstream outage (before the
-    # dapp_query deadline and the adaptive coverage backoff shrank that case).
-    # 2 x 16 + startup/pause + headroom = 35. The old 20 could not even fit
-    # two healthy attempts, so the retry it was paired with guaranteed a
-    # cancellation instead of a verdict whenever attempt 1 failed slowly.
-    timeout-minutes: 35
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postchain
-          # postchain's collation check requires C.UTF-8
-          POSTGRES_INITDB_ARGS: "--locale=C.UTF-8"
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Download server jar
-        uses: actions/download-artifact@v8
-        with:
-          name: chromia-mcp-server
-
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
+      # THE JAR IS NOT AN ARTIFACT ANY MORE, and the e2e steps now run in this
+      # same job. It only ever existed to hand a 266 MB file from this job to a
+      # job that `needs:` it - so they never ran in parallel and nothing else
+      # consumed it (release.yml and nightly-fuzz.yml each build their own).
+      # Kept for the default 90 days it put 54 copies and 14.4 GB into the
+      # account's artifact quota in four days, and CI then went red on the
+      # UPLOAD step with a green 1175-test suite behind it - twice, runs
+      # 33729077322 and 33730306288. A red that everyone learns to read as
+      # "probably just the quota" is worse than no signal at all, which is the
+      # same argument GOAL.md makes about a gate agents route around. Merging
+      # the jobs removes the upload, the download and the storage outright.
 
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
       # Failure policy (what CI treats as fatal vs degraded):
-      # - build-and-test (unit tests) is STRICT: no retries, any failure is fatal.
+      # - The unit suite above is STRICT: no retries, any failure is fatal.
       # - This e2e step exercises live third parties (explorer, mainnet/testnet
       #   nodes, docs site). The sweep itself classifies clean upstream errors
       #   as WARN-UPSTREAM (degraded, non-fatal) with guardrails so it cannot
@@ -186,7 +152,7 @@ jobs:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
         run: |
           run_e2e() {
-            java -XX:MaxRAMPercentage=60 -jar chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
+            java -XX:MaxRAMPercentage=60 -jar app/build/libs/chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
             local server_pid=$!
             local rc=0
             for i in $(seq 1 90); do
@@ -217,7 +183,7 @@ jobs:
 
       - name: Stdio transport smoke (the Claude Code surface + npm launcher)
         env:
-          CHROMIA_MCP_JAR: chromia-mcp-server.jar
+          CHROMIA_MCP_JAR: app/build/libs/chromia-mcp-server.jar
         run: |
-          node scripts/stdio-smoke.mjs chromia-mcp-server.jar
+          node scripts/stdio-smoke.mjs app/build/libs/chromia-mcp-server.jar
           node scripts/stdio-smoke.mjs --launcher
