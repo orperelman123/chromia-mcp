@@ -215,7 +215,19 @@ object ChromiaRellPracticesHelp {
         liquidation threshold with a close factor and bonus, and the minimum-first-deposit guard
         against ERC-4626 share inflation. Its EXTENDING section names the seam no rule can see: an
         operation that moves pool value in a STEP rather than with the clock (a fee, a bad-debt
-        write-off, a donation) re-opens the just-in-time window.
+        write-off, a donation) re-opens the just-in-time window - and the fix for a step is to net
+        it into the priced state so it accrues CONTINUOUSLY, never an entry/exit fee or a minimum
+        holding period: a toll on a round trip does not stop an exit.
+        ANY CLOCK-METERED PAYOUT - a stream, a vesting schedule, a drip, an interest accrual -
+        must make the entitlement a PURE FUNCTION of an IMMUTABLE start plus a MONOTONE released
+        total. A mutable anchor any caller may advance - "pay what has accrued since the last
+        settlement, then move the marker to now" - hands the beneficiary's income to whoever calls
+        the operation: when the release is integer division, a settle spaced closer than one whole
+        unit of entitlement pays ZERO and still advances the marker, so a stranger with nothing at
+        stake settles often enough to grind the payout to nothing. The interval is destroyed, not
+        deferred. Permissionless settlement is fine and often necessary; a permissionless MARKER
+        MOVE is not. Adversary rounds 6 and 7 landed this same bug in two different value classes,
+        a lending pool's interest index and a payment stream, so it is not a lending concern.
         All five ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.

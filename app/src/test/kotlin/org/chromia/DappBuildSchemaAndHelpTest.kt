@@ -2458,6 +2458,23 @@ class DappBuildSchemaAndHelpTest {
         assertTrue(notes.contains("does not generate a key"))
         assertTrue(notes.contains("does not send signed"))
         assertTrue(notes.contains("No exploit") || notes.contains("no exploit"))
+        // Adversary round 7, defect G4: the clock-metered payout lesson lived only
+        // inside the lending template's header, so an agent building a payment stream
+        // was never told it and handed the payee's whole income to a stranger who
+        // could call settle. Rounds 6 and 7 are the same bug in two value classes.
+        listOf(
+            "ANY CLOCK-METERED PAYOUT",
+            "PURE FUNCTION of an IMMUTABLE start plus a MONOTONE released",
+            "permissionless MARKER",
+            "pays ZERO and still advances the marker"
+        ).forEach {
+            assertTrue(notes.contains(it), "the clock-metered payout lesson must be stated outside the lending template: $it")
+        }
+        // ...and the seam-2 prescription round 7 disproved must not be repeated here.
+        assertFalse(
+            notes.contains("you need an entry/exit fee or a minimum holding period"),
+            "a holding period gates a round trip; the round-7 drain is an exit"
+        )
         assertFalse(allText.contains("chr keygen"))
         assertFalse(allText.contains("mnemonic"))
         assertFalse(allText.contains("BEGIN PRIVATE"))
