@@ -13,8 +13,9 @@ import org.junit.jupiter.api.Test
 /**
  * Pins the templates that exist because the gate cannot block their exploit
  * class (north-star principle 4): `governance` (the round-1 DAO drain), `vault`
- * (the round-1 unbacked oracle mint) and `staking` (the round-4 unbacked reward
- * mint). Each must compile with the vendored FT4, pass the security check with
+ * (the round-1 unbacked oracle mint), `staking` (the round-4 unbacked reward
+ * mint), `marketplace` (the round-5 price sandwich) and `lending` (the round-6
+ * just-in-time interest capture). Each must compile with the vendored FT4, pass the security check with
  * NO finding at all, ship tests that actually run green through run_rell_tests,
  * and - the proof that the bug is unwritable - ship a must-fail replay of the
  * exploit that goes RED the moment its guard is deleted (the mutation tests at
@@ -22,7 +23,10 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending")
+
+    /** The templates whose main module reads an oracle key from configuration. */
+    private val oracleTemplates = setOf("vault", "lending")
 
     private fun rellOf(template: String): Map<String, String> =
         DappScaffold.files("treasury", template = template)
@@ -36,7 +40,7 @@ class DappScaffoldSecureTemplatesTest {
      * so "went red" without the guard ever being exercised.
      */
     private fun moduleArgsOf(template: String) =
-        if (template == "vault") DappScaffold.vaultTestModuleArgs() else DappScaffold.ft4TestModuleArgs()
+        if (template in oracleTemplates) DappScaffold.oracleTestModuleArgs() else DappScaffold.ft4TestModuleArgs()
 
     private val dbUrl: String? = System.getenv(RunRellTests.DATABASE_URL_ENV)
 
@@ -77,11 +81,12 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending"), DappScaffold.templates)
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
         assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
         assertEquals("marketplace", DappScaffold.toJson("bazaar", template = "marketplace").getValue("template").toString().trim('"'))
+        assertEquals("lending", DappScaffold.toJson("pool", template = "lending").getValue("template").toString().trim('"'))
         val unknown = DappScaffold.toJson("x", template = "dao")
         assertEquals("hello", unknown.getValue("template").toString().trim('"'))
         assertTrue(unknown.getValue("warnings").toString().contains("governance, vault, staking"), "unknown-template warning must list the new templates")
@@ -93,21 +98,27 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(notes.contains("x\"...\" literal, as 0x..., or as bare hex"), "notes must say the yml literal is accepted")
         assertTrue(notes.contains("template=marketplace"), "notes must steer NFT / marketplace / listing builders to the template")
         assertTrue(notes.contains("AUCTIONS ARE IN THAT TEMPLATE"), "the notes must not advertise an auction the template does not ship")
+        assertTrue(notes.contains("template=lending"), "notes must steer lending / credit-line / money-market builders to the template")
+        assertTrue(notes.contains("NO CASH-DENOMINATED DEBT IS"), "the notes must name the guard, not just the template")
     }
 
     /**
      * The unknown-template fallback must ROUTE, not just list names. Round 6's drain
      * landed in the un-templated class: `scaffold_dapp(template="lending")` answered
      * "Unknown template (valid: ...); scaffolded the 'hello' template", and the agent
-     * wrote the whole value class freehand.
+     * wrote the whole value class freehand. `lending` is now a real template, so the
+     * near-miss NAMES for it must route there rather than to the nearest cousin.
      */
     @Test
     fun unknownTemplateFallbackRoutesToTheClosestTemplate() {
-        listOf("lending", "borrow", "credit_line", "money_market", "loan_pool").forEach { asked ->
+        assertTrue(
+            "lending" in DappScaffold.templates,
+            "the class round 6 drained must no longer fall back to hello"
+        )
+        listOf("borrow", "credit_line", "money_market", "loan_pool", "debt_market").forEach { asked ->
             val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
-            assertTrue(warning.contains("NO TEMPLATE COVERS LENDING YET"), "$asked must be told plainly that no template covers it: $warning")
-            assertTrue(warning.contains("`vault`") && warning.contains("`staking`"), "$asked must be routed to the closest two templates: $warning")
-            assertTrue(warning.contains("NEITHER GIVES YOU SHARE PRICING"), "$asked must be told where round 6 was drained: $warning")
+            assertTrue(warning.contains("Use `template=lending`"), "$asked must be routed to the lending template: $warning")
+            assertTrue(warning.contains("NO cash-denominated debt"), "$asked must be told what makes the round-6 drain unwritable: $warning")
         }
         assertTrue(
             DappScaffold.toJson("x", template = "dao").getValue("warnings").toString().contains("template=governance"),
@@ -354,6 +365,115 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the marketplace source")
     }
 
+    /**
+     * The round-6 drain was `pool_value()` - a cash-denominated debt counter refreshed
+     * only on the paths a BORROWER signs - pricing a lender share. Here that counter
+     * has nowhere to live: no entity, object or local holds a cash debt across
+     * operations; the cash figures exist only inside a `pool_state`; `pool_now()` is
+     * the only function that builds one; and every pricing helper TAKES one, so an
+     * operation cannot price an entry or an exit without a state built this block.
+     */
+    @Test
+    fun lendingGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("pool", template = "lending").getValue("src/main.rell")
+        val code = withoutComments(main)
+
+        // NO CASH-DENOMINATED DEBT IS STORED. The position and the pool both carry
+        // index units, and the names that went stale in round 6 do not exist.
+        val loan = code.substringAfter("entity loan {").substringBefore("}")
+        assertTrue(loan.contains("mutable scaled_debt: integer"), "a position must record its debt in index units")
+        assertFalse(loan.contains("principal"), "a cash principal is the field that goes stale")
+        assertFalse(loan.contains("accrued_at"), "a per-loan accrual stamp is the other half of the round-6 bug")
+        val poolObj = code.substringAfter("object pool {").substringBefore("}")
+        assertTrue(poolObj.contains("mutable total_scaled_debt: integer"), "the pool must record debt in the same units as the positions")
+        assertFalse(poolObj.contains("total_debt"), "a cash debt counter on the pool is exactly what round 6 read stale")
+        assertFalse(code.contains("pool_value()"), "there is no standalone share price to read - it lives in a pool_state")
+
+        // ONE PRODUCER. pool_state is constructed in exactly one place, and that
+        // place reads the block clock.
+        assertEquals(
+            1,
+            Regex("pool_state\\(\\s*\\n?\\s*debt_index").findAll(code).count(),
+            "pool_state must be built in exactly one place"
+        )
+        val poolNow = code.substringAfter("function pool_now(): pool_state {").substringBefore("\n}")
+        assertTrue(poolNow.contains("val now_index = current_index();"), "pool_now must take the index from the clock")
+        assertTrue(poolNow.contains("to_cash_down(pool.total_scaled_debt, now_index, MAX_POOL_DEBT)"), "pool_now must convert the pool's units to cash itself")
+        assertTrue(
+            code.contains("function current_index(): integer {") &&
+                code.contains("val elapsed = op_context.last_block_time - pool.opened_at;"),
+            "the index must be a function of the block clock"
+        )
+        // The anchor is written once, by pool_now, and by nothing else.
+        assertEquals(1, Regex("pool\\.opened_at\\s*=").findAll(code).count(), "opened_at must be written in exactly one place")
+        assertTrue(poolNow.contains("pool.opened_at = op_context.last_block_time;"), "and that place is pool_now")
+
+        // EVERY PRICING HELPER TAKES A pool_state - so it cannot be asked about a
+        // stale number, and a new operation cannot price without calling pool_now().
+        listOf(
+            "function debt_of(l: loan, st: pool_state)",
+            "function shares_for(cash: integer, st: pool_state)",
+            "function cash_for(shares: integer, st: pool_state)",
+            "function payment_for(l: loan, offered: integer, st: pool_state)",
+            "function is_liquidatable(l: loan, st: pool_state, price: integer)"
+        ).forEach { assertTrue(code.contains(it), "the pricing helper must take a pool_state: $it") }
+        listOf("deposit_cash", "withdraw_cash", "borrow", "repay", "remove_collateral", "liquidate").forEach { op ->
+            assertTrue(opBody(code, op).contains("val st = pool_now();"), "$op reads or writes the share price and must price through pool_now()")
+        }
+
+        // A PAYMENT IS PRICED IN BOTH DIRECTIONS from the same state, so it can never
+        // retire more debt than it paid for (the rounding drain) nor charge more than
+        // was offered, and offering the whole debt clears the position.
+        val paymentFor = code.substringAfter("function payment_for(").substringBefore("\n}")
+        assertTrue(paymentFor.contains("min(l.scaled_debt, to_scaled_down(offered, st.debt_index))"), "a payment retires only the units it covers")
+        assertTrue(paymentFor.contains("to_cash_up(scaled, st.debt_index, MAX_DEBT)"), "and is charged the rounded-up price of exactly those")
+        listOf("repay", "liquidate").forEach { op ->
+            assertTrue(opBody(code, op).contains("val p = payment_for(l, "), "$op must price its payment through payment_for")
+        }
+        // The borrow records at least what left the pool.
+        assertTrue(opBody(code, "borrow").contains("val added = to_scaled_up(amount, st.debt_index);"))
+
+        // THE FIVE REFUSALS round 6's build already had, kept.
+        assertTrue(code.contains("require(owed + amount <= borrow_limit, \"over the borrow limit\");"))
+        assertTrue(code.contains("require(owed * BPS <= remaining * MAX_LTV_BPS, \"that would put the position under water\");"))
+        assertTrue(code.contains("require(is_liquidatable(l, st, price), \"position is healthy\");"))
+        assertTrue(code.contains("require(repay_amount <= max_close, \"over the close factor\");"))
+        assertTrue(code.contains("require(borrower != acc.id, \"cannot liquidate your own position\");"))
+        assertTrue(code.contains("require(seize <= l.collateral, \"not enough collateral to cover the bonus\");"))
+        assertTrue(code.contains("require(st.shares > 0 or amount >= MIN_INITIAL_DEPOSIT,"), "the one-unit seed must be refused outright")
+        assertTrue(code.contains("require(minted > 0, \"deposit too small to mint a share\");"), "a deposit that mints nothing must abort, not be swallowed")
+        assertTrue(code.contains("require(pool.cash_available >= amount, \"pool is illiquid - wait for repayments\");"), "only cash the pool holds may leave it")
+        // The vault's oracle, unchanged in substance: configured key, bounded move,
+        // rate limit, staleness halt - and no key material in the source.
+        assertTrue(code.contains("require(op_context.is_signer(chain_context.args.oracle_pubkey), \"not the oracle\");"))
+        assertTrue(code.contains("require(move * BPS <= previous * MAX_PRICE_MOVE_BPS, \"price move too large\");"))
+        assertTrue(code.contains(">= MIN_PRICE_UPDATE_INTERVAL_MS,\n            \"price posted too soon\""))
+        assertTrue(code.contains("require(op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS, \"price is stale\");"))
+        assertTrue(main.contains("struct module_args {\n    oracle_pubkey: pubkey;\n}"), "the oracle key must be the module_args struct's only field")
+        assertFalse(Regex("x\"[0-9A-Fa-f]{64,}\"").containsMatchIn(main), "no key-like hex in the lending source")
+        // Every ratio is a named constant, never a parameter a caller could widen.
+        listOf("MAX_LTV_BPS", "LIQUIDATION_THRESHOLD_BPS", "LIQUIDATION_BONUS_BPS", "CLOSE_FACTOR_BPS", "MIN_INITIAL_DEPOSIT", "INTEREST_RATE_BPS_PER_YEAR").forEach {
+            assertTrue(code.contains("val $it ="), "$it must be a named constant")
+            assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*\\b$it\\b").containsMatchIn(code), "$it must not be a caller-supplied parameter")
+        }
+
+        // Every operation that credits cash or collateral debits the same amount in
+        // the same body: nothing here creates value outside the welcome grant.
+        Regex("operation (\\w+)\\(").findAll(code).map { it.groupValues[1] }.forEach { op ->
+            val body = opBody(code, op)
+            Regex("\\.(?:cash|tokens|collateral) \\+= (\\w+)").findAll(body).map { it.groupValues[1] }.forEach { amount ->
+                assertTrue(body.contains("-= $amount"), "$op credits += $amount without debiting $amount in the same operation")
+            }
+        }
+
+        // The seam a static rule cannot see is written down where an extender reads.
+        assertTrue(main.contains("EXTENDING THIS TEMPLATE"), "the header must tell an extender which invariants are theirs to keep")
+        listOf("PRICE THROUGH", "MOVES POOL VALUE IN A STEP", "cash_in_circulation()").forEach {
+            assertTrue(main.contains(it), "the EXTENDING section must name the '$it' seam")
+        }
+        assertTrue(main.contains("WHAT NO TEMPLATE CAN FIX"), "the header must state the limits it does not close")
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -421,18 +541,18 @@ class DappScaffoldSecureTemplatesTest {
             assertTrue(yml.contains("rellVersion: ${DappScaffold.RELL_VERSION}"))
             assertTrue(yml.contains("tagOrBranch: ${DappScaffold.FT4_VERSION}"))
             assertTrue(yml.contains("rate_limit"), "module_args must come from Ft4ModuleArgs")
-            if (template == "vault") {
+            if (template in oracleTemplates) {
                 // Production: the oracle key line exists only as a comment.
                 val uncommentedOracle = production.lineSequence().filter { !it.trimStart().startsWith("#") }
                     .any { it.contains("oracle_pubkey") }
-                assertFalse(uncommentedOracle, "vault production yml must not set a placeholder oracle key")
-                assertTrue(production.contains("#   oracle_pubkey: x\"<your oracle public key>\""), "vault yml must tell the deployer where the oracle key goes")
+                assertFalse(uncommentedOracle, "$template production yml must not set a placeholder oracle key")
+                assertTrue(production.contains("#   oracle_pubkey: x\"<your oracle public key>\""), "$template yml must tell the deployer where the oracle key goes")
                 // Test: FT4's published test pubkey, under main, under test:.
-                assertTrue(testBlock.contains("    main:\n      oracle_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\""), "vault test.moduleArgs must wire the oracle test key")
+                assertTrue(testBlock.contains("    main:\n      oracle_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\""), "$template test.moduleArgs must wire the oracle test key")
                 assertEquals(
                     DappScaffold.TEST_ADMIN_PUBKEY,
-                    DappScaffold.vaultTestModuleArgs().getValue("main").getValue("oracle_pubkey").toString().trim('"'),
-                    "vaultTestModuleArgs must mirror the yml"
+                    DappScaffold.oracleTestModuleArgs().getValue("main").getValue("oracle_pubkey").toString().trim('"'),
+                    "oracleTestModuleArgs must mirror the yml"
                 )
             } else {
                 assertFalse(yml.contains("oracle_pubkey"), "$template yml carries no oracle key")
@@ -509,6 +629,21 @@ class DappScaffoldSecureTemplatesTest {
             "test_escrow_and_ownership_hold",
             "test_round6_auction_terms_cannot_move_under_a_standing_bid",
             "test_round6_auction_escrow_cannot_be_stranded"
+        )
+    )
+
+    @Test
+    fun lendingShippedTestsRunGreen() = assertShippedGreen(
+        "lending",
+        setOf(
+            "test_round6_jit_interest_capture_must_fail",
+            "test_healthy_position_cannot_be_liquidated",
+            "test_under_water_position_cannot_hide",
+            "test_self_liquidation_nets_nothing",
+            "test_first_depositor_inflation_refuses_instead_of_swallowing",
+            "test_borrow_limit_cannot_be_sliced",
+            "test_stale_or_missing_price_halts_lending",
+            "test_interest_moves_only_from_borrower_to_lender"
         )
     )
 
@@ -763,5 +898,111 @@ class DappScaffoldSecureTemplatesTest {
         "test_round6_auction_terms_cannot_move_under_a_standing_bid",
         "insufficient balance",
         "expected"
+    )
+
+    /**
+     * THE ROUND-6 DRAIN, PUT BACK. There is no guard to delete here - the bug is a
+     * SHAPE, and the shape does not exist while the entry is priced from a
+     * pool_state. So the mutant re-creates it the only way it can be re-created: by
+     * hand-building the deposit price out of the raw stored counters, reading
+     * `pool.total_scaled_debt` (index units, as at the pool's first block) as though it
+     * were cash. That is exactly round 6's stale `pool_value()`, and with it the
+     * attacker's 10000 buys 10000 shares instead of 7692, the exit at the true price
+     * returns 11500, and the replay's "no more than 10000 comes out" trips. Nothing
+     * is minted in the mutant either - conservation stays green throughout, which is
+     * why no invariant test and no static rule would have caught it.
+     */
+    @Test
+    fun lendingJitTestGoesRedWhenTheEntryIsPricedFromTheRawCounters() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "val minted = shares_for(amount, st);",
+        "val minted = if (st.shares <= 0) amount else amount * st.shares / (pool.cash_available + pool.total_scaled_debt);",
+        "test_round6_jit_interest_capture_must_fail",
+        "deposit too small to mint a share",
+        "expected"
+    )
+
+    /** Neuter the minimum first deposit and the ERC-4626 one-unit seed lands again. */
+    @Test
+    fun lendingInflationTestGoesRedWithoutTheMinimumFirstDeposit() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(st.shares > 0 or amount >= MIN_INITIAL_DEPOSIT, \"the first deposit is too small to seed the pool\");",
+        "require(st.shares > 0 or amount >= 0, \"the first deposit is too small to seed the pool\");",
+        "test_first_depositor_inflation_refuses_instead_of_swallowing",
+        "deposit too small to mint a share",
+        attackLanded
+    )
+
+    /** Stop refusing a deposit that mints nothing and the victim's cash is swallowed. */
+    @Test
+    fun lendingInflationTestGoesRedWithoutTheZeroShareRefusal() = assertGuardRemovalRedensExploitTest(
+        "lending",
+        "require(minted > 0, \"deposit too small to mint a share\");",
+        "test_first_depositor_inflation_refuses_instead_of_swallowing",
+        "the first deposit is too small to seed the pool"
+    )
+
+    /** Take away the health check and a healthy position is liquidated for the bonus. */
+    @Test
+    fun lendingLiquidationTestGoesRedWithoutTheHealthCheck() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(is_liquidatable(l, st, price), \"position is healthy\");",
+        "require(is_liquidatable(l, st, price) or true, \"position is healthy\");",
+        "test_healthy_position_cannot_be_liquidated",
+        "payment too small to retire any debt",
+        attackLanded
+    )
+
+    /** Widen the borrow limit and the position walks past its collateral. */
+    @Test
+    fun lendingBorrowLimitTestGoesRedWithoutTheLimit() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(owed + amount <= borrow_limit, \"over the borrow limit\");",
+        "require(owed + amount <= borrow_limit * 1000, \"over the borrow limit\");",
+        "test_borrow_limit_cannot_be_sliced",
+        "pool is illiquid",
+        attackLanded
+    )
+
+    /** Widen the re-check and the borrower walks the collateral out from under the debt. */
+    @Test
+    fun lendingUnderWaterTestGoesRedWithoutTheCollateralRecheck() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(owed * BPS <= remaining * MAX_LTV_BPS, \"that would put the position under water\");",
+        "require(owed * BPS <= remaining * MAX_LTV_BPS * 1000, \"that would put the position under water\");",
+        "test_under_water_position_cannot_hide",
+        "not that much collateral",
+        attackLanded
+    )
+
+    /** Widen the close factor and one liquidation takes the whole position. */
+    @Test
+    fun lendingSelfLiquidationTestGoesRedWithoutTheCloseFactor() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(repay_amount <= max_close, \"over the close factor\");",
+        "require(repay_amount <= max_close * 1000, \"over the close factor\");",
+        "test_self_liquidation_nets_nothing",
+        "not enough collateral to cover the bonus",
+        attackLanded
+    )
+
+    /** Widen the price bound and the oracle can crash the price in one post. */
+    @Test
+    fun lendingOracleTestGoesRedWithoutThePriceBound() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(move * BPS <= previous * MAX_PRICE_MOVE_BPS, \"price move too large\");",
+        "require(move * BPS <= previous * MAX_PRICE_MOVE_BPS * 1000000, \"price move too large\");",
+        "test_stale_or_missing_price_halts_lending",
+        "price posted too soon",
+        attackLanded
+    )
+
+    /** Drop the staleness halt and a day-old price still prices a new loan. */
+    @Test
+    fun lendingOracleTestGoesRedWithoutTheStalenessHalt() = assertGuardRemovalRedensExploitTest(
+        "lending",
+        "require(op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS, \"price is stale\");",
+        "test_stale_or_missing_price_halts_lending",
+        "price move too large"
     )
 }

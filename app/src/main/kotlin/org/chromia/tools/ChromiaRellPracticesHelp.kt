@@ -203,7 +203,20 @@ object ChromiaRellPracticesHelp {
         is permissionless after the deadline), plus require_unencumbered, the one helper every
         token-moving path consults so a gift cannot walk a token out from under an escrowed bid.
         Do not write an auction freehand: a mutable highest_bid is the sandwich in auction clothes.
-        All four ship the real drain as a must-fail test.
+        Lending pool, credit line, money market - anything where depositors hold a SHARE of a pool
+        whose value moves: start from template=lending. Round 6 drained a competent hand-built one
+        for 1500 with nothing minted, because interest accrued only on the paths a borrower signs,
+        so the price of a lender share was stale between touches. The template's answer is not
+        "remember to accrue on every path" - NO CASH-DENOMINATED DEBT IS STORED ANYWHERE: positions
+        and the pool both carry scaled_debt in index units, the cash figures exist only inside a
+        pool_state, pool_now() is the only function that makes one, and debt_of / shares_for /
+        cash_for / payment_for all TAKE one, so a new operation cannot price an entry or an exit
+        without a fresh state. It keeps the vault's bounded oracle, over-collateralisation, a
+        liquidation threshold with a close factor and bonus, and the minimum-first-deposit guard
+        against ERC-4626 share inflation. Its EXTENDING section names the seam no rule can see: an
+        operation that moves pool value in a STEP rather than with the clock (a fee, a bad-debt
+        write-off, a donation) re-opens the just-in-time window.
+        All five ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.
@@ -256,7 +269,8 @@ object ChromiaRellPracticesHelp {
                 "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests. " +
                 "DAO / treasury: template=governance; oracle-priced exchange or vault: template=vault; " +
                 "staking / rewards / vesting: template=staking; NFT marketplace / listings / " +
-                "royalties: template=marketplace - " +
+                "royalties: template=marketplace; lending pool / credit line / money market: " +
+                "template=lending - " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail."
         )
         put("security_keys", buildJsonArray { securityKeys.forEach { add(JsonPrimitive(it)) } })
