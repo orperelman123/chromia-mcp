@@ -65,3 +65,4 @@ scratch-qa/
 
 # Local, machine-specific test environment (endpoints, dev passwords).
 local-test-env.properties
+.cursor/

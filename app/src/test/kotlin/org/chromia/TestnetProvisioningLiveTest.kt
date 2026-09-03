@@ -16,6 +16,7 @@ import org.chromia.tools.ProvisionTestnetContainerStrategy
 import org.chromia.tools.RealTxPoster
 import org.chromia.tools.TestnetProvisioning
 import org.chromia.tools.TestnetProvisioning.toHex
+import org.chromia.tools.EconomyChainGateway
 import org.chromia.tools.TxOp
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -40,6 +41,15 @@ class TestnetProvisioningLiveTest {
 
     private fun liveEnabled() =
         System.getenv("CHROMIA_LIVE_PROVISIONING_TESTS")?.equals("true", ignoreCase = true) == true
+
+    /**
+     * A funding account known to be registered on the testnet Economy Chain.
+     * Public chain data - the same kind of thing as a wallet address - and it is
+     * used ONLY as the subject of a read-only get_balance query. No key material
+     * for it exists anywhere in this repository.
+     */
+    private val KNOWN_REGISTERED_ACCOUNT_ID =
+        "7CBC0F013C10CC8BBBA85CD947A8A8E18140FB9D3C2546114C5B8F0EFB5C30A7"
 
     private fun liveRepository(): ChromiaRepositoryImpl {
         val config = ChromiaConfig()
@@ -107,44 +117,38 @@ class TestnetProvisioningLiveTest {
     }
 
     /**
-     * The zero-human default path: with no explicit env config, the funding key
-     * resolves from the machine's own chr keystore (~/.chromia config key.id)
-     * and its FT4 account is found registered on the live Economy Chain. Dry
-     * run only - nothing is signed; tolerant of balance changes. Additionally
-     * gated on a chr keystore actually existing on this machine.
+     * THE POSITIVE REGISTRATION PATH, WITHOUT ANY KEY.
+     *
+     * This replaces liveDefaultChrKeystorePathResolvesARegisteredAccount, which
+     * asserted the same property through the machine's own chr keystore and so
+     * SKIPPED on every runner - the one allowlisted skip this repo carried. Its
+     * three assertions are all covered without a private key now:
+     *   - key RESOLUTION from a keystore: FundingKeyResolutionTest, which builds
+     *     its own keystores in a temp dir (no network, no secret);
+     *   - the dry run never leaking private key material:
+     *     liveDryRunPricesLeaseAndResolvesEverythingWithoutSpending, which does
+     *     it with a throwaway keypair;
+     *   - and the positive registration lookup, which is this test.
+     *
+     * `get_balance` answers only for an account that EXISTS on the Economy
+     * Chain, so a non-null balance for a known-registered account id is exactly
+     * the "registered = true" branch the provisioning tools take. The account id
+     * is public chain data - an address, not a credential - and nothing here
+     * signs, spends or needs a private key. The three sibling live tests already
+     * cover the negative branch with a throwaway keypair.
      */
     @Test
-    fun liveDefaultChrKeystorePathResolvesARegisteredAccount(@TempDir dir: Path) = runBlocking {
+    fun liveKnownAccountIsRegisteredOnTheEconomyChain() = runBlocking {
         assumeTrue(liveEnabled(), "live provisioning tests disabled (set CHROMIA_LIVE_PROVISIONING_TESTS=true)")
-        val chromiaDir = Path.of(System.getProperty("user.home"), ".chromia")
-        assumeTrue(Files.exists(chromiaDir.resolve("config")), "no local chr keystore with a config")
-        val key = TestnetProvisioning.resolveFundingKey(emptyMap())
-        assumeTrue(key != null, "chr keystore config names no loadable key")
-
-        val strategy = ProvisionTestnetContainerStrategy(
-            env = emptyMap<String, String>(),
-            keyStore = DeployKeyStore(Files.createDirectory(dir.resolve("keys")))
+        val gateway = EconomyChainGateway(liveRepository())
+        val balance = gateway.balanceOf(KNOWN_REGISTERED_ACCOUNT_ID)
+        assertNotNull(
+            balance,
+            "get_balance answered nothing for $KNOWN_REGISTERED_ACCOUNT_ID - either the Economy Chain " +
+                "lookup path broke, or this account is no longer registered. It is the only positive " +
+                "registration assertion CI has; do not delete it, re-point it."
         )
-        val result = strategy.execute(
-            CallToolRequest(name = "provision_testnet_container", arguments = buildJsonObject { put("dryRun", true) }),
-            liveRepository()
-        )
-        assertEquals(false, result.isError) { "live keystore dry run failed: ${result.structuredContent}" }
-        val json = result.structuredContent!!.jsonObject
-        val funding = json["funding"]!!.jsonObject
-        assertEquals(true, funding["configured"]!!.jsonPrimitive.content.toBoolean())
-        assertTrue(
-            funding["keySource"]!!.jsonPrimitive.content.startsWith("chr-keystore:"),
-            "expected the chr keystore source, got ${funding["keySource"]}"
-        )
-        assertEquals(true, funding["registered"]!!.jsonPrimitive.content.toBoolean())
-        val text = kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.json.JsonObject.serializer(), json
-        )
-        assertFalse(
-            text.contains(key!!.privKey.toHex(), ignoreCase = true),
-            "private key leaked into keystore dry run output"
-        )
+        assertTrue(balance!! >= 0, "a registered account's balance cannot be negative, got $balance")
     }
 
     @Test

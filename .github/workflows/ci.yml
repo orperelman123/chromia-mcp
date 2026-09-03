@@ -80,15 +80,16 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, sys, xml.etree.ElementTree as ET
-          ALLOWED = {
-              # The ONLY tolerated skip: it asserts that the zero-human default
-              # path resolves a funding key from the machine's own chr keystore
-              # (~/.chromia) and finds its FT4 account registered on the live
-              # Economy Chain. A runner has no keystore, so there is nothing for
-              # it to assert. Removing this last skip needs a registered testnet
-              # key as a repository secret - the owner's call, never committed.
-              'org.chromia.TestnetProvisioningLiveTest::liveDefaultChrKeystorePathResolvesARegisteredAccount(Path)',
-          }
+          # NO ALLOWED SKIPS. There used to be exactly one - the live test that
+          # asserted a funding key resolves from the machine's own chr keystore AND
+          # that its account is registered on the Economy Chain, which no runner can
+          # do. Its three assertions are covered without a key now: resolution by
+          # FundingKeyResolutionTest (temp-dir keystores, no network), the
+          # no-private-key-leak property by the throwaway-keypair dry run, and the
+          # positive registration lookup by liveKnownAccountIsRegisteredOnTheEconomyChain,
+          # which reads get_balance for a public account id. A skip is a test that did
+          # not run, and this job now tolerates none.
+          ALLOWED = set()
           t = f = s = 0; skipped = []; unexpected = []
           for p in glob.glob('app/build/test-results/test/*.xml'):
               r = ET.parse(p).getroot()
