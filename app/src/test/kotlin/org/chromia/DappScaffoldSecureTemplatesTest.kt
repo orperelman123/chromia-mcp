@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending")
@@ -85,7 +85,7 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming"), DappScaffold.templates)
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
         assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
@@ -104,6 +104,12 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(notes.contains("AUCTIONS ARE IN THAT TEMPLATE"), "the notes must not advertise an auction the template does not ship")
         assertTrue(notes.contains("template=lending"), "notes must steer lending / credit-line / money-market builders to the template")
         assertTrue(notes.contains("NO CASH-DENOMINATED DEBT IS"), "the notes must name the guard, not just the template")
+        assertTrue(notes.contains("template=streaming"), "notes must steer stream / payroll / vesting / subscription builders to the template")
+        assertTrue(notes.contains("NO OPERATION IN IT WRITES A"), "the notes must name the streaming guard, not just the template")
+        assertFalse(
+            Regex("rewards or vesting").containsMatchIn(notes),
+            "the notes must stop routing vesting to staking now that its own class has a template"
+        )
     }
 
     /**
@@ -136,6 +142,20 @@ class DappScaffoldSecureTemplatesTest {
             DappScaffold.toJson("x", template = "auction").getValue("warnings").toString().contains("template=marketplace"),
             "an auction must be routed to the marketplace template, which now ships one"
         )
+        // Round 7's drain landed in a class with NO template at all. Every name for it
+        // must now route here, and `harvest` must still reach staking - a keyword list
+        // that swallows it would be a mis-route dressed as coverage.
+        listOf("stream", "payment_stream", "vesting", "payroll", "subscription", "salary_drip", "allowance").forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("Use `template=streaming`"), "$asked must be routed to the streaming template: $warning")
+            assertTrue(warning.contains("NO OPERATION IN IT"), "$asked must be told what makes the round-7 grief unwritable: $warning")
+        }
+        listOf("harvest", "harvest_farm", "staking_rewards").forEach { asked ->
+            assertTrue(
+                DappScaffold.toJson("x", template = asked).getValue("warnings").toString().contains("template=staking"),
+                "$asked must still reach the staking template"
+            )
+        }
         assertTrue(
             DappScaffold.toJson("x", template = "zzz_nothing_like_this").getValue("warnings").toString().contains("No shipped template covers that name"),
             "an unrecognisable name must still get the four hardened templates and the write-the-invariant-test-first advice"
@@ -558,6 +578,169 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("WHAT NO TEMPLATE CAN FIX"), "the header must state the limits it does not close")
     }
 
+    /**
+     * The round-7 grief was `due(s)` measured from `anchor_at`, a MUTABLE timestamp
+     * that every settle advanced - so a stranger who chose the cadence chose how much
+     * of the payee's entitlement simply ceased to exist. Here that shape has nowhere
+     * to live: there is exactly ONE assignment to a timestamp field in the whole
+     * module and it is the `create`, every term of the deal is declared without
+     * `mutable`, and the entitlement is a function of those terms and a clock it is
+     * handed. The other half of that drain - the payer closing the stream and keeping
+     * 100% - is refused by the ORDER of two lines, which is asserted here and replayed
+     * in the shipped tests.
+     */
+    @Test
+    fun streamingGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("payroll", template = "streaming").getValue("src/main.rell")
+        val code = withoutComments(main)
+
+        // NO OPERATION WRITES A TIMESTAMP. One assignment from the block clock exists
+        // in the whole module, and it is the create. `update s ( .anchor_at = ... )`
+        // - the round-7 line - has nowhere to live.
+        assertEquals(
+            listOf("started_at = op_context.last_block_time"),
+            Regex("[\\w.]+\\s*=\\s*op_context\\.last_block_time").findAll(code).map { it.value }.toList(),
+            "the block clock may be READ anywhere but written exactly once, by the create"
+        )
+
+        // EVERY TERM OF THE DEAL IS IMMUTABLE, and the only mutable fields are the
+        // monotone ones. A mutable payee is the same drain without even needing timing.
+        val entity = code.substringAfter("entity stream {").substringBefore("\n}")
+        listOf("payer", "payee", "rate_per_hour", "started_at", "funded", "cancellable").forEach { term ->
+            assertTrue(Regex("(^|\\n)\\s*(index\\s+)?$term:").containsMatchIn(entity), "the stream must declare $term")
+            assertFalse(Regex("mutable\\s+$term\\b").containsMatchIn(entity), "$term is a term of the deal and must not be mutable")
+            assertFalse(Regex("\\.$term\\s*=(?!=)").containsMatchIn(code), "no operation may write $term after creation")
+        }
+        assertEquals(
+            setOf("released", "escrow", "refunded", "closed"),
+            Regex("mutable\\s+(\\w+)").findAll(entity).map { it.groupValues[1] }.toSet(),
+            "a new mutable field on the stream is the one edit to this template to refuse"
+        )
+
+        // MONOTONE: `released` and `refunded` only ever rise, `escrow` only ever falls
+        // (or is zeroed by the terminal cancellation), and `closed` is written once.
+        assertEquals(1, Regex("\\.released \\+= ").findAll(code).count(), "released must be incremented in exactly one place")
+        assertFalse(Regex("\\.released\\s*=(?!=)").containsMatchIn(code), "released must never be assigned - only incremented")
+        assertEquals(1, Regex("\\.escrow -= ").findAll(code).count(), "the escrow must be debited in exactly one place")
+        assertEquals(
+            listOf(".escrow = 0"),
+            Regex("\\.escrow\\s*=(?!=)[^,)]*").findAll(code).map { it.value.trim() }.toList(),
+            "the only assignment to the escrow is the terminal zeroing in cancel_stream"
+        )
+        assertEquals(1, Regex("\\.refunded\\s*=(?!=)").findAll(code).count(), "the refund is recorded in exactly one place")
+        assertEquals(1, Regex("\\.closed = true").findAll(code).count(), "a stream is closed in exactly one place")
+
+        // THE ENTITLEMENT IS A PURE FUNCTION. earned_by reads no mutable field, it is
+        // defined once and called from exactly two places, and no operation can hand it
+        // anything but the block clock because no operation takes a timestamp.
+        val earnedBy = code.substringAfter("function earned_by(s: stream, at: timestamp): integer {").substringBefore("\n}")
+        listOf(".released", ".escrow", ".refunded", ".closed").forEach {
+            assertFalse(earnedBy.contains(it), "the entitlement must not depend on the mutable field $it")
+        }
+        assertTrue(earnedBy.contains("val raw = at - s.started_at;"), "the entitlement must be measured from the IMMUTABLE start")
+        assertEquals(3, Regex("\\bearned_by\\(").findAll(code).count(), "earned_by must be defined once and called from exactly two places")
+        assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*timestamp").containsMatchIn(code), "no operation may take a timestamp - that is the anchor by another route")
+        assertTrue(code.contains("function owed(s: stream): integer = payable_at(s, op_context.last_block_time);"))
+        assertTrue(
+            code.contains("val outstanding = earned_by(s, at) - s.released;"),
+            "what is payable is the entitlement less the MONOTONE released total, and nothing else"
+        )
+
+        // PAIRED PAYOUT: one place credits a payee, and it debits the escrow and
+        // records the release in the same statement. Paying zero writes NOTHING.
+        val payOut = code.substringAfter("function pay_out(s: stream) {").substringBefore("\n}")
+        assertTrue(payOut.contains("if (amount <= 0) return;"), "a zero payout must write nothing at all - that is the whole round-7 bug")
+        assertTrue(
+            payOut.indexOf("update s ( .escrow -= amount, .released += amount );") in
+                0 until payOut.indexOf("update payee_account ( .balance += amount );"),
+            "the escrow debit and the release must be recorded with the credit"
+        )
+        assertEquals(2, Regex("\\bpay_out\\(").findAll(code).count() - 1, "pay_out must have exactly two callers - settle and cancel_stream")
+
+        // PREPAID: the payer is debited for the whole escrow before the row exists.
+        val open = opBody(code, "open_stream")
+        assertTrue(
+            open.indexOf("update me ( .balance -= amount );") in 0 until open.indexOf("create stream("),
+            "a stream must be funded before it exists - it can never promise more than it holds"
+        )
+        assertTrue(open.contains("funded = amount,") && open.contains("escrow = amount"), "funded and escrow both start at what was paid in")
+        assertTrue(open.contains("require(payee != acc.id, \"cannot stream to yourself\");"))
+        assertTrue(open.contains("\"the payee must register an account first\""), "a payout must never be blocked by a payee row that is not there")
+
+        // PERMISSIONLESS SETTLEMENT, deliberately: it pays the stream's own payee out
+        // of the stream's own escrow, so there is nothing for a stranger to take.
+        val settle = opBody(code, "settle")
+        assertFalse(settle.contains("acc.id"), "settle must be permissionless - a payee who must be online to be paid can be starved")
+        assertTrue(settle.contains("require(not s.closed, \"stream is closed\");"))
+        assertTrue(settle.contains("pay_out(s);"))
+
+        // CANCELLATION: restricted to the two parties, refused outright on a committed
+        // grant, terminal, and it PAYS BEFORE IT REFUNDS - the order is the guard.
+        val cancel = opBody(code, "cancel_stream")
+        assertTrue(cancel.contains("require(acc.id == s.payer or acc.id == s.payee, \"only the payer or the payee may cancel\");"))
+        assertTrue(cancel.contains("require(s.cancellable, \"this stream is not cancellable\");"))
+        assertTrue(
+            cancel.indexOf("pay_out(s);") in 0 until cancel.indexOf("val refund = s.escrow;"),
+            "cancel_stream must pay the payee everything accrued BEFORE it computes the payer's refund"
+        )
+        assertTrue(cancel.contains("update s ( .escrow = 0, .refunded = refund, .closed = true );"))
+
+        // Every operation that credits a balance debits the same amount in the same
+        // body; the refund's debit is the escrow it zeroes in that same statement.
+        Regex("operation (\\w+)\\(").findAll(code).map { it.groupValues[1] }.forEach { op ->
+            val body = opBody(code, op)
+            assertFalse(body.contains("earned_by("), "$op must price through owed()/payable_at, never build an entitlement itself")
+            Regex("\\.balance \\+= (\\w+)").findAll(body).map { it.groupValues[1] }.forEach { amount ->
+                val debited = body.contains("-= $amount") ||
+                    (op == "cancel_stream" && body.contains("val $amount = s.escrow;") && body.contains(".escrow = 0"))
+                assertTrue(debited, "$op credits .balance += $amount without debiting $amount in the same operation")
+            }
+        }
+
+        // CONSERVATION: every row that holds points is summed, and the sealed ledger
+        // says every point a stream held is with the payee, escrowed, or back home.
+        val circulation = code.substringAfter("query points_in_circulation(): integer {").substringBefore("\n}")
+        listOf("account", "stream").forEach { row ->
+            assertTrue(circulation.contains("in $row @* {}"), "points_in_circulation must sum the $row rows that hold points")
+        }
+        assertTrue(code.contains("query stream_ledger_balances(): boolean {"))
+        assertTrue(code.contains("if (s.funded != s.released + s.escrow + s.refunded) return false;"))
+
+        // Every bound is a named constant, never a parameter a caller could widen.
+        listOf("WELCOME_POINTS", "HOUR_MS", "MAX_AMOUNT", "MAX_RATE_PER_HOUR").forEach {
+            assertTrue(code.contains("val $it ="), "$it must be a named constant")
+            assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*\\b$it\\b").containsMatchIn(code), "$it must not be a caller-supplied parameter")
+        }
+
+        // The seams a static rule cannot see are written down where an extender reads.
+        assertTrue(main.contains("EXTENDING THIS TEMPLATE"), "the header must tell an extender which invariants are theirs to keep")
+        listOf(
+            "NEVER ADD A MUTABLE TIMESTAMP",
+            "EVERY NEW TERM MUST BE IMMUTABLE",
+            "A CLIFF, IF YOU ADD ONE",
+            "points_in_circulation()",
+            "stream_ledger_balances()"
+        ).forEach {
+            assertTrue(main.contains(it), "the EXTENDING section must name the '$it' seam")
+        }
+        // A pause/resume feature is the anchor wearing a feature's clothes: the seam
+        // easiest to walk into must be named, not left to be rediscovered.
+        assertTrue(main.contains("that stores \"resumed_at\" IS a mutable anchor"), "the pause/resume seam must be named")
+
+        // The residual list is where an auditor trusts most, so it must state limits
+        // rather than imply guards - round 7 drained a build through an inverted one.
+        assertTrue(main.contains("WHAT THIS TEMPLATE DOES NOT SOLVE"), "the header must state the limits it does not close")
+        listOf(
+            "A CANCELLABLE STREAM IS NOT AN INCOME GUARANTEE",
+            "SETTLEMENT COSTS THE CALLER A TRANSACTION FEE AND PAYS THEM NOTHING",
+            "THE ESCROW IS IDLE",
+            "A STREAM IS PUBLIC"
+        ).forEach {
+            assertTrue(main.contains(it), "the residual list must state '$it'")
+        }
+        assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the streaming source")
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -748,6 +931,17 @@ class DappScaffoldSecureTemplatesTest {
         )
     )
 
+    @Test
+    fun streamingShippedTestsRunGreen() = assertShippedGreen(
+        "streaming",
+        setOf(
+            "test_round7_anchor_reset_grief_must_fail",
+            "test_escrow_equals_paid_plus_reclaimable_at_every_point",
+            "test_cancellation_is_fair_in_both_directions",
+            "test_bounds_and_ownership"
+        )
+    )
+
     /** What the Rell runner reports when a run_must_fail transaction succeeds - the attack landed. */
     private val attackLanded = "did not fail"
 
@@ -766,7 +960,8 @@ class DappScaffoldSecureTemplatesTest {
         exploitTest: String,
         stillRefusedFragment: String,
         redFragment: String,
-        alsoRemove: List<String> = emptyList()
+        alsoRemove: List<String> = emptyList(),
+        alsoReplace: List<Pair<String, String>> = emptyList()
     ) {
         if (dbUrl == null) return // these run real transactions; the DB branch is authoritative and CI provides one
         val files = rellOf(template).toMutableMap()
@@ -779,6 +974,14 @@ class DappScaffoldSecureTemplatesTest {
         alsoRemove.forEach { g ->
             assertTrue(main.contains(g), "$template guard must exist verbatim: $g")
             main = main.replace(g, "")
+        }
+        // Some bugs are a SHAPE rather than a guard: the streaming grief needs the
+        // mutable anchor PUT BACK - a field, its initialisation and the line that
+        // advances it - before it can be committed at all. Each half must exist
+        // verbatim for the same reason alsoRemove's do.
+        alsoReplace.forEach { (from, to) ->
+            assertTrue(main.contains(from), "$template source must contain verbatim: $from")
+            main = main.replace(from, to)
         }
         files["main.rell"] = main
         val mutant = runShipped(template, label = "$template-without[${guard.take(48)}]", files = files)
@@ -1150,5 +1353,103 @@ class DappScaffoldSecureTemplatesTest {
         "require(op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS, \"price is stale\");",
         "test_stale_or_missing_price_halts_lending",
         "price move too large"
+    )
+
+    /**
+     * THE ROUND-7 GRIEF, PUT BACK. There is no guard to delete here - the bug is a
+     * SHAPE, and the shape does not exist while the entitlement is measured from an
+     * immutable start. So the mutant re-creates it the only way it can be re-created:
+     * by adding the mutable anchor back (the field, its initialisation at creation,
+     * and the line that advances it on every payout, paid or not) and measuring from
+     * it. That is realworld/adversary-round7/dapp_b_stream, restored line for line.
+     * With it, trudy's ten settles a minute-minus-a-millisecond apart each release
+     * ZERO and each move the marker, so bob is paid nothing and is owed nothing -
+     * against the ten the clock says he earned. Nothing is minted in the mutant
+     * either: conservation stays green throughout, which is exactly why the gate
+     * reported zero findings on the original and no invariant test caught it.
+     */
+    @Test
+    fun streamingGriefTestGoesRedWhenTheEntitlementIsMeasuredFromAMovableAnchor() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        "val outstanding = earned_by(s, at) - s.released;",
+        "val outstanding = s.rate_per_hour * (at - s.anchor_at) / HOUR_MS;",
+        "test_round7_anchor_reset_grief_must_fail",
+        // Wrong reason would be the replay failing to set itself up at all.
+        "no such stream",
+        "expected",
+        alsoReplace = listOf(
+            "mutable released: integer = 0;" to
+                "mutable released: integer = 0;\n    mutable anchor_at: timestamp;",
+            "started_at = op_context.last_block_time," to
+                "started_at = op_context.last_block_time,\n        anchor_at = op_context.last_block_time,",
+            "val amount = owed(s);\n    if (amount <= 0) return;" to
+                "val amount = owed(s);\n    update s ( .anchor_at = op_context.last_block_time );\n    if (amount <= 0) return;"
+        )
+    )
+
+    /**
+     * The monotone total is load-bearing in the OTHER direction too. Stop subtracting
+     * `released` and every settle pays the whole earned-to-date again: the grind that
+     * paid bob nothing in round 7 now pays him 45 where the clock says 10, draining
+     * alice's unearned escrow to whoever settles most. The replay's assertion is
+     * written against the clock rather than against the module's counters precisely so
+     * that it fails in both directions.
+     */
+    @Test
+    fun streamingGriefTestGoesRedWhenTheReleasedTotalIsNotSubtracted() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        "val outstanding = earned_by(s, at) - s.released;",
+        "val outstanding = earned_by(s, at);",
+        "test_round7_anchor_reset_grief_must_fail",
+        "no such stream",
+        "expected"
+    )
+
+    /**
+     * Stop debiting the escrow for what a payout pays and the stream mints points: the
+     * payee is credited, the escrow still holds the same money, and the payer gets all
+     * of it back at cancellation. The sealed ledger (funded == released + escrow +
+     * refunded) breaks in the first settle.
+     */
+    @Test
+    fun streamingConservationTestGoesRedWithoutTheEscrowDebit() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        "update s ( .escrow -= amount, .released += amount );",
+        "update s ( .released += amount );",
+        "test_escrow_equals_paid_plus_reclaimable_at_every_point",
+        "insufficient balance",
+        "expected"
+    )
+
+    /**
+     * THE OTHER HALF OF THE ROUND-7 DRAIN, PUT BACK: the payer takes the escrow back
+     * without paying what the payee has already earned. The guard is the ORDER of two
+     * lines in cancel_stream, which is exactly the kind of thing no static rule can
+     * see - so the replay asserts it instead. With the payout removed, bob keeps
+     * nothing of the minute he worked and alice reclaims 100%.
+     */
+    @Test
+    fun streamingCancellationTestGoesRedWhenTheRefundComesBeforeThePayout() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        "pay_out(s);\n    val refund = s.escrow;",
+        "val refund = s.escrow;",
+        "test_cancellation_is_fair_in_both_directions",
+        "only the payer or the payee may cancel",
+        "expected"
+    )
+
+    /**
+     * Neuter the committed-grant term and a vesting grant can be clawed back after
+     * all: the cancellation the replay requires to be refused now succeeds, and the
+     * beneficiary's remaining entitlement goes back to the grantor.
+     */
+    @Test
+    fun streamingCancellationTestGoesRedWithoutTheCommittedGrantTerm() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        "require(s.cancellable, \"this stream is not cancellable\");",
+        "require(true, \"this stream is not cancellable\");",
+        "test_cancellation_is_fair_in_both_directions",
+        "this stream is not cancellable",
+        attackLanded
     )
 }

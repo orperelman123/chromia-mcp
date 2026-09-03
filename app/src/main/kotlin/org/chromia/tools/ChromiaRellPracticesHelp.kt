@@ -228,7 +228,18 @@ object ChromiaRellPracticesHelp {
         deferred. Permissionless settlement is fine and often necessary; a permissionless MARKER
         MOVE is not. Adversary rounds 6 and 7 landed this same bug in two different value classes,
         a lending pool's interest index and a payment stream, so it is not a lending concern.
-        All five ship the real drain as a must-fail test.
+        Payment stream, payroll, subscription, vesting grant, drip - a clock-metered payout to ONE
+        NAMED beneficiary: start from template=streaming, which is that rule made structural. NO
+        OPERATION IN IT WRITES A TIMESTAMP: started_at is written once by the create and is not
+        mutable, so there is no marker to move; every other term (payer, payee, rate, funded
+        amount, cancellable) is immutable too, because a mutable payee is the same drain without
+        even needing the timing. The stream is PREPAID - it can never promise more than it holds -
+        and cancellation is terminal and PAYS BEFORE IT REFUNDS: the payee keeps everything
+        accrued, the payer reclaims only the unearned remainder, and both halves are continuous in
+        the cancelling block so neither side gains by choosing the moment. A pause/resume that
+        stores resumed_at IS the round-7 anchor wearing a feature's clothes; model a pause as
+        cancel-and-reopen, or subtract a MONOTONE total-paused-milliseconds counter inside the pure
+        function. All six ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.

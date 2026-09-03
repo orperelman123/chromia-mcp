@@ -123,7 +123,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -158,6 +158,11 @@ object DappScaffold {
                 "chromia.yml" to lendingChromiaYml(chain),
                 "src/main.rell" to lendingMainRell(),
                 "src/test/main_test.rell" to lendingTestRell()
+            )
+            "streaming" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to streamingMainRell(),
+                "src/test/main_test.rell" to streamingTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -207,11 +212,14 @@ object DappScaffold {
             main.oracle_pubkey from chromia.yml test.moduleArgs in the module_args you pass to
             run_rell_tests, and you must set main.oracle_pubkey under blockchains.<name>.moduleArgs
             before `chr build` - it is deliberately absent so no placeholder key can ship.
-            Building staking, yield, rewards or vesting - anything that pays out over time: start
-            from template=staking (rewards come only from a sponsor-funded pool, the clock releases
-            at most what the pool holds, every credit is a pool debit in the same operation, unstaking
-            has a cooldown; the shipped tests replay the round-4 stake-times-elapsed-times-rate mint
-            from an empty pool and require it to fail).
+            Building staking, yield, rewards or farming emissions - a share of a REWARD POOL that
+            many stakers split: start from template=staking (rewards come only from a sponsor-funded
+            pool, the clock releases at most what the pool holds, every credit is a pool debit in the
+            same operation, unstaking has a cooldown; the shipped tests replay the round-4
+            stake-times-elapsed-times-rate mint from an empty pool and require it to fail). For a
+            payment to ONE NAMED beneficiary metered by the clock - payroll, a subscription, a
+            vesting grant, a drip - use template=streaming instead: that is a different exploit
+            class and it has its own template.
             Building an NFT marketplace, a listing/auction board, or anything with a buy button and
             creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
             to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
@@ -243,6 +251,26 @@ object DappScaffold {
             Its EXTENDING section names the seam: any new operation that moves pool value in a STEP
             rather than with the clock (a fee, a bad-debt write-off, a donation) re-opens the
             just-in-time window, and then you need an entry/exit fee or a minimum holding period.
+            Building a payment stream, payroll, a subscription, a vesting grant, a drip or any
+            other payout METERED BY THE CLOCK to one named beneficiary: start from
+            template=streaming. Round 7 drained an un-templated one built with only this server's
+            guidance, gate silent and ok:true with zero findings: what was owed was measured from a
+            MUTABLE ANCHOR advanced by every settlement, so a stranger with nothing at stake settled
+            faster than one whole unit of entitlement, released zero each time, moved the anchor
+            each time and ground the payee's income to ZERO while the payer took 100% of the escrow
+            back. The template's answer is not "check the anchor": NO OPERATION IN IT WRITES A
+            TIMESTAMP. started_at is written once by the create and is not mutable; the entitlement
+            is a pure function of that immutable start, an immutable rate and the block clock, less
+            a MONOTONE released total - so settling a thousand times pays zero a thousand times and
+            changes nothing. Every term (payer, payee, rate, start, funded amount, cancellable) is
+            immutable, the stream is PREPAID so it can never promise more than it holds, and
+            cancellation pays the payee everything accrued BEFORE it refunds the payer the unearned
+            remainder - both halves continuous in the block, so neither side gains by choosing the
+            moment. Its EXTENDING section names the seam: never add a mutable timestamp and never
+            measure from one (a pause/resume that stores resumed_at IS the round-7 anchor), a top-up
+            is a second stream row rather than a mutable funded amount, and a cliff belongs inside
+            the pure function as an immutable term. The shipped tests replay the round-7 stranger
+            grief and require the payee to be paid what the clock says anyway.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -280,6 +308,26 @@ object DappScaffold {
                     "vault's bounded oracle, over-collateralisation, a liquidation threshold with " +
                     "a close factor and bonus, and the minimum-first-deposit guard that kills " +
                     "ERC-4626 share inflation - with the round-6 drain as a must-fail test."
+            has("stream", "payroll", "salary", "subscription", "drip", "annuity", "allowance",
+                "installment", "stipend", "wage", "unlock") || (has("vest") && !has("harvest")) ->
+                "Use `template=streaming`: it is the template for this class, and this class is what " +
+                    "adversary round 7 drained WITH NO TEMPLATE AT ALL. A hand-built payment stream " +
+                    "measured what was owed from a MUTABLE ANCHOR - the block of the last settlement - " +
+                    "and settlement was permissionless, so a stranger who was neither payer nor payee " +
+                    "settled faster than one whole unit of entitlement: integer truncation released " +
+                    "ZERO each time and the anchor still advanced, grinding the payee's income to " +
+                    "nothing while the payer closed the stream and took 100% of the escrow back. " +
+                    "Nothing was minted, the conservation invariant was exact throughout and the gate " +
+                    "reported zero findings, correctly - nothing was syntactically wrong. The " +
+                    "template does not ask you to remember to guard the anchor: NO OPERATION IN IT " +
+                    "WRITES A TIMESTAMP. `started_at` is written once by the create and is not " +
+                    "mutable, the entitlement is a pure function of that immutable start plus an " +
+                    "immutable rate less a MONOTONE released total, and every other term (payer, " +
+                    "payee, rate, funded amount, cancellable) is immutable too - so no caller's " +
+                    "timing can change what the payee is paid. The stream is PREPAID, cancellation " +
+                    "pays the payee everything accrued BEFORE refunding the payer the unearned " +
+                    "remainder, and `cancellable` is fixed at creation so a VESTING grant genuinely " +
+                    "cannot be clawed back. The round-7 grief ships as a must-fail test."
             has("auction", "bid", "nft", "marketplace", "listing", "royalt", "collectible") ->
                 "Use `template=marketplace`: it ships listings with exact-price buys, escrowed " +
                     "offers, AND a timed ascending auction with no mutable bid field (the standing " +
@@ -295,20 +343,23 @@ object DappScaffold {
                     "ships the 100 -> 200,000,000 oracle mint as a must-fail test. An AMM's own " +
                     "invariant is yours to prove - the template covers the reserve and the price " +
                     "feed, not the curve."
-            has("stak", "reward", "vest", "emission", "farm", "airdrop") ->
+            has("stak", "reward", "harvest", "emission", "farm", "airdrop") ->
                 "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
                     "releases at most what the pool holds, every credit is a pool debit in the same " +
-                    "operation, and unstaking has a cooldown."
+                    "operation, and unstaking has a cooldown. If instead you are paying ONE named " +
+                    "beneficiary over time - payroll, a subscription, a vesting grant, a drip - that " +
+                    "is `template=streaming`, a different exploit class with its own template."
             has("token", "ft4", "asset", "coin", "transfer", "wallet", "payment") ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics."
             else ->
-                "No shipped template covers that name. The five hardened ones are `governance` " +
+                "No shipped template covers that name. The six hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
-                    "`staking` (anything paid out over time), `marketplace` (listings, escrowed " +
-                    "offers, auctions, royalties) and `lending` (a pool whose SHARES have a price " +
-                    "that moves); `ft4` is the plain token skeleton with runnable " +
-                    "invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
+                    "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
+                    "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
+                    "that moves) and `streaming` (a clock-metered payout to one named beneficiary - " +
+                    "payroll, subscriptions, vesting, drips); `ft4` is the plain token skeleton with " +
+                    "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +
                     "if none does, write the economic invariant test FIRST: a passing security " +
                     "check is not economic soundness."
@@ -4414,6 +4465,737 @@ object DappScaffold {
             // The borrower's collateral comes back once the debt is gone.
             signed(borrower.keypair, main.remove_collateral(100));
             assert_equals(main.get_account(borrower.account.id)!!.tokens, 100);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    // ---- streaming template: the entitlement has no anchor a caller can move ----
+    //
+    // Adversary round 7 (realworld/adversary-round7/dapp_b_stream, corpus row
+    // r7-stream-anchor-reset-grief) drained an UN-TEMPLATED payment-streaming dapp
+    // built with only this server's guidance: a stranger with nothing at stake ground
+    // a payee's income to ZERO by settling their stream faster than one whole unit of
+    // entitlement, because the amount owed was measured from a MUTABLE ANCHOR that
+    // every settle advanced. Nothing was minted, nothing was syntactically wrong,
+    // rell_check and rell_security_check both returned ok:true with zero findings, and
+    // the conservation invariant was exact throughout. The fix is a template (north-star
+    // principle 4), and the corpus pins both halves: the drain and the secure idiom
+    // (r7-stream-anchor-moves-only-on-payout-clean).
+
+    private fun streamingMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Streaming template: a payer escrows a sum UP FRONT and it becomes the payee's
+        // continuously, at a fixed rate. Payroll, a subscription, a vesting grant, a
+        // drip, an allowance - anything METERED BY THE CLOCK rather than paid in a lump.
+        //
+        // Adversary round 7 (realworld/adversary-round7/dapp_b_stream, corpus row
+        // r7-stream-anchor-reset-grief) drained an UN-TEMPLATED payment-streaming dapp
+        // built with only this server's guidance. rell_check ok:true,
+        // rell_security_check ok:true with ZERO findings, and the conservation invariant
+        // the guidance told the author to write was green at every step. Three
+        // individually reasonable decisions composed into a total loss:
+        //   1. settlement was PERMISSIONLESS, so a payee never had to be online to be
+        //      paid - which is what the marketplace template teaches, and is right;
+        //   2. what was owed was measured from a MUTABLE ANCHOR, the block of the last
+        //      settlement, so no interval could ever be paid twice - the natural way to
+        //      avoid storing a cash total, and wrong only in combination;
+        //   3. the release was integer `rate_per_hour * elapsed / HOUR_MS`.
+        // Any settle spaced closer together than one whole unit of entitlement releases
+        // ZERO and STILL advances the anchor. A STRANGER - neither payer nor payee, with
+        // nothing at stake beyond transaction fees - settled a 60-per-hour stream once a
+        // minute minus one millisecond for 59 minutes: the payee earned 0 instead of 59,
+        // and the payer then closed the stream and took 100% of the escrow back. The
+        // interval was DESTROYED, not deferred. FT4's rate limiter bounds the cadence
+        // (about one settle per five seconds per account) but not the attack: that still
+        // zeroes any stream slower than 720 per hour, and N accounts restore any cadence.
+        //
+        // THE GUARD THAT MAKES IT UNWRITABLE: NO OPERATION IN THIS FILE WRITES A
+        // TIMESTAMP, SO THERE IS NO MARKER FOR ANYONE TO MOVE.
+        //   * `started_at` is written ONCE, by `create stream(...)`, and it is not
+        //     `mutable`. Grep this file for `op_context.last_block_time` on the left of
+        //     an `=`: there is exactly one hit, in that create. The round-7 line
+        //     `update s ( .anchor_at = op_context.last_block_time )` has nowhere to live.
+        //   * The entitlement is `earned_by(s, at)` - a PURE FUNCTION of the immutable
+        //     start, the immutable rate, the immutable funded amount, and a timestamp it
+        //     is HANDED. Its two callers hand it the block clock: an operation hands it
+        //     op_context.last_block_time, a read-only query hands it the latest block.
+        //     No operation takes a timestamp, so there is nothing else it can be handed.
+        //   * What is PAYABLE is that entitlement less `released`, a MONOTONE total that
+        //     only ever `+=`, and only in the same statement as the escrow debit.
+        //     Settling a thousand times a second pays zero a thousand times and leaves
+        //     the payee owed exactly what they were owed before, because nothing in the
+        //     calculation depends on WHEN the last settlement happened.
+        //   * So the payee is paid EXACTLY what the clock says, no matter who settled or
+        //     how often - and the integer truncation costs at most one unit ONCE over
+        //     the life of the stream, not one unit per call. That is the whole
+        //     difference between this file and the one that drained.
+        //   * PERMISSIONLESS SETTLEMENT IS THEREFORE KEPT, deliberately: a payee who has
+        //     to be online to be paid is a payee who can be starved, and anyone pushing
+        //     a payment moves value only from the named stream's own escrow to the payee
+        //     recorded on that row at creation - never to the caller. The round-7 lesson
+        //     is not "make settlement permissioned". It is that a permissionless MARKER
+        //     MOVE is the weapon, and here there is no marker.
+        //
+        // THE OTHER FIVE GUARDS, all structural - they live in the entity declaration
+        // and in the two helpers, not in a require() a future operation can forget:
+        //   IMMUTABLE TERMS - payer, payee, rate_per_hour, started_at, funded and
+        //                     cancellable have no `mutable` and no operation writes one.
+        //                     A MUTABLE PAYEE is the drain that needs no timing at all:
+        //                     the payer repoints it at themselves and settles. A MUTABLE
+        //                     RATE rewrites what has ALREADY been earned, because the
+        //                     entitlement is measured from the start. Adding `mutable`
+        //                     to any of the six is the one edit to this file to refuse.
+        //   PREPAID         - a stream promises no more than it holds. `funded` is
+        //                     escrowed out of the payer's own balance in the same
+        //                     operation that creates the row, and the entitlement is
+        //                     capped at it. A stream that outruns its funding is a
+        //                     promise, not a payment: the payee finds out it was
+        //                     worthless at exactly the moment they needed it.
+        //   PAIRED PAYOUT   - pay_out is the ONLY place a payee is credited. The credit,
+        //                     the escrow debit and the `released` increment happen in one
+        //                     statement pair or not at all, so no path can pay without
+        //                     recording that it paid.
+        //   SEALED LEDGER   - funded == released + escrow + refunded, for every row,
+        //                     always. Every point the payer put in is with the payee, in
+        //                     the escrow, or back with the payer; there is no fourth
+        //                     thing that can happen to it. `stream_ledger_balances()`
+        //                     asserts it and the shipped tests call it after every step.
+        //   TERMINAL, CONTINUOUS CANCELLATION - see below.
+        //
+        // CANCELLATION, FAIR IN BOTH DIRECTIONS. cancel_stream PAYS BEFORE IT REFUNDS,
+        // in one operation, and then the stream is over:
+        //   * the payee is first paid everything accrued up to the cancelling block, so
+        //     the payer cannot take back income the payee has already earned but not yet
+        //     collected. THE ORDER IS THE GUARD - swap the two lines and the payer takes
+        //     the lot, which is exactly how round 7's drain ended;
+        //   * the payer then reclaims only what is left, which is by construction the
+        //     UNEARNED remainder, and it is recorded in `refunded` so the sealed ledger
+        //     still balances;
+        //   * either party may cancel, so neither can hold the other hostage - but only
+        //     those two: a stranger who could cancel could end anyone's income at will;
+        //   * NEITHER SIDE GAINS MUCH BY TIMING IT, because both halves of the split
+        //     move with the clock rather than in a jump: one block later moves one
+        //     block's worth of value from the payer to the payee, so there is no step
+        //     worth straddling - which is the same rule the lending template's
+        //     EXTENDING section states for a fee or a write-off, in a different class.
+        //     BE PRECISE ABOUT THE LIMIT, though: integer truncation makes the accrual
+        //     a staircase of ONE UNIT, so a cancel timed just before a step costs the
+        //     payee at most one unit, and a stream whose rate is small in whole units
+        //     has wide steps. That is a rounding boundary, not a lever - it cannot be
+        //     made larger by anyone - but it is not literally continuous and this
+        //     header will not pretend it is. Denominate in the asset's smallest unit
+        //     and the step is negligible;
+        //   * `cancellable` is fixed at creation, so a VESTING GRANT (cancellable =
+        //     false) genuinely cannot be clawed back, and a payroll stream
+        //     (cancellable = true) genuinely can be ended. Which one you are building is
+        //     a term of the deal, not something to decide per call.
+        //
+        // EXTENDING THIS TEMPLATE - the seams a static rule cannot see:
+        //   1. NEVER ADD A MUTABLE TIMESTAMP, AND NEVER MEASURE FROM ONE. If you need
+        //      "how much since last time", the answer is ALWAYS
+        //      `earned_by(s, now) - s.released`, never `now - s.last_paid_at`. The two
+        //      look equivalent and are not: the first is a pure function of things no
+        //      caller can move, the second hands the beneficiary's income to whoever
+        //      calls the operation. This is the round-7 drain and it is the one edit to
+        //      this file to refuse. The same applies to a pause/resume feature: a pause
+        //      that stores "resumed_at" IS a mutable anchor. Model a pause as
+        //      cancel-and-reopen (a terminal settlement plus a new row with a new
+        //      immutable start), or - if the row must survive - store the total paused
+        //      MILLISECONDS as a monotone counter and subtract it inside earned_by, so
+        //      what is subtracted can only ever grow and can never rewrite the past.
+        //   2. EVERY NEW TERM MUST BE IMMUTABLE, AND EVERY NEW WAY OUT MUST PAY BEFORE
+        //      IT REFUNDS. A top-up is not `update s ( .funded += more )` - changing
+        //      `funded` changes the whole earned curve retroactively, including the span
+        //      the entitlement is capped by. A top-up is a SECOND STREAM ROW. Likewise a
+        //      rate change is a cancel plus a new stream, exactly as the marketplace
+        //      template makes repricing a cancel plus a new listing.
+        //   3. A CLIFF, IF YOU ADD ONE, GOES INSIDE earned_by AS AN IMMUTABLE TERM.
+        //      `if (at - s.started_at < s.cliff_ms) return 0;` is safe: the discontinuity
+        //      is at a fixed instant nobody can move, so it is a term of the deal rather
+        //      than a timing steal. But be honest about what it does to cancellation - a
+        //      cancel one millisecond before the cliff pays the payee NOTHING, and that
+        //      is the whole point of a cliff, so a cliff and cancellable = true together
+        //      are a deal the payer can walk away from for free. Ship a cliff with
+        //      cancellable = false unless you mean that.
+        //   4. EVERY NEW ROW THAT HOLDS POINTS MUST BE ADDED TO points_in_circulation(),
+        //      AND EVERY NEW WAY POINTS CAN LEAVE A STREAM TO stream_ledger_balances().
+        //      The shipped tests compare the first to account_count() * WELCOME_POINTS
+        //      after every step and require the second to be true; a row they do not sum
+        //      makes the invariants pass while points go missing.
+        //   5. earned_by TAKES A TIMESTAMP so a read-only query can price the latest
+        //      block. Its only two callers pass the block clock. Passing it anything a
+        //      CALLER supplied - a parameter, a field a caller can write - re-opens
+        //      exactly the hole this template closes, in a form that looks like a
+        //      refactor.
+        //
+        // WHAT THIS TEMPLATE DOES NOT SOLVE, stated rather than implied. This list is
+        // where an auditor places the most trust, so where we are unsure it says so.
+        //   - A CANCELLABLE STREAM IS NOT AN INCOME GUARANTEE. It guarantees what has
+        //     ALREADY accrued; the payer can end the future at any block, and no
+        //     template can stop that without also stopping legitimate cancellation. If
+        //     the payee needs certainty, that is cancellable = false, and then the payer
+        //     needs certainty instead - the money is gone the moment the stream opens.
+        //     Both are honest; neither is safe for both parties at once.
+        //   - SETTLEMENT COSTS THE CALLER A TRANSACTION FEE AND PAYS THEM NOTHING. The
+        //     payee will normally settle for themselves. We have NOT added a keeper
+        //     incentive, because a cut of the payment is a cut taken from the payee and
+        //     invites exactly the grinding round 7 used. If your payees cannot transact,
+        //     that is a real gap and it needs a design decision, not a constant.
+        //   - THE ESCROW IS IDLE. Prepaying is what makes the payee safe; it also means
+        //     the payer's capital does nothing while it streams. Putting it to work
+        //     means the escrow can be short when the payee settles, which is the whole
+        //     class of bug this template refuses to have. We think prepaid is right for
+        //     a template; a protocol that can afford real risk management may not.
+        //   - RATE, AMOUNT AND THE WELCOME GRANT ARE YOUR ECONOMICS. MAX_RATE_PER_HOUR
+        //     and MAX_AMOUNT are here to keep the arithmetic inside i64, not because
+        //     those numbers are right for your asset.
+        //   - AMOUNTS ARE WHOLE UNITS, SO ACCRUAL IS A STAIRCASE, NOT A LINE. A stream
+        //     whose rate is below one unit per hour accrues nothing for the first hours
+        //     - correct, and surprising - and a cancellation timed just before a step
+        //     costs the payee at most one unit. Nobody can widen that step, so it is a
+        //     rounding boundary rather than an exploit, but it is real. Denominate in
+        //     the asset's smallest unit (which is what FT4 assets use) and it stops
+        //     mattering. A stream run to completion loses nothing: the span is rounded
+        //     UP, so the entitlement reaches `funded` exactly.
+        //   - POINTS HERE ARE A STAND-IN for a real asset, exactly as in the other
+        //     templates. Replacing them with FT4 transfers keeps every guard above, but
+        //     the FT4 transfer must happen in the same operation as the `released`
+        //     increment or the pairing is broken.
+        //   - A STREAM IS PUBLIC. Who pays whom, how much and from when is on the chain.
+        //     Payroll is exactly the case where that may be unacceptable, and this
+        //     template does nothing about it.
+
+        entity account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // Ids, so a payer can run several streams to the same payee and a finished
+        // stream keeps its row instead of being overwritten by the next one.
+        object stream_counter {
+            mutable next_id: integer = 1;
+        }
+
+        // EVERY TERM IS IMMUTABLE. The three mutable fields are monotone - `released`
+        // and `refunded` only rise, `escrow` only falls - and the fourth, `closed`, is
+        // written in exactly one place, by the terminal cancellation.
+        entity stream {
+            key id: integer;
+            index payer: byte_array;
+            index payee: byte_array;
+            // Points per hour. NOT mutable: the entitlement is rate times elapsed
+            // measured from the start, so lowering the rate would rewrite what has
+            // already been earned.
+            rate_per_hour: integer;
+            // Written ONCE, by the create below, and never again. The only assignment
+            // to a timestamp field in this module.
+            started_at: timestamp;
+            // What the payer escrowed at creation: the ceiling on what can ever be
+            // earned, and what the sealed ledger reconciles against.
+            funded: integer;
+            // A term of the deal, fixed at creation. false = a committed grant that
+            // cannot be clawed back (vesting). true = an arrangement either side may
+            // end (payroll, a subscription).
+            cancellable: boolean;
+            mutable released: integer = 0;
+            mutable escrow: integer = 0;
+            mutable refunded: integer = 0;
+            mutable closed: boolean = false;
+        }
+
+        // The one-time welcome grant is the ONLY place points are created (a stand-in
+        // for a real deposit - replace with an FT4 asset transfer and keep the same
+        // discipline: every credit is debited from somewhere real).
+        val WELCOME_POINTS = 1000;
+        val HOUR_MS = 60 * 60 * 1000;
+        // Bounds that keep rate * elapsed inside i64. elapsed is capped at the stream's
+        // own span first (see earned_by), so the product never exceeds
+        // funded * HOUR_MS + rate.
+        val MAX_AMOUNT = 1000000000;
+        val MAX_RATE_PER_HOUR = 1000000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this
+        // default; grant flags = [] only per operation, scoped, for operations that
+        // cannot move value.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function account_of(owner: byte_array): account =
+            require(account @? { .owner == owner }, "register an account first");
+
+        function stream_of(stream_id: integer): stream =
+            require(stream @? { .id == stream_id }, "no such stream");
+
+        // The whole life of the stream in milliseconds: the instant `funded` is fully
+        // earned, rounded up so the last unit is reachable. Every term it is built from
+        // is immutable, so this number never changes for a given stream.
+        function full_span(s: stream): integer =
+            (s.funded * HOUR_MS + s.rate_per_hour - 1) / s.rate_per_hour;
+
+        // THE ENTITLEMENT, as of the block `at`. A PURE FUNCTION of an IMMUTABLE start,
+        // an IMMUTABLE rate and an IMMUTABLE funded amount. It reads no mutable field
+        // at all. Its two callers hand it the block clock and nothing else can be
+        // handed to it, because no operation in this module takes a timestamp.
+        function earned_by(s: stream, at: timestamp): integer {
+            val raw = at - s.started_at;
+            if (raw <= 0) return 0;
+            val span = full_span(s);
+            val elapsed = if (raw > span) span else raw;
+            val earned = s.rate_per_hour * elapsed / HOUR_MS;
+            return if (earned > s.funded) s.funded else earned;
+        }
+
+        // What can be paid right now: everything earned SINCE THE START, less the
+        // MONOTONE total already released, capped at the escrow (which can only fall).
+        // No caller's timing appears anywhere in this.
+        function payable_at(s: stream, at: timestamp): integer {
+            if (s.closed) return 0;
+            val outstanding = earned_by(s, at) - s.released;
+            if (outstanding <= 0) return 0;
+            return if (outstanding > s.escrow) s.escrow else outstanding;
+        }
+
+        function owed(s: stream): integer = payable_at(s, op_context.last_block_time);
+
+        // The ONLY place a payee is credited. The escrow debit, the monotone `released`
+        // increment and the credit happen together or not at all, so no path can pay
+        // without recording that it paid. Paying zero is a no-op: it writes NOTHING,
+        // which is precisely what round 7's version got wrong.
+        function pay_out(s: stream) {
+            val amount = owed(s);
+            if (amount <= 0) return;
+            val payee_account = account_of(s.payee);
+            update s ( .escrow -= amount, .released += amount );
+            update payee_account ( .balance += amount );
+        }
+
+        function latest_block(): timestamp {
+            val t = block @? {} ( @max .timestamp );
+            return if (t != null) t else 0;
+        }
+
+        operation register_account() {
+            val acc = auth.authenticate();
+            require(account @? { .owner == acc.id } == null, "already registered");
+            create account(owner = acc.id, balance = WELCOME_POINTS);
+        }
+
+        operation transfer_points(to: byte_array, amount: integer) {
+            // 1. AUTHENTICATE  2. AUTHORIZE - spend only from the CALLER's row.
+            val acc = auth.authenticate();
+            val from = account_of(acc.id);
+            // 3. VALIDATE - each input separately.
+            require(to != acc.id, "cannot transfer to yourself");
+            val recipient = account_of(to);
+            require(amount > 0, "amount must be positive");
+            require(from.balance >= amount, "insufficient balance");
+            // 4. INVARIANTS - the same amount leaves one row and lands in another.
+            update from ( .balance -= amount );
+            update recipient ( .balance += amount );
+        }
+
+        // Open a PREPAID stream. The whole amount leaves the payer's balance here, in
+        // the same operation that writes the terms, and every term written is
+        // immutable from this point on.
+        operation open_stream(payee: byte_array, rate_per_hour: integer, amount: integer, cancellable: boolean) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            require(payee != acc.id, "cannot stream to yourself");
+            // The payee must already exist, so a payout can never be blocked - or
+            // stranded - by a row that is not there when the clock says pay.
+            require(account @? { .owner == payee } != null, "the payee must register an account first");
+            require(rate_per_hour > 0 and rate_per_hour <= MAX_RATE_PER_HOUR, "rate out of range");
+            require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
+            require(me.balance >= amount, "insufficient balance");
+            update me ( .balance -= amount );
+            create stream(
+                id = stream_counter.next_id,
+                payer = acc.id,
+                payee = payee,
+                rate_per_hour = rate_per_hour,
+                started_at = op_context.last_block_time,
+                funded = amount,
+                cancellable = cancellable,
+                escrow = amount
+            );
+            stream_counter.next_id += 1;
+        }
+
+        // PERMISSIONLESS BY DESIGN, and safe because there is no marker to move: this
+        // pays the stream's own recorded payee out of the stream's own escrow, and what
+        // it pays does not depend on when - or how often - it is called. A payee never
+        // has to be online to be paid.
+        operation settle(stream_id: integer) {
+            auth.authenticate();
+            val s = stream_of(stream_id);
+            require(not s.closed, "stream is closed");
+            pay_out(s);
+        }
+
+        // TERMINAL, and it PAYS BEFORE IT REFUNDS. The payee keeps everything accrued
+        // up to this block; the payer reclaims only the unearned remainder. Both halves
+        // are continuous in the block, so neither side gains by choosing the moment.
+        operation cancel_stream(stream_id: integer) {
+            val acc = auth.authenticate();
+            val s = stream_of(stream_id);
+            require(not s.closed, "stream is already closed");
+            require(acc.id == s.payer or acc.id == s.payee, "only the payer or the payee may cancel");
+            require(s.cancellable, "this stream is not cancellable");
+            // THE ORDER IS THE GUARD. Refunding first would hand the payer everything
+            // the payee had earned but not yet collected - round 7's ending, exactly.
+            pay_out(s);
+            val refund = s.escrow;
+            update s ( .escrow = 0, .refunded = refund, .closed = true );
+            if (refund > 0) {
+                val payer_account = account_of(s.payer);
+                update payer_account ( .balance += refund );
+            }
+        }
+
+        query get_balance(owner: byte_array): integer {
+            val a = account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        // The chain clock as of the latest block - what a client must use to render a
+        // stream, and what the read-only entitlement below is priced at.
+        query chain_time(): timestamp = latest_block();
+
+        // Read-only, and priced through the SAME two functions the operations use, so a
+        // client can never be shown a number an operation would disagree with.
+        query get_stream(stream_id: integer) {
+            val s = stream @? { .id == stream_id };
+            return if (s == null) null else (
+                payer = s.payer,
+                payee = s.payee,
+                rate_per_hour = s.rate_per_hour,
+                started_at = s.started_at,
+                funded = s.funded,
+                cancellable = s.cancellable,
+                released = s.released,
+                escrow = s.escrow,
+                refunded = s.refunded,
+                closed = s.closed,
+                earned_total = earned_by(s, latest_block()),
+                claimable = payable_at(s, latest_block())
+            );
+        }
+
+        query streams_for_payee(payee: byte_array): list<integer> =
+            stream @* { .payee == payee } ( @sort .id );
+
+        query account_count(): integer = account @* {} ( .owner ).size();
+
+        // INVARIANT: every point in circulation came from a welcome grant. Points are
+        // in a balance or in a stream's escrow; opening, settling and cancelling move
+        // them, and nothing here creates or destroys one. The shipped tests compare
+        // this to account_count() * WELCOME_POINTS after every step.
+        query points_in_circulation(): integer {
+            var total = 0;
+            for (b in account @* {} ( .balance )) total += b;
+            for (e in stream @* {} ( .escrow )) total += e;
+            return total;
+        }
+
+        // INVARIANT (THE SEALED LEDGER): every point a stream ever held is with the
+        // payee, still in the escrow, or back with the payer. There is no fourth thing
+        // that can happen to it, and a payout that forgot to debit the escrow - or a
+        // refund that forgot to record itself - breaks this immediately.
+        query stream_ledger_balances(): boolean {
+            for (s in stream @* {} ( .funded, .released, .escrow, .refunded )) {
+                if (s.funded != s.released + s.escrow + s.refunded) return false;
+                if (s.released < 0 or s.escrow < 0 or s.refunded < 0) return false;
+            }
+            return true;
+        }
+    """.trimIndent() + "\n"
+
+    private fun streamingTestRell(): String = """
+        @test module;
+
+        // The streaming template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // test_round7_anchor_reset_grief_must_fail replays adversary round 7's stranger
+        // grief against this template exactly - a third party with nothing at stake
+        // settling the stream faster than one whole unit of entitlement, ten times -
+        // and REQUIRES the payee to be paid what the clock says anyway. In round 7 the
+        // payee earned 0 of 59 and the payer then took the whole escrow back.
+        // test_escrow_equals_paid_plus_reclaimable_at_every_point is the conservation
+        // proof at a mixture of cadences, and test_cancellation_is_fair_in_both_directions
+        // is the other half of that drain: the ending where the payer keeps 100%.
+        // Test blocks are DEFAULT_BLOCK_INTERVAL (10 s) apart unless a delta is set, and
+        // an operation sees the PREVIOUS block's time, so anything that depends on how
+        // many blocks a setup took is asserted as a bound and the identities exactly.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Stamp the next block `ms` after the last one.
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        // Run a signed transaction in a block stamped `ms` after the last one. This is
+        // how the grind is spaced: the delta applies to the block the transaction
+        // lands in, so consecutive settles really are that close together.
+        function signed_after(ms: integer, keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.set_next_block_time_delta(ms);
+            signed(keypair, op);
+        }
+
+        val MINUTE_MS = 60 * 1000;
+        val HOUR_MS = 60 * 60 * 1000;
+
+        function assert_conserved() {
+            assert_equals(main.points_in_circulation(), main.account_count() * main.WELCOME_POINTS);
+            assert_equals(main.stream_ledger_balances(), true);
+        }
+
+        function paid_to(owner: byte_array): integer = main.get_balance(owner) - main.WELCOME_POINTS;
+
+        // What the clock says the payee is owed in total, computed here from the
+        // stream's own IMMUTABLE terms and the chain clock - never from the module's
+        // own bookkeeping. This is the number the module must agree with, and it is
+        // what makes the assertions below fail in BOTH directions: too little paid
+        // (the round-7 grief) and too much paid (a released total that stopped being
+        // subtracted).
+        function entitlement_now(stream_id: integer): integer {
+            val s = main.get_stream(stream_id)!!;
+            val raw = main.chain_time() - s.started_at;
+            if (raw <= 0) return 0;
+            val span = (s.funded * HOUR_MS + s.rate_per_hour - 1) / s.rate_per_hour;
+            val elapsed = if (raw > span) span else raw;
+            val earned = s.rate_per_hour * elapsed / HOUR_MS;
+            return if (earned > s.funded) s.funded else earned;
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 7, dapp_b_stream: trudy is neither the
+        // payer nor the payee and has nothing at stake beyond transaction fees. She
+        // settles alice's 60-per-hour stream to bob once a minute MINUS one
+        // millisecond. In round 7 every one of those settles released zero - integer
+        // truncation - and STILL advanced the accrual anchor, so bob's income was
+        // destroyed a minute at a time and alice then closed the stream and took 100%
+        // of the escrow back. Here the entitlement never mentions the last settlement,
+        // so the grind is a series of no-ops.
+        function test_round7_anchor_reset_grief_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // 60 points an hour - one a minute - with 600 escrowed: ten hours of runway.
+            signed(alice.keypair, main.open_stream(bob.account.id, 60, 600, true));
+            val id = main.streams_for_payee(bob.account.id)[0];
+            val started_at = main.get_stream(id)!!.started_at;
+            assert_conserved();
+
+            // THE ATTACK, ten times.
+            var i = 0;
+            while (i < 10) {
+                signed_after(MINUTE_MS - 1, trudy.keypair, main.settle(id));
+                i += 1;
+            }
+
+            // The grind really was faster than one unit of entitlement per settle. If
+            // this ever stopped holding, the replay would not be replaying anything -
+            // so it is asserted rather than assumed.
+            assert_equals(main.chain_time() - started_at < 11 * MINUTE_MS, true);
+
+            // THE PROPERTY: bob is owed exactly what the clock says, whoever settled
+            // and however often. In round 7 this side was 0.
+            val s = main.get_stream(id)!!;
+            assert_equals(paid_to(bob.account.id) + s.claimable, entitlement_now(id));
+            // And he was actually PAID, not merely owed: the grind released real points.
+            assert_equals(paid_to(bob.account.id) >= 8, true);
+            // trudy paid transaction fees and gained nothing.
+            assert_equals(paid_to(trudy.account.id), 0);
+            assert_conserved();
+
+            // AND THE OTHER HALF OF THE ROUND-7 DRAIN: alice closes the stream. She
+            // gets back only what was never earned; bob keeps every point the clock
+            // gave him.
+            val earned_at_cancel_floor = entitlement_now(id);
+            signed(alice.keypair, main.cancel_stream(id));
+            val bob_total = paid_to(bob.account.id);
+            assert_equals(min(bob_total, earned_at_cancel_floor), earned_at_cancel_floor);
+            assert_equals(paid_to(alice.account.id), -bob_total);
+            assert_equals(main.get_stream(id)!!.escrow, 0);
+            assert_conserved();
+        }
+
+        // CONSERVATION: at every point, what the payer put in is with the payee, in
+        // the escrow, or back with the payer - and the total in circulation never
+        // moves. The grind is repeated here at a MIXTURE of cadences, because the
+        // claim is not "this one cadence is safe" but "no cadence changes anything".
+        function test_escrow_equals_paid_plus_reclaimable_at_every_point() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // 3600 an hour - one a second - with 600 escrowed: ten minutes of runway.
+            signed(alice.keypair, main.open_stream(bob.account.id, 3600, 600, true));
+            val id = main.streams_for_payee(bob.account.id)[0];
+            assert_equals(main.get_stream(id)!!.funded, 600);
+            assert_equals(main.get_stream(id)!!.escrow, 600);
+            assert_conserved();
+
+            // A stranger, the payee and the payer all settle, at wildly different
+            // spacings - several of them far below one unit of entitlement. After each
+            // one the sealed ledger must still balance and the payee must still be
+            // owed exactly what the clock says.
+            val cadences = [100, 999, MINUTE_MS - 1, 137, 30 * 1000, 250, 1000];
+            var n = 0;
+            for (ms in cadences) {
+                val who = if (n % 3 == 0) trudy.keypair else if (n % 3 == 1) bob.keypair else alice.keypair;
+                signed_after(ms, who, main.settle(id));
+                val s = main.get_stream(id)!!;
+                assert_equals(s.funded, s.released + s.escrow + s.refunded);
+                assert_equals(paid_to(bob.account.id) + s.claimable, entitlement_now(id));
+                assert_conserved();
+                n += 1;
+            }
+            assert_equals(paid_to(bob.account.id) > 0, true);
+
+            // Run past the end of the stream: the entitlement stops at what was
+            // funded, and settling after that pays nothing more.
+            after(HOUR_MS);
+            signed(trudy.keypair, main.settle(id));
+            assert_equals(paid_to(bob.account.id), 600);
+            assert_equals(main.get_stream(id)!!.escrow, 0);
+            assert_conserved();
+            after(HOUR_MS);
+            signed(trudy.keypair, main.settle(id));
+            assert_equals(paid_to(bob.account.id), 600);
+            assert_equals(paid_to(alice.account.id), -600);
+            assert_conserved();
+        }
+
+        // CANCELLATION IS FAIR IN BOTH DIRECTIONS: the payee keeps everything accrued,
+        // the payer reclaims exactly the unearned remainder, either party may end it,
+        // nobody else may, and a committed grant cannot be clawed back at all.
+        function test_cancellation_is_fair_in_both_directions() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // A cancellable payroll stream: one point a second, 300 escrowed.
+            signed(alice.keypair, main.open_stream(bob.account.id, 3600, 300, true));
+            val payroll = main.streams_for_payee(bob.account.id)[0];
+            after(MINUTE_MS);
+
+            // A stranger cannot end someone else's income.
+            signed_must_fail(trudy.keypair, main.cancel_stream(payroll), "only the payer or the payee may cancel");
+            assert_conserved();
+
+            // alice cancels. bob keeps what the clock had already given him - THIS is
+            // the assertion round 7's ending fails - and alice gets the rest, not one
+            // point more.
+            val owed_before = main.get_stream(payroll)!!.claimable;
+            assert_equals(owed_before > 0, true);
+            signed(alice.keypair, main.cancel_stream(payroll));
+            val bob_kept = paid_to(bob.account.id);
+            val after_cancel = main.get_stream(payroll)!!;
+            assert_equals(min(bob_kept, owed_before), owed_before);
+            assert_equals(after_cancel.released, bob_kept);
+            assert_equals(after_cancel.refunded, 300 - bob_kept);
+            assert_equals(after_cancel.escrow, 0);
+            assert_equals(after_cancel.closed, true);
+            assert_equals(paid_to(alice.account.id), -bob_kept);
+            assert_conserved();
+
+            // Terminal: a closed stream cannot be cancelled twice or settled again.
+            signed_must_fail(alice.keypair, main.cancel_stream(payroll), "stream is already closed");
+            signed_must_fail(trudy.keypair, main.settle(payroll), "stream is closed");
+            assert_conserved();
+
+            // The other direction: the PAYEE may walk away, and the split is the same
+            // one - the payer is not punished for being cancelled on.
+            signed(alice.keypair, main.open_stream(bob.account.id, 3600, 300, true));
+            val second = main.streams_for_payee(bob.account.id)[1];
+            after(MINUTE_MS);
+            val bob_before = paid_to(bob.account.id);
+            val alice_before = paid_to(alice.account.id);
+            signed(bob.keypair, main.cancel_stream(second));
+            val ended = main.get_stream(second)!!;
+            assert_equals(paid_to(bob.account.id) - bob_before, ended.released);
+            assert_equals(paid_to(alice.account.id) - alice_before, ended.refunded);
+            assert_equals(ended.released + ended.refunded, 300);
+            assert_equals(ended.released > 0, true);
+            assert_equals(ended.refunded > 0, true);
+            assert_conserved();
+
+            // A COMMITTED GRANT (cancellable = false) cannot be clawed back by anyone -
+            // this is what makes the template usable for VESTING rather than only for
+            // payroll. The beneficiary is still paid by the clock, permissionlessly.
+            signed(alice.keypair, main.open_stream(trudy.account.id, 3600, 300, false));
+            val grant = main.streams_for_payee(trudy.account.id)[0];
+            after(MINUTE_MS);
+            signed_must_fail(alice.keypair, main.cancel_stream(grant), "this stream is not cancellable");
+            signed_must_fail(trudy.keypair, main.cancel_stream(grant), "this stream is not cancellable");
+            signed(bob.keypair, main.settle(grant));
+            assert_equals(paid_to(trudy.account.id) > 0, true);
+            assert_conserved();
+        }
+
+        // INPUT BOUNDS + OWNERSHIP: nobody can open a stream they cannot fund, to
+        // themselves, to an account that does not exist, or at an unbounded rate; and
+        // escrowed points are not spendable.
+        function test_bounds_and_ownership() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed_must_fail(alice.keypair, main.register_account(), "already registered");
+            signed_must_fail(trudy.keypair, main.open_stream(bob.account.id, 60, 10, true), "register an account first");
+            signed_must_fail(alice.keypair, main.open_stream(alice.account.id, 60, 10, true), "cannot stream to yourself");
+            signed_must_fail(alice.keypair, main.open_stream(trudy.account.id, 60, 10, true), "the payee must register an account first");
+            signed_must_fail(alice.keypair, main.open_stream(bob.account.id, 0, 10, true), "rate out of range");
+            signed_must_fail(alice.keypair, main.open_stream(bob.account.id, main.MAX_RATE_PER_HOUR + 1, 10, true), "rate out of range");
+            signed_must_fail(alice.keypair, main.open_stream(bob.account.id, 60, 0, true), "amount out of range");
+            signed_must_fail(alice.keypair, main.open_stream(bob.account.id, 60, main.WELCOME_POINTS + 1, true), "insufficient balance");
+            signed_must_fail(bob.keypair, main.settle(999), "no such stream");
+            signed_must_fail(bob.keypair, main.cancel_stream(999), "no such stream");
+            assert_conserved();
+
+            // Everything alice has goes into the stream, so she has nothing to spend:
+            // escrowed points are not hers any more, they are the stream's.
+            signed(alice.keypair, main.open_stream(bob.account.id, 60, main.WELCOME_POINTS, true));
+            signed_must_fail(alice.keypair, main.transfer_points(bob.account.id, 1), "insufficient balance");
+            signed_must_fail(alice.keypair, main.transfer_points(alice.account.id, 1), "cannot transfer to yourself");
             assert_conserved();
         }
     """.trimIndent() + "\n"
