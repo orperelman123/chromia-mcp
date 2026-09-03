@@ -188,9 +188,14 @@ object ChromiaRellPracticesHelp {
         ships runnable examples of all three; run them via run_rell_tests.
         Governance (DAO, treasury, voting): start from scaffold_dapp template=governance - quorum,
         a fixed voting window, stake-weighted votes and execute-once are structural there, not a
-        require() to remember. Oracle-priced value (exchange, vault, redemption): start from
+        require() to remember. Oracle-priced value (vault, redemption, a bounded price FEED - NOT an "exchange", which is how
+        adversary round 8 came to build a drainable AMM here; a vault covers a reserve and a feed,
+        never a CURVE, so a swap pool is template=amm and an order book has no template at all):
+        start from
         template=vault - every credit is paid out of a reserve row in the same operation and price
-        posts are bounded, rate-limited and time-checked. Staking, yield, rewards, vesting - anything
+        posts are bounded, rate-limited and time-checked. Staking, yield, rewards, emissions - a pool many stakers split, and NOT vesting (a clock-metered
+        payout to ONE named beneficiary is template=streaming, a different exploit class that rounds 7
+        and 8 both drained) - anything
         paid out over time: start from template=staking - rewards are released from a sponsor-funded
         pool (never computed from a rate), capped by what the pool holds, and unstaking has a
         cooldown. NFT marketplace, listings, auctions, anything with a buy button and creator
@@ -324,8 +329,8 @@ object ChromiaRellPracticesHelp {
             "invariant_tests",
             "Conservation, no-negative-balance, and non-owner-must-fail tests: scaffold_dapp " +
                 "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests. " +
-                "DAO / treasury: template=governance; oracle-priced exchange or vault: template=vault; " +
-                "staking / rewards / vesting: template=staking; NFT marketplace / listings / " +
+                "DAO / treasury: template=governance; oracle-priced reserve or vault, NOT an exchange: template=vault; swap pool / DEX pair / AMM: template=amm; " +
+                "staking / rewards / emissions: template=staking; payroll / subscription / vesting / drip: template=streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
                 "template=lending - " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail."

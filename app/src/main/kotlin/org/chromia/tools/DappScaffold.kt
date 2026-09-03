@@ -209,11 +209,15 @@ object DappScaffold {
             analysis - only an invariant test you write catches them.
             Building a DAO / treasury: start from template=governance (quorum, a fixed voting
             window, stake-weighted votes and execute-once are structural, and the shipped tests
-            replay the single-account drain and require it to fail). Building an exchange, vault
-            or anything priced by an oracle: start from template=vault (every credit is paid out
-            of a reserve row in the same operation, price moves are bounded and rate-limited,
-            stale prices halt trading; the shipped tests replay the 100 -> 200,000,000 mint and
-            require it to fail). The vault's oracle key is a module arg: its tests need
+            replay the single-account drain and require it to fail). Building a vault or anything
+            priced by an ORACLE FEED: start from template=vault (every credit is paid out of a
+            reserve row in the same operation, price moves are bounded and rate-limited, stale
+            prices halt trading; the shipped tests replay round 1's unbacked mint and its price
+            crash and require both to fail). NOT an "exchange" - that word used to be answered
+            here, and it is how adversary round 8 came to build a drainable AMM: a vault covers
+            a reserve and a price FEED, never a CURVE. A swap pool or DEX pair is template=amm,
+            and an ORDER BOOK - resting orders that something has to match - has no template at
+            all, which the redirect will tell you plainly if you ask for one. The vault's oracle key is a module arg: its tests need
             main.oracle_pubkey from chromia.yml test.moduleArgs in the module_args you pass to
             run_rell_tests, and you must set main.oracle_pubkey under blockchains.<name>.moduleArgs
             before `chr build` - it is deliberately absent so no placeholder key can ship.
@@ -299,8 +303,11 @@ object DappScaffold {
             invariant it was pointed at - k never falls - passed the gate with ZERO findings
             and kept both conservation invariants exact, and two attacks landed anyway. A
             SANDWICH: the victim signed a min_out 2% below an honest 83124 quote, a 4000
-            front-run moved the price 144 bps, their swap executed at 81920 INSIDE their own
-            tolerance so nothing fired, and the attacker's round trip paid 1698. JIT
+            front-run moved the pool's RESERVES 79 bps and cost the victim 144 bps of
+            EXECUTION, their swap filled at 81920 INSIDE their own tolerance so nothing
+            fired, and the attacker's round trip paid 1698. Those two numbers are different
+            quantities and a band is written against the RESERVES, so it is the 79 a
+            tolerance would have to exclude - which is why no width is safe, not even 1%. JIT
             LIQUIDITY: a deposit one block before a fee-bearing swap and a withdrawal one
             block after took a share of a fee it had carried no price risk for. The template's
             answer to the first is not a better tolerance: A SWAP NAMES THE EXACT RESERVES IT
@@ -416,7 +423,10 @@ object DappScaffold {
                     "pointed at (k never falls), passed rell_security_check with ZERO findings, and " +
                     "kept both conservation invariants exact - and two attacks landed anyway. A " +
                     "SANDWICH: the victim signed a min_out 2% under an honest 83124 quote, a 4000 " +
-                    "front-run moved the price 144 bps, their trade executed at 81920 INSIDE their " +
+                    "front-run moved the pool's RESERVES 79 bps while costing the victim 144 bps " +
+                    "of EXECUTION - different quantities, and a band is written against the " +
+                    "reserves, so it is the 79 a tolerance would have to exclude and no width " +
+                    "does - their trade executed at 81920 INSIDE their " +
                     "own tolerance so nothing fired, and the attacker's round trip paid 1698. JIT " +
                     "LIQUIDITY: a deposit one block before a fee-bearing swap and a withdrawal one " +
                     "block after took a share of a fee it carried no price risk for. The template " +
@@ -1703,7 +1713,7 @@ object DappScaffold {
         //   SPONSOR-FUNDED  - pool.undistributed has exactly one inflow: fund_rewards,
         //                     which debits the sponsor's own balance in the same
         //                     operation. There is no rate that creates points.
-        //   RELEASE-CAPPED  - update_pool releases min(elapsed * REWARD_PER_SECOND,
+        //   RELEASE-CAPPED  - update_pool releases min(whole_seconds * REWARD_PER_SECOND,
         //                     pool.undistributed). The clock decides WHEN, the sponsors
         //                     decided HOW MUCH: an empty pool releases nothing however
         //                     long a staker waits, so the round-4 mint (stake * elapsed
@@ -1779,8 +1789,11 @@ object DappScaffold {
 
         // Release what the clock has earned since the last update - out of
         // pool.undistributed and into the accumulator. Never more than the pool
-        // holds, nothing while nobody is staked, and the clock is consumed even
-        // when nothing is released so a later sponsor cannot fund the past.
+        // holds, nothing while nobody is staked, and WHOLE SECONDS of clock are
+        // consumed even when nothing is released so a later sponsor cannot fund the
+        // past. The sub-second remainder is a different matter and is CARRIED: see
+        // update_pool. Consuming that too looked like the same guard and was round 7's
+        // grind - a free, permissionless touch every 1999 ms stranded half the budget.
         function update_pool() {
             val now = op_context.last_block_time;
             if (pool.last_update == 0) {
@@ -1789,7 +1802,20 @@ object DappScaffold {
             }
             val elapsed_ms = now - pool.last_update;
             if (elapsed_ms <= 0) return;
-            pool.last_update = now;
+            // THE REMAINDER IS CARRIED, NOT DESTROYED. `earned` below truncates to whole
+            // seconds, so advancing the anchor all the way to `now` would throw away
+            // `elapsed_ms % 1000` of schedule on EVERY call - and the calls are free and
+            // permissionless (any stake/unstake/fund touches this). At REWARD_PER_SECOND
+            // and a 1000 ms floor on block interval, a stranger touching every 1999 ms
+            // released 1 second and binned 999 ms, stranding about half the sponsors'
+            // budget in `undistributed` for the price of transaction fees, with
+            // points_in_circulation() exactly green the whole way because nothing is
+            // minted or burned - only never paid. That is round 7's anchor grief, which
+            // the streaming template's own header calls "the interval was DESTROYED, not
+            // deferred". Anchoring to the last whole second keeps the clock consumed
+            // (a later sponsor still cannot fund the past) while the sub-second remainder
+            // survives to be paid.
+            pool.last_update = now - elapsed_ms % 1000;
             if (pool.total_staked == 0 or pool.undistributed == 0) return;
             // THE guard against the round-4 mint: the schedule is capped by the
             // pool. Delete the min() and a staker mints from nothing again.
@@ -2054,6 +2080,56 @@ object DappScaffold {
         // pool is out and what they received plus the dust left unclaimed is exactly
         // 300 - and another hour releases nothing, because the clock alone creates
         // nothing.
+        // EXPLOIT MUST FAIL. Round 9's prose audit: update_pool truncates the release
+        // to whole seconds, and it used to advance `pool.last_update` all the way to
+        // `now` BEFORE truncating - so every touch destroyed `elapsed_ms % 1000` of
+        // schedule. The touches are free and permissionless (any stake, unstake or
+        // fund_rewards reaches update_pool), so a stranger touching just under the
+        // whole second stranded a large part of the sponsors' budget in
+        // `undistributed` for the price of transaction fees. Nothing is minted or
+        // burned, so points_in_circulation() stays exactly green and no invariant test
+        // could see it - the money is simply never paid. Round 7's anchor grief, here.
+        //
+        // THE PROPERTY: grinding cannot make the pool release LESS over a span than
+        // leaving it alone would have. Anchoring to the last whole second carries the
+        // remainder, so the destroyed milliseconds survive to be paid.
+        function test_round9_subsecond_grind_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            signed(alice.keypair, main.fund_rewards(500));
+            signed(alice.keypair, main.stake(100));
+
+            // The measurement is taken ACROSS THE GRIND ONLY, and calibrated against the
+            // pool's own anchor. An earlier version asserted a threshold against the
+            // running TOTAL, and the setup blocks - 10 s each in rell.test - cleared that
+            // threshold on their own, so it passed with the defect reintroduced. It was
+            // measuring the setup, not the grind. The mutant caught it; the assertion is
+            // now relative to what the anchor itself moved across.
+            val before_undistributed = main.pool_state().undistributed;
+            val before_anchor = main.pool_state().last_update;
+
+            // signed() is the only way to send an operation here: FT4 requires the auth
+            // operation in the same transaction, and a bare rell.test.tx().op(...) is
+            // rejected with MISSING AUTH OP before it ever reaches the pool.
+            var i = 0;
+            while (i < 10) {
+                rell.test.set_next_block_time_delta(1900);
+                signed(trudy.keypair, main.stake(1));
+                i += 1;
+            }
+
+            // THE PROPERTY, needing no model of the harness: across whatever span the
+            // anchor moved, the pool must have released the WHOLE SECONDS inside it.
+            // Destroying the remainder breaks precisely this - the anchor still advances
+            // the entire span while only one second per touch is ever paid out.
+            val span_ms = main.pool_state().last_update - before_anchor;
+            val released = before_undistributed - main.pool_state().undistributed;
+            assert_true(released >= span_ms / 1000 - 1);
+            assert_conserved();
+        }
+
         function test_rewards_come_only_from_sponsor_funding() {
             val alice = register_alice();
             val bob = register_bob();
@@ -5880,12 +5956,35 @@ object DappScaffold {
         //      measured it: a 4000 front-run on a 500000/500000 pool cost the victim
         //      1204 of B - their execution fell from 83124 to 81920, 144 bps, inside
         //      the 2% they signed. But the RESERVES moved only 79 bps, and a band is
-        //      written against the reserves, so it is the 79 that has to clear it:
-        //      2% admits the whole sandwich, and so would 1%, and so would 0.5%.
-        //      That is the point: there is no safe width, because the attacker chooses
-        //      the front-run size AFTER seeing the width. If your callers cannot land
-        //      trades, the answer is to re-quote and retry, not to widen the window
-        //      they are attacked through.
+        //      written against the reserves, so it is the 79 that has to clear it, and
+        //      the 2% they signed admits it with room to spare.
+        //
+        //      BE PRECISE ABOUT WHAT A BAND DOES, because the honest arithmetic is not
+        //      "any width admits it". A band is a monotone CAP: the attacker picks the
+        //      largest front-run that still clears it, so profit rises almost linearly
+        //      with the width - 25 bps caps him near 535, 50 near 1067, 100 near 2115,
+        //      200 near 4160. A 50 bps band would have REFUSED round 9's 4000 front-run
+        //      outright, because 79 > 50. (An earlier version of this seam said 0.5%
+        //      "would admit it too". That was simply wrong, and it was written while
+        //      correcting a different wrong number in the same paragraph.)
+        //
+        //      THE EQUALITY IS STILL STRICTLY STRONGER, and this is why: a band lets a
+        //      sandwich LAND and bounds it, while naming the exact reserves makes it
+        //      REVERT. The front-runner is then holding inventory with nothing to sell
+        //      into and eats the fee twice - about 25 on a 4000 front-run, roughly two
+        //      fees, always small. So the equality is better on every axis EXCEPT one,
+        //      and that one is the caller's retry policy.
+        //
+        //      DO NOT RE-QUOTE BLINDLY, WHICH THIS SEAM USED TO TELL YOU TO DO. A client
+        //      that catches "the pool moved since you quoted" and immediately re-quotes
+        //      hands the front-runner exactly the fill the equality just refused, at
+        //      whatever size HE chose - and with no band there is no cap on that size
+        //      but his balance: round 9 measured 13353 taken from one victim at a 50000
+        //      front-run. The revert is the protection; retrying through it is the
+        //      loss. WAIT for the reserves to come back, or quote again only after a
+        //      block in which nobody moved them. That is the counter-play the equality
+        //      buys, and it is the residual list's advice too - which this seam
+        //      previously contradicted.
         //   2. EVERY NEW WAY OUT OF THE POOL MUST TAKE THE TERM. `remove_liquidity` is
         //      not the only operation that could return an LP's capital - a "migrate",
         //      an "emergency exit", a "convert my position to token A", a transfer of a

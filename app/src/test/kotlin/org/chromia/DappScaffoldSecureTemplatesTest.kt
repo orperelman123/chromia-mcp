@@ -1254,6 +1254,7 @@ class DappScaffoldSecureTemplatesTest {
         "staking",
         setOf(
             "test_round4_unbacked_reward_must_fail",
+            "test_round9_subsecond_grind_must_fail",
             "test_rewards_come_only_from_sponsor_funding",
             "test_late_staker_earns_nothing_for_the_past_and_cooldown_holds",
             "test_bounds_and_ownership"
@@ -2291,6 +2292,32 @@ class DappScaffoldSecureTemplatesTest {
                 "compared against the reserves - stating only the execution loss invites a reader " +
                 "to pick a band that does not exclude the sandwich"
         )
+        // THE REDIRECT IS COVERED TOO, because that is where this defect survived.
+        // The morning's fix corrected the template seam and left closestTemplateNote()
+        // saying "a 4000 front-run moved the price 144 bps" - and the redirect is the
+        // FIRST thing an agent reads, before any template exists on disk. Round 9 found
+        // it still there. Any place that states these numbers has to state them right.
+        for ((where, text) in mapOf(
+            "closestTemplateNote(amm)" to DappScaffold.closestTemplateNote("a constant product swap pool"),
+            "notes()" to DappScaffold.notes("pool")
+        )) {
+            val flat = text.replace(Regex("""\s+"""), " ")
+            if (!flat.contains("144")) continue
+            assertTrue(
+                Regex("""(?i)144 bps of\s+EXECUTION|144 bps of execution""").containsMatchIn(flat) ||
+                    Regex("""(?i)victim 144 bps""").containsMatchIn(flat),
+                "$where cites 144 without saying it is the victim's EXECUTION loss. The reserves " +
+                    "moved $reserveMoveBps bps; a band is compared against the reserves, so calling " +
+                    "144 the pool's or the price's movement points a reader at a safe band width " +
+                    "that does not exist. Text was: $flat"
+            )
+            assertTrue(
+                flat.contains("$reserveMoveBps bps"),
+                "$where must also state the $reserveMoveBps bps reserve movement - the figure a " +
+                    "tolerance would actually have to exclude. Text was: $flat"
+            )
+        }
+
         val reserveClaim = Regex("""(?i)reserves?\s+moved?\s+(?:only\s+)?(\d+)\s*bps""")
             .find(seam.replace(Regex("""\s+"""), " "))
         assertEquals(
