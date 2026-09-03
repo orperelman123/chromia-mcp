@@ -7,6 +7,7 @@ import org.chromia.tools.RellSecurityCheck
 import org.chromia.tools.RunRellTests
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -564,8 +565,12 @@ class DappScaffoldSecureTemplatesTest {
         // an operation somebody has to remember to call - so the exit ORDER cannot
         // decide who eats the loss. Shipped exactly as it was, this template handed
         // 13920 of 14000 to whoever withdrew first.
-        assertTrue(code.contains("function recoverable_debt(face: integer, price: integer): integer {"), "the pool must value debt at what its collateral can repay")
-        assertTrue(poolNow.contains("val debt = recoverable_debt(face, price);"), "and pool_now() must be the place that does it")
+        assertTrue(
+            code.contains("total += if (backing < face) backing else face;"),
+            "the pool must value EACH debt at what THAT position`s collateral can repay - " +
+                "a pool-wide min() lets one surplus-collateralised loan mask another that is underwater"
+        )
+        assertTrue(poolNow.contains("val debt = recoverable_debt(now_index, price);"), "and pool_now() must be the place that does it")
         assertTrue(poolNow.contains("val price = if (face > 0) fresh_price() else 0;"), "pricing a share means pricing the collateral behind the pool's debt")
         assertEquals(
             2,
@@ -669,9 +674,13 @@ class DappScaffoldSecureTemplatesTest {
         // require(not s.paused) below. A THIRD assignment is the edit to refuse.
         assertEquals(
             listOf("started_at = op_context.last_block_time", ".paused_at = op_context.last_block_time"),
-            // (?<!val ) so the resume`s own `val frozen = op_context.last_block_time - ...`
-            // reads the clock without being counted as a write to a field.
-            Regex("(?<!val )[\\w.]+\\s*=\\s*op_context\\.last_block_time").findAll(code).map { it.value }.toList(),
+            // The resume READS the clock in `val frozen = op_context.last_block_time - ...`
+            // and that must not count as a write. `(?<!val )` alone does not do it:
+            // `[\w.]+` backtracks and restarts one character later, so `frozen` was
+            // rejected and `rozen` matched - the assertion reported a third clock
+            // write that does not exist. `(?<![\w.])` pins the match to a real token
+            // start, so the `val` exclusion cannot be stepped around.
+            Regex("(?<![\\w.])(?<!val )[\\w.]+\\s*=\\s*op_context\\.last_block_time").findAll(code).map { it.value }.toList(),
             "the block clock may be READ anywhere but written only by the create and by the pause transition"
         )
 
@@ -854,9 +863,12 @@ class DappScaffoldSecureTemplatesTest {
         ).forEach {
             assertTrue(main.contains(it), "the EXTENDING section must name the '$it' seam")
         }
-        // A pause/resume feature is the anchor wearing a feature's clothes: the seam
-        // easiest to walk into must be named, not left to be rediscovered.
-        assertTrue(main.contains("that stores \"resumed_at\" IS a mutable anchor"), "the pause/resume seam must be named")
+        // A pause/resume feature is the anchor wearing a feature's clothes, and round 8
+        // proved that naming it is not enough: two builds walked into it from a seam that
+        // described the shape and left the guards to the reader. It is now SHIPPED, so
+        // that is what gets pinned - a later edit that demotes it back to prose is the
+        // regression this assertion exists to catch.
+        assertTrue(main.contains("PAUSE/RESUME IS SHIPPED IN THIS TEMPLATE"), "the pause/resume seam must be shipped, not described")
 
         // The residual list is where an auditor trusts most, so it must state limits
         // rather than imply guards - round 7 drained a build through an inverted one.
@@ -1096,7 +1108,8 @@ class DappScaffoldSecureTemplatesTest {
         alsoRemove: List<String> = emptyList(),
         alsoReplace: List<Pair<String, String>> = emptyList()
     ) {
-        if (dbUrl == null) return // these run real transactions; the DB branch is authoritative and CI provides one
+        assertNotNull(dbUrl, "this test proves a drain is REFUSED and cannot do that without a database - " +
+            "returning early here would report green having executed nothing (GOAL.md: a fake green is worse than a red)") // these run real transactions; the DB branch is authoritative and CI provides one
         val files = rellOf(template).toMutableMap()
         var main = files.getValue("main.rell")
         assertTrue(main.contains(guard), "$template guard must exist verbatim: $guard")
@@ -1198,7 +1211,8 @@ class DappScaffoldSecureTemplatesTest {
     /** Removing the price bound alone is not enough to crash the price: the rate limit still refuses it. */
     @Test
     fun vaultPriceCrashIsStillRefusedByTheRateLimitWhenOnlyTheBoundIsRemoved() {
-        if (dbUrl == null) return
+        assertNotNull(dbUrl, "this test proves a drain is REFUSED and cannot do that without a database - " +
+            "returning early here would report green having executed nothing (GOAL.md: a fake green is worse than a red)")
         val files = rellOf("vault").toMutableMap()
         val bound = "require(price * 10000 >= prev * (10000 - MAX_PRICE_MOVE_BPS), \"price move exceeds bound\");"
         files["main.rell"] = files.getValue("main.rell").replace(bound, "")
@@ -1375,8 +1389,12 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun lendingBadDebtTestGoesRedWithoutTheRecoverabilityCap() = assertGuardMutationRedensExploitTest(
         "lending",
-        "return (if (backing < f) backing else f).to_integer();",
-        "return face;",
+        // recoverable_debt is now PER POSITION - one pool-wide min() valued a
+        // hopelessly underwater loan against another loan`s surplus collateral.
+        // The mutation is unchanged in meaning: drop the recoverability cap and
+        // value every debt at face however little backs it.
+        "total += if (backing < face) backing else face;",
+        "total += face;",
         "test_round7_bad_debt_exit_race_must_fail",
         // Wrong reason would be the attacker's own withdrawal being refused for want of
         // cash - then the mutant would prove nothing about the price it was refused at.
@@ -1749,7 +1767,6 @@ class DappScaffoldSecureTemplatesTest {
             assert_equals(main.utilisation_bps(), 5000);
             assert_equals(main.current_rate_bps_per_year(), 700);
 
-            val attacker_start = wealth(attacker.account.id, price);
             val collateral_before = main.get_loan(borrower.account.id)!!.collateral;
 
             // Three and a half years of honest borrowing at 50% utilisation.
@@ -1759,6 +1776,14 @@ class DappScaffoldSecureTemplatesTest {
             // HEALTHY: 100 tokens at 100 is 10000 of collateral and the threshold is 75%.
             signed_must_fail(attacker.keypair, main.liquidate(borrower.account.id, 100), "position is healthy");
             assert_conserved();
+
+            // NOT wealth(): it counts cash and collateral tokens but NOT pool shares, so
+            // a lender turning shares back into cash makes it rise mechanically - 18000
+            // to 20196 here, every unit of it the attacker`s own deposit and its honest
+            // interest coming home. The payoff of THIS attack is SEIZED COLLATERAL, so
+            // that is what gets measured, and the baseline is taken here rather than
+            // before the 3.5 years for the same reason: the yield is not the drain.
+            val attacker_tokens_before = main.get_account(attacker.account.id)!!.tokens;
 
             // THE ATTACK, ONE OPERATION: the attacker withdraws their own deposit,
             // pushing utilisation - and therefore the rate - up.
@@ -1771,7 +1796,7 @@ class DappScaffoldSecureTemplatesTest {
             // same oracle price is still healthy and there is nothing to seize.
             signed_must_fail(attacker.keypair, main.liquidate(borrower.account.id, 100), "position is healthy");
             assert_equals(main.get_loan(borrower.account.id)!!.collateral, collateral_before);
-            assert_equals(wealth(attacker.account.id, price) <= attacker_start, true);
+            assert_equals(main.get_account(attacker.account.id)!!.tokens, attacker_tokens_before);
             assert_conserved();
         }
 
@@ -1783,7 +1808,8 @@ class DappScaffoldSecureTemplatesTest {
      */
     @Test
     fun lendingRateCurveExtensionRefusesRound8Drain() {
-        if (dbUrl == null) return
+        assertNotNull(dbUrl, "this test proves a drain is REFUSED and cannot do that without a database - " +
+            "returning early here would report green having executed nothing (GOAL.md: a fake green is worse than a red)")
         val files = rellOf("lending").toMutableMap()
         val main = files.getValue("main.rell")
         assertTrue(main.contains(flatRateSeam), "the rate must be a one-line seam a curve can replace: $flatRateSeam")
@@ -1807,7 +1833,8 @@ class DappScaffoldSecureTemplatesTest {
      */
     @Test
     fun lendingRateCurveDrainsOnceTheIndexIsNoLongerCheckpointed() {
-        if (dbUrl == null) return
+        assertNotNull(dbUrl, "this test proves a drain is REFUSED and cannot do that without a database - " +
+            "returning early here would report green having executed nothing (GOAL.md: a fake green is worse than a red)")
         val files = rellOf("lending").toMutableMap()
         var main = files.getValue("main.rell")
         assertTrue(main.contains(flatRateSeam))

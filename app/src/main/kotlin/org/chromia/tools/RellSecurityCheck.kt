@@ -2511,8 +2511,9 @@ object RellSecurityCheck {
 
     /**
      * MEDIUM when a value-moving operation is gated by comparing two tallies
-     * (two distinct fields the app accumulates with `+=`, compared in one
-     * condition - `p.yes_weight > p.no_weight`), its own body (helpers
+     * (two distinct fields some operation raises with `+=` WITHOUT moving value -
+     * the shape of casting a vote - compared in one condition, as in
+     * `p.yes_weight > p.no_weight`), its own body (helpers
      * flattened in) references NO quorum/threshold/weight term other than
      * those tallies, and ANOTHER operation of the submission gated by the
      * same tally pair does reference one. That sibling is the proof the
@@ -2535,14 +2536,40 @@ object RellSecurityCheck {
             !RellLibs.isVendoredLibraryPath(path) && !RellLibs.isThirdPartyLibPath(path) &&
                 !RunRellTests.isTestModuleSource(files.getValue(path))
         }
-        val accumulated = eligible.values.flatMapTo(mutableSetOf()) { m ->
-            ACCUMULATED_FIELD_REGEX.findAll(m).map { it.groupValues[1] }
+        data class Op(val path: String, val op: OperationBlock, val flat: String, val movesValue: Boolean)
+        val ops = eligible.flatMap { (path, masked) ->
+            scanOperations(path, masked).map { op ->
+                val flat = flattenHelpers(op.body, helpers, entities)
+                val moves = VALUE_MUTATION_REGEX.containsMatchIn(flat) ||
+                    calledNames(flat).any { it in valueMutatingFunctions }
+                Op(path, op, flat, moves)
+            }
+        }
+        // A VOTE IS CAST WITHOUT MOVING VALUE. Keying "tally" on nothing but a `+=`
+        // made every pair of accumulated balances a tally: the lending template`s
+        // `collateral` and `scaled_debt` are compared in one health check, and the
+        // liquidation path names a threshold while deposit/withdraw do not, so the
+        // rule reported the shipped template as a DAO that had dropped its quorum -
+        // twice, MEDIUM, on correct code. What separates a real tally is the shape
+        // of what raises it: recording a vote transfers nothing, while collateral
+        // and debt only ever move inside operations that transfer. So a field
+        // counts as a tally only where some operation raises it WITHOUT moving
+        // value. Still keyed on use, never on names - round 4`s `yes_weight` /
+        // `no_weight` qualify because `vote()` moves nothing, and they would
+        // qualify under any other names. The cost is a DAO that stakes and votes
+        // in one operation, which this rule now stays quiet on; that is the
+        // deliberate trade, because an advisory firing on a correct template is
+        // how a gate gets routed around (GOAL.md, principle 3).
+        val accumulated = ops.filter { !it.movesValue }.flatMapTo(mutableSetOf()) { o ->
+            ACCUMULATED_FIELD_REGEX.findAll(o.flat).map { it.groupValues[1] }
         }
         if (accumulated.size < 2) return emptyList()
         data class Gate(val path: String, val op: OperationBlock, val pairs: Set<Set<String>>, val hasTerm: Boolean, val movesValue: Boolean)
-        val gates = eligible.flatMap { (path, masked) ->
-            scanOperations(path, masked).mapNotNull { op ->
-                val flat = flattenHelpers(op.body, helpers, entities)
+        val gates = ops.mapNotNull { o ->
+            run {
+                val path = o.path
+                val op = o.op
+                val flat = o.flat
                 val pairs = statementsOf(flat)
                     .filter { COMPARISON_OP_REGEX.containsMatchIn(it) }
                     .map { s -> FIELD_READ_REGEX.findAll(s).map { it.groupValues[1] }.filter { it in accumulated }.toSet() }
@@ -2553,9 +2580,7 @@ object RellSecurityCheck {
                 val hasTerm = WORD_REGEX.findAll(flat).any { w ->
                     w.value !in tallies && QUORUM_TERM_REGEX.containsMatchIn(w.value)
                 }
-                val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(flat) ||
-                    calledNames(flat).any { it in valueMutatingFunctions }
-                Gate(path, op, pairs, hasTerm, movesValue)
+                Gate(path, op, pairs, hasTerm, o.movesValue)
             }
         }
         return gates.filter { it.movesValue && !it.hasTerm }.mapNotNull { g ->
