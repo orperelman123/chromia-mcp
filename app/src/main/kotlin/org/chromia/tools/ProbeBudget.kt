@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -71,14 +72,24 @@ object ProbeBudget {
     suspend fun <T : Any> withBudget(budgetMs: Long, work: suspend () -> T): T? {
         if (budgetMs <= 0) return null
         val scope = CoroutineScope(probeDispatcher + SupervisorJob())
-        val deferred = scope.async { work() }
+        // Set on the pool thread as the first thing the body does. A probe whose
+        // body never began (the deadline fired while it was still queued for a
+        // pool thread - routine on a loaded machine with a 20ms budget) is
+        // cancelled before it can block in the client, so it is NOT abandoned
+        // there, and counting it inflated the backlog until it completed a
+        // moment later. That transient over-count made two reads of the live
+        // count disagree (2026-09-03, gate red twice on a loaded box).
+        val started = AtomicBoolean(false)
+        val deferred = scope.async { started.set(true); work() }
         return try {
             withTimeoutOrNull(budgetMs) { deferred.await() }
         } finally {
             scope.cancel()
-            if (!deferred.isCompleted) {
-                // Still blocked in the client after the deadline: count it until
-                // the blocking call really returns (cancel cannot interrupt it).
+            if (started.get() && !deferred.isCompleted) {
+                // Genuinely blocked in the client past the deadline: count it
+                // until the blocking call really returns (cancel cannot
+                // interrupt it). A body that started cannot be un-started, so
+                // the count is exactly the probes still holding a pool thread.
                 abandonedProbes.incrementAndGet()
                 deferred.invokeOnCompletion { abandonedProbes.decrementAndGet() }
             }

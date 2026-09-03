@@ -146,6 +146,14 @@ class ConcurrencyLensRegressionTest {
             // Honest reporting: the backlog is counted and named in the hints.
             val abandoned = ProbeBudget.abandonedCount()
             assertTrue(abandoned >= 1, "abandoned probes must be accounted for, got $abandoned")
+            // The count is exactly the probes blocked in the client - every one
+            // of them is parked on `gate`, so it cannot move until we open it.
+            // It used to include probes whose body never started (cancelled
+            // while still queued for a pool thread) which then completed a
+            // moment later: the count read here and the count in the hints
+            // below disagreed on a loaded machine (gate red twice, 2026-09-03).
+            Thread.sleep(250)
+            assertEquals(abandoned, ProbeBudget.abandonedCount(), "abandoned count drifted while every real probe was still blocked")
             for (hint in listOf(
                 ProbeBudget.queryTimeoutHint("mainnet", 20),
                 ProbeBudget.preflightProbeTimeoutMessage(20),
