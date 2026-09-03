@@ -39,8 +39,12 @@ class DappScaffoldSecureTemplatesTest {
      * without the oracle key, failed every case with a module_args error, and
      * so "went red" without the guard ever being exercised.
      */
-    private fun moduleArgsOf(template: String) =
-        if (template in oracleTemplates) DappScaffold.oracleTestModuleArgs() else DappScaffold.ft4TestModuleArgs()
+    private fun moduleArgsOf(template: String) = when {
+        // lending reads TWO configured keys: the oracle and the protocol fee key.
+        template == "lending" -> DappScaffold.lendingTestModuleArgs()
+        template in oracleTemplates -> DappScaffold.oracleTestModuleArgs()
+        else -> DappScaffold.ft4TestModuleArgs()
+    }
 
     private val dbUrl: String? = System.getenv(RunRellTests.DATABASE_URL_ENV)
 
@@ -449,7 +453,10 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(code.contains("require(move * BPS <= previous * MAX_PRICE_MOVE_BPS, \"price move too large\");"))
         assertTrue(code.contains(">= MIN_PRICE_UPDATE_INTERVAL_MS,\n            \"price posted too soon\""))
         assertTrue(code.contains("require(op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS, \"price is stale\");"))
-        assertTrue(main.contains("struct module_args {\n    oracle_pubkey: pubkey;\n}"), "the oracle key must be the module_args struct's only field")
+        assertTrue(
+            code.contains("struct module_args {\n    oracle_pubkey: pubkey;\n    treasury_pubkey: pubkey;\n}"),
+            "the two configured keys must be the module_args struct's only fields"
+        )
         assertFalse(Regex("x\"[0-9A-Fa-f]{64,}\"").containsMatchIn(main), "no key-like hex in the lending source")
         // Every ratio is a named constant, never a parameter a caller could widen.
         listOf("MAX_LTV_BPS", "LIQUIDATION_THRESHOLD_BPS", "LIQUIDATION_BONUS_BPS", "CLOSE_FACTOR_BPS", "MIN_INITIAL_DEPOSIT", "INTEREST_RATE_BPS_PER_YEAR").forEach {
@@ -466,10 +473,87 @@ class DappScaffoldSecureTemplatesTest {
             }
         }
 
+        // ROUND 7, DEFECT G3: BAD DEBT IS PRICED. The pool's debt is worth what the
+        // collateral behind it can repay, and that cap lives inside pool_now() - not in
+        // an operation somebody has to remember to call - so the exit ORDER cannot
+        // decide who eats the loss. Shipped exactly as it was, this template handed
+        // 13920 of 14000 to whoever withdrew first.
+        assertTrue(code.contains("function recoverable_debt(face: integer, price: integer): integer {"), "the pool must value debt at what its collateral can repay")
+        assertTrue(poolNow.contains("val debt = recoverable_debt(face, price);"), "and pool_now() must be the place that does it")
+        assertTrue(poolNow.contains("val price = if (face > 0) fresh_price() else 0;"), "pricing a share means pricing the collateral behind the pool's debt")
+        assertEquals(
+            2,
+            Regex("recoverable_debt\\(").findAll(code).count(),
+            "recoverable_debt must be defined once and called from exactly one place - pool_now()"
+        )
+        // The aggregate that cap reads is maintained in the same operation as every
+        // position it sums, and an invariant query compares the two.
+        assertTrue(code.contains("mutable total_collateral: integer"), "the pool must carry the collateral aggregate the cap reads")
+        listOf("add_collateral", "remove_collateral", "liquidate").forEach { op ->
+            assertTrue(opBody(code, op).contains("pool.total_collateral"), "$op moves collateral and must move the aggregate in the same body")
+        }
+        assertTrue(code.contains("query collateral_matches_positions(): boolean {"), "the collateral aggregate needs its own conservation query")
+
+        // ROUND 7, DEFECT G1: A STEP IN POOL VALUE IS NETTED OUT OF pool_state, NOT
+        // TOLLED. The protocol fee accrues on the interest still OUTSTANDING as well as
+        // on the interest already paid, so a repayment moves no pool value and there is
+        // no block to straddle - and so there is no holding period and no exit fee
+        // anywhere in this template.
+        assertTrue(code.contains("val interest = pool.interest_realised + max(0, outstanding);"), "the fee must accrue on outstanding interest, not only on paid interest")
+        assertTrue(poolNow.contains("val fee = accrued_fee(pool.total_scaled_debt, debt);"), "pool_now must net the accrued fee out of the pool's value")
+        assertTrue(poolNow.contains("val net = pool.cash_available + debt - fee;"), "the fee is not part of what a share is a claim on")
+        listOf("repay", "liquidate").forEach { op ->
+            assertTrue(opBody(code, op).contains("record_interest(p);"), "$op realises interest and must bank it so the fee does not evaporate")
+        }
+        assertFalse(code.contains("HOLDING_PERIOD"), "a holding period is the mitigation round 7 proved does not bind an exit")
+        assertFalse(Regex("EXIT_FEE|WITHDRAW_FEE").containsMatchIn(code), "an exit fee is sized by the attacker, who chose the position it is charged on")
+        // Collecting the fee is value-neutral by construction: cash out and
+        // fee_collected up, by the same amount, in the same body.
+        val collect = opBody(code, "collect_fees")
+        assertTrue(
+            collect.contains("pool.cash_available -= amount;") && collect.contains("pool.fee_collected += amount;"),
+            "a collection must move cash and the collected counter by the same amount"
+        )
+        assertTrue(collect.contains("chain_context.args.treasury_pubkey"), "only the configured protocol key may collect")
+
+        // ROUND 7, DEFECT G5: the two saturation ceilings are DERIVED from one number,
+        // so the pool cannot value debt above what a borrower will actually be charged.
+        assertTrue(code.contains("val MAX_DEBT = MAX_AMOUNT * MAX_INDEX_GROWTH;"), "a position's ceiling must be the largest borrow grown by the index's ceiling")
+        assertTrue(code.contains("val MAX_POOL_DEBT = MAX_DEBT * MAX_POSITIONS_PRICED;"), "the aggregate ceiling must be derived from the per-position one")
+
         // The seam a static rule cannot see is written down where an extender reads.
         assertTrue(main.contains("EXTENDING THIS TEMPLATE"), "the header must tell an extender which invariants are theirs to keep")
-        listOf("PRICE THROUGH", "MOVES POOL VALUE IN A STEP", "cash_in_circulation()").forEach {
+        listOf("PRICE THROUGH", "MOVES POOL VALUE IN A STEP", "cash_in_circulation()", "collateral_matches_positions()").forEach {
             assertTrue(main.contains(it), "the EXTENDING section must name the '$it' seam")
+        }
+        // ROUND 7, DEFECT G1: the prescription that did not work is gone, and the rule
+        // that does is in its place - stated as the fix, not as an aside.
+        assertFalse(
+            main.contains("you need an entry/exit\n        //      fee or a minimum holding period"),
+            "the header must not prescribe a mitigation round 7 implemented faithfully and still drained through"
+        )
+        assertTrue(
+            main.contains("MUST BE NETTED OUT OF pool_state SO IT") &&
+                main.contains("A toll on the round trip does not stop an exit."),
+            "the header must name the structural rule that replaces it"
+        )
+        // ROUND 7, DEFECT G3: the residual list is where an auditor trusts this file, so
+        // the inverted claim is corrected there rather than quietly dropped.
+        assertFalse(
+            main.contains("the loss sits in the share price"),
+            "the inverted bad-debt claim must be gone"
+        )
+        assertTrue(main.contains("IT DID NOT, and the inversion cost an"), "and the correction must say what was wrong")
+        // ROUND 7, DEFECT G2: three shipped tests go red if an extender gates a round
+        // trip, and the header names which, and how to adapt them.
+        listOf(
+            "A SEAM-2 MITIGATION WILL TURN SHIPPED TESTS RED",
+            "test_round6_jit_interest_capture_must_fail - the attacker's one-block",
+            "test_first_depositor_inflation_refuses_instead_of_swallowing - the",
+            "test_interest_moves_only_from_borrower_to_lender - a fee changes the",
+            "ADAPTED FOR THE EXTENSION"
+        ).forEach {
+            assertTrue(main.contains(it), "the header must name the tests a seam-2 mitigation invalidates: $it")
         }
         assertTrue(main.contains("WHAT NO TEMPLATE CAN FIX"), "the header must state the limits it does not close")
     }
@@ -554,6 +638,21 @@ class DappScaffoldSecureTemplatesTest {
                     DappScaffold.oracleTestModuleArgs().getValue("main").getValue("oracle_pubkey").toString().trim('"'),
                     "oracleTestModuleArgs must mirror the yml"
                 )
+                if (template == "lending") {
+                    // The protocol fee key is configured the same way the oracle is:
+                    // unset in production, FT4's published test key under test:.
+                    val uncommentedTreasury = production.lineSequence().filter { !it.trimStart().startsWith("#") }
+                        .any { it.contains("treasury_pubkey") }
+                    assertFalse(uncommentedTreasury, "lending production yml must not set a placeholder protocol key")
+                    assertTrue(production.contains("#   treasury_pubkey: x\"<your protocol fee key>\""), "lending yml must tell the deployer where the protocol fee key goes")
+                    assertTrue(production.contains("DIFFERENT keys held by different parties"), "the yml must say the two keys are not the same key")
+                    assertTrue(testBlock.contains("      treasury_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\""), "lending test.moduleArgs must wire the protocol fee test key")
+                    assertEquals(
+                        DappScaffold.TEST_ADMIN_PUBKEY,
+                        DappScaffold.lendingTestModuleArgs().getValue("main").getValue("treasury_pubkey").toString().trim('"'),
+                        "lendingTestModuleArgs must mirror the yml"
+                    )
+                }
             } else {
                 assertFalse(yml.contains("oracle_pubkey"), "$template yml carries no oracle key")
             }
@@ -637,6 +736,8 @@ class DappScaffoldSecureTemplatesTest {
         "lending",
         setOf(
             "test_round6_jit_interest_capture_must_fail",
+            "test_round7_fee_step_jit_capture_must_fail",
+            "test_round7_bad_debt_exit_race_must_fail",
             "test_healthy_position_cannot_be_liquidated",
             "test_under_water_position_cannot_hide",
             "test_self_liquidation_nets_nothing",
@@ -919,6 +1020,51 @@ class DappScaffoldSecureTemplatesTest {
         "val minted = if (st.shares <= 0) amount else amount * st.shares / (pool.cash_available + pool.total_scaled_debt);",
         "test_round6_jit_interest_capture_must_fail",
         "deposit too small to mint a share",
+        "expected"
+    )
+
+    /**
+     * THE ROUND-7 BAD-DEBT EXIT RACE, PUT BACK. Stop capping the pool's debt at what
+     * its collateral can repay and every index unit is valued at face again - which is
+     * the template EXACTLY AS IT SHIPPED IN ROUND 7, when it handed 13920 of 14000 to
+     * whoever exited first. With the cap gone the attacker's 1000 shares are worth
+     * ~13000 instead of 1160, they take almost the whole 14000 the pool holds, and the
+     * honest lender's IDENTICAL 1000 shares can no longer be paid at all - the replay
+     * goes red on the exit that first-come-first-served has left nothing for. Nothing
+     * is minted in the mutant either: conservation stays green throughout, which is why
+     * no invariant test and no static rule would have caught it.
+     *
+     * Measured: 1000 shares pay 13000 instead of 1160, the drain itself.
+     */
+    @Test
+    fun lendingBadDebtTestGoesRedWithoutTheRecoverabilityCap() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "return (if (backing < f) backing else f).to_integer();",
+        "return face;",
+        "test_round7_bad_debt_exit_race_must_fail",
+        // Wrong reason would be the attacker's own withdrawal being refused for want of
+        // cash - then the mutant would prove nothing about the price it was refused at.
+        "pool is illiquid",
+        "expected"
+    )
+
+    /**
+     * THE ROUND-7 FEE STEP, PUT BACK. Accrue the protocol's cut only on interest
+     * borrowers have already PAID and it stops moving with the clock: it lands as a
+     * jump in the block the repayment settles in, which is precisely what round 7's
+     * dapp_a_feepool did on this header's own (wrong) advice. The attacker exits the
+     * block before, the whole 600 falls on the lender who stayed, and the replay's
+     * "both lenders take out the same" assertion trips - 11500 against 10900, the
+     * numbers round 7 measured. The minimum holding period the header used to
+     * prescribe would not have touched this: there is no deposit in it.
+     */
+    @Test
+    fun lendingFeeStepTestGoesRedWhenTheFeeAccruesOnlyOnPaidInterest() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "val interest = pool.interest_realised + max(0, outstanding);",
+        "val interest = pool.interest_realised + max(0, outstanding * 0);",
+        "test_round7_fee_step_jit_capture_must_fail",
+        "more than the fee accrued so far",
         "expected"
     )
 

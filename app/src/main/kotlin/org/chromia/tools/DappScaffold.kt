@@ -2976,7 +2976,39 @@ object DappScaffold {
             "main" to mapOf("oracle_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY))
         )
 
-    private fun lendingChromiaYml(name: String): String = oracleChromiaYml(name, "lending pool")
+    /**
+     * The lending template reads TWO keys from configuration: the oracle that posts
+     * the price, and the protocol key that may collect the accrued fee. Both are
+     * deliberately unset in the production block.
+     */
+    fun lendingTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
+        ft4TestModuleArgs() + mapOf(
+            "main" to mapOf(
+                "oracle_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY),
+                "treasury_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY)
+            )
+        )
+
+    private fun lendingChromiaYml(name: String): String = ft4ChromiaYml(
+        name,
+        productionModuleArgsNote = buildString {
+            append("      # REQUIRED before `chr build` / deploy - the lending pool's oracle key and\n")
+            append("      # the protocol key that may collect the accrued fee. They are deliberately\n")
+            append("      # NOT set here so the chain cannot be built with a placeholder: put the\n")
+            append("      # 33-byte compressed public keys here and nowhere in source, and make them\n")
+            append("      # DIFFERENT keys held by different parties. Never copy a test key.\n")
+            append("      # main:\n")
+            append("      #   oracle_pubkey: x\"<your oracle public key>\"\n")
+            append("      #   treasury_pubkey: x\"<your protocol fee key>\"\n")
+        },
+        extraTestModuleArgs = buildString {
+            append("    # The shipped tests sign price posts and fee collections with FT4's published\n")
+            append("    # test key. One key in BOTH roles is a test convenience, never a deployment.\n")
+            append("    main:\n")
+            append("      oracle_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
+            append("      treasury_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
+        }
+    )
 
     private fun lendingMainRell(): String = """
         module;
@@ -3021,6 +3053,40 @@ object DappScaffold {
         //     refresh and no accrue() to forget to call. `opened_at` is written once, by
         //     the first operation that ever prices anything, and never again.
         //
+        // THE SECOND GUARD, added after adversary round 7 drained the TEMPLATE ITSELF:
+        // DEBT IS WORTH WHAT THE COLLATERAL CAN REPAY, NOT WHAT THE LOAN SAYS.
+        //   * pool_now() values the pool's debt as min(face, what pool.total_collateral
+        //     is worth at a fresh price). A position past any liquidator's reach stops
+        //     being counted at face the moment it passes its own collateral, so the
+        //     share price falls as the loss happens rather than staying flat until the
+        //     cash runs out.
+        //   * That bound is a PURE FUNCTION of the clock and the price - not a write-off
+        //     somebody triggers - so there is no block to be on the right side of.
+        //   * Round 7 (realworld/adversary-round7/dapp_c_lending_base) drained 13920 of
+        //     14000 from an honest lender on this template EXACTLY AS SHIPPED, with
+        //     nothing minted and every conservation invariant green: bad debt left the
+        //     share price untouched, the pool merely became illiquid at an unchanged
+        //     price, and withdraw_cash is first-come-first-served.
+        //   * PRICING A SHARE THEREFORE NEEDS A PRICE, once any cash is out on loan. An
+        //     unlent pool needs no oracle; a lent one cannot price an exit without
+        //     pricing the collateral behind the debt. Same deliberate trade as halting
+        //     borrowing while the oracle is silent, extended to entries and exits.
+        //
+        // THE THIRD GUARD: THE PROTOCOL FEE ACCRUES WITH THE CLOCK, NEVER IN A STEP.
+        //   * accrued_fee() is a cut of ALL the interest the pool has earned - the part
+        //     already paid (pool.interest_realised, a cumulative record of past events)
+        //     plus the part still outstanding (a pure function of the clock) - less what
+        //     has been collected. pool_now() nets it out of `value`.
+        //   * So a repayment moves no pool value: the interest inside it just moves from
+        //     the outstanding side of that sum to the realised side. And a collection
+        //     moves no pool value either: cash out and fee_collected up by the same
+        //     amount. Nothing to straddle, in either direction.
+        //   * Round 7 (realworld/adversary-round7/dapp_a_feepool) took the fee as a step
+        //     at the repayment block, exactly as this header used to advise, and 300
+        //     moved from an honest lender to an attacker for one block of timing. Set
+        //     PROTOCOL_FEE_BPS to 0 if your protocol takes no cut; do not move WHEN it
+        //     is taken.
+        //
         // THE OTHER FIVE GUARDS, all of which round 6's build already refused with and
         // which are kept here unchanged in substance:
         //   OVER-COLLATERALISED - a borrow is capped at MAX_LTV_BPS of what the collateral
@@ -3057,19 +3123,76 @@ object DappScaffold {
         //      to debt_of / shares_for / cash_for / payment_for and let them do it. Those
         //      raw fields are in INDEX units; treating one as cash IS the round-6 drain,
         //      and it is the one edit to this file to refuse.
-        //   2. ANY NEW OPERATION THAT MOVES POOL VALUE IN A STEP RE-OPENS THE JIT WINDOW.
+        //   2. ANY NEW OPERATION THAT MOVES POOL VALUE IN A STEP RE-OPENS THE JIT WINDOW,
+        //      AND THE FIX IS TO NET IT INTO pool_state, NOT TO CHARGE A TOLL.
         //      Here value moves only with the clock, continuously, so a deposit held for
         //      one block earns one block of interest and a one-block round trip cannot
-        //      come out ahead - which is why this template needs no deposit lock-up and
-        //      no exit fee. Add a protocol fee, a bad-debt write-off, a donation or a
-        //      rewards drop and value moves in a JUMP: a depositor can then buy the jump,
-        //      or exit just before a write-down, in one block, and you need an entry/exit
-        //      fee or a minimum holding period. That is a product decision with real
-        //      costs, not something a template can decide for you.
-        //   3. EVERY NEW ROW THAT HOLDS CASH MUST BE ADDED TO cash_in_circulation(), AND
-        //      EVERY NEW ROW THAT HOLDS DEBT TO scaled_debt_matches_positions(). The
-        //      shipped tests compare those to fixed totals after every step; a row they
-        //      do not sum makes the invariant pass while value goes missing.
+        //      come out ahead. Add a protocol fee, a bad-debt write-off, a donation or a
+        //      rewards drop naively and value moves in a JUMP, which somebody will
+        //      straddle.
+        //
+        //      THIS HEADER USED TO PRESCRIBE "an entry/exit fee or a minimum holding
+        //      period". THAT ADVICE WAS WRONG and it is worth knowing why, because both
+        //      mistakes are easy to repeat. Adversary round 7 implemented it faithfully
+        //      - a 20% cut of interest, taken at the repayment block, plus a 24-hour
+        //      minimum holding period - and the pool still drained, honest 10901 against
+        //      attacker 11500:
+        //        * A HOLDING PERIOD GATES A ROUND TRIP. The attack has no deposit in it.
+        //          It is an EXIT, by a lender who has been in the pool since the first
+        //          block and is years past any period. The only caller such a rule ever
+        //          catches is an honest short-term depositor.
+        //        * A FIXED ENTRY/EXIT FEE IS SIZED BY THE ATTACKER. The step is a
+        //          percentage of interest on a position they chose the size of, so they
+        //          can always make the step exceed any fixed percentage of their stake.
+        //      THE RULE THAT ACTUALLY HOLDS is the one this template already uses for
+        //      interest: A STEP IN POOL VALUE MUST BE NETTED OUT OF pool_state SO IT
+        //      ACCRUES CONTINUOUSLY. A toll on the round trip does not stop an exit.
+        //      Both extensions below are shipped, worked, and covered by must-fail tests:
+        //        * PROTOCOL FEE - accrued_fee() is a cut of realised PLUS outstanding
+        //          interest, netted out of `value`; repay only moves interest from one
+        //          side of that sum to the other, and collect_fees lowers cash and
+        //          raises fee_collected by the same amount. Neither moves `value`.
+        //          (test_round7_fee_step_jit_capture_must_fail)
+        //        * BAD-DEBT WRITE-OFF - recoverable_debt() caps the pool's debt at what
+        //          its collateral can repay, continuously, instead of writing a position
+        //          off in one operation.
+        //          (test_round7_bad_debt_exit_race_must_fail)
+        //      A DONATION or a rewards drop is the same problem in the other direction:
+        //      do not credit it to cash_available in one block. Give it a start block and
+        //      a rate and let pool_now() release it with the clock, exactly as the index
+        //      does - that is the shape, and it is the same one the streaming lesson in
+        //      chromia_rell_practices_help names.
+        //      WHAT IS STILL A STEP HERE, stated rather than implied: while
+        //      recoverable_debt()'s cap is ACTIVE - only in a pool whose debt already
+        //      exceeds its collateral - a price post and an add_collateral/liquidate both
+        //      move `value` in a jump. That window exists only in an already-insolvent
+        //      pool, and closing it would mean valuing the collateral continuously too,
+        //      which no oracle can do.
+        //   3. EVERY NEW ROW THAT HOLDS CASH MUST BE ADDED TO cash_in_circulation(),
+        //      EVERY NEW ROW THAT HOLDS DEBT TO scaled_debt_matches_positions(), AND
+        //      EVERY NEW ROW THAT HOLDS COLLATERAL TO collateral_matches_positions().
+        //      The shipped tests compare those to fixed totals after every step; a row
+        //      they do not sum makes the invariant pass while value goes missing - and
+        //      collateral now sets the ceiling on what the pool's debt is worth, so a
+        //      collateral row the aggregate misses is a share price that is too high.
+        //   4. A SEAM-2 MITIGATION WILL TURN SHIPPED TESTS RED. NAMED, so that three
+        //      unexplained failures do not push you into weakening the tests that
+        //      matter. If you add a deposit lock-up, a minimum holding period, or any
+        //      other gate on a round trip, these three stop compiling as written:
+        //        * test_round6_jit_interest_capture_must_fail - the attacker's one-block
+        //          round trip is now refused BEFORE the value assertion is reached, so
+        //          the test proves nothing about the price. Adapt it, do not delete it:
+        //          assert the refusal, wait out the period, and then keep the original
+        //          "no more than 10000 comes out" assertion (it still holds, plus one
+        //          period of honest interest).
+        //        * test_first_depositor_inflation_refuses_instead_of_swallowing - the
+        //          victim's withdrawal is inside the lock-up. Same adaptation.
+        //        * test_interest_moves_only_from_borrower_to_lender - a fee changes the
+        //          split, not the conservation: assert the protocol's cut explicitly and
+        //          subtract it from the lender's, so the total still reconciles.
+        //      Round 7 committed working adapted versions of all three in
+        //      exploit-corpus/realworld/adversary-round7/dapp_a_feepool/src/test/main_test.rell,
+        //      marked ADAPTED FOR THE EXTENSION.
         //
         // WHAT NO TEMPLATE CAN FIX, stated rather than implied:
         //   - One oracle key posts the price. An honest-but-wrong post still moves who is
@@ -3081,9 +3204,25 @@ object DappScaffold {
         //   - Liquidation is a race between liquidators and the bonus is what pays for
         //     it; a borrower watching the chain can always add collateral first.
         //   - A position that goes under water faster than liquidators arrive leaves BAD
-        //     DEBT, and this template has no write-off: the loss sits in the share price
-        //     as debt that will never be repaid. Adding a write-off is seam 2 above.
-        //   - The interest RATE is your economics. So are MAX_LTV_BPS, the threshold, the
+        //     DEBT. The share price now falls as that happens - recoverable_debt() stops
+        //     valuing debt above what its collateral can repay - so the exit ORDER no
+        //     longer decides who eats the loss. What remains is ILLIQUIDITY: the pool
+        //     can be worth more than the cash it holds, and withdraw_cash is
+        //     first-come-first-served for that cash, so a late exit may have to wait for
+        //     a repayment or a liquidation. That is the honest residual; a lender who
+        //     waits is owed the same as one who did not.
+        //     (An earlier version of this header said the loss "sits in the share price
+        //     as debt that will never be repaid". IT DID NOT, and the inversion cost an
+        //     honest lender 13920 of 14000 in adversary round 7: pool_now() valued every
+        //     index unit at face, so the price was UNCHANGED and the whole loss landed on
+        //     whoever exited last while the attacker who created it exited first.)
+        //   - The write-off's bound is at the POOL level, so a heavily over-collateralised
+        //     position's surplus can mask another's shortfall. Making it exact costs one
+        //     pass over every loan on every pricing call; recoverable_debt() says where
+        //     to make that change.
+        //   - The interest RATE is your economics, and so is PROTOCOL_FEE_BPS (0 turns
+        //     the fee off entirely; only WHEN it is taken is structural). So are
+        //     MAX_LTV_BPS, the threshold, the
         //     bonus and the close factor: they decide whether liquidators show up before
         //     a position goes under water, and no template can size them for your asset.
         //   - Every rounding is in the pool's favour by at most one unit: a borrow records
@@ -3097,6 +3236,9 @@ object DappScaffold {
 
         struct module_args {
             oracle_pubkey: pubkey;
+            // The protocol key that may collect the accrued fee. Configured, never a
+            // parameter and never in source - and a DIFFERENT key from the oracle.
+            treasury_pubkey: pubkey;
         }
 
         entity account {
@@ -3128,6 +3270,22 @@ object DappScaffold {
             // it cannot drift out of date. Never read this as a cash amount.
             mutable total_scaled_debt: integer = 0;
             mutable total_shares: integer = 0;
+            // The exact sum of every position's collateral, in TOKENS. What the pool's
+            // debt is worth is capped by what this is worth at a fresh price - see
+            // pool_now(). Not a cash figure and not a snapshot: it changes only in the
+            // same operation that moves a position's collateral.
+            mutable total_collateral: integer = 0;
+            // CUMULATIVE, MONOTONE, AND NEVER A SNAPSHOT: the total interest borrowers
+            // have actually PAID, in cash. It records past events only, so it cannot go
+            // stale the way a "current value" counter can. Together with the interest
+            // still outstanding (a pure function of the clock) it is what the protocol's
+            // fee is a cut of.
+            mutable interest_realised: integer = 0;
+            // Cash the protocol has already taken out of the pool as its fee. The
+            // uncollected fee is (the fee earned so far) minus this, and collect_fees
+            // moves cash and raises this by the SAME amount, so collecting changes no
+            // share price.
+            mutable fee_collected: integer = 0;
             // The interest clock's anchor: written once, by the first operation that ever
             // prices anything, and never again. Nothing else in this module writes them.
             mutable opened: boolean = false;
@@ -3154,10 +3312,6 @@ object DappScaffold {
         // Bound every amount BEFORE it is multiplied by a price: Rell integers are
         // 64-bit and an overflow aborts.
         val MAX_AMOUNT = 1000000000;
-        // One position's debt saturates here so that every ratio below stays inside a
-        // 64-bit integer; the pool's aggregate saturates at a higher ceiling.
-        val MAX_DEBT = MAX_AMOUNT;
-        val MAX_POOL_DEBT = 1000000000000000;
 
         // INDEX_SCALE is the index's 1.00: a position's debt in cash is
         // scaled_debt * index / INDEX_SCALE.
@@ -3165,6 +3319,23 @@ object DappScaffold {
         // The index stops growing at 100x - about two thousand years at the default
         // rate - so the arithmetic can never abort.
         val MAX_INDEX = 100 * INDEX_SCALE;
+        // The same ceiling as a plain multiplier: 100.
+        val MAX_INDEX_GROWTH = MAX_INDEX / INDEX_SCALE;
+
+        // BOTH SATURATION CEILINGS ARE DERIVED FROM THE SAME NUMBER, so the pool can
+        // never value debt above what the borrowers behind it will actually be charged.
+        // (Adversary round 7, defect G5: MAX_DEBT was MAX_AMOUNT and MAX_POOL_DEBT was
+        // a million times larger, so past MAX_AMOUNT one position was charged a debt
+        // that saturated while the share price still counted the unsaturated figure.
+        // Unreachable in the welcome-grant economy below, reachable the moment you
+        // follow this header's own instruction and swap in a real FT4 asset.)
+        // The most a single position's debt can ever be worth: the largest borrow the
+        // limit allows, grown by the index's own ceiling.
+        val MAX_DEBT = MAX_AMOUNT * MAX_INDEX_GROWTH;
+        // The number of such positions the pool's aggregate stays exact for. Raising
+        // this without raising MAX_DEBT is what re-opens the divergence.
+        val MAX_POSITIONS_PRICED = 10000;
+        val MAX_POOL_DEBT = MAX_DEBT * MAX_POSITIONS_PRICED;
 
         // Borrow up to 60% of collateral value...
         val MAX_LTV_BPS = 6000;
@@ -3177,6 +3348,12 @@ object DappScaffold {
 
         val YEAR_MS = 365 * 24 * 60 * 60 * 1000;
         val INTEREST_RATE_BPS_PER_YEAR = 500;
+
+        // The protocol's cut of the interest the pool earns - a "reserve factor". The
+        // RATE is your economics (set it to 0 and every line below goes inert); the
+        // SHAPE is not. It accrues CONTINUOUSLY out of pool_state, exactly as the
+        // interest it is a cut of does, and is never taken as a step. See seam 2.
+        val PROTOCOL_FEE_BPS = 2000;
 
         // The first deposit into an empty pool must be large enough that no later
         // deposit can be rounded away against it (the ERC-4626 inflation steal seeds
@@ -3199,6 +3376,7 @@ object DappScaffold {
 
         // Exposed so the shipped tests can sign price posts with the configured key.
         function oracle_pubkey(): pubkey = chain_context.args.oracle_pubkey;
+        function treasury_pubkey(): pubkey = chain_context.args.treasury_pubkey;
 
         // -------------------------- THE ONE PRICING HELPER --------------------------
 
@@ -3208,7 +3386,15 @@ object DappScaffold {
         // either one exists.
         struct pool_state {
             debt_index: integer;
+            // The fresh price the debt was valued at. 0 ONLY when the pool has no debt
+            // at all, in which case there is nothing to value and no price is needed.
+            price: integer;
+            // What the outstanding debt is WORTH: its face value, capped at what the
+            // collateral behind it can actually repay.
             debt: integer;
+            // The protocol's accrued, uncollected cut of the interest. Netted out of
+            // `value` below - it is not part of what a share is a claim on.
+            fee: integer;
             value: integer;
             shares: integer;
         }
@@ -3238,13 +3424,68 @@ object DappScaffold {
                 pool.opened_at = op_context.last_block_time;
             }
             val now_index = current_index();
-            val debt = to_cash_down(pool.total_scaled_debt, now_index, MAX_POOL_DEBT);
+            val face = to_cash_down(pool.total_scaled_debt, now_index, MAX_POOL_DEBT);
+            // NO DEBT, NOTHING TO VALUE: an unlent pool is worth its cash and needs no
+            // oracle. The moment cash is out on loan, pricing a share means pricing the
+            // collateral behind that loan, so a share cannot be priced without a fresh
+            // price either. That is the same deliberate trade as halting borrowing.
+            val price = if (face > 0) fresh_price() else 0;
+            val debt = recoverable_debt(face, price);
+            val fee = accrued_fee(pool.total_scaled_debt, debt);
+            val net = pool.cash_available + debt - fee;
             return pool_state(
                 debt_index = now_index,
+                price = price,
                 debt = debt,
-                value = pool.cash_available + debt,
+                fee = fee,
+                // Never negative: a write-down deep enough to swallow the whole pool
+                // leaves shares worth nothing, not worth less than nothing.
+                value = if (net < 0) 0 else net,
                 shares = pool.total_shares
             );
+        }
+
+        // WHAT THE POOL'S DEBT IS WORTH, not what it says on the loans. Every index unit
+        // valued at face is what let adversary round 7 pay the first lender out of the
+        // second lender's capital: a position ten years past any liquidator's reach
+        // still counted at 306000 against 10000 of collateral, the share price never
+        // moved, and withdraw_cash is first-come-first-served. Debt is worth at most
+        // what the collateral behind it can repay, and that bound is a PURE FUNCTION of
+        // the clock and the price - it moves continuously, it is not a write-off
+        // somebody has to trigger, and there is no block to be on the right side of.
+        //
+        // HONEST LIMIT, because the residual list is where an auditor trusts this file:
+        // the bound is at the POOL level, so one heavily over-collateralised position's
+        // surplus can mask another's shortfall. Making it exact means valuing every
+        // position on every pricing call - O(number of loans) per operation. If your
+        // pool has few, large positions, do that instead; the shape to keep is that the
+        // bound lives HERE, inside pool_now(), and not in an operation someone calls.
+        function recoverable_debt(face: integer, price: integer): integer {
+            if (face <= 0) return 0;
+            val backing = pool.total_collateral.to_big_integer() * price.to_big_integer()
+                / PRICE_SCALE.to_big_integer();
+            val f = face.to_big_integer();
+            return (if (backing < f) backing else f).to_integer();
+        }
+
+        // THE PROTOCOL'S CUT, ACCRUED CONTINUOUSLY. A share of ALL the interest this
+        // pool has ever earned - the part borrowers have already paid (pool.interest_realised,
+        // a cumulative record of past events, which is why it cannot go stale) plus the
+        // part still outstanding (debt_value minus the same units at face, a pure
+        // function of the clock) - minus what the protocol has already taken out.
+        //
+        // Nothing here happens in a STEP. That is the whole point: see seam 2.
+        function accrued_fee(scaled_total: integer, debt_value: integer): integer {
+            if (PROTOCOL_FEE_BPS <= 0) return 0;
+            // One index unit was one unit of cash when the pool opened, so what the debt
+            // is worth ABOVE its unit count is the interest inside it.
+            val outstanding = debt_value - scaled_total;
+            val interest = pool.interest_realised + max(0, outstanding);
+            val earned = interest.to_big_integer() * PROTOCOL_FEE_BPS.to_big_integer() / BPS.to_big_integer();
+            val uncollected = earned - pool.fee_collected.to_big_integer();
+            // A write-down can retract interest the protocol was already paid for. The
+            // lenders keep that, rather than the pool carrying a negative liability.
+            return (if (uncollected < 0) 0 else uncollected).to_integer();
         }
 
         // Index units -> cash, rounded DOWN and saturated at `ceiling`. This is what a
@@ -3306,6 +3547,15 @@ object DappScaffold {
             val scaled = min(l.scaled_debt, to_scaled_down(offered, st.debt_index));
             require(scaled > 0, "payment too small to retire any debt");
             return payment(scaled = scaled, cash = to_cash_up(scaled, st.debt_index, MAX_DEBT));
+        }
+
+        // A payment's interest, banked. One index unit was one unit of cash when the
+        // pool opened, so the cash charged ABOVE the units retired IS the interest on
+        // them. This counter only ever records what has already happened, so - unlike a
+        // "current debt" counter - there is no version of it that can be out of date.
+        function record_interest(p: payment) {
+            val interest = p.cash - p.scaled;
+            if (interest > 0) pool.interest_realised += interest;
         }
 
         // What this position owes, in cash, right now.
@@ -3423,7 +3673,12 @@ object DappScaffold {
             val amount = cash_for(shares, st);
             require(amount > 0, "nothing to withdraw");
             // Only cash the pool actually holds can leave it - what is out on loan is
-            // not withdrawable until it is repaid.
+            // not withdrawable until it is repaid. This is FIRST-COME-FIRST-SERVED, and
+            // it is only fair because `amount` is priced out of a pool_state that has
+            // already written unrecoverable debt down: waiting costs you time, not
+            // value. Remove recoverable_debt()'s cap and this line becomes the round-7
+            // drain - the first caller paid in full at a price that counts debt nobody
+            // will ever repay.
             require(pool.cash_available >= amount, "pool is illiquid - wait for repayments");
             update position ( .shares -= shares );
             pool.total_shares -= shares;
@@ -3443,6 +3698,8 @@ object DappScaffold {
             require(l.collateral + amount <= MAX_AMOUNT, "collateral too large");
             update me ( .tokens -= amount );
             update l ( .collateral += amount );
+            // The pool's aggregate moves in the SAME operation as the position's.
+            pool.total_collateral += amount;
         }
 
         operation remove_collateral(amount: integer) {
@@ -3462,6 +3719,7 @@ object DappScaffold {
             }
             update l ( .collateral -= amount );
             update me ( .tokens += amount );
+            pool.total_collateral -= amount;
         }
 
         operation borrow(amount: integer) {
@@ -3499,6 +3757,11 @@ object DappScaffold {
             require(me.cash >= p.cash, "insufficient cash");
             update me ( .cash -= p.cash );
             pool.cash_available += p.cash;
+            // The interest inside this payment moves from OUTSTANDING to REALISED. Both
+            // sides feed accrued_fee(), so the protocol's cut is exactly the same before
+            // and after: a repayment moves NO pool value. That is why this template
+            // needs no holding period and no exit fee - see seam 2.
+            record_interest(p);
             pool.total_scaled_debt -= p.scaled;
             update l ( .scaled_debt -= p.scaled );
         }
@@ -3520,16 +3783,44 @@ object DappScaffold {
             require(liquidator.cash >= p.cash, "insufficient cash");
             // Collateral worth the repayment plus the bonus, priced at the same fresh
             // price the health check used.
-            val seize_value = p.cash * (BPS + LIQUIDATION_BONUS_BPS) / BPS;
-            val seize = seize_value * PRICE_SCALE / price;
+            // In big_integer and capped: MAX_DEBT is the index's ceiling times the
+            // largest allowed borrow, so this product leaves 64 bits. An aborting
+            // arithmetic here would make a position un-liquidatable, which is worse
+            // than a seizure the collateral check refuses on the next line.
+            val seize_value = p.cash.to_big_integer() * (BPS + LIQUIDATION_BONUS_BPS).to_big_integer() / BPS.to_big_integer();
+            val seize_big = seize_value * PRICE_SCALE.to_big_integer() / price.to_big_integer();
+            val seize_cap = MAX_AMOUNT.to_big_integer();
+            val seize = (if (seize_big > seize_cap) seize_cap else seize_big).to_integer();
             require(seize > 0, "nothing to seize");
             require(seize <= l.collateral, "not enough collateral to cover the bonus");
             // Cash goes to the pool, collateral to the liquidator; the debt and the
             // pool's record of it fall by the same amount, all in this operation.
             update liquidator ( .cash -= p.cash, .tokens += seize );
             pool.cash_available += p.cash;
+            record_interest(p);
             pool.total_scaled_debt -= p.scaled;
             update l ( .scaled_debt -= p.scaled, .collateral -= seize );
+            pool.total_collateral -= seize;
+        }
+
+        // ------------------------------ PROTOCOL FEE --------------------------------
+
+        // Only the configured protocol key may collect, and collecting moves cash that
+        // pool_now() ALREADY excluded from what a share is a claim on: the cash leaves
+        // and fee_collected rises by the SAME amount, so `value` does not move. A
+        // collection is therefore not a step and cannot be straddled - the property
+        // seam 2 is about, written out in two lines.
+        operation collect_fees(amount: integer) {
+            val acc = auth.authenticate();
+            require(op_context.is_signer(chain_context.args.treasury_pubkey), "not the protocol");
+            val me = account_of(acc.id);
+            require(amount > 0, "amount must be positive");
+            val st = pool_now();
+            require(amount <= st.fee, "more than the fee accrued so far");
+            require(pool.cash_available >= amount, "pool is illiquid - wait for repayments");
+            pool.cash_available -= amount;
+            pool.fee_collected += amount;
+            update me ( .cash += amount );
         }
 
         // ------------------------------- QUERIES -----------------------------------
@@ -3557,9 +3848,13 @@ object DappScaffold {
             cash_available = pool.cash_available,
             total_scaled_debt = pool.total_scaled_debt,
             total_shares = pool.total_shares,
+            total_collateral = pool.total_collateral,
+            interest_realised = pool.interest_realised,
+            fee_collected = pool.fee_collected,
             opened_at = pool.opened_at,
             index_scale = INDEX_SCALE,
-            rate_bps_per_year = INTEREST_RATE_BPS_PER_YEAR
+            rate_bps_per_year = INTEREST_RATE_BPS_PER_YEAR,
+            protocol_fee_bps = PROTOCOL_FEE_BPS
         );
 
         query get_price() = (price = price_feed.price, updated_at = price_feed.updated_at);
@@ -3591,6 +3886,15 @@ object DappScaffold {
             for (s in loan @* {} ( .scaled_debt )) total += s;
             return total == pool.total_scaled_debt;
         }
+
+        // INVARIANT: the aggregate the share price is bounded by is EXACTLY the sum of
+        // the positions' collateral. A row this does not sum would let the pool value
+        // debt that nothing backs - which is the round-7 exit race by another door.
+        query collateral_matches_positions(): boolean {
+            var total = 0;
+            for (c in loan @* {} ( .collateral )) total += c;
+            return total == pool.total_collateral;
+        }
     """.trimIndent() + "\n"
 
     private fun lendingTestRell(): String = """
@@ -3608,13 +3912,15 @@ object DappScaffold {
         // pass while every entry and exit is priced through pool_now().
 
         import main;
-        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, register_account_open, ft_auth_operation_for };
         // admin_priv_key() is defined in test.core.auth; importing it from the parent
         // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
         import lib.ft4.test.core.auth.{ admin_priv_key };
 
         // The oracle keypair: FT4's published test key, wired through test.moduleArgs
-        // (lib.ft4.test.core.auth.admin_priv_key + main.oracle_pubkey).
+        // (lib.ft4.test.core.auth.admin_priv_key + main.oracle_pubkey). test.moduleArgs
+        // puts the SAME key in the treasury role, which is a test convenience only -
+        // chromia.yml's production block says to configure two different keys.
         function oracle(): rell.test.keypair =
             rell.test.keypair(priv = admin_priv_key(), pub = main.oracle_pubkey());
 
@@ -3645,6 +3951,11 @@ object DappScaffold {
         }
 
         // Stamp the next block `ms` after the last one.
+        //
+        // A long jump makes the price STALE, and once any cash is out on loan a share
+        // cannot be priced without pricing the collateral behind that debt - so the
+        // tests below re-post the same number after a jump. Re-posting an unchanged
+        // price is a 0% move and is always accepted once the interval has passed.
         function after(ms: integer) {
             rell.test.set_next_block_time_delta(ms);
             rell.test.block().run();
@@ -3652,11 +3963,14 @@ object DappScaffold {
 
         // Cash and collateral are never created: every unit is on an account or in the
         // pool, and what the pool records as lent out is EXACTLY what the positions say
-        // they owe - exactly, because both are counted in the same index units.
+        // they owe - exactly, because both are counted in the same index units. The
+        // collateral aggregate is checked too: it is the ceiling on what the pool's debt
+        // is worth, so a drift there is a wrong share price.
         function assert_conserved() {
             assert_equals(main.cash_in_circulation(), main.account_count() * main.WELCOME_CASH);
             assert_equals(main.tokens_in_circulation(), main.account_count() * main.WELCOME_TOKENS);
             assert_true(main.scaled_debt_matches_positions());
+            assert_true(main.collateral_matches_positions());
         }
 
         val HOUR = 60 * 60 * 1000;
@@ -3688,9 +4002,11 @@ object DappScaffold {
             // capital earned. Nobody has touched the position - and it does not matter,
             // because the index is a function of the clock, not of the touches.
             after(10 * main.YEAR_MS);
+            post_price(100 * main.PRICE_SCALE);
             assert_equals(main.get_pool().total_scaled_debt, 6000);
 
-            // The attacker buys in. The pool is already worth 4000 cash + 9000 debt.
+            // The attacker buys in. The pool is already worth 4000 cash + 9000 debt,
+            // less the 600 of that interest the protocol's accrued fee has taken: 12400.
             signed(attacker.keypair, main.deposit_cash(10000));
             val bought = main.get_shares(attacker.account.id);
             assert_conserved();
@@ -3706,15 +4022,136 @@ object DappScaffold {
             assert_equals(out > main.WELCOME_CASH, false);
             assert_equals(out, 9999);
             assert_equals(main.get_shares(attacker.account.id), 0);
-            // ...and the reason is the entry price: 10000 cash bought 7692 shares, not
-            // 10000, because the pool was already worth 13000 when they deposited.
-            assert_equals(bought, 7692);
+            // ...and the reason is the entry price: 10000 cash bought 8064 shares, not
+            // 10000, because the pool was already worth 12400 when they deposited.
+            assert_equals(bought, 8064);
             assert_conserved();
 
             // The honest lender's yield is still theirs: 30% of their position comes
-            // back as 3900, not 3000.
+            // back as 3720, not 3000. (3000 of interest less the protocol's 600, on a
+            // pool the attacker's round trip left exactly as they found it.)
             signed(honest.keypair, main.withdraw_cash(3000));
-            assert_equals(main.get_account(honest.account.id)!!.cash, 3900);
+            assert_equals(main.get_account(honest.account.id)!!.cash, 3720);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 7, corpus row r7-lending-fee-step-jit-capture:
+        // this template's own header used to say a step in pool value needs "an entry/exit
+        // fee or a minimum holding period". Round 7 built exactly that - a 20% cut of
+        // interest taken AT THE REPAYMENT BLOCK, plus a 24-hour holding period - and the
+        // pool drained anyway, honest 10901 against attacker 11500, because the attack is
+        // an EXIT by a lender years past any period. Here the fee accrues with the clock
+        // and is netted out of pool_state, so the block the repayment lands in is worth
+        // nothing to anybody. It can only pass while accrued_fee() counts the interest
+        // still OUTSTANDING and not just the interest already paid.
+        function test_round7_fee_step_jit_capture_must_fail() {
+            val honest = register_alice();
+            val attacker = register_bob();
+            // The attacker also controls the borrower, so they choose the block the
+            // repayment - and in round 7 the fee step - lands in.
+            val borrower = register_trudy();
+            signed(honest.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+
+            // Two equal lenders, one borrower drawing the full limit against collateral.
+            signed(honest.keypair, main.deposit_cash(10000));
+            signed(attacker.keypair, main.deposit_cash(10000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(6000));
+            assert_equals(main.get_shares(honest.account.id), 10000);
+            assert_equals(main.get_shares(attacker.account.id), 10000);
+            assert_conserved();
+
+            // Ten years of interest: 3000 on 6000, of which 600 is the protocol's.
+            after(10 * main.YEAR_MS);
+            post_price(100 * main.PRICE_SCALE);
+
+            // THE ATTACK: exit in the block BEFORE the fee-bearing repayment, so the
+            // step falls entirely on the lender still in the pool.
+            signed(attacker.keypair, main.withdraw_cash(10000));
+            val attacker_out = main.get_account(attacker.account.id)!!.cash;
+            assert_conserved();
+
+            // The repayment the attacker was dodging.
+            signed(borrower.keypair, main.repay(20000));
+            assert_equals(main.get_loan(borrower.account.id)!!.scaled_debt, 0);
+            assert_equals(main.get_pool().interest_realised, 3001);
+
+            // The honest lender exits afterwards.
+            signed(honest.keypair, main.withdraw_cash(10000));
+            val honest_out = main.get_account(honest.account.id)!!.cash;
+
+            // THE DRAIN, REFUSED: the early exit is worth nothing. Both lenders put in
+            // 10000 and both take out the same, because the fee was already priced into
+            // the share the attacker sold.
+            assert_equals(attacker_out > honest_out, false);
+            assert_equals(attacker_out, 11200);
+            assert_equals(honest_out, 11201);
+            assert_conserved();
+
+            // ...and the protocol's 600 is there to be collected - by the configured key
+            // and nobody else. Collecting moves cash the share price already excluded,
+            // so it is not a step either.
+            val protocol = register_account_open(oracle());
+            signed(oracle(), main.register_account());
+            signed_must_fail(honest.keypair, main.collect_fees(1), "not the protocol");
+            signed_must_fail(oracle(), main.collect_fees(601), "more than the fee accrued so far");
+            signed(oracle(), main.collect_fees(600));
+            assert_equals(main.get_account(protocol.account.id)!!.cash, main.WELCOME_CASH + 600);
+            assert_equals(main.get_pool().cash_available, 0);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 7, corpus row r7-lending-bad-debt-exit-race:
+        // 13920 of 14000 taken from an honest lender on this template EXACTLY AS SHIPPED,
+        // with nothing minted and every conservation invariant green. pool_now() valued
+        // every index unit of debt at face, so a position a thousand years past any
+        // liquidator's reach left the share price UNCHANGED; the pool was merely illiquid
+        // at a price that counted 306000 of unrecoverable debt as good, and withdraw_cash
+        // is first-come-first-served. Here recoverable_debt() caps the pool's debt at what
+        // its collateral can repay, so the two lenders are priced identically no matter
+        // who moves first.
+        function test_round7_bad_debt_exit_race_must_fail() {
+            val honest = register_alice();
+            val attacker = register_bob();
+            val borrower = register_trudy();
+            signed(honest.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+
+            signed(honest.keypair, main.deposit_cash(10000));
+            signed(attacker.keypair, main.deposit_cash(10000));
+            // The attacker's own second account posts the minimum it can and draws the
+            // full 60% against it, leaving 14000 of real cash in the pool.
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(6000));
+            assert_equals(main.get_pool().cash_available, 14000);
+            assert_conserved();
+
+            // A thousand years takes the position to 306000 of debt against collateral
+            // worth 10000 - beyond any liquidator, because the 10% bonus has to come out
+            // of the borrower's own collateral.
+            after(1000 * main.YEAR_MS);
+            post_price(100 * main.PRICE_SCALE);
+            assert_equals(main.get_pool().total_scaled_debt, 6000);
+
+            // THE ATTACK: 1000 shares, which at round 7's face-value price were worth
+            // most of the 14000 the pool held and left the honest lender 80.
+            signed(attacker.keypair, main.withdraw_cash(1000));
+            val attacker_out = main.get_account(attacker.account.id)!!.cash - (main.WELCOME_CASH - 10000);
+            // THE DRAIN, REFUSED: 1000 shares are worth 1160, not 13000, because the
+            // price now counts the debt at what its collateral can repay.
+            assert_equals(attacker_out, 1160);
+
+            // ...and the honest lender's identical 1000 shares are still worth the same.
+            // The exit ORDER decides nothing.
+            signed(honest.keypair, main.withdraw_cash(1000));
+            val honest_out = main.get_account(honest.account.id)!!.cash - (main.WELCOME_CASH - 10000);
+            assert_equals(honest_out, 1160);
+            assert_equals(attacker_out > honest_out, false);
             assert_conserved();
         }
 
@@ -3857,6 +4294,7 @@ object DappScaffold {
             signed(borrower.keypair, main.add_collateral(100));
             signed(borrower.keypair, main.borrow(6000));
             after(100 * main.YEAR_MS);
+            post_price(100 * main.PRICE_SCALE);
             assert_equals(main.get_shares(attacker.account.id), 6000);
 
             // A deposit that would mint zero shares aborts - it is not swallowed.
@@ -3947,19 +4385,30 @@ object DappScaffold {
             assert_conserved();
 
             after(2 * main.YEAR_MS);
+            post_price(100 * main.PRICE_SCALE);
             // Offering more than is owed pays what is owed and clears the position.
             signed(borrower.keypair, main.repay(10000));
             assert_equals(main.get_loan(borrower.account.id)!!.scaled_debt, 0);
             assert_equals(main.get_pool().total_scaled_debt, 0);
             assert_equals(main.get_account(borrower.account.id)!!.cash, 9499);
+            assert_equals(main.get_pool().interest_realised, 501);
             signed_must_fail(borrower.keypair, main.repay(1), "nothing owed");
             assert_conserved();
 
+            // 501 of interest, of which PROTOCOL_FEE_BPS (20%) is the protocol's: the
+            // lender's share is 401, and the 100 left in the pool is not theirs.
             signed(lender.keypair, main.withdraw_cash(10000));
-            assert_equals(main.get_account(lender.account.id)!!.cash, 10501);
+            assert_equals(main.get_account(lender.account.id)!!.cash, 10401);
             assert_equals(main.get_pool().total_shares, 0);
+            assert_equals(main.get_pool().cash_available, 100);
+            // Nothing was created: the borrower's 501 is the lender's 401 plus the
+            // protocol's 100, and the protocol's 100 is all that is collectable.
+            val protocol = register_account_open(oracle());
+            signed(oracle(), main.register_account());
+            signed_must_fail(oracle(), main.collect_fees(101), "more than the fee accrued so far");
+            signed(oracle(), main.collect_fees(100));
+            assert_equals(main.get_account(protocol.account.id)!!.cash, main.WELCOME_CASH + 100);
             assert_equals(main.get_pool().cash_available, 0);
-            // Nothing was created: the lender's 501 is exactly the borrower's 501.
             assert_conserved();
 
             // The borrower's collateral comes back once the debt is gone.
