@@ -74,9 +74,15 @@ try {
 
   // 4. The agent writes buggy code (typo'd symbol), compiles, and must be able
   //    to LOCATE the bug purely from the diagnostics.
-  const buggy = mainRell.replace('my_name.name = name;', 'my_name.nmae = name;');
+  //    Plant it on the CODE line only: the template's comments quote that same
+  //    statement, and a plain string replace once typo'd the comment instead,
+  //    so the compiler correctly passed a bug-free file and this step read as a
+  //    compiler failure (CI red on 2026-09-03 after b7a9568 added the comment).
+  const buggy = mainRell.replace(/^(\s*)my_name\.name = name;/m, '$1my_name.nmae = name;');
+  step('planted the typo on a code line', buggy !== mainRell, 'template no longer contains `my_name.name = name;` as a statement');
   const diag = parse(await call('rell_check', { source: buggy }, 180000));
-  step('compiler pinpoints the planted bug', diag.ok === false && diag.errors?.[0]?.line > 0 && /nmae|unknown/i.test(diag.errors[0].text), JSON.stringify(diag.errors?.[0] ?? {}).slice(0, 120));
+  step('compiler pinpoints the planted bug', diag.ok === false && diag.errors?.[0]?.line > 0 && /nmae|unknown/i.test(diag.errors[0].text),
+    JSON.stringify(diag.errors?.[0] ?? { ok: diag.ok, errors: diag.errors?.length ?? null, notes: diag.notes }).slice(0, 160));
 
   // 5. Repair guided by the diagnostic (line number leads to the typo) and re-verify.
   const lines = buggy.split('\n');
