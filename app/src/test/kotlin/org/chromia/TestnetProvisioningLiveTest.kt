@@ -131,11 +131,17 @@ class TestnetProvisioningLiveTest {
      *   - and the positive registration lookup, which is this test.
      *
      * `get_balance` answers only for an account that EXISTS on the Economy
-     * Chain, so a non-null balance for a known-registered account id is exactly
-     * the "registered = true" branch the provisioning tools take. The account id
-     * is public chain data - an address, not a credential - and nothing here
-     * signs, spends or needs a private key. The three sibling live tests already
-     * cover the negative branch with a throwaway keypair.
+     * Chain - for an unknown id the node returns `MISSING ACCOUNT: Account not
+     * found` (verified live 2026-09-03), which surfaces here as a thrown
+     * ChainQueryException rather than a null - so a balance for a known-registered
+     * account id proves the account exists and the Economy Chain lookup path
+     * works. Note the boundary: the provisioning tools decide `registered` via
+     * `ft4.get_accounts_by_signer` (EconomyChainGateway.resolveFunding), which
+     * needs the key; this test does not exercise that call, only the chain it
+     * talks to. The account id is public chain data - an address, not a
+     * credential - and nothing here signs, spends or needs a private key. The
+     * three sibling live tests already cover the negative branch with a
+     * throwaway keypair.
      */
     @Test
     fun liveKnownAccountIsRegisteredOnTheEconomyChain() = runBlocking {

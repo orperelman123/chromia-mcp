@@ -12,13 +12,15 @@ import java.nio.file.Path
 /**
  * The zero-human funding-key path, tested without anyone's keys.
  *
- * `TestnetProvisioningLiveTest.liveDefaultChrKeystorePathResolvesARegisteredAccount`
- * proves two separate things at once: that a funding key RESOLVES from a chr
+ * The live test that used to cover this
+ * (`liveDefaultChrKeystorePathResolvesARegisteredAccount`, removed 2026-09-03)
+ * proved two separate things at once: that a funding key RESOLVES from a chr
  * keystore, and that the resulting account is registered on the live Economy
  * Chain. Only the second needs a real registered key, so on a machine without
  * one - every CI runner - the first went untested too, hidden behind the same
  * assumption. These cases cover the resolution half with keystores they build
- * themselves: no network, no secret, nothing to skip.
+ * themselves: no network, no secret, nothing to skip. The registration half is
+ * `TestnetProvisioningLiveTest.liveKnownAccountIsRegisteredOnTheEconomyChain`.
  */
 class FundingKeyResolutionTest {
 
