@@ -16,8 +16,11 @@ db="chromia_mcp_test_$slug"
 git -C "$main" fetch -q origin || true
 [ -d "$wt" ] || git -C "$main" worktree add "$wt" -b "$branch" "$base" >/dev/null
 
-script="$(mktemp)"
-cat > "$script" <<INNER
+# Fed to WSL on STDIN. This used to go through a temp FILE, and mktemp hands
+# Git Bash a /tmp path that WSL's wslpath resolves to /mnt/c/tmp - which does
+# not exist - so provisioning died after the worktree was already created and
+# left a lane with no database. stdin needs no shared filesystem at all.
+wsl.exe -d Ubuntu -u root -- bash -s <<INNER | tr -d ''
 set -e
 if ! sudo -u postgres psql -p 5433 -tAc "select 1 from pg_database where datname='$db'" | grep -q 1; then
   sudo -u postgres psql -p 5433 -c "CREATE DATABASE $db OWNER chromia TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C.utf8' LC_CTYPE 'C.utf8'" >/dev/null
@@ -25,10 +28,6 @@ fi
 # Postchain's own collation gate - must print t, or DB-backed tests fail confusingly
 echo "collation: \$(sudo -u postgres psql -p 5433 -d $db -tAc "SELECT 'A'<'a' and 'Ї'<'ї' and upper('ї')='Ї' and lower('Ї')='ї'")"
 INNER
-sed -i 's/\r$//' "$script"
-powershell.exe -NoProfile -Command "wsl.exe -d Ubuntu -u root -- bash \$(wsl.exe -d Ubuntu wslpath -a '$script')" || \
-  wsl.exe -d Ubuntu -u root -- bash "$(wsl.exe -d Ubuntu wslpath -a "$script" | tr -d '\r')"
-rm -f "$script"
 
 sed "s|/chromia_mcp_test[a-z_]*?|/$db?|" "$main/local-test-env.properties" > "$wt/local-test-env.properties"
 echo "lane ready: $wt (branch $branch, db $db)"

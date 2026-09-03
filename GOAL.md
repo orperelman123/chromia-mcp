@@ -34,6 +34,13 @@ Run it as a round: build, attack, pin what got through, fix, re-attack. `app/src
 
 ## Where things stand
 
-**Not met.** Round 7 drained the lending template as shipped, an extension written by following that template's own header, and an un-templated payment-streaming dapp — all three certified `ok:true` with zero findings. The first two are fixed; the third has no template yet. Earlier rounds drained every un-templated class they touched.
+**Not met.** Round 8 attacked five builds and drained three. Every one of its top findings was a defect in our own prose rather than a missing guard, which is the second round running that this has been true:
+
+- The streaming seam stated a safety property that is false — that a monotone paused-milliseconds counter "can never rewrite the past". A monotone *subtrahend* is a monotone *clawback*: raising it lowers what was earned at every past instant. Two builds followed that paragraph and differed by a single `require()` nobody had told them to write; the one missing it handed over 100% of a payroll escrow.
+- The lending seam was scoped to "any new **operation** that moves pool value in a step". A utilisation rate curve adds no operation, satisfies every stated rule, and still let a lender's own withdrawal make a *healthy* borrower liquidatable at an unchanged oracle price. The correct fix — a checkpointed index — was the very shape the seam forbade, so the guidance pushed the author away from the only right answer.
+
+Both are now fixed the same way: the shape is **shipped in the template** instead of described, because a paragraph that describes a safe shape and leaves the guards to the reader has now produced a drain twice. The pause/resume transitions, their two `require()`s, the checkpointed index and a per-position `recoverable_debt()` are all in the templates, each with a mutant that reddens a shipped must-fail test because the attack lands.
+
+What is still open is the AMM. Round 8 drained one through a sandwich sized to fit inside a normal 2% tolerance, and it existed only because `scaffold_dapp template=amm` redirected to `template=vault`. Nothing in the source separates a sandwich from two honest trades, so that row stays a deliberate GAP and the answer is a template, in progress. **Eight rounds, eight un-templated classes attacked, eight drained** — that record, not any single finding, is the argument for building the template before the rule.
 
 What holds: each template makes its own exploit class unwritable rather than merely detected, and the guards are load-bearing — every one has a mutant that goes red because the attack lands. The corpus at `app/src/test/resources/exploit-corpus/` records exactly which exploits are caught, which are open, and which are open on purpose because a precise rule is impossible. Read it rather than trusting this paragraph.
