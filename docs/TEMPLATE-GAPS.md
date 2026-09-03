@@ -1,8 +1,16 @@
 # Which classes have no template, and why that is the queue
 
-Eight adversary rounds. **Every un-templated class attacked has drained; every
-templated build has survived.** That is the whole basis for this file: the next
-drain is predictable from the redirect map, not from the last report.
+Eight adversary rounds. **Every un-templated class attacked has drained.** That
+is the whole basis for this file: the next drain is predictable from the
+redirect map, not from the last report.
+
+Do not round that up to "the templates are safe". The corpus records the
+SHIPPED lending template being drained twice - `r7-lending-bad-debt-exit-race`
+and `r8-lending-pool-cap-collateral-lever` - so having a template lowers the
+odds, it does not close them. Both are fixed and both ship the original drain
+as a must-fail test, which is the standard a fix has to meet here. The honest
+claim is narrower and still worth acting on: a class with no template has
+drained every single time it was attacked.
 
 `closestTemplateNote()` answers an ask it has no template for by naming the
 nearest one. GOAL.md already rules out the obvious defence - *"we never claimed
