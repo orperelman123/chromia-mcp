@@ -1461,10 +1461,11 @@ object McpTools {
             debit in the same operation, price posts are bounded and rate-limited, a stale
             price halts trading, and its tests replay the 100 -> 200,000,000 mint and require
             it to fail (its oracle key is a module arg: see the notes). Building staking, yield,
-            rewards or vesting - anything that pays out over time: use 'staking' - rewards come
-            only from a sponsor-funded pool, the clock releases at most what the pool holds, every
-            credit is a pool debit in the same operation, unstaking has a cooldown, and its tests
-            replay the round-4 stake-times-elapsed mint from an empty pool and require it to fail.
+            rewards or farming emissions - a share of a REWARD POOL that many stakers split: use
+            'staking' - rewards come only from a sponsor-funded pool, the clock releases at most
+            what the pool holds, every credit is a pool debit in the same operation, unstaking has
+            a cooldown, and its tests replay the round-4 stake-times-elapsed mint from an empty
+            pool and require it to fail.
             Building an NFT marketplace, a listing board or anything with a buy button and creator
             royalties: use 'marketplace' - a buy names the EXACT price it agreed to and the listing
             row is immutable (so the round-5 max_price sandwich cannot be written), offers escrow the
@@ -1480,6 +1481,18 @@ object McpTools {
             key is a module arg: see the notes), over-collateralisation, a liquidation threshold with
             a close factor and bonus, and the minimum-first-deposit guard that kills ERC-4626 share
             inflation, and its tests replay the round-6 drain and require it to be refused.
+            Building a payment stream, payroll, a subscription, a vesting grant or a drip - any
+            payout METERED BY THE CLOCK to one named beneficiary: use 'streaming' - NO OPERATION IN
+            IT WRITES A TIMESTAMP, so the round-7 grief cannot be written: started_at is written
+            once by the create and is not mutable, the entitlement is a pure function of that
+            immutable start and an immutable rate less a MONOTONE released total, and every other
+            term is immutable too, so a stranger settling faster than one whole unit of entitlement
+            (which released ZERO and still advanced the anchor in round 7, grinding the payee's
+            income to nothing while the payer kept 100% of the escrow) is now a no-op. The stream
+            is PREPAID, cancellation pays the payee everything accrued BEFORE refunding the payer
+            the unearned remainder, and `cancellable` is fixed at creation so a vesting grant
+            cannot be clawed back. Its tests replay the round-7 grind and require the payee to be
+            paid what the clock says anyway.
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
