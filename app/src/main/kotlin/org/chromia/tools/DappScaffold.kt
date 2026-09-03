@@ -214,12 +214,82 @@ object DappScaffold {
             points and settle atomically with the split asserted; the royalty is fixed at mint, and
             the template DOCUMENTS in its header that a gift plus a side payment bypasses it, with a
             shipped test asserting the bypass still works rather than pretending otherwise).
+            AUCTIONS ARE IN THAT TEMPLATE, not something to write freehand: it ships a timed
+            ascending auction with NO mutable bid field - the standing bid is its own immutable
+            escrow row, raising is delete-and-recreate, and settlement is permissionless after the
+            deadline - plus the encumbrance helper every token-moving path consults, because a
+            transfer that walks a token out from under an escrowed bid strands it and nothing static
+            can see that. Its header has an EXTENDING THIS TEMPLATE section: new market states must
+            be mutually exclusive, new token-moving paths must call the same encumbrance helper, and
+            new escrow rows must be added to points_in_circulation.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
             This tool does not send signed transactions and does not run chr.
             Confirm APIs with fetch_docs / search / fetch before inventing module_args keys.
         """.trimIndent()
+    }
+
+    /**
+     * What to do INSTEAD, for a template name we do not ship. The notes already
+     * route a DAO to `governance` and an oracle to `vault`; the unknown-template
+     * fallback only listed names and scaffolded `hello`, so
+     * `scaffold_dapp(template="lending")` sent an agent off to write the whole
+     * value class freehand - and the un-templated class is where BOTH adversary
+     * rounds' drains landed. Where the honest answer is "no template covers
+     * this", say so and name the hole rather than implying the nearest one does.
+     */
+    internal fun closestTemplateNote(requested: String): String {
+        val t = requested.lowercase()
+        fun has(vararg keys: String) = keys.any { it in t }
+        return when {
+            has("lend", "borrow", "credit", "loan", "debt", "money_market", "moneymarket", "interest", "yield_farm") ->
+                "NO TEMPLATE COVERS LENDING YET, and this is the class adversary round 6 drained. " +
+                    "Closest: `vault` for the bounded, rate-limited, staleness-checked oracle a " +
+                    "collateral check needs, and `staking` for accrual that is paid only out of a " +
+                    "funded pool. NEITHER GIVES YOU SHARE PRICING - and share pricing is exactly " +
+                    "where round 6 was drained: interest that accrues LAZILY (only inside the " +
+                    "operations a borrower signs) leaves the price of a lender share stale between " +
+                    "touches while the pending interest is already public on the loan row, so a " +
+                    "depositor buys in at the stale price, waits for the borrower's next touch and " +
+                    "withdraws at the fresh one - 10000 in, 11500 out, taken from the other lenders. " +
+                    "Nothing is minted, so every conservation invariant stays green and the security " +
+                    "gate reports zero findings. If you build one: accrue on EVERY path that reads " +
+                    "or writes the share price (deposit and withdraw included, not just borrow and " +
+                    "repay), and ship a test where a deposit-then-withdraw straddling a borrower's " +
+                    "touch gets back no more than it put in."
+            has("auction", "bid", "nft", "marketplace", "listing", "royalt", "collectible") ->
+                "Use `template=marketplace`: it ships listings with exact-price buys, escrowed " +
+                    "offers, AND a timed ascending auction with no mutable bid field (the standing " +
+                    "bid is its own immutable escrow row), plus the encumbrance helper every " +
+                    "token-moving path consults."
+            has("dao", "govern", "vot", "treasury", "proposal", "quorum") ->
+                "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
+                    "execute-once are structural there, and it ships the single-account drain as a " +
+                    "must-fail test."
+            has("oracle", "exchange", "vault", "swap", "redeem", "redemption", "price", "amm", "dex", "stablecoin") ->
+                "Use `template=vault`: every credit is paid out of a reserve row in the same " +
+                    "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
+                    "ships the 100 -> 200,000,000 oracle mint as a must-fail test. An AMM's own " +
+                    "invariant is yours to prove - the template covers the reserve and the price " +
+                    "feed, not the curve."
+            has("stak", "reward", "vest", "emission", "farm", "airdrop") ->
+                "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
+                    "releases at most what the pool holds, every credit is a pool debit in the same " +
+                    "operation, and unstaking has a cooldown."
+            has("token", "ft4", "asset", "coin", "transfer", "wallet", "payment") ->
+                "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
+                    "non-owner-must-fail invariant tests to copy for your own economics."
+            else ->
+                "No shipped template covers that name. The four hardened ones are `governance` " +
+                    "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
+                    "`staking` (anything paid out over time) and `marketplace` (listings, escrowed " +
+                    "offers, auctions, royalties); `ft4` is the plain token skeleton with runnable " +
+                    "invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
+                    "class with no template is where every drain in this project has landed - and " +
+                    "if none does, write the economic invariant test FIRST: a passing security " +
+                    "check is not economic soundness."
+        }
     }
 
     fun toJson(name: String?, template: String = "hello"): JsonObject {
@@ -237,7 +307,10 @@ object DappScaffold {
             )
         }
         if (template != effectiveTemplate) {
-            warnings.add("Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the '$effectiveTemplate' template.")
+            warnings.add(
+                "Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the " +
+                    "'$effectiveTemplate' template. " + closestTemplateNote(template)
+            )
         }
         return buildJsonObject {
             put("name", chain)
@@ -1951,12 +2024,48 @@ object DappScaffold {
         //                       re-offer lower, so the seller must name what it accepts),
         //                       deletes the escrow row and pays it out in the same
         //                       operation, and asserts proceeds + royalty == amount.
+        //   TIMED AUCTION     - an ascending auction with NO mutable bid field. The
+        //                       standing bid IS the escrow row, keyed by the auction and
+        //                       immutable, so raising a bid is delete-and-recreate and the
+        //                       refund happens in the same operation as the new debit.
+        //                       The auction row carries only immutable terms (seller,
+        //                       reserve, deadline), so the seller has nothing to move
+        //                       under a bid that already stands; settle_auction is
+        //                       PERMISSIONLESS once the deadline passes, so a seller who
+        //                       walks away cannot hold the escrow hostage. A mutable
+        //                       `highest_bid` is the round-5 sandwich wearing an auction's
+        //                       clothes - that is the one edit to this file to refuse.
         //   PAIRED SETTLEMENT - settle_sale is the ONLY place a seller or a creator is
         //                       credited, it asserts the split is exact, and each of its
-        //                       two callers debits exactly `price` in the same operation:
-        //                       the buyer's balance in buy_nft, the escrow row it just
-        //                       deleted in accept_offer. Nothing in this file creates a
+        //                       three callers debits exactly `price` in the same
+        //                       operation: the buyer's balance in buy_nft, the escrow row
+        //                       it just deleted in accept_offer, the bid row it just
+        //                       deleted in settle_auction. Nothing in this file creates a
         //                       point outside the one-time welcome grant.
+        //   ONE ENCUMBRANCE   - require_unencumbered is the single question every path
+        //                       that MOVES a token asks (buy_nft, transfer_nft,
+        //                       accept_offer, list_nft): is somebody's money already
+        //                       promised to this token? Without it a plain gift walks the
+        //                       token out from under an escrowed bid and strands the
+        //                       escrow, and no static rule can see that - the gate stays
+        //                       silent because nothing is minted.
+        //
+        // EXTENDING THIS TEMPLATE - the three seams a static rule cannot see, and where
+        // every extension of it has gone wrong so far:
+        //   1. EVERY NEW MARKET STATE MUST BE MUTUALLY EXCLUSIVE WITH THE OTHERS. A
+        //      listing and an auction on the same token are two settlement paths for one
+        //      item; whichever settles second finds the token gone. list_nft refuses a
+        //      token in an auction and start_auction refuses a listed one - do the same
+        //      for anything you add (a rental, a bundle, a swap).
+        //   2. EVERY TOKEN-MOVING PATH MUST CONSULT THE SAME ENCUMBRANCE HELPER. Add the
+        //      check to require_unencumbered, never a fresh require() in your new
+        //      operation: the guard has to be asked by the paths that already exist, and
+        //      a second copy is one somebody will forget.
+        //   3. EVERY NEW ESCROW MUST BE ADDED TO THE CONSERVATION TOTAL. Points live in a
+        //      balance, an offer row or a bid row; points_in_circulation sums all three
+        //      and the shipped tests compare it to member_count() * WELCOME_POINTS after
+        //      every step. A new row that holds points and is not summed there makes the
+        //      invariant test pass while points go missing.
         //
         // ROYALTY - AN HONEST BOUNDARY, NOT A GUARD. The royalty is fixed at mint (no
         // operation changes it, so no creator can front-run a pending sale by raising
@@ -2012,6 +2121,28 @@ object DappScaffold {
             expires_at: timestamp;
         }
 
+        // IMMUTABLE BY DECLARATION, like a listing: reserve, deadline and seller are
+        // fixed when the auction opens, so there is no term a seller can move under a
+        // bid that already stands. Cancelling is only possible while nobody has bid.
+        entity auction {
+            key nft;
+            seller: byte_array;
+            reserve_price: integer;
+            ends_at: timestamp;
+        }
+
+        // THE STANDING BID IS THE ESCROW, and it is immutable. An ascending auction
+        // "needs" a mutable highest_bid; it does not, and a mutable number the
+        // counterparty can move under an in-flight settlement is exactly the round-5
+        // sandwich. Raising a bid means refunding this row and creating a new one -
+        // the same delete-and-recreate the template already uses for repricing a
+        // listing and for changing an offer.
+        entity bid {
+            key auction;
+            bidder: byte_array;
+            amount: integer;
+        }
+
         // The one-time welcome grant is the ONLY place points are created (a stand-in
         // for a real deposit - replace it with an FT4 asset transfer and keep the same
         // discipline: every credit is debited from somewhere real).
@@ -2022,6 +2153,12 @@ object DappScaffold {
         // Bound every price BEFORE it is multiplied by the rate (i64 overflow aborts).
         val MAX_PRICE = 1000000000;
         val MAX_OFFER_MS = 30 * 24 * 60 * 60 * 1000;
+        // An auction nobody can reach is a seller bidding against themselves; one that
+        // never ends holds the escrow forever. Both bounds are checked separately.
+        val MIN_AUCTION_MS = 60 * 1000;
+        val MAX_AUCTION_MS = 30 * 24 * 60 * 60 * 1000;
+        // A minimum raise, floored at one point so a 1-point bid can still be beaten.
+        val BID_INCREMENT_BPS = 500;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
         // with contains_all(), and contains_all([]) is always true - never weaken
@@ -2044,6 +2181,21 @@ object DappScaffold {
         function clear_listing(token: nft) {
             val l = listing @? { .nft == token };
             if (l != null) delete l;
+        }
+
+        // THE ENCUMBRANCE QUESTION, asked in ONE place. Every path that moves a token
+        // or opens a second market state on it calls this; when you add a path, add
+        // the call here rather than a fresh require() of your own. An escrowed bid has
+        // no owner who can take it back - only settle_auction can pay it out - so a
+        // token that leaves while a bid stands strands somebody's points forever, and
+        // nothing is minted, so no static rule will tell you.
+        function require_unencumbered(token: nft) {
+            require(auction @? { .nft == token } == null, "token is in an auction");
+        }
+
+        function min_next_bid(standing: integer): integer {
+            val step = standing * BID_INCREMENT_BPS / BPS;
+            return standing + (if (step > 0) step else 1);
         }
 
         // Floored at one point when a royalty is owed at all: the round-5 "list at 1,
@@ -2098,6 +2250,9 @@ object DappScaffold {
             val token = nft_of(token_id);
             // AUTHORIZE: only the owner of THIS token, never a caller-named seller.
             require(token.owner == account.id, "not the owner");
+            // MUTUALLY EXCLUSIVE MARKET STATES: a listing and an auction are two
+            // settlement paths for one token, and whichever settles second finds it gone.
+            require_unencumbered(token);
             require(price > 0, "price must be positive");
             require(price <= MAX_PRICE, "price too high");
             require(listing @? { .nft == token } == null, "already listed");
@@ -2125,6 +2280,7 @@ object DappScaffold {
             require(l.seller != account.id, "cannot buy your own listing");
             // A listing is only good while its lister still owns the token.
             require(token.owner == l.seller, "listing is stale");
+            require_unencumbered(token);
             require(expected_price > 0, "expected_price must be positive");
             require(l.price == expected_price, "listing price changed - buy at the price you were shown");
             require(buyer.balance >= l.price, "insufficient balance");
@@ -2145,6 +2301,9 @@ object DappScaffold {
             val account = auth.authenticate();
             val token = nft_of(token_id);
             require(token.owner == account.id, "not the owner");
+            // A gift is still a token move: without this, transfer_nft walks the token
+            // out from under an escrowed bid and strands it.
+            require_unencumbered(token);
             require(to != account.id, "cannot transfer to yourself");
             member_of(to);
             clear_listing(token);
@@ -2208,6 +2367,7 @@ object DappScaffold {
             member_of(account.id);
             val token = nft_of(token_id);
             require(token.owner == account.id, "not the owner");
+            require_unencumbered(token);
             require(bidder != account.id, "cannot accept your own offer");
             val o = require(offer @? { .nft == token, .bidder == bidder }, "no such offer");
             require(expected_amount > 0, "expected_amount must be positive");
@@ -2218,6 +2378,93 @@ object DappScaffold {
             clear_listing(token);
             settle_sale(account.id, token, amount);
             update token ( .owner = bidder );
+        }
+
+        // Opens an auction on a token the caller owns. Every term is fixed here and
+        // there is deliberately no operation that edits one - the seller's only move
+        // once a bid stands is to wait for the deadline.
+        operation start_auction(token_id: text, reserve_price: integer, duration_ms: integer) {
+            val account = auth.authenticate();
+            member_of(account.id);
+            val token = nft_of(token_id);
+            require(token.owner == account.id, "not the owner");
+            require_unencumbered(token);
+            require(listing @? { .nft == token } == null, "token is listed");
+            require(reserve_price > 0, "reserve must be positive");
+            require(reserve_price <= MAX_PRICE, "reserve too high");
+            require(duration_ms >= MIN_AUCTION_MS, "auction too short");
+            require(duration_ms <= MAX_AUCTION_MS, "auction too long");
+            create auction(
+                nft = token,
+                seller = account.id,
+                reserve_price = reserve_price,
+                ends_at = op_context.last_block_time + duration_ms
+            );
+        }
+
+        // The escrow leaves the bidder NOW. The previous standing bid is deleted and
+        // paid back in this same operation, so exactly one bid is ever held and the
+        // outbid bidder never has to come and ask for their points back.
+        operation place_bid(token_id: text, amount: integer) {
+            val account = auth.authenticate();
+            val bidder = member_of(account.id);
+            val token = nft_of(token_id);
+            val a = require(auction @? { .nft == token }, "no auction");
+            require(a.seller != account.id, "cannot bid on your own auction");
+            require(token.owner == a.seller, "auction is stale");
+            require(op_context.last_block_time < a.ends_at, "auction has ended");
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_PRICE, "amount too high");
+            require(amount >= a.reserve_price, "bid below reserve");
+            require(bidder.balance >= amount, "insufficient balance");
+            val standing = bid @? { .auction == a };
+            if (standing != null) {
+                require(standing.bidder != account.id, "you already hold the standing bid");
+                require(amount >= min_next_bid(standing.amount), "bid does not beat the standing bid");
+                val refund_to = standing.bidder;
+                val refund = standing.amount;
+                // The row that held the points is destroyed in the operation that
+                // pays them back, so it can never pay twice.
+                delete standing;
+                val previous = member_of(refund_to);
+                update previous ( .balance += refund );
+            }
+            update bidder ( .balance -= amount );
+            create bid(auction = a, bidder = account.id, amount = amount);
+        }
+
+        // Only while nobody has bid: once points are escrowed the seller is committed.
+        operation cancel_auction(token_id: text) {
+            val account = auth.authenticate();
+            val token = nft_of(token_id);
+            val a = require(auction @? { .nft == token }, "no auction");
+            require(a.seller == account.id, "not the seller");
+            require(bid @? { .auction == a } == null, "auction has a bid");
+            delete a;
+        }
+
+        // PERMISSIONLESS once the deadline has passed: the outcome is already fixed by
+        // then, so who calls it cannot change it - and a seller who dislikes the price
+        // cannot strand the winner's escrow by refusing to show up.
+        operation settle_auction(token_id: text) {
+            auth.authenticate();
+            val token = nft_of(token_id);
+            val a = require(auction @? { .nft == token }, "no auction");
+            require(op_context.last_block_time >= a.ends_at, "auction has not ended");
+            val winning = bid @? { .auction == a };
+            val seller_id = a.seller;
+            if (winning == null) {
+                delete a;
+                return;
+            }
+            val winner = winning.bidder;
+            val amount = winning.amount;
+            require(token.owner == seller_id, "auction is stale");
+            // The escrow row is the debit settle_sale pays out, consumed exactly once.
+            delete winning;
+            delete a;
+            settle_sale(seller_id, token, amount);
+            update token ( .owner = winner );
         }
 
         query get_balance(owner: byte_array): integer {
@@ -2247,18 +2494,33 @@ object DappScaffold {
             return if (o != null) (amount = o.amount, expires_at = o.expires_at) else null;
         }
 
+        query get_auction(token_id: text) {
+            val a = auction @? { .nft.token_id == token_id };
+            return if (a != null)
+                (seller = a.seller, reserve_price = a.reserve_price, ends_at = a.ends_at)
+                else null;
+        }
+
+        query get_bid(token_id: text) {
+            val b = bid @? { .auction.nft.token_id == token_id };
+            return if (b != null) (bidder = b.bidder, amount = b.amount) else null;
+        }
+
         query member_count(): integer = member @* {} ( .owner ).size();
 
         query token_count(): integer = nft @* {} ( .token_id ).size();
 
         // INVARIANT: every point in circulation came from a welcome grant. Points are
-        // spendable or escrowed in an open offer, never anywhere else; a sale MOVES
-        // them and never creates them. The shipped tests compare this to
-        // member_count() * WELCOME_POINTS after every step.
+        // spendable, escrowed in an open offer, or escrowed in a standing bid - never
+        // anywhere else; a sale MOVES them and never creates them. The shipped tests
+        // compare this to member_count() * WELCOME_POINTS after every step.
+        // EXTENDING: a new row that holds points MUST be summed here, or the invariant
+        // test goes on passing while the points it holds go missing.
         query points_in_circulation(): integer {
             var total = 0;
             for (b in member @* {} ( .balance )) total += b;
             for (a in offer @* {} ( .amount )) total += a;
+            for (a in bid @* {} ( .amount )) total += a;
             return total;
         }
 
@@ -2284,6 +2546,9 @@ object DappScaffold {
         // side payment is indistinguishable from a gift and an unrelated payment. It is
         // a test of an honest boundary, not of a guard - if it ever starts failing
         // because the bypass was closed, read the header before celebrating.
+        // The two round-6 tests cover the auction's extension seams: terms that cannot
+        // move under a standing bid, and an escrow that cannot be stranded by walking
+        // the token out from under it. Both go red the moment their guard is deleted.
 
         import main;
         import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
@@ -2542,6 +2807,107 @@ object DappScaffold {
             signed_must_fail(bob.keypair, main.make_offer("held", 0, 60000), "amount must be positive");
             signed_must_fail(bob.keypair, main.make_offer("held", 10, main.MAX_OFFER_MS + 1), "validity too long");
             signed_must_fail(trudy.keypair, main.transfer_nft("held", trudy.account.id), "cannot transfer to yourself");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. An ascending auction is where a mutable price comes back:
+        // it "needs" a highest_bid field, and a mutable number a counterparty can move
+        // under an in-flight settlement is the round-5 sandwich again. Here the terms
+        // are immutable and the standing bid is its own immutable escrow row, so the
+        // seller's only moves are to cancel (refused once a bid stands), to reopen
+        // (refused - the token is still in an auction), or to settle early (refused -
+        // the deadline the bidders were shown is a fixed term). Delete any one of
+        // those and this test goes red because the seller GOT to move the terms.
+        function test_round6_auction_terms_cannot_move_under_a_standing_bid() {
+            val seller = register_alice();
+            val bidder = register_bob();
+            val rival = register_trudy();
+            signed(seller.keypair, main.register_member());
+            signed(bidder.keypair, main.register_member());
+            signed(rival.keypair, main.register_member());
+            signed(seller.keypair, main.mint_nft("lot", 0));
+            signed_must_fail(seller.keypair, main.start_auction("lot", 100, main.MIN_AUCTION_MS - 1), "auction too short");
+            signed_must_fail(seller.keypair, main.start_auction("lot", 100, main.MAX_AUCTION_MS + 1), "auction too long");
+            signed_must_fail(seller.keypair, main.start_auction("lot", 0, main.MAX_AUCTION_MS), "reserve must be positive");
+            signed(seller.keypair, main.start_auction("lot", 100, main.MAX_AUCTION_MS));
+            assert_conserved();
+
+            // The escrow leaves the bidder the moment the bid is placed.
+            signed(bidder.keypair, main.place_bid("lot", 100));
+            assert_equals(main.get_balance(bidder.account.id), main.WELCOME_POINTS - 100);
+            assert_equals(main.get_bid("lot")!!.amount, 100);
+            assert_conserved();
+
+            // THE EXPLOIT STEPS: the seller wants better terms now that a bid stands.
+            signed_must_fail(seller.keypair, main.cancel_auction("lot"), "auction has a bid");
+            signed_must_fail(seller.keypair, main.start_auction("lot", 500, main.MAX_AUCTION_MS), "token is in an auction");
+            signed_must_fail(seller.keypair, main.settle_auction("lot"), "auction has not ended");
+            assert_equals(main.get_auction("lot")!!.reserve_price, 100);
+            assert_conserved();
+
+            // Raising a bid is delete-and-recreate: the outbid escrow comes back in
+            // the same operation the new one leaves.
+            signed(rival.keypair, main.place_bid("lot", 200));
+            assert_equals(main.get_balance(bidder.account.id), main.WELCOME_POINTS);
+            assert_equals(main.get_balance(rival.account.id), main.WELCOME_POINTS - 200);
+            signed_must_fail(bidder.keypair, main.place_bid("lot", 200), "bid does not beat the standing bid");
+            signed_must_fail(rival.keypair, main.place_bid("lot", 500), "you already hold the standing bid");
+            signed_must_fail(seller.keypair, main.place_bid("lot", 500), "cannot bid on your own auction");
+            assert_conserved();
+
+            // Settlement pays exactly what the winning escrow held.
+            after(main.MAX_AUCTION_MS);
+            signed(bidder.keypair, main.settle_auction("lot"));
+            assert_equals(main.get_owner("lot"), rival.account.id);
+            assert_equals(main.get_bid("lot"), null);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 200);
+            assert_equals(main.get_balance(rival.account.id), main.WELCOME_POINTS - 200);
+            assert_equals(main.get_balance(bidder.account.id), main.WELCOME_POINTS);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. An escrowed bid has no owner who can take it back - only
+        // settle_auction pays it out - so a token that LEAVES while a bid stands
+        // strands somebody's points forever. Nothing is minted, every conservation
+        // total stays green and the security gate says nothing: this is a design hole
+        // a static rule cannot see, which is why require_unencumbered is asked by
+        // every token-moving path instead of by the auction operations alone.
+        function test_round6_auction_escrow_cannot_be_stranded() {
+            val seller = register_alice();
+            val bidder = register_bob();
+            val stranger = register_trudy();
+            signed(seller.keypair, main.register_member());
+            signed(bidder.keypair, main.register_member());
+            signed(stranger.keypair, main.register_member());
+            signed(seller.keypair, main.mint_nft("strand", 0));
+
+            // An escrowed offer is already sitting on the token when the auction opens.
+            signed(stranger.keypair, main.make_offer("strand", 300, main.MAX_OFFER_MS));
+            signed(seller.keypair, main.start_auction("strand", 100, main.MAX_AUCTION_MS));
+            signed(bidder.keypair, main.place_bid("strand", 150));
+            assert_conserved();
+
+            // THE EXPLOIT STEPS: every way to walk the token out from under the
+            // standing bid. All three are refused by the one encumbrance helper.
+            signed_must_fail(seller.keypair, main.transfer_nft("strand", stranger.account.id), "token is in an auction");
+            signed_must_fail(seller.keypair, main.list_nft("strand", 1), "token is in an auction");
+            signed_must_fail(seller.keypair, main.accept_offer("strand", stranger.account.id, 300), "token is in an auction");
+            assert_equals(main.get_owner("strand"), seller.account.id);
+            assert_equals(main.get_bid("strand")!!.amount, 150);
+            assert_conserved();
+
+            // And the seller cannot hold the escrow hostage by walking away: once the
+            // deadline passes ANY member can settle.
+            after(main.MAX_AUCTION_MS);
+            signed(stranger.keypair, main.settle_auction("strand"));
+            assert_equals(main.get_owner("strand"), bidder.account.id);
+            assert_equals(main.get_balance(seller.account.id), main.WELCOME_POINTS + 150);
+            assert_equals(main.get_balance(bidder.account.id), main.WELCOME_POINTS - 150);
+            assert_conserved();
+
+            // The offer escrow was never touched and is still the stranger's to take.
+            signed(stranger.keypair, main.cancel_offer("strand"));
+            assert_equals(main.get_balance(stranger.account.id), main.WELCOME_POINTS);
             assert_conserved();
         }
     """.trimIndent() + "\n"

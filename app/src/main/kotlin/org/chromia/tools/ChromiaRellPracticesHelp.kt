@@ -198,6 +198,11 @@ object ChromiaRellPracticesHelp {
         IMMUTABLE listing row (a caller-supplied max_price CEILING is a sandwich: the seller reprices
         to the ceiling and pockets the buffer), offers escrow the bidder's points and settle
         atomically, and the header states honestly which royalty bypass no template can close.
+        The AUCTION is in that template too - a timed ascending auction with NO mutable bid field
+        (the standing bid is its own immutable escrow row, raising is delete-and-recreate, settlement
+        is permissionless after the deadline), plus require_unencumbered, the one helper every
+        token-moving path consults so a gift cannot walk a token out from under an escrowed bid.
+        Do not write an auction freehand: a mutable highest_bid is the sandwich in auction clothes.
         All four ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
