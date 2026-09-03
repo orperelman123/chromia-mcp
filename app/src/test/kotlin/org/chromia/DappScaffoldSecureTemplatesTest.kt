@@ -2219,4 +2219,141 @@ class DappScaffoldSecureTemplatesTest {
                 "return ((numerator + denominator - big_integer(1)) / denominator).to_integer();"
         )
     )
+
+    /**
+     * THE NUMBERS IN THE PROSE ARE RECOMPUTED, NOT TRUSTED.
+     *
+     * A suite cannot tell whether a sentence is true, and this project has now
+     * been drained twice by one that was not - round 7's prescribed holding
+     * period, which WAS the vulnerability, and round 8's claim that a monotone
+     * paused-milliseconds counter "can never rewrite the past". The amm seam
+     * shipped a third: it cited 144 bps as what a 4000 front-run does to a
+     * 500000/500000 POOL. The 144 is real, but it is the VICTIM'S EXECUTION
+     * loss; the reserves move 79 bps. That distinction is the whole argument,
+     * because a slippage band is compared against the RESERVES - so a reader
+     * who took 144 for the reserve movement would conclude a 1% band excludes
+     * the sandwich, when 79 clears 1% and would clear 0.5% too. A wrong number
+     * pointing at a false safe width, inside the seam whose rule is that no
+     * width is safe. It passed a 1185-test green gate.
+     *
+     * So the arithmetic is done HERE, from the template's own constants, and
+     * the text has to agree with it. Change FEE_NUMERATOR and the recomputed
+     * figures move, the literals in the prose stop matching, and this test goes
+     * red until the sentences are corrected - which is the point: a stale
+     * number in a seam becomes unwritable rather than merely unlucky.
+     */
+    @Test
+    fun ammSeamNumbersAreRecomputedFromTheCurveNotAsserted() {
+        val main = DappScaffold.files("pool", template = "amm").getValue("src/main.rell")
+        fun constant(name: String): Long =
+            Regex("""val $name = (\d+)(?:\s*\*\s*(\d+))*;""").find(main)
+                ?.let { m -> m.groupValues.drop(1).filter { it.isNotEmpty() }.fold(1L) { a, b -> a * b.toLong() } }
+                ?: error("the amm template no longer defines $name - this test's arithmetic is stale")
+
+        val feeNum = constant("FEE_NUMERATOR")
+        val feeDen = constant("FEE_DENOMINATOR")
+
+        // The template's own curve: exact input, fee on the way in, output floored.
+        fun amountOut(amountIn: Long, reserveIn: Long, reserveOut: Long): Long {
+            val withFee = amountIn * feeNum
+            return withFee * reserveOut / (reserveIn * feeDen + withFee)
+        }
+
+        // Round 8's measured scenario, replayed arithmetically.
+        val r = 500_000L
+        val frontRun = 4_000L
+        val victimIn = 100_000L
+
+        val fair = amountOut(victimIn, r, r)
+        val frontOut = amountOut(frontRun, r, r)
+        val (ra, rb) = (r + frontRun) to (r - frontOut)
+        val victimGot = amountOut(victimIn, ra, rb)
+
+        val executionLossBps = (fair - victimGot) * 10_000 / fair
+        val reserveMoveBps = (r - rb) * 10_000 / r
+
+        // These are the figures round 8 measured; if the curve ever stops
+        // reproducing them, the corpus sample and the prose are both stale.
+        assertEquals(83_124L, fair, "the honest quote round 8 recorded")
+        assertEquals(81_920L, victimGot, "what the sandwiched victim actually received")
+        assertEquals(1_204L, fair - victimGot, "the victim's measured loss")
+        assertEquals(144L, executionLossBps, "the victim's EXECUTION loss in bps")
+        assertEquals(79L, reserveMoveBps, "what the POOL's reserves actually moved, in bps")
+
+        // ...and now the prose has to attribute them correctly. Every mention of
+        // the execution figure must sit in a sentence about the trade, and the
+        // reserve figure must be present and attributed to the reserves. This is
+        // the assertion the original defect would have failed.
+        val seam = main.substringAfter("NEVER ADD A SLIPPAGE TOLERANCE").substringBefore("EVERY NEW WAY OUT")
+        assertTrue(
+            seam.contains("$reserveMoveBps bps"),
+            "the seam must state what the RESERVES move ($reserveMoveBps bps), because a band is " +
+                "compared against the reserves - stating only the execution loss invites a reader " +
+                "to pick a band that does not exclude the sandwich"
+        )
+        val reserveClaim = Regex("""(?i)reserves?\s+moved?\s+(?:only\s+)?(\d+)\s*bps""")
+            .find(seam.replace(Regex("""\s+"""), " "))
+        assertEquals(
+            reserveMoveBps.toString(),
+            reserveClaim?.groupValues?.get(1),
+            "the seam's 'reserves move N bps' must be the recomputed $reserveMoveBps, not the " +
+                "victim's execution loss of $executionLossBps - conflating the two is the exact " +
+                "defect this test exists for"
+        )
+    }
+
+
+    /**
+     * AN ORDER BOOK MUST NOT BE ANSWERED WITH A CURVE.
+     *
+     * `closestTemplateNote()` answers an ask it has no template for by naming the
+     * nearest one, and that redirect is itself a hazard: round 8's drainable AMM
+     * existed because `template=amm` silently became `template=vault`. Shipping
+     * the amm template fixed that ask and quietly created a smaller version of
+     * the same problem - "exchange" is in the amm word list, so an order-book
+     * ask began landing on a constant-product pool. Closer than a vault, still
+     * wrong, and answered with the same confidence.
+     *
+     * A constant-product pool prices off two reserves; an order book has resting
+     * commitments at stale prices and something that decides which of them match.
+     * Nothing in the amm template addresses the second machine, so the honest
+     * answer is that no template covers it - said plainly, with the hazard named.
+     */
+    @Test
+    fun anOrderBookAskIsNotAnsweredWithTheAmmTemplate() {
+        val orderBook = DappScaffold.closestTemplateNote("a limit order book with matching")
+        assertTrue(
+            orderBook.contains("NO SHIPPED TEMPLATE COVERS AN ORDER BOOK"),
+            "an order-book ask must be told no template covers it, got: $orderBook"
+        )
+        assertTrue(
+            orderBook.contains("RESTING ORDER IS A STANDING COMMITMENT AT A STALE PRICE"),
+            "and must be told WHY it is dangerous, not merely that it is uncovered: $orderBook"
+        )
+
+        // The case that nearly shipped: `marketplace` claims "bid", and it used to be
+        // matched first, so an order book described in the words an author would
+        // actually use was answered with listings and an auction. `lending` claims
+        // "loan" and would have taken a margin book the same way. This branch is
+        // FIRST for that reason, and these two pin the ordering rather than the
+        // single phrase that happened to dodge every other keyword.
+        for (ask in listOf("an order book with bid/ask spreads", "a limit order book for loans")) {
+            assertTrue(
+                DappScaffold.closestTemplateNote(ask).contains("NO SHIPPED TEMPLATE COVERS AN ORDER BOOK"),
+                "\"$ask\" must reach the order-book answer, not the branch that shares one of its words"
+            )
+        }
+
+        // The plain swap ask keeps its template - the fix must not cost that.
+        val swap = DappScaffold.closestTemplateNote("a constant product swap pool")
+        assertTrue(swap.contains("template=amm"), "a swap venue is covered and must still say so: $swap")
+
+        // And the ambiguous word that caused this says which machine it answered.
+        val exchange = DappScaffold.closestTemplateNote("an exchange")
+        assertTrue(
+            exchange.contains("NOT an order book"),
+            "'exchange' reaches the amm answer, so that answer must say what it is not: $exchange"
+        )
+    }
+
 }

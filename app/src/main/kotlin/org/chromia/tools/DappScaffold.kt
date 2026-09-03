@@ -337,6 +337,31 @@ object DappScaffold {
         val t = requested.lowercase()
         fun has(vararg keys: String) = keys.any { it in t }
         return when {
+            // FIRST, ahead of every other branch, and the ordering is load-bearing.
+            // "exchange" lives in the amm word list, so an order-book ask used to land
+            // on a constant-product template - closer than the `vault` it landed on
+            // before round 8, and still wrong. A keyword moving from one wrong template
+            // to a less wrong one is not coverage. Putting the honest answer merely
+            // ahead of `amm` was not enough either: `marketplace` claims "bid", so
+            // "an order book with bid/ask" matched THAT first and was answered with
+            // listings and an auction. An order-book ask is specific enough that it
+            // outranks every keyword another branch might also see.
+            has("order_book", "orderbook", "order book", "limit_order", "limitorder",
+                "matching_engine", "matching engine", "clob", "bid_ask", "order_matching") ->
+                "NO SHIPPED TEMPLATE COVERS AN ORDER BOOK, and `template=amm` is not one - a " +
+                    "constant-product pool prices every trade off two reserves, which is a " +
+                    "different machine from resting orders that have to be matched. Be told what " +
+                    "you are taking on rather than discovering it: a RESTING ORDER IS A STANDING " +
+                    "COMMITMENT AT A STALE PRICE, so whoever chooses which orders match, and in " +
+                    "what order, decides who is filled at it - and that choice is worth money to " +
+                    "whoever makes it. Cancellation is the same hazard from the other side: an " +
+                    "order that can be pulled in the block it would have been filled in is not a " +
+                    "commitment at all. The nearest SHIPPED precedent is `template=marketplace`, " +
+                    "whose timed auction holds no mutable bid field - the standing bid is its own " +
+                    "immutable escrow row, which is the shape a resting order wants - but it " +
+                    "matches nothing, so the ordering problem is yours and it is the hard half. " +
+                    "If what you actually want is a swap venue with no order book, that IS " +
+                    "covered: `template=amm`."
             has("lend", "borrow", "credit", "loan", "debt", "money_market", "moneymarket", "interest", "yield_farm") ->
                 "Use `template=lending`: it is the template for this class, and this class is what " +
                     "adversary round 6 drained. A hand-built pool accrued interest LAZILY (only " +
@@ -404,7 +429,11 @@ object DappScaffold {
                     "it is refused " +
                     "until COMMITMENT_MS after the row was created. Both round-8 attacks ship as " +
                     "must-fail tests, and what the guards do NOT stop - price impact you re-quote " +
-                    "into, and a cheap liveness grief - ships as a test too rather than as a claim."
+                    "into, and a cheap liveness grief - ships as a test too rather than as a claim. " +
+                    "ONE LIMIT, since `exchange` reaches this answer: this is a constant-product " +
+                    "pool, NOT an order book. If you need resting orders that get matched, no " +
+                    "shipped template covers that - ask again with `order book` and read what you " +
+                    "would be taking on."
             has("oracle", "vault", "redeem", "redemption", "price", "stablecoin") ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
