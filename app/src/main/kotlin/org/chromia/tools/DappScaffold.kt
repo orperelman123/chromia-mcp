@@ -4577,11 +4577,18 @@ object DappScaffold {
         //     still balances;
         //   * either party may cancel, so neither can hold the other hostage - but only
         //     those two: a stranger who could cancel could end anyone's income at will;
-        //   * NEITHER SIDE CAN TIME IT, because both halves of the split are CONTINUOUS
-        //     functions of the cancelling block. One block later moves exactly one
-        //     block's worth of value from the payer to the payee. There is no step for
-        //     anyone to straddle - which is the same rule the lending template's
-        //     EXTENDING section states for a fee or a write-off, in a different class;
+        //   * NEITHER SIDE GAINS MUCH BY TIMING IT, because both halves of the split
+        //     move with the clock rather than in a jump: one block later moves one
+        //     block's worth of value from the payer to the payee, so there is no step
+        //     worth straddling - which is the same rule the lending template's
+        //     EXTENDING section states for a fee or a write-off, in a different class.
+        //     BE PRECISE ABOUT THE LIMIT, though: integer truncation makes the accrual
+        //     a staircase of ONE UNIT, so a cancel timed just before a step costs the
+        //     payee at most one unit, and a stream whose rate is small in whole units
+        //     has wide steps. That is a rounding boundary, not a lever - it cannot be
+        //     made larger by anyone - but it is not literally continuous and this
+        //     header will not pretend it is. Denominate in the asset's smallest unit
+        //     and the step is negligible;
         //   * `cancellable` is fixed at creation, so a VESTING GRANT (cancellable =
         //     false) genuinely cannot be clawed back, and a payroll stream
         //     (cancellable = true) genuinely can be ended. Which one you are building is
@@ -4646,10 +4653,14 @@ object DappScaffold {
         //   - RATE, AMOUNT AND THE WELCOME GRANT ARE YOUR ECONOMICS. MAX_RATE_PER_HOUR
         //     and MAX_AMOUNT are here to keep the arithmetic inside i64, not because
         //     those numbers are right for your asset.
-        //   - AMOUNTS ARE WHOLE UNITS. A stream whose rate is below one unit per hour
-        //     accrues nothing for the first hours - correct, and surprising. Denominate
-        //     in the asset's smallest unit (which is what FT4 assets use) and it stops
-        //     mattering.
+        //   - AMOUNTS ARE WHOLE UNITS, SO ACCRUAL IS A STAIRCASE, NOT A LINE. A stream
+        //     whose rate is below one unit per hour accrues nothing for the first hours
+        //     - correct, and surprising - and a cancellation timed just before a step
+        //     costs the payee at most one unit. Nobody can widen that step, so it is a
+        //     rounding boundary rather than an exploit, but it is real. Denominate in
+        //     the asset's smallest unit (which is what FT4 assets use) and it stops
+        //     mattering. A stream run to completion loses nothing: the span is rounded
+        //     UP, so the entitlement reaches `funded` exactly.
         //   - POINTS HERE ARE A STAND-IN for a real asset, exactly as in the other
         //     templates. Replacing them with FT4 transfers keeps every guard above, but
         //     the FT4 transfer must happen in the same operation as the `released`
