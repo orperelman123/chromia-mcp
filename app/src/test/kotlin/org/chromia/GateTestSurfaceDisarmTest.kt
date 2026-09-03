@@ -112,4 +112,34 @@ class GateTestSurfaceDisarmTest {
                 "rule is for, and losing it would teach agents to ignore the gate: ${r.findings}"
         )
     }
+
+    /**
+     * ...and the anchor must not be the NAME. `main` is app surface by the
+     * Chromia convention chromia.yml enforces, which is what separates a dapp
+     * from a fixture when both are reachable only from a test. Anchoring on
+     * that name ALONE would hand the disarm straight back: rename the entry
+     * module and the gate goes quiet again. This is the rule attacking itself -
+     * a rule keyed on something the author picks is not a boundary
+     * (GOAL.md principle 2, which this file is a fresh instance of).
+     */
+    @Test
+    fun renamingTheEntryModuleDoesNotDisarmTheGate() {
+        val renamed = RellSecurityCheck.analyze(
+            mapOf(
+                "src/app.rell" to vulnerableMain,
+                "src/test/app_test.rell" to """
+                    @test module;
+                    import app;
+                    function test_w() { app.withdraw(x"AB", 1); }
+                """.trimIndent()
+            )
+        )
+        assertTrue(
+            highs(renamed).isNotEmpty(),
+            "an entry module called anything other than `main`, imported only by its own tests, is " +
+                "still production code - if renaming it silences the HIGH, the fix is keyed on a name " +
+                "the author chooses: ${renamed.findings}"
+        )
+        assertEquals(false, renamed.ok, "and it must still block")
+    }
 }

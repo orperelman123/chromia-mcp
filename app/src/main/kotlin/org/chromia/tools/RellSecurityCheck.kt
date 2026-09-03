@@ -447,27 +447,42 @@ object RellSecurityCheck {
             }
             return seen
         }
-        // App roots: non-test modules no APP module imports. A module reachable from
-        // an app root stays app surface even when tests also import it; a module
-        // reachable ONLY from test modules is test surface. A module reachable
-        // from neither (e.g. an app-module import cycle no test touches) is not
-        // in testReachable and conservatively stays app surface.
+        // APP ROOTS - where "production" is anchored. Three shapes have to work at
+        // once, and no rule over the import graph alone can tell them apart:
         //
-        // "no APP module imports" is the whole fix. This read "nothing imports",
-        // and the sentence above it could then never fire: a project's own test
-        // module imports `main`, which is exactly what stopped `main` being a
-        // root - so a single-module dapp had NO app roots, `appReachable` was
-        // empty, and `main` fell into testOnlyModules. Every production HIGH in
-        // it was downgraded to a non-blocking advisory and `ok` flipped to true.
-        // Not an evasion an attacker had to find: the scaffold ships that test
-        // module and `run_rell_tests` REQUIRES it, so the gate disarmed itself on
-        // every project that followed the documented loop, and only stayed armed
-        // for a `main.rell` submitted with no tests at all. Adversary round 9
-        // found it by accident, doing what an agent does; it swallowed seven
-        // HIGHs at once on one pinned corpus sample.
-        val appReachable = reachableFrom(
+        //   1. main.rell + its own @test module. `main` IS the dapp. This read
+        //      "non-test modules NOTHING imports", and the project's own test
+        //      module importing `main` is exactly what stopped `main` being a
+        //      root - so a single-module dapp had NO app roots, everything fell
+        //      into testOnlyModules, every production HIGH became a non-blocking
+        //      advisory and ok flipped to true. Not an evasion anyone had to
+        //      find: the scaffold ships that test module and run_rell_tests
+        //      REQUIRES it, so the gate disarmed itself on every project that
+        //      followed the documented loop (adversary round 9).
+        //   2. main.rell + fixtures.rell + a test that imports the fixture. Here
+        //      the fixture IS test surface - a helper mutation in it must stay a
+        //      MEDIUM advisory, or the gate fails correct projects on their test
+        //      code and agents learn to route around it (principle 3, probe
+        //      finding 2026-09-01).
+        //   3. A dapp whose entry module is not called `main`, imported only by
+        //      its tests. Anchoring on the name ALONE would hand an attacker the
+        //      disarm back by renaming the file.
+        //
+        // (1) and (2) are indistinguishable from imports alone - both are
+        // non-test modules reachable only from a test - so the anchor is the
+        // Chromia convention the build system already enforces: chromia.yml
+        // names `main` as the dapp entry, and every scaffold ships src/main.rell.
+        // `main` is therefore always app surface, which settles (1) and (2)
+        // together. (3) is settled by the fallback: when nothing anchors the app
+        // at all, a non-test module that only TESTS import is the production code
+        // rather than a fixture, because there is nothing else it could be.
+        val anchoredRoots = allModules.filter { m ->
+            m !in testModules && (m == "main" || importedBy[m].isNullOrEmpty())
+        }
+        val appRoots = anchoredRoots.ifEmpty {
             allModules.filter { m -> m !in testModules && importedBy[m].orEmpty().none { it !in testModules } }
-        )
+        }
+        val appReachable = reachableFrom(appRoots)
         val testOnlyModules = reachableFrom(testModules) - appReachable
         return infos.filter { it.isTestFile || it.module in testOnlyModules }.mapTo(mutableSetOf()) { it.path }
     }
