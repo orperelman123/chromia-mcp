@@ -5846,12 +5846,17 @@ object DappScaffold {
         //                     nobody donates to the existing LPs by mistyping.
         //
         // EXTENDING THIS TEMPLATE - the seams a static rule cannot see:
-        //   1. NEVER ADD A SLIPPAGE TOLERANCE, however reasonable the number looks. A
-        //      2% band on the quoted reserves is EXACTLY round 8's drain: 4000 of
-        //      front-run moves a 500000/500000 pool by 144 bps, which fits inside 2%
-        //      with room to spare, so the band admits the sandwich and the caller's
-        //      guard never fires. If your callers cannot land trades, the answer is to
-        //      re-quote and retry, not to widen the window they are attacked through.
+        //   1. NEVER ADD A SLIPPAGE TOLERANCE, however reasonable the number looks, and
+        //      note how LITTLE the reserves have to move for the drain to fit. Round 8
+        //      measured it: a 4000 front-run on a 500000/500000 pool cost the victim
+        //      1204 of B - their execution fell from 83124 to 81920, 144 bps, inside
+        //      the 2% they signed. But the RESERVES moved only 79 bps, and a band is
+        //      written against the reserves, so it is the 79 that has to clear it:
+        //      2% admits the whole sandwich, and so would 1%, and so would 0.5%.
+        //      That is the point: there is no safe width, because the attacker chooses
+        //      the front-run size AFTER seeing the width. If your callers cannot land
+        //      trades, the answer is to re-quote and retry, not to widen the window
+        //      they are attacked through.
         //   2. EVERY NEW WAY OUT OF THE POOL MUST TAKE THE TERM. `remove_liquidity` is
         //      not the only operation that could return an LP's capital - a "migrate",
         //      an "emergency exit", a "convert my position to token A", a transfer of a

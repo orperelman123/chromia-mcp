@@ -931,8 +931,11 @@ class DappScaffoldSecureTemplatesTest {
         // GUARD 1: A SWAP NAMES THE EXACT RESERVES IT PRICED AGAINST. The output is a
         // pure function of the amount in and those two numbers, so the swap pays what
         // the caller was quoted or does not happen. A BAND HERE IS THE ROUND-8 DRAIN:
-        // 4000 of front-run moves a 500000/500000 pool 144 bps, which fits inside the
-        // 2% tolerance the victim signed - so the guard is equality, not a bound.
+        // a 4000 front-run moves a 500000/500000 pool's RESERVES just 79 bps (round 8's
+        // victim's execution fell 144, 83124 -> 81920), and a band is against reserves
+        // - so the 2% the victim signed admits it, and so would 0.5%. The attacker
+        // picks the front-run size after seeing the width, which is why the guard is
+        // equality and not a bound.
         assertTrue(
             squashed.contains(
                 "require(quoted_reserve_a == pool.reserve_a and quoted_reserve_b == pool.reserve_b, " +
@@ -2123,9 +2126,11 @@ class DappScaffoldSecureTemplatesTest {
      * mutant does not delete anything: it replaces the exact match with the 2%
      * tolerance round 8's victim actually signed, which is the number a competent
      * author writes when they think they are being careful. A 4000 front-run on a
-     * 500000/500000 pool moves the price 144 bps, so it fits inside 2% with room to
-     * spare, the victim's swap executes, and the sandwich lands again. There is no
-     * safe width - only no tolerance at all.
+     * 500000/500000 pool moves the RESERVES only 79 bps - a band is compared against
+     * the reserves, so 2% admits it with room to spare and so would 0.5%. The victim's
+     * swap executes, and the sandwich lands again. There is no safe width, because the
+     * attacker sizes the front-run AFTER reading the width out of the caller's own
+     * transaction.
      */
     @Test
     fun ammSandwichTestGoesRedWhenTheQuoteBecomesATolerance() = assertGuardMutationRedensExploitTest(
