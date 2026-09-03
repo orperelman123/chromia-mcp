@@ -102,6 +102,22 @@ for (const line of out.split('\n')) {
   if (/^e: |BUILD (SUCCESSFUL|FAILED)|tests? completed|OutOfMemory|FAILED$/.test(line)) console.log(`  ${line.trim()}`);
 }
 
+// A KILLED task and an ABSENT one look identical from here, and they are not
+// the same problem. When Gradle stops `test` for exceeding its own
+// `timeout.set(...)`, it removes the result XMLs on the way out - so the gate
+// reported "the suite did not run" for a suite that had run 935 tests and was
+// killed at 25 minutes. Two cycles went into diagnosing that as a missing run.
+// Gradle says exactly what it did; read it back rather than guessing.
+const timedOut = /exceeded its configured timeout|Timeout has been exceeded/.test(out);
+if (timedOut) {
+  const completed = out.match(/(\d+) tests? completed/)?.[1];
+  console.error('  the suite was KILLED for exceeding the timeout in app/build.gradle.kts'
+    + (completed ? ` after ${completed} test(s)` : '')
+    + ' - the results were removed with it, so any tally above is partial.');
+  console.error('  This is neither a failing suite nor a missing one. Check WHICH it is before');
+  console.error('  raising timeout.set(...): a raised timeout hides a genuine hang perfectly.');
+  fail('test task killed by its own timeout');
+}
 if (!existsSync(resultsDir)) fail('no test-results directory - the suite did not run');
 const files = readdirSync(resultsDir).filter((f) => f.endsWith('.xml'));
 if (files.length === 0) fail('no result files - the suite did not run (a fast "BUILD SUCCESSFUL" means a cached task)');

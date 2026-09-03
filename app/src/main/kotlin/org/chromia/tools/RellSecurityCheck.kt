@@ -447,12 +447,27 @@ object RellSecurityCheck {
             }
             return seen
         }
-        // App roots: non-test modules nothing imports. A module reachable from an
-        // app root stays app surface even when tests also import it; a module
+        // App roots: non-test modules no APP module imports. A module reachable from
+        // an app root stays app surface even when tests also import it; a module
         // reachable ONLY from test modules is test surface. A module reachable
         // from neither (e.g. an app-module import cycle no test touches) is not
         // in testReachable and conservatively stays app surface.
-        val appReachable = reachableFrom(allModules.filter { it !in testModules && importedBy[it].isNullOrEmpty() })
+        //
+        // "no APP module imports" is the whole fix. This read "nothing imports",
+        // and the sentence above it could then never fire: a project's own test
+        // module imports `main`, which is exactly what stopped `main` being a
+        // root - so a single-module dapp had NO app roots, `appReachable` was
+        // empty, and `main` fell into testOnlyModules. Every production HIGH in
+        // it was downgraded to a non-blocking advisory and `ok` flipped to true.
+        // Not an evasion an attacker had to find: the scaffold ships that test
+        // module and `run_rell_tests` REQUIRES it, so the gate disarmed itself on
+        // every project that followed the documented loop, and only stayed armed
+        // for a `main.rell` submitted with no tests at all. Adversary round 9
+        // found it by accident, doing what an agent does; it swallowed seven
+        // HIGHs at once on one pinned corpus sample.
+        val appReachable = reachableFrom(
+            allModules.filter { m -> m !in testModules && importedBy[m].orEmpty().none { it !in testModules } }
+        )
         val testOnlyModules = reachableFrom(testModules) - appReachable
         return infos.filter { it.isTestFile || it.module in testOnlyModules }.mapTo(mutableSetOf()) { it.path }
     }
