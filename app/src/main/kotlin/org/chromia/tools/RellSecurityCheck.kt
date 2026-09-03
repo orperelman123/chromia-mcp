@@ -1966,8 +1966,22 @@ object RellSecurityCheck {
         fullyMasked: Map<String, String>,
         entities: Set<String>,
         helperReturns: Map<String, String>
-    ): Set<String> {
-        val occurrences = mutableMapOf<String, MutableSet<Triple<Int, Flow, String>>>()
+    ): Set<Pair<String?, String>> {
+        // Keyed on (owning entity, field), never the bare name: two distinct
+        // fields that happen to share a name collapsed into one key, and the
+        // genuine lockstep pair became invisible to the rule that exists to see
+        // it. Found live on the lending template, whose loan.scaled_debt /
+        // pool.scaled_debt pair drew a false positive until one side was
+        // renamed - a workaround, not a fix.
+        val occurrences = mutableMapOf<Pair<String?, String>, MutableSet<Triple<Int, Flow, String>>>()
+        // A receiver is not always resolvable, and keying a null owner as its own
+        // partition would SPLIT one field's moves across two keys - the credit in
+        // one, the debit in the other - so the pair check finds neither. When a
+        // field name is declared on exactly one entity, attribute it there.
+        val soleOwner = entityFields(fullyMasked)
+            .groupBy { it.name }
+            .filterValues { it.map { f -> f.entity }.distinct().size == 1 }
+            .mapValues { (_, v) -> v.first().entity }
         var bodyIndex = 0
         fullyMasked.forEach { (path, masked) ->
             if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
@@ -1978,14 +1992,15 @@ object RellSecurityCheck {
                     if (w.create || w.flow == Flow.SET) return@forEach
                     val amount = w.amount.replace(WS_REGEX, "")
                     if (amount.isEmpty() || amount == "0") return@forEach
-                    occurrences.getOrPut(w.field) { mutableSetOf() }.add(Triple(idx, w.flow, amount))
+                    val owner = w.entity ?: soleOwner[w.field]
+                    occurrences.getOrPut(owner to w.field) { mutableSetOf() }.add(Triple(idx, w.flow, amount))
                 }
             }
         }
-        val out = mutableSetOf<String>()
-        occurrences.forEach { (field, moves) ->
+        val out = mutableSetOf<Pair<String?, String>>()
+        occurrences.forEach { (key, moves) ->
             if (moves.none { it.second == Flow.CREDIT } || moves.none { it.second == Flow.DEBIT }) return@forEach
-            if (occurrences.any { (other, otherMoves) -> other != field && otherMoves == moves }) out.add(field)
+            if (occurrences.any { (other, otherMoves) -> other != key && otherMoves == moves }) out.add(key)
         }
         return out
     }
@@ -2120,7 +2135,7 @@ object RellSecurityCheck {
         priceDerivedFields: Set<String>,
         helpers: Map<String, List<FunctionDef>>,
         escrowedCaps: Set<Pair<String, String>>,
-        mirroredCounters: Set<String>
+        mirroredCounters: Set<Pair<String?, String>>
     ): List<Finding> {
         val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
         val bindings = bindingsOf(flat)
@@ -2134,7 +2149,7 @@ object RellSecurityCheck {
         // and there is nothing to fund or cap. See [mirroredCounterFields].
         val valueCredits = writes.filter { w ->
             w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
-                w.field !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0"
+                (w.entity to w.field) !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0"
         }
         fun backedByEntity(c: AmountWrite) = c.entity != null && c.entity in debitedEntities
         fun backedByAmount(c: AmountWrite) = c.amount.replace(WS_REGEX, "") in debitAmounts
