@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending")
@@ -86,7 +86,7 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm"), DappScaffold.templates)
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
         assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
@@ -121,6 +121,22 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(
             Regex("rewards or vesting").containsMatchIn(notes),
             "the notes must stop routing vesting to staking now that its own class has a template"
+        )
+        assertTrue(notes.contains("template=amm"), "notes must steer swap-pool / DEX / market-maker builders to the template")
+        assertTrue(
+            notes.contains("A SWAP NAMES THE EXACT RESERVES IT") &&
+                notes.contains("WAS QUOTED AT AND THERE IS NO TOLERANCE FIELD AT ALL"),
+            "the notes must name the amm guard precisely - the template removes the tolerance, it does not tune it"
+        )
+        assertTrue(
+            notes.contains("STRONGER than a min_out floor rather than a") &&
+                notes.contains("weakening of one - a floor can only abort your own trade and must never be"),
+            "the notes must say the amm guard is not a weakened min_out - the corpus pins a MUST_STAY_CLEAN row on that floor"
+        )
+        assertTrue(
+            notes.contains("IS AN IMMUTABLE POSITION ROW WITH A TERM") &&
+                notes.contains("until COMMITMENT_MS (a constant, never a parameter) after the row was created."),
+            "the notes must name the JIT guard, not just the template"
         )
     }
 
@@ -168,6 +184,19 @@ class DappScaffoldSecureTemplatesTest {
                 "$asked must still reach the staking template"
             )
         }
+        // Round 8's AMM was built ONLY because this answer sent `amm` to `vault`. Every
+        // name for the class must now reach its own template, and `oracle` must still
+        // reach the vault - a keyword list that swallowed it would be a mis-route
+        // dressed as coverage.
+        listOf("dex", "swap_pool", "uniswap", "market_maker", "liquidity_pool", "token_pair", "amm_v2").forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("Use `template=amm`"), "$asked must be routed to the amm template: $warning")
+            assertTrue(warning.contains("NAMES THE EXACT RESERVES"), "$asked must be told what makes the round-8 sandwich unwritable: $warning")
+        }
+        assertTrue(
+            "amm" in DappScaffold.templates,
+            "the class round 8 drained must no longer redirect to vault"
+        )
         assertTrue(
             DappScaffold.toJson("x", template = "zzz_nothing_like_this").getValue("warnings").toString().contains("No shipped template covers that name"),
             "an unrecognisable name must still get the four hardened templates and the write-the-invariant-test-first advice"
@@ -884,6 +913,190 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the streaming source")
     }
 
+
+    /**
+     * The eighth template, and the second class (after streaming) whose drain
+     * landed with NO template at all. Round 8's AMM existed only because
+     * `scaffold_dapp template=amm` redirected to `template=vault`, and the two
+     * things that drained it - a sandwich through a caller-chosen slippage
+     * tolerance, and just-in-time liquidity around one fee-bearing swap - are
+     * both invisible to a static rule. Both guards are pinned here.
+     */
+    @Test
+    fun ammGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("swappool", template = "amm").getValue("src/main.rell")
+        val code = withoutComments(main)
+        val squashed = code.replace(Regex("\\s+"), " ")
+
+        // GUARD 1: A SWAP NAMES THE EXACT RESERVES IT PRICED AGAINST. The output is a
+        // pure function of the amount in and those two numbers, so the swap pays what
+        // the caller was quoted or does not happen. A BAND HERE IS THE ROUND-8 DRAIN:
+        // 4000 of front-run moves a 500000/500000 pool 144 bps, which fits inside the
+        // 2% tolerance the victim signed - so the guard is equality, not a bound.
+        assertTrue(
+            squashed.contains(
+                "require(quoted_reserve_a == pool.reserve_a and quoted_reserve_b == pool.reserve_b, " +
+                    "\"the pool moved since you quoted\");"
+            ),
+            "the swap must require the QUOTED reserves exactly - a tolerance is the window round 8 sandwiched through"
+        )
+        // ...and there is no tolerance field anywhere for one to be smuggled back into.
+        assertFalse(
+            Regex("min_out|max_out|slippage|tolerance").containsMatchIn(code),
+            "no slippage parameter may exist in the amm template - naming the reserves pins the output to one number"
+        )
+        // ONE PLACE A SWAP EXECUTES, so guard 1 and the curve check cannot be present
+        // on one direction and missing on the other.
+        assertEquals(1, Regex("function execute_swap\\(").findAll(code).count(), "execute_swap must be defined once")
+        assertEquals(2, Regex("\\bexecute_swap\\(").findAll(code).count() - 1, "exactly two callers - one per direction")
+        listOf("swap_a_for_b", "swap_b_for_a").forEach { op ->
+            assertTrue(
+                code.contains("operation $op(amount_in: integer, quoted_reserve_a: integer, quoted_reserve_b: integer) {"),
+                "$op must take the quoted reserves, A then B in both directions, and nothing else"
+            )
+            val body = opBody(code, op)
+            assertTrue(body.contains("execute_swap("), "$op must go through the one place a swap executes")
+            assertFalse(body.contains("pool.reserve"), "$op must not move the reserves itself")
+            assertFalse(body.contains("amount_out("), "$op must not price the trade itself")
+        }
+        // THE CURVE, ENFORCED rather than only asserted in a test: round 8 shipped the
+        // k invariant as a passing test; here a swap that would shrink it aborts.
+        assertTrue(
+            squashed.contains("require(k_of(pool.reserve_a, pool.reserve_b) >= k_before, \"the curve must not lose value\");"),
+            "execute_swap must require k not to fall, at runtime"
+        )
+        val swapFn = code.substringAfter("function execute_swap(").substringBefore("\n}")
+        assertTrue(
+            swapFn.indexOf("val k_before = k_of(pool.reserve_a, pool.reserve_b);") in
+                0 until swapFn.indexOf("require(k_of(pool.reserve_a, pool.reserve_b) >= k_before"),
+            "k must be snapshot before the reserves move and compared after"
+        )
+        assertTrue(
+            swapFn.contains("update me ( .token_a -= amount_in, .token_b += out );") &&
+                swapFn.contains("pool.reserve_a += amount_in;") && swapFn.contains("pool.reserve_b -= out;"),
+            "every credit to a trader is the reserve's debit in the same branch"
+        )
+        assertTrue(swapFn.contains("require(out < reserve_out, \"output would empty the reserve\");"))
+
+        // GUARD 2: A POSITION IS AN IMMUTABLE ROW WITH A TERM. No mutable share balance
+        // exists to top up and shave, so "in before the trade and out after" is not a
+        // sentence this module can express.
+        val entity = code.substringAfter("entity position {").substringBefore("\n}")
+        assertFalse(entity.contains("mutable"), "every field of a position is a term - none may be mutable")
+        listOf("owner", "shares", "opened_at", "unlocks_at").forEach { field ->
+            assertTrue(Regex("(^|\\n)\\s*(key\\s+|index\\s+)?$field:").containsMatchIn(entity), "the position must declare $field")
+            assertFalse(Regex("\\.$field\\s*=(?!=)").containsMatchIn(code), "no operation may write $field after creation")
+            assertFalse(Regex("\\.$field\\s*[-+]=").containsMatchIn(code), "no operation may adjust $field after creation")
+        }
+        assertEquals(1, Regex("create position\\(").findAll(code).count(), "a position is created in exactly one place")
+        assertEquals(
+            1,
+            Regex("(^|\\n)\\s*delete p;").findAll(code).count(),
+            "a position is deleted WHOLE in exactly one place - there is no partial burn to shave a fee off with"
+        )
+        assertTrue(
+            code.contains("operation remove_liquidity(position_id: integer) {"),
+            "an exit names ONE row and takes it whole; a share amount would be the partial burn back again"
+        )
+
+        // THE BLOCK CLOCK IS WRITTEN IN EXACTLY TWO PLACES, both in the create that
+        // opens a position. `unlocks_at` is set once and never moved, which is what
+        // makes the term something no caller can bring forward.
+        assertEquals(
+            listOf("opened_at = op_context.last_block_time", "unlocks_at = op_context.last_block_time"),
+            Regex("(?<![\\w.])(?<!val )[\\w.]+\\s*=\\s*op_context\\.last_block_time").findAll(code).map { it.value }.toList(),
+            "the block clock may be READ anywhere but written only by the create that opens a position"
+        )
+
+        val remove = opBody(code, "remove_liquidity")
+        assertTrue(remove.contains("require(p.owner == acc.id, \"only the owner may withdraw this position\");"))
+        assertTrue(
+            remove.contains("require(op_context.last_block_time >= p.unlocks_at, \"liquidity is committed until its term ends\");"),
+            "THIS is round 8's JIT drain: without it liquidity can be rented for the length of one trade"
+        )
+        assertTrue(
+            remove.indexOf("require(op_context.last_block_time >= p.unlocks_at") in 0 until remove.indexOf("delete p;"),
+            "the term must be checked before the row is destroyed"
+        )
+        assertTrue(remove.contains("pool.total_shares -= burned;"), "the burn must retire exactly the row's shares")
+
+        val add = opBody(code, "add_liquidity")
+        assertTrue(add.contains("require(minted > 0, \"deposit too small to mint a share\");"), "a zero-share mint is refused, never swallowed")
+        assertTrue(add.contains("\"the first deposit is too small to seed the pool\""))
+        assertTrue(add.contains("\"deposit must match the pool ratio\""))
+        assertTrue(
+            add.indexOf("update me ( .token_a -= amount_a, .token_b -= amount_b );") in 0 until add.indexOf("create position("),
+            "the deposit must leave the provider's balance before the position row that claims it exists"
+        )
+
+        // Every bound is a named constant, never a parameter a caller could widen -
+        // and a COMMITMENT TERM a caller picks is a term an attacker sets to zero.
+        listOf(
+            "WELCOME_A", "WELCOME_B", "FEE_NUMERATOR", "FEE_DENOMINATOR",
+            "MAX_AMOUNT", "MIN_INITIAL_LIQUIDITY", "COMMITMENT_MS"
+        ).forEach {
+            assertTrue(code.contains("val $it ="), "$it must be a named constant")
+            assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*\\b$it\\b").containsMatchIn(code), "$it must not be a caller-supplied parameter")
+        }
+        assertFalse(
+            Regex("operation\\s+\\w+\\s*\\([^)]*\\b(term|term_ms|lock_ms|duration|unlocks_at|opened_at)\\b").containsMatchIn(code),
+            "no operation may take its own commitment term"
+        )
+
+        // CONSERVATION: every row that holds tokens is summed, the live positions add
+        // up to what the pool issued, and shares and reserves are empty together.
+        listOf("a_in_circulation", "b_in_circulation").forEach {
+            val q = code.substringAfter("query $it(): integer {").substringBefore("\n}")
+            assertTrue(q.contains("in account @* {}"), "$it must sum the account rows that hold tokens")
+            assertTrue(q.contains("pool.reserve"), "$it must include the reserve")
+        }
+        assertTrue(code.contains("query shares_match_positions(): boolean {"))
+        assertTrue(code.contains("query pool_is_shares_backed(): boolean ="))
+
+        // The seams a static rule cannot see are written down where an extender reads.
+        assertTrue(main.contains("EXTENDING THIS TEMPLATE"), "the header must tell an extender which invariants are theirs to keep")
+        listOf(
+            "NEVER ADD A SLIPPAGE TOLERANCE",
+            "EVERY NEW WAY OUT OF THE POOL MUST TAKE THE TERM",
+            "A POSITION TRANSFER IS THE SUBTLE ONE",
+            "a_in_circulation()",
+            "shares_match_positions()"
+        ).forEach {
+            assertTrue(main.contains(it), "the EXTENDING section must name the '$it' seam")
+        }
+
+        // The residual list is where an auditor trusts most, so it must state limits
+        // rather than imply guards - round 7 drained a build through an inverted one,
+        // and round 8 through a header sentence that was simply false.
+        assertTrue(main.contains("WHAT THIS TEMPLATE DOES NOT SOLVE"), "the header must state the limits it does not close")
+        listOf(
+            "PRICE IMPACT IS REAL AND THIS TEMPLATE DOES NOT REMOVE IT",
+            "A FRONT-RUN CAN STILL MAKE YOUR SWAP REVERT",
+            "A COMMITTED POSITION CANNOT RUN FROM A PRICE MOVE",
+            "IMPERMANENT LOSS IS NOT A BUG",
+            "A DUST POSITION CAN BE UNBURNABLE",
+            "ONE PAIR, TWO TOKENS, NO ORACLE"
+        ).forEach {
+            assertTrue(main.contains(it), "the residual list must state '$it'")
+        }
+        // The lending header says a minimum holding period is NOT the fix for a step in
+        // pool value, and it is right. This template ships one anyway, against a
+        // different shape, so it must reconcile the two IN THE SAME PLACE rather than
+        // leave an auditor to discover the contradiction.
+        assertTrue(
+            main.contains("exit-only attack and decisive against an in-and-out one"),
+            "the header must reconcile its term with the lending header's warning about holding periods"
+        )
+        // And it must say, where the guard is described, that the guard does not abolish
+        // price impact - the claim round 8's headers kept getting wrong was the one that
+        // sounded like a proof.
+        assertTrue(
+            main.contains("THEY HAVE CONSENTED TO THE IMPACT"),
+            "the sandwich guard must name what it does NOT stop in the same breath as what it does"
+        )
+        assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the amm source")
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -1084,6 +1297,20 @@ class DappScaffoldSecureTemplatesTest {
             "test_bounds_and_ownership",
             "test_round8_pause_clawback_must_fail",
             "test_round8_pause_cannot_end_a_committed_grant_must_fail"
+        )
+    )
+
+    @Test
+    fun ammShippedTestsRunGreen() = assertShippedGreen(
+        "amm",
+        setOf(
+            "test_round8_swap_sandwich_must_fail",
+            "test_price_impact_is_documented_not_enforced",
+            "test_round8_jit_liquidity_capture_must_fail",
+            "test_liquidity_returns_to_its_provider_after_its_term",
+            "test_k_never_falls_under_grinding",
+            "test_first_depositor_inflation_refuses_instead_of_swallowing",
+            "test_bounds_and_ownership"
         )
     )
 
@@ -1870,4 +2097,121 @@ class DappScaffoldSecureTemplatesTest {
             "the liquidation of a healthy position must SUCCEED without the checkpoint ('$attackLanded'), got: $error"
         )
     }
+
+    // ------------------------------------------------------------------------
+    // ROUND 8, dapp_c_amm: the two drains the amm template makes unwritable, and
+    // the mutants that prove each guard is load-bearing rather than decorative.
+    // ------------------------------------------------------------------------
+
+    /**
+     * ROUND 8'S SANDWICH, and it is the absence of a tolerance field. Delete the
+     * equality on the quoted reserves and the victim's stale-quote swap executes at
+     * the price the front-run created - exactly what happened when the guard was a
+     * caller-chosen min_out.
+     */
+    @Test
+    fun ammSandwichTestGoesRedWithoutTheQuotedReserveGuard() = assertGuardRemovalRedensExploitTest(
+        "amm",
+        "require(quoted_reserve_a == pool.reserve_a and quoted_reserve_b == pool.reserve_b, \"the pool moved since you quoted\");",
+        "test_round8_swap_sandwich_must_fail",
+        // Wrong reason would be the replay failing to set itself up at all.
+        "register an account first"
+    )
+
+    /**
+     * ...and A BAND IS NOT A GUARD, which is the whole point of the equality. This
+     * mutant does not delete anything: it replaces the exact match with the 2%
+     * tolerance round 8's victim actually signed, which is the number a competent
+     * author writes when they think they are being careful. A 4000 front-run on a
+     * 500000/500000 pool moves the price 144 bps, so it fits inside 2% with room to
+     * spare, the victim's swap executes, and the sandwich lands again. There is no
+     * safe width - only no tolerance at all.
+     */
+    @Test
+    fun ammSandwichTestGoesRedWhenTheQuoteBecomesATolerance() = assertGuardMutationRedensExploitTest(
+        "amm",
+        "require(quoted_reserve_a == pool.reserve_a and quoted_reserve_b == pool.reserve_b, \"the pool moved since you quoted\");",
+        "require(quoted_reserve_a * 98 / 100 <= pool.reserve_a and quoted_reserve_b * 98 / 100 <= pool.reserve_b, \"the pool moved since you quoted\");",
+        "test_round8_swap_sandwich_must_fail",
+        "register an account first",
+        attackLanded
+    )
+
+    /**
+     * ROUND 8'S JIT LIQUIDITY, and it is one require(). Take the term away and the
+     * attacker's deposit-before-the-trade / withdrawal-after is allowed again: the
+     * fee is collected by capital that carried the price risk for one block.
+     */
+    @Test
+    fun ammJitTestGoesRedWithoutTheCommitmentTerm() = assertGuardRemovalRedensExploitTest(
+        "amm",
+        "require(op_context.last_block_time >= p.unlocks_at, \"liquidity is committed until its term ends\");",
+        "test_round8_jit_liquidity_capture_must_fail",
+        "only the owner may withdraw this position"
+    )
+
+    /** Take away the owner check and anyone can burn anyone's position for its reserves. */
+    @Test
+    fun ammPositionTestGoesRedWithoutTheOwnerCheck() = assertGuardRemovalRedensExploitTest(
+        "amm",
+        "require(p.owner == acc.id, \"only the owner may withdraw this position\");",
+        "test_bounds_and_ownership",
+        "liquidity is committed until its term ends"
+    )
+
+    /** Drop the minimum seed and the first-depositor inflation steal starts. */
+    @Test
+    fun ammInflationTestGoesRedWithoutTheMinimumSeed() = assertGuardMutationRedensExploitTest(
+        "amm",
+        "require(amount_a >= MIN_INITIAL_LIQUIDITY and amount_b >= MIN_INITIAL_LIQUIDITY, \"the first deposit is too small to seed the pool\");",
+        "require(amount_a >= 1 and amount_b >= 1, \"the first deposit is too small to seed the pool\");",
+        "test_first_depositor_inflation_refuses_instead_of_swallowing",
+        "deposit too small to mint a share",
+        attackLanded
+    )
+
+    /** Swallow a zero-share deposit instead of refusing it and the victim's money is gone. */
+    @Test
+    fun ammInflationTestGoesRedWithoutTheZeroShareRefusal() = assertGuardMutationRedensExploitTest(
+        "amm",
+        "require(minted > 0, \"deposit too small to mint a share\");",
+        "require(minted >= 0, \"deposit too small to mint a share\");",
+        "test_first_depositor_inflation_refuses_instead_of_swallowing",
+        "the first deposit is too small to seed the pool",
+        attackLanded
+    )
+
+    /** Widen the ratio check and an unbalanced deposit is silently donated to the LPs. */
+    @Test
+    fun ammBoundsTestGoesRedWithoutTheBalancedDepositGuard() = assertGuardMutationRedensExploitTest(
+        "amm",
+        "require(amount_b.to_big_integer() == need, \"deposit must match the pool ratio\");",
+        "require(amount_b.to_big_integer() >= need / big_integer(2), \"deposit must match the pool ratio\");",
+        "test_bounds_and_ownership",
+        "amount must be positive",
+        attackLanded
+    )
+
+    /**
+     * THE CURVE, and this one takes two edits because the guard is a check rather
+     * than a shape: weaken the runtime k requirement AND round the swap output UP
+     * instead of down. Either alone is refused - with the requirement intact the
+     * rounded-up swap aborts, and with the rounding intact k cannot fall - so both
+     * halves must move before the grinder can extract, which is precisely what
+     * makes the requirement load-bearing. Round 8 shipped this invariant as a
+     * passing test and nothing enforced it at runtime.
+     */
+    @Test
+    fun ammGrindingTestGoesRedWhenTheCurveCheckIsWeakenedAndTheOutputRoundsUp() = assertGuardMutationRedensExploitTest(
+        "amm",
+        "require(k_of(pool.reserve_a, pool.reserve_b) >= k_before, \"the curve must not lose value\");",
+        "require(k_of(pool.reserve_a, pool.reserve_b) >= k_before / big_integer(2), \"the curve must not lose value\");",
+        "test_k_never_falls_under_grinding",
+        "the curve must not lose value",
+        "expected",
+        alsoReplace = listOf(
+            "return (numerator / denominator).to_integer();" to
+                "return ((numerator + denominator - big_integer(1)) / denominator).to_integer();"
+        )
+    )
 }

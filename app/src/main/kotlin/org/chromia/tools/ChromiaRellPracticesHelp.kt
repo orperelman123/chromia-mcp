@@ -208,10 +208,18 @@ object ChromiaRellPracticesHelp {
         has, and turns a bounded loss into an unbounded one. The distinguishing question is not
         "is there a caller-supplied bound" but: CAN THE COUNTERPARTY CHOOSE A PRICE ANYWHERE
         INSIDE THAT BOUND AND POCKET THE DIFFERENCE? On a listing, yes. On a constant-product
-        swap, no. (There is no amm template yet, and a sandwich there is not statically
-        distinguishable from two honest trades - see exploit-corpus/CORPUS.md, r8-amm-*.)
-        The AUCTION is in that template too - a timed ascending auction with NO mutable bid field
-        (the standing bid is its own immutable escrow row, raising is delete-and-recreate, settlement
+        swap, no. THE AMM ANSWER IS A TEMPLATE, NOT A RULE, because a sandwich is not
+        statically distinguishable from two honest trades by two strangers (corpus rows
+        r8-amm-* stay GAP by decision): start from template=amm. It keeps no tolerance
+        field at all - a swap NAMES THE EXACT RESERVES it was quoted at and pays that
+        number or reverts, which is stronger than a floor, not a weakening of one - and
+        it makes liquidity an IMMUTABLE POSITION ROW WITH A TERM, so the just-in-time
+        deposit-before-a-swap-and-withdraw-after that round 8 also landed there cannot be
+        written. Its header states what neither guard stops - price impact you re-quote
+        into, and a cheap grief where anyone touching the reserves makes pending swaps
+        revert - and ships both as tests rather than as claims.
+        The AUCTION is in the MARKETPLACE template too - a timed ascending auction with NO mutable bid
+        field (the standing bid is its own immutable escrow row, raising is delete-and-recreate, settlement
         is permissionless after the deadline), plus require_unencumbered, the one helper every
         token-moving path consults so a gift cannot walk a token out from under an escrowed bid.
         Do not write an auction freehand: a mutable highest_bid is the sandwich in auction clothes.

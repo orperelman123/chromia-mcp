@@ -123,7 +123,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -163,6 +163,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to streamingMainRell(),
                 "src/test/main_test.rell" to streamingTestRell()
+            )
+            "amm" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to ammMainRell(),
+                "src/test/main_test.rell" to ammTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -286,6 +291,31 @@ object DappScaffold {
             the pure function as an immutable term. The shipped tests replay the round-7 stranger
             grief and both round-8 pause drains, and require the payee to be paid what the clock
             says anyway.
+            Building a swap pool, a DEX pair, an automated market maker - anything where a
+            CURVE prices a trade off reserves that any other transaction can move: start from
+            template=amm. Round 8 drained an un-templated one built with only this server's
+            guidance, and it was un-templated because scaffold_dapp answered template=vault:
+            the vault covers a reserve and a price feed, not a curve. The build proved the
+            invariant it was pointed at - k never falls - passed the gate with ZERO findings
+            and kept both conservation invariants exact, and two attacks landed anyway. A
+            SANDWICH: the victim signed a min_out 2% below an honest 83124 quote, a 4000
+            front-run moved the price 144 bps, their swap executed at 81920 INSIDE their own
+            tolerance so nothing fired, and the attacker's round trip paid 1698. JIT
+            LIQUIDITY: a deposit one block before a fee-bearing swap and a withdrawal one
+            block after took a share of a fee it had carried no price risk for. The template's
+            answer to the first is not a better tolerance: A SWAP NAMES THE EXACT RESERVES IT
+            WAS QUOTED AT AND THERE IS NO TOLERANCE FIELD AT ALL, so it pays exactly the
+            quoted number or reverts. That is STRONGER than a min_out floor rather than a
+            weakening of one - a floor can only abort your own trade and must never be
+            deleted, but naming the reserves pins the output to a single number a floor
+            cannot. Its answer to the second is not a reminder to check the clock: LIQUIDITY
+            IS AN IMMUTABLE POSITION ROW WITH A TERM - no provider holds a mutable share
+            balance to top up or shave, a burn deletes one row whole, and it is refused
+            until COMMITMENT_MS (a constant, never a parameter) after the row was created.
+            The shipped tests replay both round-8 attacks and require them to fail, and what
+            the guards do NOT stop ships as a test too: price impact you re-quote into, and a
+            cheap liveness grief where anyone touching the reserves makes pending swaps
+            revert. Both are in the header's residual list, which is the part to read first.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -352,12 +382,36 @@ object DappScaffold {
                 "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
                     "execute-once are structural there, and it ships the single-account drain as a " +
                     "must-fail test."
-            has("oracle", "exchange", "vault", "swap", "redeem", "redemption", "price", "amm", "dex", "stablecoin") ->
+            has("amm", "dex", "swap", "liquidity", "constant_product", "constantproduct", "uniswap",
+                "market_maker", "marketmaker", "exchange", "pair") ->
+                "Use `template=amm`: it is the template for this class, and this class is what " +
+                    "adversary round 8 drained WITH NO TEMPLATE AT ALL - it was built because this " +
+                    "very answer used to say `template=vault`, and the vault covers a reserve and a " +
+                    "price feed, not a curve. The hand-built pool proved the invariant it was " +
+                    "pointed at (k never falls), passed rell_security_check with ZERO findings, and " +
+                    "kept both conservation invariants exact - and two attacks landed anyway. A " +
+                    "SANDWICH: the victim signed a min_out 2% under an honest 83124 quote, a 4000 " +
+                    "front-run moved the price 144 bps, their trade executed at 81920 INSIDE their " +
+                    "own tolerance so nothing fired, and the attacker's round trip paid 1698. JIT " +
+                    "LIQUIDITY: a deposit one block before a fee-bearing swap and a withdrawal one " +
+                    "block after took a share of a fee it carried no price risk for. The template " +
+                    "does not ask you to remember either one. A SWAP NAMES THE EXACT RESERVES IT " +
+                    "WAS QUOTED AT and there is NO tolerance field at all, so a swap pays exactly " +
+                    "the quoted number or reverts - that is stronger than a min_out floor, not a " +
+                    "weakening of one, and the cost is that a moved pool means re-quoting. AND " +
+                    "LIQUIDITY IS AN IMMUTABLE POSITION ROW WITH A TERM: no provider holds a " +
+                    "mutable share balance to top up and drain, a burn deletes one row whole, and " +
+                    "it is refused " +
+                    "until COMMITMENT_MS after the row was created. Both round-8 attacks ship as " +
+                    "must-fail tests, and what the guards do NOT stop - price impact you re-quote " +
+                    "into, and a cheap liveness grief - ships as a test too rather than as a claim."
+            has("oracle", "vault", "redeem", "redemption", "price", "stablecoin") ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
-                    "ships the 100 -> 200,000,000 oracle mint as a must-fail test. An AMM's own " +
-                    "invariant is yours to prove - the template covers the reserve and the price " +
-                    "feed, not the curve."
+                    "ships the 100 -> 200,000,000 oracle mint as a must-fail test. If what you are " +
+                    "building is a CURVE rather than a reserve priced by a feed - a swap pool, an " +
+                    "AMM, a DEX pair - that is `template=amm`, a different exploit class with its " +
+                    "own template; this answer used to send it here and round 8 drained the result."
             has("stak", "reward", "harvest", "emission", "farm", "airdrop") ->
                 "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
                     "releases at most what the pool holds, every credit is a pool debit in the same " +
@@ -368,12 +422,14 @@ object DappScaffold {
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics."
             else ->
-                "No shipped template covers that name. The six hardened ones are `governance` " +
+                "No shipped template covers that name. The seven hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
                     "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
                     "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
-                    "that moves) and `streaming` (a clock-metered payout to one named beneficiary - " +
-                    "payroll, subscriptions, vesting, drips); `ft4` is the plain token skeleton with " +
+                    "that moves), `streaming` (a clock-metered payout to one named beneficiary - " +
+                    "payroll, subscriptions, vesting, drips) and `amm` (a constant-product swap " +
+                    "pool: exact-quoted-reserve swaps and term-committed liquidity positions); " +
+                    "`ft4` is the plain token skeleton with " +
                     "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +
                     "if none does, write the economic invariant test FIRST: a passing security " +
@@ -5649,6 +5705,907 @@ object DappScaffold {
             signed(trudy.keypair, main.pause_stream(payroll));
             assert_equals(main.get_stream(payroll)!!.paused, true);
             assert_equals(paid_to(trudy.account.id) > 0, true);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    private fun ammMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // AMM template: a constant-product (x * y = k) pool over two tokens, with a
+        // 0.30% fee, liquidity providers who hold a claim on both reserves, and swaps
+        // priced off those reserves. A DEX pair, a swap pool, an automated market maker.
+        //
+        // Adversary round 8 (realworld/adversary-round8/dapp_c_amm, corpus rows
+        // r8-amm-jit-liquidity-fee-capture and r8-amm-swap-min-out-clean) drained an
+        // UN-TEMPLATED AMM built with only this server's guidance. It was un-templated
+        // because `scaffold_dapp template=amm` answered "Use template=vault ... an AMM's
+        // own invariant is yours to prove", so the author proved the invariant they were
+        // pointed at - k never falls - and shipped it as a passing test. rell_check
+        // ok:true, rell_security_check ok:true with ZERO findings, k monotone at every
+        // step, and BOTH conservation invariants exact throughout. Two attacks landed
+        // anyway, and NEITHER of them breaks any of those properties:
+        //
+        //   1. SANDWICH. The victim sold 100000 of A into a 500000/500000 pool. The
+        //      honest quote was 83124 of B and they signed with a min_out 2% below it -
+        //      a normal, unremarkable tolerance. The attacker bought 4000 of B in front
+        //      of them; the victim's trade executed at the worse price - 81920, still
+        //      comfortably inside their own tolerance, so their own guard never fired -
+        //      and the attacker sold the B back for 1698 more A than they started with.
+        //      The victim was 1204 short; the difference came off the LPs.
+        //
+        //   2. JIT LIQUIDITY. The attacker added liquidity matching the standing LP's
+        //      depth in the block before a fee-bearing swap and removed it in the block
+        //      after. They took half of that swap's fee for one block of inventory - a
+        //      fee the standing provider had carried the price risk of the whole time.
+        //
+        // NEITHER IS VISIBLE TO A STATIC RULE, and that is a decision rather than a gap
+        // waiting to be closed: nothing in the source distinguishes a sandwich from two
+        // honest trades by two strangers, or a just-in-time deposit from an honest one.
+        // A rule here would be a gate that cries wolf, so the corpus keeps both rows as
+        // GAP BY DECISION and THIS TEMPLATE is the answer instead.
+        //
+        // GUARD 1, AGAINST THE SANDWICH: A SWAP NAMES THE EXACT RESERVES IT PRICED
+        // AGAINST, AND THERE IS NO TOLERANCE FIELD FOR A FRONT-RUN TO FIT INSIDE.
+        //   * What a swap pays out is a pure function of three numbers - the amount in
+        //     and the two reserves (see amount_out). The caller passes all three, and
+        //     `require(quoted_reserve_a == pool.reserve_a and quoted_reserve_b ==
+        //     pool.reserve_b)` means the swap either executes at EXACTLY the price the
+        //     caller was quoted or does not execute at all. Grep this file for a
+        //     slippage parameter: there is none, so an author cannot ship a pool where
+        //     a caller picks how much silent loss they will absorb.
+        //   * THIS IS NOT THE MARKETPLACE'S CEILING AND IT IS NOT A WEAKENED FLOOR. The
+        //     marketplace lesson is that a caller-supplied max_price CEILING lets the
+        //     counterparty reprice to it and pocket the buffer. A min_out FLOOR on a
+        //     swap is the OPPOSITE thing - it can only abort the caller's own trade,
+        //     nobody can be paid out of it, and deleting it would be strictly worse than
+        //     useless. What this template does is stronger than any floor rather than
+        //     weaker: naming the reserves pins the output to ONE number, and a floor is
+        //     only ever needed when the price can still move under you.
+        //   * WHAT IT DOES TO THE ATTACK, precisely. The attacker is not stopped from
+        //     trading - anyone may buy B, and no template could tell that trade from an
+        //     honest one. What they can no longer do is make somebody ELSE's transaction
+        //     execute at the price they just created: the victim's swap reverts. The
+        //     attacker is then holding inventory with nothing to sell it into, and
+        //     unwinding costs them the fee twice, so the round trip that paid 1698 in
+        //     round 8 is a LOSS here. test_round8_swap_sandwich_must_fail measures that.
+        //   * WHAT IT DOES NOT DO, and this belongs in the same breath: it protects the
+        //     PRICE, not the TRADE. Any transaction that moves the reserves first -
+        //     an honest trade, a deposit, a withdrawal, or a hostile dust swap - makes
+        //     this swap revert and the caller must re-quote. AND IF THE CALLER
+        //     RE-QUOTES AT THE MOVED PRICE AND SIGNS, THEY HAVE CONSENTED TO THE IMPACT
+        //     AND THE ATTACKER'S UNWIND PROFITS FROM IT - by more than 1500 on these very
+        //     numbers, against round 8's measured 1698, and the shipped test asserts that
+        //     bound so this sentence cannot rot. What is gone is the SILENT version, the one
+        //     where the victim signed for 83124, was paid 81920, and their own guard
+        //     stayed quiet. The counter-play the guard buys is real and it is WAITING:
+        //     the front-runner must unwind, unwinding restores the price, and a caller
+        //     who re-quotes only when the pool has come back pays nothing for the
+        //     attempt. The template cannot make anyone re-quote wisely, so this is
+        //     shipped as a test that documents the residual rather than a claim that
+        //     hides it - test_price_impact_is_documented_not_enforced - the same way
+        //     the marketplace template ships its royalty bypass.
+        //
+        // GUARD 2, AGAINST JIT LIQUIDITY: A POSITION IS AN IMMUTABLE ROW WITH A TERM,
+        // AND NO PROVIDER HAS A MUTABLE SHARE BALANCE TO TOP UP AND DRAIN. (The pool's
+        // own `total_shares` is mutable - it has to be - but it is not anybody's
+        // holding: it is the sum of the live rows, and shares_match_positions() is the
+        // invariant that says so. Nothing a caller owns is a number that can be edited.)
+        //   * `add_liquidity` CREATES a position row - owner, shares, opened_at,
+        //     unlocks_at - none of them `mutable`, none of them written again by any
+        //     operation. `remove_liquidity` names ONE row, requires the block clock to
+        //     have reached that row's `unlocks_at`, and deletes it WHOLE. There is no
+        //     partial burn, so "take back just the part that earned the fee" is not a
+        //     sentence this module can express.
+        //   * `unlocks_at` is `opened_at + COMMITMENT_MS`, and COMMITMENT_MS IS A NAMED
+        //     CONSTANT, NOT A PARAMETER. No caller chooses their own term, so no caller
+        //     can choose zero, and a second deposit is a SECOND ROW WITH ITS OWN TERM
+        //     rather than a top-up that would re-date the first.
+        //   * WHY A DURATION IS THE RIGHT SHAPE HERE, AND WHY THAT IS NOT THE ADVICE
+        //     ROUND 7 DRAINED. The lending header says an entry/exit fee or a minimum
+        //     holding period is NOT the fix for a step in pool value, and that is still
+        //     true where it is written: round 7's attacker was a lender of long standing
+        //     EXITING at a step, so a holding period had nothing to bite on. JIT is the
+        //     opposite shape - the attack IS the round trip, and its entire profit is
+        //     that the capital was present for one block and absent for every other. A
+        //     term prices that round trip out of existence, because capital that
+        //     collects a fee is still in the pool, exposed to the price, until the term
+        //     ends. Read the two sentences together: a duration is useless against an
+        //     exit-only attack and decisive against an in-and-out one.
+        //   * WHAT IT DOES NOT CLAIM. An LP who commits for the term and happens to be
+        //     in the pool when a large trade arrives earns its fee. That is not JIT,
+        //     that is being a liquidity provider, and it is what LPs are paid for. The
+        //     guard is not "nobody profits from a well-timed deposit"; it is that NO
+        //     CAPITAL CAN COLLECT A FEE AND LEAVE BEFORE IT HAS CARRIED THE PRICE RISK
+        //     FOR COMMITMENT_MS. The cost of that is in the residual list: a committed
+        //     LP cannot run from a price move either.
+        //
+        // FOUR THINGS THE ROUND-8 BUILD GOT RIGHT AND THIS ONE KEEPS - they are why
+        // nothing else about it drained. The first is PROMOTED from a test to a
+        // require(); the other three are its own guards, unchanged:
+        //   THE CURVE, ENFORCED AT RUNTIME - every swap rounds its output DOWN and then
+        //                     REQUIRES k not to have fallen. Round 8 asserted that in a
+        //                     test; here it is a require() in the one function that
+        //                     executes a swap, so a mis-derived curve or a rounding
+        //                     "fix" aborts the transaction instead of paying out.
+        //   RESERVE-BACKED    - the reserves are the only source of a payout, and every
+        //                     credit to an account is the reserve's debit on the same
+        //                     branch of the same operation, so no path can pay without
+        //                     taking it from somewhere - the vault template's rule.
+        //   MINIMUM SEED + REFUSED ZERO-SHARE MINT - the first deposit must be at least
+        //                     MIN_INITIAL_LIQUIDITY and any deposit that would round to
+        //                     zero shares is REFUSED, never swallowed. That is the
+        //                     ERC-4626 / Uniswap first-depositor inflation steal, and it
+        //                     is the same guard, for the same reason, as the lending
+        //                     template's minimum first deposit.
+        //   BALANCED DEPOSITS - a later deposit must match the pool's current ratio, so
+        //                     the min() in shares_for is never a silent haircut and
+        //                     nobody donates to the existing LPs by mistyping.
+        //
+        // EXTENDING THIS TEMPLATE - the seams a static rule cannot see:
+        //   1. NEVER ADD A SLIPPAGE TOLERANCE, however reasonable the number looks. A
+        //      2% band on the quoted reserves is EXACTLY round 8's drain: 4000 of
+        //      front-run moves a 500000/500000 pool by 144 bps, which fits inside 2%
+        //      with room to spare, so the band admits the sandwich and the caller's
+        //      guard never fires. If your callers cannot land trades, the answer is to
+        //      re-quote and retry, not to widen the window they are attacked through.
+        //   2. EVERY NEW WAY OUT OF THE POOL MUST TAKE THE TERM. `remove_liquidity` is
+        //      not the only operation that could return an LP's capital - a "migrate",
+        //      an "emergency exit", a "convert my position to token A", a transfer of a
+        //      position to another account - and any of them without
+        //      `require(op_context.last_block_time >= p.unlocks_at)` is JIT again under
+        //      a different name. A POSITION TRANSFER IS THE SUBTLE ONE: selling a fresh
+        //      position to a confederate who exits it is the same round trip in two
+        //      halves, so a transfer must carry `unlocks_at` unchanged, never restart it
+        //      and never drop it.
+        //   3. EVERY NEW PATH THAT MOVES THE RESERVES GOES THROUGH execute_swap OR
+        //      CARRIES ITS OWN k CHECK. A fee change, a rebalance, a donation, a
+        //      flash-loan-like borrow: if it can leave the reserves at a smaller product
+        //      than it found them, it is a withdrawal wearing a swap's clothes.
+        //   4. EVERY NEW ROW THAT HOLDS TOKENS MUST BE ADDED TO a_in_circulation() AND
+        //      b_in_circulation(), AND EVERY NEW SHARE-ISSUING PATH TO
+        //      shares_match_positions(). The shipped tests call all three after every
+        //      step; a row they do not sum makes the invariants pass while tokens go
+        //      missing.
+        //   5. A MULTI-HOP ROUTER IS SEVERAL SWAPS, AND EACH HOP NAMES ITS OWN RESERVES.
+        //      Quoting hop 1 and letting hop 2 take whatever it finds re-opens guard 1
+        //      on the second leg, which is where the value is.
+        //
+        // WHAT THIS TEMPLATE DOES NOT SOLVE, stated rather than implied. This list is
+        // where an auditor places the most trust, so where we are unsure it says so.
+        //   - PRICE IMPACT IS REAL AND THIS TEMPLATE DOES NOT REMOVE IT. A large trade
+        //     moves the price against itself; that is what a constant-product curve IS.
+        //     Guard 1 makes sure you are told the number before you sign it. It does not
+        //     make the number smaller, and a caller who re-quotes into a pool a
+        //     front-runner has just moved pays that impact and hands the front-runner
+        //     their unwind. No on-chain AMM can price a trade off reserves that anyone
+        //     may move and also promise nobody moved them first.
+        //   - A FRONT-RUN CAN STILL MAKE YOUR SWAP REVERT, AND SO CAN A DUST TRADE. The
+        //     cost of guard 1 is liveness: anyone willing to pay a fee can keep a pool
+        //     un-swappable by touching the reserves in every block. That is a griefing
+        //     cost, not a drain - nothing leaves the pool - but it is real, it is cheap,
+        //     and a busy pool will see honest swaps revert too.
+        //   - A COMMITTED POSITION CANNOT RUN FROM A PRICE MOVE. COMMITMENT_MS is the
+        //     price of guard 2 and it is paid by honest LPs as well: for that long they
+        //     hold whatever the pool becomes, including the losing side of a crash. One
+        //     hour is a number, not a proof - it is short enough to be a real product
+        //     and long enough that no block-scale round trip survives it. Pick yours
+        //     deliberately; a term of zero deletes the guard.
+        //   - IMPERMANENT LOSS IS NOT A BUG. An LP who deposits and withdraws either
+        //     side of a price move can come out behind holding the two tokens, fee
+        //     income notwithstanding. Every constant-product pool works this way; a test
+        //     asserting an LP "cannot lose" would be asserting something false.
+        //   - A DUST POSITION CAN BE UNBURNABLE. A burn must return at least one unit of
+        //     at least one reserve, so a position worth less than that cannot be closed.
+        //     It is worth under one unit of each reserve by construction and nobody else
+        //     can take it, but it IS stranded, and the minimum seed does not prevent it:
+        //     that floor applies only to the FIRST deposit, so a later deposit of one
+        //     share into a pool that then grows can round to nothing on the way out.
+        //   - THE FEE IS ECONOMICS, NOT SAFETY. 0.30% is the Uniswap V2 number, kept so
+        //     the arithmetic here is comparable to a pool an auditor already knows.
+        //     Nothing in this file is safe BECAUSE the fee is 997/1000; it is safe
+        //     because k is checked. Change the fee and the guards still hold.
+        //   - ONE PAIR, TWO TOKENS, NO ORACLE. There is no price feed here and none is
+        //     needed: the pool IS the price. If you make it one - if another contract
+        //     reads get_pool() as an oracle - the spot reserves are manipulable within a
+        //     single block by anyone with capital, and you need a time-weighted average
+        //     this template does not ship.
+        //   - TOKENS HERE ARE A STAND-IN, exactly as points are in the other templates:
+        //     two balances credited by a one-time welcome grant. Replacing them with FT4
+        //     assets keeps every guard above, provided the FT4 transfer happens in the
+        //     same operation as the reserve update it pairs with.
+
+        entity account {
+            key owner: byte_array;
+            mutable token_a: integer = 0;
+            mutable token_b: integer = 0;
+        }
+
+        // The pool. `total_shares` is the sum of the live position rows and nothing
+        // else - shares_match_positions() is the invariant that says so.
+        object pool {
+            mutable reserve_a: integer = 0;
+            mutable reserve_b: integer = 0;
+            mutable total_shares: integer = 0;
+        }
+
+        object position_counter {
+            mutable next_id: integer = 1;
+        }
+
+        // A LIQUIDITY POSITION. EVERY FIELD IS IMMUTABLE: no operation writes one after
+        // the create, and there is no mutable share balance anywhere in this module for
+        // a deposit to top up or a withdrawal to shave. A position is created whole and
+        // deleted whole, so the only two things that can happen to liquidity are "it is
+        // in" and "it is out" - and `unlocks_at` decides when the second is allowed.
+        entity position {
+            key id: integer;
+            index owner: byte_array;
+            shares: integer;
+            opened_at: timestamp;
+            unlocks_at: timestamp;
+        }
+
+        // The one-time welcome grant is the ONLY place tokens are created (a stand-in
+        // for a real deposit - replace with FT4 asset transfers and keep the same
+        // discipline: every credit is debited from somewhere real).
+        val WELCOME_A = 1000000;
+        val WELCOME_B = 1000000;
+
+        // 0.30%, the Uniswap V2 number. Economics, not a guard - see the residual list.
+        val FEE_NUMERATOR = 997;
+        val FEE_DENOMINATOR = 1000;
+
+        val MAX_AMOUNT = 1000000000;
+        // The first deposit must be large enough that no later one can be rounded away
+        // against it - the same guard, for the same reason, as the lending template's
+        // minimum first deposit.
+        val MIN_INITIAL_LIQUIDITY = 1000;
+        // HOW LONG LIQUIDITY IS COMMITTED FOR. A constant, never a parameter: a term a
+        // caller chooses is a term an attacker sets to zero.
+        val COMMITMENT_MS = 60 * 60 * 1000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this
+        // default; grant flags = [] only per operation, scoped, for operations that
+        // cannot move value.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function account_of(owner: byte_array): account =
+            require(account @? { .owner == owner }, "register an account first");
+
+        function position_of(position_id: integer): position =
+            require(position @? { .id == position_id }, "no such position");
+
+        function require_amount(amount: integer) {
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
+        }
+
+        function k_of(reserve_a: integer, reserve_b: integer): big_integer =
+            reserve_a.to_big_integer() * reserve_b.to_big_integer();
+
+        // THE CURVE. Exact-input, fee taken on the way in, output rounded DOWN, so the
+        // product of the reserves rises by the fee plus the truncation. A PURE FUNCTION
+        // of the amount in and the two reserves - which is what lets guard 1 pin the
+        // output by pinning the reserves.
+        function amount_out(amount_in: integer, reserve_in: integer, reserve_out: integer): integer {
+            require(reserve_in > 0 and reserve_out > 0, "pool has no liquidity");
+            val in_with_fee = amount_in.to_big_integer() * FEE_NUMERATOR.to_big_integer();
+            val numerator = in_with_fee * reserve_out.to_big_integer();
+            val denominator = reserve_in.to_big_integer() * FEE_DENOMINATOR.to_big_integer() + in_with_fee;
+            return (numerator / denominator).to_integer();
+        }
+
+        // Shares for a deposit, priced against the reserves that are already there.
+        // min() of the two sides so an unbalanced deposit can never mint against the
+        // generous one; add_liquidity refuses an unbalanced deposit outright, so this
+        // min() is a floor under a rounding error rather than a haircut anyone meets.
+        function shares_for(amount_a: integer, amount_b: integer): integer {
+            if (pool.total_shares <= 0) return amount_a;
+            val by_a = amount_a.to_big_integer() * pool.total_shares.to_big_integer() / pool.reserve_a.to_big_integer();
+            val by_b = amount_b.to_big_integer() * pool.total_shares.to_big_integer() / pool.reserve_b.to_big_integer();
+            return (if (by_a < by_b) by_a else by_b).to_integer();
+        }
+
+        // THE ONLY PLACE A SWAP EXECUTES. Both directions come through here, so guard 1
+        // and the curve check are written once and cannot be present on one path and
+        // missing on the other.
+        function execute_swap(
+            me: account,
+            sell_a: boolean,
+            amount_in: integer,
+            quoted_reserve_a: integer,
+            quoted_reserve_b: integer
+        ) {
+            require_amount(amount_in);
+            // GUARD 1. The caller named the two reserves they were quoted at; the output
+            // below is a pure function of those two numbers and the amount in, so this
+            // swap pays EXACTLY what the caller was quoted or it does not happen. There
+            // is no tolerance here on purpose: a band is a window an attacker moves the
+            // price inside, and 2% is wide enough for round 8's whole sandwich.
+            require(quoted_reserve_a == pool.reserve_a and quoted_reserve_b == pool.reserve_b, "the pool moved since you quoted");
+            val k_before = k_of(pool.reserve_a, pool.reserve_b);
+            val reserve_in = if (sell_a) pool.reserve_a else pool.reserve_b;
+            val reserve_out = if (sell_a) pool.reserve_b else pool.reserve_a;
+            val held = if (sell_a) me.token_a else me.token_b;
+            require(held >= amount_in, "insufficient balance");
+            val out = amount_out(amount_in, reserve_in, reserve_out);
+            require(out > 0, "output rounds to zero");
+            require(out < reserve_out, "output would empty the reserve");
+            if (sell_a) {
+                update me ( .token_a -= amount_in, .token_b += out );
+                pool.reserve_a += amount_in;
+                pool.reserve_b -= out;
+            } else {
+                update me ( .token_b -= amount_in, .token_a += out );
+                pool.reserve_b += amount_in;
+                pool.reserve_a -= out;
+            }
+            // THE CURVE'S OWN INVARIANT, enforced rather than asserted in a test: a swap
+            // may leave the product of the reserves larger (the fee, the truncation) and
+            // never smaller. A failed require() aborts the whole transaction, so the
+            // updates above are rolled back with it.
+            require(k_of(pool.reserve_a, pool.reserve_b) >= k_before, "the curve must not lose value");
+        }
+
+        operation register_account() {
+            val acc = auth.authenticate();
+            require(account @? { .owner == acc.id } == null, "already registered");
+            create account(owner = acc.id, token_a = WELCOME_A, token_b = WELCOME_B);
+        }
+
+        // Add liquidity at the pool's CURRENT ratio and receive a POSITION ROW committed
+        // for COMMITMENT_MS. Depositing twice makes two rows with two terms; nothing
+        // here re-dates an existing one.
+        operation add_liquidity(amount_a: integer, amount_b: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            require_amount(amount_a);
+            require_amount(amount_b);
+            require(me.token_a >= amount_a, "insufficient token A");
+            require(me.token_b >= amount_b, "insufficient token B");
+            if (pool.total_shares > 0) {
+                // amount_b must be the pool's ratio applied to amount_a, rounded up.
+                val need = (amount_a.to_big_integer() * pool.reserve_b.to_big_integer()
+                    + pool.reserve_a.to_big_integer() - big_integer(1)) / pool.reserve_a.to_big_integer();
+                require(amount_b.to_big_integer() == need, "deposit must match the pool ratio");
+            } else {
+                require(amount_a >= MIN_INITIAL_LIQUIDITY and amount_b >= MIN_INITIAL_LIQUIDITY, "the first deposit is too small to seed the pool");
+            }
+            val minted = shares_for(amount_a, amount_b);
+            // REFUSED, never swallowed: the first-depositor inflation steal starts by
+            // making a later deposit round to zero shares.
+            require(minted > 0, "deposit too small to mint a share");
+            update me ( .token_a -= amount_a, .token_b -= amount_b );
+            pool.reserve_a += amount_a;
+            pool.reserve_b += amount_b;
+            pool.total_shares += minted;
+            create position(
+                id = position_counter.next_id,
+                owner = acc.id,
+                shares = minted,
+                opened_at = op_context.last_block_time,
+                unlocks_at = op_context.last_block_time + COMMITMENT_MS
+            );
+            position_counter.next_id += 1;
+        }
+
+        // Exit ONE position, WHOLE, and only after its term. There is no partial burn:
+        // "take back the part that earned the fee" is not expressible here, which is
+        // what makes round 8's just-in-time capture unwritable rather than merely
+        // discouraged. The payout is rounded DOWN in the pool's favour.
+        operation remove_liquidity(position_id: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            val p = position_of(position_id);
+            require(p.owner == acc.id, "only the owner may withdraw this position");
+            // GUARD 2. Written once, at creation, from the block clock, and never
+            // updated - so no caller can bring it forward.
+            require(op_context.last_block_time >= p.unlocks_at, "liquidity is committed until its term ends");
+            val burned = p.shares;
+            val s = burned.to_big_integer();
+            val total = pool.total_shares.to_big_integer();
+            val out_a = (s * pool.reserve_a.to_big_integer() / total).to_integer();
+            val out_b = (s * pool.reserve_b.to_big_integer() / total).to_integer();
+            require(out_a > 0 or out_b > 0, "burn too small to return anything");
+            // The row that carries the claim is destroyed in the operation that pays it,
+            // so it can never pay twice.
+            delete p;
+            pool.reserve_a -= out_a;
+            pool.reserve_b -= out_b;
+            pool.total_shares -= burned;
+            update me ( .token_a += out_a, .token_b += out_b );
+        }
+
+        // Sell A for B at EXACTLY the reserves the caller was quoted at. There is no
+        // min_out, and that is not a weakening - see guard 1: naming the reserves pins
+        // the output to one number, which a floor cannot do.
+        operation swap_a_for_b(amount_in: integer, quoted_reserve_a: integer, quoted_reserve_b: integer) {
+            val acc = auth.authenticate();
+            execute_swap(account_of(acc.id), true, amount_in, quoted_reserve_a, quoted_reserve_b);
+        }
+
+        // Sell B for A. The quoted reserves are named A-then-B in BOTH directions, so
+        // there is no argument order to get backwards.
+        operation swap_b_for_a(amount_in: integer, quoted_reserve_a: integer, quoted_reserve_b: integer) {
+            val acc = auth.authenticate();
+            execute_swap(account_of(acc.id), false, amount_in, quoted_reserve_a, quoted_reserve_b);
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_account(owner: byte_array) {
+            val a = account @? { .owner == owner };
+            return if (a != null) (token_a = a.token_a, token_b = a.token_b) else null;
+        }
+
+        query get_pool() = (
+            reserve_a = pool.reserve_a,
+            reserve_b = pool.reserve_b,
+            total_shares = pool.total_shares
+        );
+
+        query get_position(position_id: integer) {
+            val p = position @? { .id == position_id };
+            return if (p == null) null else (
+                owner = p.owner,
+                shares = p.shares,
+                opened_at = p.opened_at,
+                unlocks_at = p.unlocks_at
+            );
+        }
+
+        query positions_of(owner: byte_array): list<integer> =
+            position @* { .owner == owner } ( @sort .id );
+
+        // A QUOTE IS THE OUTPUT AND THE TWO RESERVES IT WAS COMPUTED FROM. Hand all
+        // three back to the swap: that is how the caller says which price they agreed
+        // to, and it is priced through the SAME function the operation uses, so a client
+        // can never be shown a number an operation would disagree with.
+        query quote_a_for_b(amount_in: integer) = (
+            out_amount = amount_out(amount_in, pool.reserve_a, pool.reserve_b),
+            quoted_reserve_a = pool.reserve_a,
+            quoted_reserve_b = pool.reserve_b
+        );
+
+        query quote_b_for_a(amount_in: integer) = (
+            out_amount = amount_out(amount_in, pool.reserve_b, pool.reserve_a),
+            quoted_reserve_a = pool.reserve_a,
+            quoted_reserve_b = pool.reserve_b
+        );
+
+        query account_count(): integer = account @* {} ( .owner ).size();
+
+        // INVARIANT: tokens are never created. Every unit of A is on an account or in
+        // the reserve, and the same for B.
+        query a_in_circulation(): integer {
+            var total = pool.reserve_a;
+            for (t in account @* {} ( .token_a )) total += t;
+            return total;
+        }
+
+        query b_in_circulation(): integer {
+            var total = pool.reserve_b;
+            for (t in account @* {} ( .token_b )) total += t;
+            return total;
+        }
+
+        // INVARIANT (THE CURVE'S OWN): the product of the reserves. execute_swap
+        // requires it not to fall; the shipped tests snapshot it around every step.
+        query k(): big_integer = k_of(pool.reserve_a, pool.reserve_b);
+
+        // INVARIANT: the live position rows sum to exactly what the pool thinks it
+        // issued. A share minted without a row - or a row deleted without burning its
+        // shares - breaks this immediately.
+        query shares_match_positions(): boolean {
+            var total = 0;
+            for (s in position @* {} ( .shares )) total += s;
+            return total == pool.total_shares;
+        }
+
+        // INVARIANT: shares and reserves are empty together or non-empty together. The
+        // last position's burn takes shares == total_shares, which returns each reserve
+        // exactly, so an empty pool holds nothing and a pool holding something has an
+        // owner for it.
+        query pool_is_shares_backed(): boolean =
+            (pool.total_shares > 0) == (pool.reserve_a > 0 and pool.reserve_b > 0);
+    """.trimIndent() + "\n"
+
+    private fun ammTestRell(): String = """
+        @test module;
+
+        // The AMM template's invariant tests. They are real: FT4 test accounts, signed
+        // operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's moduleArgs
+        // PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // test_round8_swap_sandwich_must_fail and
+        // test_round8_jit_liquidity_capture_must_fail replay adversary round 8's two
+        // drains (realworld/adversary-round8/dapp_c_amm) against this template exactly.
+        // test_price_impact_is_documented_not_enforced is the honest other half of the
+        // first: what guard 1 does NOT stop, measured, so the residual list can be
+        // checked rather than believed.
+        // Test blocks are DEFAULT_BLOCK_INTERVAL (10 s) apart unless a delta is set.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Stamp the next block `ms` after the last one.
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val MINUTE_MS = 60 * 1000;
+
+        function assert_conserved() {
+            assert_equals(main.a_in_circulation(), main.account_count() * main.WELCOME_A);
+            assert_equals(main.b_in_circulation(), main.account_count() * main.WELCOME_B);
+            assert_equals(main.shares_match_positions(), true);
+            assert_equals(main.pool_is_shares_backed(), true);
+        }
+
+        // Sell A at the price the pool is quoting right now - what an honest caller
+        // does, and what every test below does except where it is deliberately stale.
+        function swap_a_at_quote(keypair: rell.test.keypair, amount_in: integer) {
+            val q = main.quote_a_for_b(amount_in);
+            signed(keypair, main.swap_a_for_b(amount_in, q.quoted_reserve_a, q.quoted_reserve_b));
+        }
+
+        function swap_b_at_quote(keypair: rell.test.keypair, amount_in: integer) {
+            val q = main.quote_b_for_a(amount_in);
+            signed(keypair, main.swap_b_for_a(amount_in, q.quoted_reserve_a, q.quoted_reserve_b));
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 8, dapp_c_amm, C-3: the victim sold 100000
+        // of A into a 500000/500000 pool with a min_out 2% under the honest quote of
+        // 83124. trudy bought 4000 of B in front of them; the victim was paid 81920 -
+        // 1204 short, and inside their own tolerance, so their guard stayed silent - and
+        // trudy sold the B back for 1698 more A than she started with. Here there is no
+        // tolerance to hide in: the victim named the reserves they were quoted at, those
+        // reserves are gone, and the swap does not execute.
+        function test_round8_swap_sandwich_must_fail() {
+            val lp = register_alice();
+            val victim = register_bob();
+            val attacker = register_trudy();
+            signed(lp.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            signed(lp.keypair, main.add_liquidity(500000, 500000));
+            assert_conserved();
+
+            // Round 8's setup exactly, asserted rather than assumed: if these numbers
+            // ever stopped holding, the replay would not be replaying anything.
+            val quote = main.quote_a_for_b(100000);
+            assert_equals(quote.quoted_reserve_a, 500000);
+            assert_equals(quote.quoted_reserve_b, 500000);
+            assert_equals(quote.out_amount, 83124);
+
+            val attacker_a_before = main.get_account(attacker.account.id)!!.token_a;
+            val attacker_b_before = main.get_account(attacker.account.id)!!.token_b;
+
+            // FRONT-RUN. Nobody is stopped from trading, and no template could tell this
+            // from an honest buy - the attacker quotes correctly and pays the fee.
+            swap_a_at_quote(attacker.keypair, 4000);
+            val got_b = main.get_account(attacker.account.id)!!.token_b - attacker_b_before;
+            assert_equals(got_b > 0, true);
+            // The price really did move, or the rest proves nothing.
+            assert_equals(main.get_pool().reserve_a > 500000, true);
+
+            // THE ATTACK: the victim's transaction lands behind it. In round 8 it
+            // executed at the moved price and paid for the attacker's round trip.
+            signed_must_fail(
+                victim.keypair,
+                main.swap_a_for_b(100000, quote.quoted_reserve_a, quote.quoted_reserve_b),
+                "the pool moved since you quoted"
+            );
+            // Not one unit moved: a refused swap is a no-op for the caller.
+            assert_equals(main.get_account(victim.account.id)!!.token_a, main.WELCOME_A);
+            assert_equals(main.get_account(victim.account.id)!!.token_b, main.WELCOME_B);
+            assert_conserved();
+
+            // BACK-RUN into a pool the victim never pushed. THE PROPERTY: the round trip
+            // is a LOSS. The attacker holds no B and strictly less A than they started
+            // with, having paid the fee twice for nothing. In round 8 this was +1698.
+            swap_b_at_quote(attacker.keypair, got_b);
+            val after_attack = main.get_account(attacker.account.id)!!;
+            assert_equals(after_attack.token_b, attacker_b_before);
+            assert_equals(after_attack.token_a < attacker_a_before, true);
+            assert_conserved();
+
+            // AND THE VICTIM IS NOT SHUT OUT. Re-quoted at the reserves as they now
+            // stand, the same swap goes through and pays EXACTLY what it was quoted -
+            // which is the whole promise: the number you sign is the number you get.
+            val re_quote = main.quote_a_for_b(100000);
+            signed(victim.keypair, main.swap_a_for_b(100000, re_quote.quoted_reserve_a, re_quote.quoted_reserve_b));
+            assert_equals(main.get_account(victim.account.id)!!.token_b - main.WELCOME_B, re_quote.out_amount);
+            assert_conserved();
+        }
+
+        // WHAT GUARD 1 DOES NOT STOP, MEASURED - the same discipline as the marketplace
+        // template's royalty bypass. A front-runner can move the price before you and
+        // profit from your impact IF YOU CHASE IT: your first swap reverts, you re-quote
+        // at the moved price, you sign, and their unwind is paid for by your trade. What
+        // is gone is the SILENT loss - you are never charged a price you did not name.
+        // The counter-play is to wait: the front-runner must unwind, and unwinding puts
+        // the price back. This test asserts the residual is exactly that and no worse.
+        function test_price_impact_is_documented_not_enforced() {
+            val lp = register_alice();
+            val chaser = register_bob();
+            val attacker = register_trudy();
+            signed(lp.keypair, main.register_account());
+            signed(chaser.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            signed(lp.keypair, main.add_liquidity(500000, 500000));
+
+            val fair = main.quote_a_for_b(100000).out_amount;
+            val attacker_a_before = main.get_account(attacker.account.id)!!.token_a;
+            val attacker_b_before = main.get_account(attacker.account.id)!!.token_b;
+
+            swap_a_at_quote(attacker.keypair, 4000);
+            val got_b = main.get_account(attacker.account.id)!!.token_b - attacker_b_before;
+
+            // THE CHASER RE-QUOTES AND SIGNS. They are paid exactly the new quote - the
+            // guard held - but the new quote is worse than the one before the front-run,
+            // and that difference is the impact they consented to.
+            val chased = main.quote_a_for_b(100000);
+            signed(chaser.keypair, main.swap_a_for_b(100000, chased.quoted_reserve_a, chased.quoted_reserve_b));
+            val chaser_got = main.get_account(chaser.account.id)!!.token_b - main.WELCOME_B;
+            assert_equals(chaser_got, chased.out_amount);
+            assert_equals(chaser_got < fair, true);
+
+            // AND THE UNWIND IS NOW PROFITABLE - by more than 1500 on these numbers,
+            // against round 8's measured 1698. Stated here rather than hidden, because an
+            // auditor who reads the residual list must be able to check it.
+            swap_b_at_quote(attacker.keypair, got_b);
+            val gained = main.get_account(attacker.account.id)!!.token_a - attacker_a_before;
+            assert_equals(main.get_account(attacker.account.id)!!.token_b, attacker_b_before);
+            // The numbers the header quotes, asserted rather than asserted-in-prose: the
+            // chaser is short by more than 1000 (round 8 measured 1204) and the attacker
+            // is up by more than 1500 (round 8 measured 1698). If either stopped holding,
+            // the residual list would be describing something that no longer happens.
+            assert_equals(fair - chaser_got > 1000, true);
+            assert_equals(gained > 1500, true);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 8, dapp_c_amm, C-4: trudy matched the
+        // standing LP's depth in the block before a fee-bearing swap and removed her
+        // liquidity in the block after, taking half of that swap's fee for one block of
+        // inventory. Here the exit is refused until her position's term ends, so the
+        // capital that collects the fee is still carrying the price risk.
+        function test_round8_jit_liquidity_capture_must_fail() {
+            val lp = register_alice();
+            val trader = register_bob();
+            val attacker = register_trudy();
+            signed(lp.keypair, main.register_account());
+            signed(trader.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            signed(lp.keypair, main.add_liquidity(100000, 100000));
+            assert_conserved();
+
+            val attacker_a_before = main.get_account(attacker.account.id)!!.token_a;
+            val attacker_b_before = main.get_account(attacker.account.id)!!.token_b;
+
+            // THE JIT DEPOSIT. Allowed, and indistinguishable from an honest one -
+            // anyone may provide liquidity. It is the EXIT that is refused.
+            signed(attacker.keypair, main.add_liquidity(100000, 100000));
+            val jit = main.positions_of(attacker.account.id)[0];
+            assert_equals(main.get_pool().total_shares, 200000);
+            assert_conserved();
+
+            // The fee-bearing trade she is trying to rent liquidity for.
+            swap_a_at_quote(trader.keypair, 50000);
+            assert_conserved();
+
+            // THE ATTACK: out again in the very next block. REFUSED. In round 8 this
+            // succeeded and paid for one block of risk-free inventory.
+            signed_must_fail(attacker.keypair, main.remove_liquidity(jit),
+                "liquidity is committed until its term ends");
+            // Still refused ninety seconds before the term ends - the term is a real
+            // duration, not a same-block check that one extra block walks around.
+            after(main.COMMITMENT_MS - 2 * MINUTE_MS);
+            signed_must_fail(attacker.keypair, main.remove_liquidity(jit),
+                "liquidity is committed until its term ends");
+
+            // THE PROPERTY: her capital is still in the pool, so it is still carrying
+            // the price risk the fee is paid for. In round 8 it was back in her account
+            // one block after the trade.
+            val mid = main.get_account(attacker.account.id)!!;
+            assert_equals(mid.token_a, attacker_a_before - 100000);
+            assert_equals(mid.token_b, attacker_b_before - 100000);
+            assert_equals(main.get_position(jit)!!.shares, 100000);
+            assert_conserved();
+
+            // After the term she exits like any other provider - the guard is a
+            // duration, not a confiscation.
+            after(3 * MINUTE_MS);
+            signed(attacker.keypair, main.remove_liquidity(jit));
+            assert_equals(main.positions_of(attacker.account.id).size(), 0);
+            assert_equals(main.get_pool().total_shares, 100000);
+            assert_conserved();
+        }
+
+        // THE HONEST HALF OF GUARD 2: liquidity comes back, whole, to whoever committed
+        // it, and two deposits are two positions with two terms - adding again never
+        // re-dates the first, and exiting one never touches the other.
+        function test_liquidity_returns_to_its_provider_after_its_term() {
+            val lp = register_alice();
+            val trader = register_bob();
+            signed(lp.keypair, main.register_account());
+            signed(trader.keypair, main.register_account());
+
+            signed(lp.keypair, main.add_liquidity(200000, 200000));
+            after(main.COMMITMENT_MS / 2);
+            signed(lp.keypair, main.add_liquidity(50000, 50000));
+            val ids = main.positions_of(lp.account.id);
+            assert_equals(ids.size(), 2);
+            val first = ids[0];
+            val second = ids[1];
+            assert_equals(main.get_position(first)!!.shares, 200000);
+            assert_equals(main.get_position(second)!!.shares, 50000);
+            // The second deposit did not move the first position's term.
+            assert_equals(main.get_position(second)!!.unlocks_at > main.get_position(first)!!.unlocks_at, true);
+
+            val q = main.quote_a_for_b(50000);
+            signed(trader.keypair, main.swap_a_for_b(50000, q.quoted_reserve_a, q.quoted_reserve_b));
+            val trader_got = main.get_account(trader.account.id)!!.token_b - main.WELCOME_B;
+            assert_equals(trader_got, q.out_amount);
+            assert_conserved();
+
+            // The first term ends; the second has not.
+            after(main.COMMITMENT_MS / 2 + MINUTE_MS);
+            signed_must_fail(lp.keypair, main.remove_liquidity(second),
+                "liquidity is committed until its term ends");
+            signed(lp.keypair, main.remove_liquidity(first));
+            assert_equals(main.positions_of(lp.account.id).size(), 1);
+            assert_equals(main.get_pool().total_shares, 50000);
+            assert_conserved();
+
+            // A burned position cannot be burned again.
+            signed_must_fail(lp.keypair, main.remove_liquidity(first), "no such position");
+
+            // The second term ends and the pool empties exactly: the sole provider ends
+            // up with everything the trader paid in and everything the trader did not
+            // take out, and the reserves are zero.
+            after(main.COMMITMENT_MS);
+            signed(lp.keypair, main.remove_liquidity(second));
+            val ended = main.get_pool();
+            assert_equals(ended.total_shares, 0);
+            assert_equals(ended.reserve_a, 0);
+            assert_equals(ended.reserve_b, 0);
+            val back = main.get_account(lp.account.id)!!;
+            assert_equals(back.token_a, main.WELCOME_A + 50000);
+            assert_equals(back.token_b, main.WELCOME_B - trader_got);
+            assert_conserved();
+        }
+
+        // THE CURVE'S OWN INVARIANT, which the round-8 build proved and shipped: k never
+        // falls. Twenty round trips of three units each, every one a chance for integer
+        // division to round in the trader's favour - and here it is enforced by a
+        // require() in execute_swap, not only asserted afterwards.
+        function test_k_never_falls_under_grinding() {
+            val lp = register_alice();
+            val grinder = register_bob();
+            signed(lp.keypair, main.register_account());
+            signed(grinder.keypair, main.register_account());
+            signed(lp.keypair, main.add_liquidity(500000, 500000));
+
+            var i = 0;
+            var previous = main.k();
+            while (i < 20) {
+                swap_a_at_quote(grinder.keypair, 3);
+                val after_a = main.k();
+                assert_equals(after_a >= previous, true);
+                previous = after_a;
+                swap_b_at_quote(grinder.keypair, 3);
+                val after_b = main.k();
+                assert_equals(after_b >= previous, true);
+                previous = after_b;
+                i += 1;
+            }
+            // The grinder is strictly poorer for it: the fee is the whole point.
+            val g = main.get_account(grinder.account.id)!!;
+            assert_equals(g.token_a + g.token_b < main.WELCOME_A + main.WELCOME_B, true);
+            assert_conserved();
+        }
+
+        // The ERC-4626 / Uniswap first-depositor inflation steal, refused at both ends:
+        // a seed too small to price against is refused outright, and a later deposit
+        // that would round to zero shares is REFUSED rather than swallowed.
+        function test_first_depositor_inflation_refuses_instead_of_swallowing() {
+            val attacker = register_alice();
+            val victim = register_bob();
+            signed(attacker.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+
+            signed_must_fail(attacker.keypair, main.add_liquidity(1, 1),
+                "the first deposit is too small to seed the pool");
+            signed(attacker.keypair, main.add_liquidity(1000, 1000));
+            assert_conserved();
+
+            // Skew the pool as far as one swap is allowed to.
+            swap_a_at_quote(attacker.keypair, 500000);
+            assert_equals(main.get_pool().reserve_b < 10, true);
+
+            // The victim's balanced dust deposit mints nothing, so it is refused rather
+            // than taken. In the inflated-share attack this is where the victim's money
+            // disappears into the attacker's share price.
+            signed_must_fail(victim.keypair, main.add_liquidity(1, 1), "deposit too small to mint a share");
+            assert_equals(main.positions_of(victim.account.id).size(), 0);
+            assert_conserved();
+        }
+
+        // INPUT BOUNDS + OWNERSHIP: nobody can swap tokens they do not have, deposit off
+        // the pool's ratio, withdraw somebody else's position, or withdraw their own
+        // before its term.
+        function test_bounds_and_ownership() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed_must_fail(alice.keypair, main.register_account(), "already registered");
+            signed(alice.keypair, main.add_liquidity(500000, 500000));
+            val pos = main.positions_of(alice.account.id)[0];
+            val q = main.quote_a_for_b(1000);
+
+            // trudy never registered.
+            signed_must_fail(trudy.keypair, main.swap_a_for_b(1000, q.quoted_reserve_a, q.quoted_reserve_b),
+                "register an account first");
+            signed_must_fail(bob.keypair, main.swap_a_for_b(0, q.quoted_reserve_a, q.quoted_reserve_b),
+                "amount must be positive");
+            signed_must_fail(bob.keypair, main.swap_a_for_b(main.MAX_AMOUNT + 1, q.quoted_reserve_a, q.quoted_reserve_b),
+                "amount too large");
+            signed_must_fail(bob.keypair, main.swap_a_for_b(main.WELCOME_A + 1, q.quoted_reserve_a, q.quoted_reserve_b),
+                "insufficient balance");
+            // A quote for the wrong pool state is refused whichever way it is wrong.
+            signed_must_fail(bob.keypair, main.swap_a_for_b(1000, q.quoted_reserve_a + 1, q.quoted_reserve_b),
+                "the pool moved since you quoted");
+            signed_must_fail(bob.keypair, main.swap_b_for_a(1000, q.quoted_reserve_a, q.quoted_reserve_b - 1),
+                "the pool moved since you quoted");
+            // An unbalanced deposit is refused, not silently donated to the LPs.
+            signed_must_fail(bob.keypair, main.add_liquidity(1000, 2000), "deposit must match the pool ratio");
+            signed_must_fail(bob.keypair, main.add_liquidity(1000, 0), "amount must be positive");
+            signed_must_fail(trudy.keypair, main.add_liquidity(1000, 1000), "register an account first");
+            signed_must_fail(alice.keypair, main.remove_liquidity(999), "no such position");
+            // Alice's own position, before its term.
+            signed_must_fail(alice.keypair, main.remove_liquidity(pos),
+                "liquidity is committed until its term ends");
+            assert_conserved();
+
+            // AFTER the term, so the refusal below can only be about ownership: bob
+            // cannot burn alice's position and take her reserves.
+            after(main.COMMITMENT_MS + MINUTE_MS);
+            signed_must_fail(bob.keypair, main.remove_liquidity(pos),
+                "only the owner may withdraw this position");
+            assert_equals(main.get_position(pos)!!.shares, 500000);
+            signed(alice.keypair, main.remove_liquidity(pos));
+            assert_equals(main.get_pool().total_shares, 0);
             assert_conserved();
         }
     """.trimIndent() + "\n"
