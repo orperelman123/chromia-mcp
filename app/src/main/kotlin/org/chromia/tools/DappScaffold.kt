@@ -564,11 +564,28 @@ object DappScaffold {
         // NEVER import lib.ft4.admin, lib.ft4.core.admin, admin.crosschain,
         // ras_open, ras_transfer_open, or lib.ft4.core.accounts.strategies.open.
 
+        // The greeting is owned. `owner` is empty until the first rename claims it,
+        // and after that only that signer can rename - authenticate, authorise, then
+        // validate, which is the order every other template uses.
         object my_name {
           mutable name = "World";
+          mutable owner: byte_array = x"";
         }
 
+        // THE DEFAULT MUST BE THE SAFE ONE, because it is what gets copied. This
+        // operation used to be `my_name.name = name;` with no auth and no validation -
+        // and worse, an OBJECT FIELD WRITE is a mutation that rell_security_check could
+        // not see at all, because it looked for create/update/delete and an assignment
+        // contains none of those words. So the template every un-templated ask falls
+        // back to taught an unauthenticated write in the one spelling the gate was blind
+        // to. Both halves are fixed; this is what the safe shape looks like.
         operation set_name(name) {
+          require(name.size() > 0 and name.size() <= 64, "name must be 1-64 characters");
+          if (my_name.owner == x"") {
+            // Trust on first use: whoever renames it first owns it from then on.
+            my_name.owner = op_context.get_signers()[0];
+          }
+          require(op_context.is_signer(my_name.owner), "only the owner can rename this");
           my_name.name = name;
         }
 

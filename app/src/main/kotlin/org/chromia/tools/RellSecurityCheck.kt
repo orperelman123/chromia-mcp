@@ -128,6 +128,36 @@ object RellSecurityCheck {
     // targets with no space (`delete(u);`, `update(u)(...)`), which `\s` missed;
     // `created` / `update_helper(` still cannot match thanks to the \b.
     private val MUTATION_REGEX = Regex("""\b(create|update|delete)\b[\s(]""")
+
+    // A MUTATION IS NOT ONLY create/update/delete. Rell also mutates through a plain
+    // assignment to an `object` field - `config.fee = f`, `pool.reserve -= x` - and
+    // none of those three words appears in one. An operation whose ONLY mutation was
+    // an object write was therefore invisible to unauthenticated-mutation: no auth
+    // check, no finding, ok:true. The DEFAULT template taught precisely that shape,
+    // and `hello` is what an agent gets for any un-templated ask - principle 1, with
+    // the gate blind underneath it. Nine adversary rounds missed it because the
+    // pinned a1-unauth-mutation sample uses entity rows, which the keyword form
+    // already matched: the corpus reported this class CAUGHT while one of its two
+    // spellings was never checked. Found by reading the guidance, not the tests.
+    //
+    // The `(?!=)` is load-bearing. `==`, `>=`, `<=` and `!=` all contain an `=` and
+    // none of them writes anything; a rule that cannot tell a read from a write fires
+    // on correct code everywhere and gets routed around (principle 3).
+    //
+    // Kept SEPARATE from MUTATION_REGEX rather than folded into it, because
+    // harmfulMutationKindKeyedBy reads groupValues[1] to tell `create` from the rest,
+    // and an alternative that captures nothing would silently feed it an empty
+    // keyword and take the update/delete path for a statement that is neither.
+    private val OBJECT_WRITE_REGEX =
+        Regex("""\b[A-Za-z_]\w*\s*\.\s*[A-Za-z_]\w*\s*(?:\+=|-=|=(?!=))""")
+
+    private val ANY_MUTATION_REGEX =
+        Regex(MUTATION_REGEX.pattern + "|" + OBJECT_WRITE_REGEX.pattern)
+
+    /** Does this text mutate persistent state, in EITHER spelling? */
+    private fun mutatesState(text: String) =
+        MUTATION_REGEX.containsMatchIn(text) || OBJECT_WRITE_REGEX.containsMatchIn(text)
+
     // Not line-anchored: `@mount('x') operation f(...)`, `namespace a { operation g() {...} }`
     // and `} operation h(` were invisible to a ^-anchored scan (audit 2026-09-01).
     // Line numbers are computed from the keyword's own match offset.
@@ -373,7 +403,9 @@ object RellSecurityCheck {
      * must still get an unauthenticated-mutation finding (audit 2026-09-01).
      */
     internal fun mutatingFunctionNames(maskedFiles: Map<String, String>): Set<String> =
-        functionNamesMatchingSeed(maskedFiles, MUTATION_REGEX)
+        // Both spellings, or a helper whose only write is `obj.field = x` would not
+        // count as mutating and an operation calling it would look inert.
+        functionNamesMatchingSeed(maskedFiles, ANY_MUTATION_REGEX)
 
     /**
      * Names of user functions whose body matches [seed], closed over calls
@@ -3078,7 +3110,7 @@ object RellSecurityCheck {
         mutatingFunctions: Set<String>
     ): List<Finding> {
         if (!VALID_PROOF_CALL_REGEX.containsMatchIn(op.body)) return emptyList()
-        val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
+        val mutates = mutatesState(op.body) ||
             calledNames(op.body).any { it in mutatingFunctions }
         if (!mutates) return emptyList()
         if (CHAIN_BINDING_REGEX.containsMatchIn(op.body)) return emptyList()
@@ -3137,7 +3169,7 @@ object RellSecurityCheck {
             if (braceStart < 0) return@forEach
             val braceEnd = matchDelimiter(masked, braceStart, '{', '}') ?: return@forEach
             val body = masked.substring(braceStart + 1, braceEnd)
-            val mutates = MUTATION_REGEX.containsMatchIn(body) ||
+            val mutates = mutatesState(body) ||
                 calledNames(body).any { it in mutatingFunctions }
             if (!mutates) return@forEach
             // The sender is the FIRST parameter by position - its name is the
@@ -3294,7 +3326,7 @@ object RellSecurityCheck {
             val block = result.substring(j + 1, close)
             val hasAuth = containsAuthMarker(block, markers) || calledNames(block).any { it in authFns }
             val exhaustive = WHEN_ELSE_ARM_REGEX.containsMatchIn(block)
-            val hasMutation = MUTATION_REGEX.containsMatchIn(block)
+            val hasMutation = mutatesState(block)
             if (hasAuth && !exhaustive && !hasMutation) {
                 val blanked = block.map { if (it == '\n') '\n' else ' ' }.joinToString("")
                 result = result.substring(0, j + 1) + blanked + result.substring(close)
@@ -3314,7 +3346,7 @@ object RellSecurityCheck {
         fun authIn(text: String) =
             containsAuthMarker(text, markers) || calledNames(text).any { it in authFns }
         fun mutatesIn(text: String) =
-            MUTATION_REGEX.containsMatchIn(text) || calledNames(text).any { it in mutFns }
+            mutatesState(text) || calledNames(text).any { it in mutFns }
 
         val straight = StringBuilder()
         var chainAuth = false
@@ -3464,7 +3496,7 @@ object RellSecurityCheck {
             authFunctions.any { it in calls }
         val hasRequire = REQUIRE_REGEX.containsMatchIn(op.body) ||
             requireFunctions.any { it in calls }
-        val mutates = MUTATION_REGEX.containsMatchIn(op.body) ||
+        val mutates = mutatesState(op.body) ||
             mutatingFunctions.any { it in calls }
 
         if (mutates && !hasAuth) {
