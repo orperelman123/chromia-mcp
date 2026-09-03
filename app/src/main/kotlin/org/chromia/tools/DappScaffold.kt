@@ -123,7 +123,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -153,6 +153,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to marketplaceMainRell(),
                 "src/test/main_test.rell" to marketplaceTestRell()
+            )
+            "lending" -> linkedMapOf(
+                "chromia.yml" to lendingChromiaYml(chain),
+                "src/main.rell" to lendingMainRell(),
+                "src/test/main_test.rell" to lendingTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -222,6 +227,22 @@ object DappScaffold {
             can see that. Its header has an EXTENDING THIS TEMPLATE section: new market states must
             be mutually exclusive, new token-moving paths must call the same encumbrance helper, and
             new escrow rows must be added to points_in_circulation.
+            Building a lending pool, a credit line, a money market - anything where depositors hold
+            a SHARE of a pool whose value moves: start from template=lending. Round 6 drained a
+            competent hand-built one for 1500 without minting anything, because interest accrued
+            only on the paths a borrower signs, so the price of a lender share was stale between
+            touches. The template's answer is not "remember to accrue": NO CASH-DENOMINATED DEBT IS
+            STORED ANYWHERE. Positions and the pool both carry scaled_debt in index units, the cash
+            figures exist only inside a pool_state, pool_now() is the only function that makes one,
+            and every pricing helper TAKES one - so a new operation cannot price an entry or an exit
+            without a fresh state. It keeps the vault's bounded oracle, over-collateralisation, a
+            liquidation threshold with a close factor and bonus, and the minimum-first-deposit guard
+            that kills ERC-4626 share inflation; the shipped tests replay the round-6 drain
+            (10000 in, 11500 out) and require the attacker to come out no better than they went in.
+            Its oracle key is a module arg exactly like the vault's - same note as above applies.
+            Its EXTENDING section names the seam: any new operation that moves pool value in a STEP
+            rather than with the clock (a fee, a bad-debt write-off, a donation) re-opens the
+            just-in-time window, and then you need an entry/exit fee or a minimum holding period.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -244,20 +265,21 @@ object DappScaffold {
         fun has(vararg keys: String) = keys.any { it in t }
         return when {
             has("lend", "borrow", "credit", "loan", "debt", "money_market", "moneymarket", "interest", "yield_farm") ->
-                "NO TEMPLATE COVERS LENDING YET, and this is the class adversary round 6 drained. " +
-                    "Closest: `vault` for the bounded, rate-limited, staleness-checked oracle a " +
-                    "collateral check needs, and `staking` for accrual that is paid only out of a " +
-                    "funded pool. NEITHER GIVES YOU SHARE PRICING - and share pricing is exactly " +
-                    "where round 6 was drained: interest that accrues LAZILY (only inside the " +
-                    "operations a borrower signs) leaves the price of a lender share stale between " +
-                    "touches while the pending interest is already public on the loan row, so a " +
-                    "depositor buys in at the stale price, waits for the borrower's next touch and " +
-                    "withdraws at the fresh one - 10000 in, 11500 out, taken from the other lenders. " +
-                    "Nothing is minted, so every conservation invariant stays green and the security " +
-                    "gate reports zero findings. If you build one: accrue on EVERY path that reads " +
-                    "or writes the share price (deposit and withdraw included, not just borrow and " +
-                    "repay), and ship a test where a deposit-then-withdraw straddling a borrower's " +
-                    "touch gets back no more than it put in."
+                "Use `template=lending`: it is the template for this class, and this class is what " +
+                    "adversary round 6 drained. A hand-built pool accrued interest LAZILY (only " +
+                    "inside the operations a borrower signs), so the price of a lender share was " +
+                    "stale between touches while the pending interest was already public on the " +
+                    "loan row: a depositor bought in at the stale price, waited one block for the " +
+                    "borrower's next touch and withdrew at the fresh one - 10000 in, 11500 out, " +
+                    "taken from the other lenders, nothing minted, every conservation invariant " +
+                    "green and the gate reporting zero findings. The template does not ask you to " +
+                    "remember to accrue: it stores NO cash-denominated debt at all (positions and " +
+                    "the pool both carry scaled_debt in index units, the cash figures exist only " +
+                    "inside a pool_state, and every pricing helper takes one), so a new operation " +
+                    "cannot price an entry or an exit without a fresh state. It also ships the " +
+                    "vault's bounded oracle, over-collateralisation, a liquidation threshold with " +
+                    "a close factor and bonus, and the minimum-first-deposit guard that kills " +
+                    "ERC-4626 share inflation - with the round-6 drain as a must-fail test."
             has("auction", "bid", "nft", "marketplace", "listing", "royalt", "collectible") ->
                 "Use `template=marketplace`: it ships listings with exact-price buys, escrowed " +
                     "offers, AND a timed ascending auction with no mutable bid field (the standing " +
@@ -281,10 +303,11 @@ object DappScaffold {
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics."
             else ->
-                "No shipped template covers that name. The four hardened ones are `governance` " +
+                "No shipped template covers that name. The five hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
-                    "`staking` (anything paid out over time) and `marketplace` (listings, escrowed " +
-                    "offers, auctions, royalties); `ft4` is the plain token skeleton with runnable " +
+                    "`staking` (anything paid out over time), `marketplace` (listings, escrowed " +
+                    "offers, auctions, royalties) and `lending` (a pool whose SHARES have a price " +
+                    "that moves); `ft4` is the plain token skeleton with runnable " +
                     "invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +
                     "if none does, write the economic invariant test FIRST: a passing security " +
@@ -1112,14 +1135,21 @@ object DappScaffold {
      * under blockchains.<name>.
      */
     fun vaultTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
-        ft4TestModuleArgs() + mapOf(
-            "main" to mapOf("oracle_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY))
-        )
+        oracleTestModuleArgs()
 
-    private fun vaultChromiaYml(name: String): String = ft4ChromiaYml(
+    private fun vaultChromiaYml(name: String): String = oracleChromiaYml(name, "vault")
+
+    /**
+     * chromia.yml for a template whose main module reads an oracle key from
+     * configuration. The production block deliberately leaves the key UNSET -
+     * commented out with instructions - so the chain cannot be built with a
+     * placeholder; test.moduleArgs wires FT4's published test key so the
+     * shipped tests can sign price posts.
+     */
+    private fun oracleChromiaYml(name: String, owner: String): String = ft4ChromiaYml(
         name,
         productionModuleArgsNote = buildString {
-            append("      # REQUIRED before `chr build` / deploy - the vault's oracle key. It is\n")
+            append("      # REQUIRED before `chr build` / deploy - the $owner's oracle key. It is\n")
             append("      # deliberately NOT set here so the chain cannot be built with a\n")
             append("      # placeholder: put your oracle's 33-byte compressed public key here and\n")
             append("      # nowhere in source. Never copy the test key from test.moduleArgs.\n")
@@ -2908,6 +2938,1033 @@ object DappScaffold {
             // The offer escrow was never touched and is still the stranger's to take.
             signed(stranger.keypair, main.cancel_offer("strand"));
             assert_equals(main.get_balance(stranger.account.id), main.WELCOME_POINTS);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+    // ---- lending template: nothing stores a cash-denominated debt, so no share price can go stale ----
+    //
+    // Adversary round 6 (exploit-corpus/realworld/adversary-round6/dapp_b_creditline,
+    // corpus row r6-lending-jit-interest-capture) drained a competent hand-built
+    // lending pool the gate certified with ZERO findings: 10000 cash in, 11500 out,
+    // after one block in the pool. Interest accrued LAZILY - only inside the
+    // operations a BORROWER signs - so pool_value(), the price of a lender share,
+    // was stale between a borrower's touches while the pending interest was already
+    // public on the loan row. The attacker deposited at the stale price, waited one
+    // block for the borrower's next touch to land the accrual, and withdrew at the
+    // fresh one. Nothing was minted, so every conservation invariant stayed green
+    // and the gate reported nothing - the theft was from one lender to another.
+    //
+    // "A value refreshed on some paths and not others" has no rule that is both
+    // un-evadable and quiet: every formulation either misses the laundered form or
+    // fires on any lazily-updated cache. So the answer is a template (north-star
+    // principle 4), and the template's answer is not "remember to accrue" - it is
+    // that a cash-denominated debt is not stored ANYWHERE. Positions and the pool
+    // both carry `scaled_debt` in index units; the cash figures exist only inside a
+    // `pool_state`; pool_now() is the only function that makes one; and every
+    // pricing helper TAKES one. The round-6 bug is not something an extender can
+    // forget their way into - it takes hand-building a price out of the raw field.
+
+    /**
+     * Module args for the templates whose main module reads an oracle key from
+     * configuration - `vault` and `lending`. FT4's test wiring plus that key,
+     * which is FT4's published TEST admin key, used here only so the shipped
+     * tests can sign price posts. Mirrors chromia.yml's test.moduleArgs and,
+     * like them, never belongs under blockchains.<name>.
+     */
+    fun oracleTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
+        ft4TestModuleArgs() + mapOf(
+            "main" to mapOf("oracle_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY))
+        )
+
+    private fun lendingChromiaYml(name: String): String = oracleChromiaYml(name, "lending pool")
+
+    private fun lendingMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Lending template: lenders deposit cash for pool shares, borrowers lock
+        // collateral and draw cash against it at an oracle price, debt accrues
+        // interest, and an under-water position is liquidated at a bonus.
+        //
+        // Adversary round 6 (exploit-corpus/realworld/adversary-round6/dapp_b_creditline,
+        // corpus row r6-lending-jit-interest-capture) drained a competent hand-built
+        // lending pool the gate certified with ZERO findings: 10000 cash in, 11500 out,
+        // after one block in the pool. Interest accrued LAZILY - inside the operations a
+        // BORROWER signs - so the pool's cash-denominated debt counter, and with it the
+        // price of a lender share, was stale between a borrower's touches while the
+        // pending interest was already public on the loan row. The attacker deposited at
+        // the stale price, waited for the borrower's next touch to land the accrual, and
+        // withdrew at the fresh one. Nothing was minted, so every conservation invariant
+        // stayed green: the theft was from one lender to another.
+        //
+        // That shape - "a value refreshed on some paths and not others" - has no static
+        // rule that is both un-evadable and quiet, so the answer is a template
+        // (north-star principle 4).
+        //
+        // THE GUARD THAT MAKES IT UNWRITABLE: NOTHING HERE STORES A CASH-DENOMINATED DEBT.
+        //   * A position stores `scaled_debt`, denominated in INDEX units, never in cash.
+        //     The pool stores `scaled_debt` too - the exact sum of the positions' - in the
+        //     same units. Neither is a snapshot of anything, so neither can go stale.
+        //   * The cash a position owes, and the value a share is a claim on, exist ONLY
+        //     inside a `pool_state`, and `pool_now()` is the ONLY function that makes one.
+        //     It reads the block clock every time it is called.
+        //   * `debt_of`, `shares_for`, `cash_for`, `payment_for` and `is_liquidatable`
+        //     each TAKE a `pool_state`. A new operation therefore cannot price an entry
+        //     or an exit without holding one, and cannot hold one without having called
+        //     pool_now() in this operation. Forgetting is not possible; the only way back
+        //     to the round-6 bug is to hand-build a price out of the raw `scaled_debt`
+        //     field - a deliberate act a reviewer can see, not an omission.
+        //   * The index is a PURE FUNCTION OF THE BLOCK CLOCK - simple interest since the
+        //     pool's first priced block - so there is no "index at last accrual" to
+        //     refresh and no accrue() to forget to call. `opened_at` is written once, by
+        //     the first operation that ever prices anything, and never again.
+        //
+        // THE OTHER FIVE GUARDS, all of which round 6's build already refused with and
+        // which are kept here unchanged in substance:
+        //   OVER-COLLATERALISED - a borrow is capped at MAX_LTV_BPS of what the collateral
+        //                     is worth at a FRESH price, checked against the position's
+        //                     whole debt every time, so slicing it into pieces gains
+        //                     nothing; remove_collateral re-checks the same limit.
+        //   BOUNDED ORACLE  - the vault template's price feed: one configured key, a move
+        //                     capped at MAX_PRICE_MOVE_BPS, at most one post per
+        //                     MIN_PRICE_UPDATE_INTERVAL_MS, and a price older than
+        //                     MAX_PRICE_AGE_MS is not a price - everything that needs one
+        //                     refuses rather than using the last number it saw.
+        //   LIQUIDATION     - past LIQUIDATION_THRESHOLD_BPS anyone but the borrower may
+        //                     repay at most CLOSE_FACTOR_BPS of the debt and seize
+        //                     collateral worth that plus LIQUIDATION_BONUS_BPS, priced at
+        //                     the same fresh price the health check used. The bonus comes
+        //                     out of the liquidated position's own collateral, so a pair
+        //                     of accounts under one hand nets exactly zero.
+        //   FIRST DEPOSIT   - the ERC-4626 first-depositor inflation steal starts by
+        //                     seeding the pool with one unit. A first deposit must be at
+        //                     least MIN_INITIAL_DEPOSIT, and any deposit that would mint
+        //                     zero shares is REFUSED rather than swallowed, so the victim
+        //                     keeps their cash instead of handing it to the seed.
+        //   SATURATING      - every derived cash figure saturates instead of overflowing.
+        //                     An aborting arithmetic would make a position un-priceable
+        //                     and therefore un-liquidatable, which is worse than a debt
+        //                     that stops growing.
+        //
+        // EXTENDING THIS TEMPLATE - the seams a static rule cannot see, and where round 6
+        // went wrong:
+        //   1. EVERY PATH THAT READS OR WRITES THE SHARE PRICE MUST PRICE THROUGH
+        //      pool_now(). Not "must remember to accrue first" - there is nothing to
+        //      accrue. The rule is: never read `pool.total_scaled_debt`, `loan.scaled_debt` or
+        //      `pool.total_shares` to build a cash number yourself. Pass a `pool_state`
+        //      to debt_of / shares_for / cash_for / payment_for and let them do it. Those
+        //      raw fields are in INDEX units; treating one as cash IS the round-6 drain,
+        //      and it is the one edit to this file to refuse.
+        //   2. ANY NEW OPERATION THAT MOVES POOL VALUE IN A STEP RE-OPENS THE JIT WINDOW.
+        //      Here value moves only with the clock, continuously, so a deposit held for
+        //      one block earns one block of interest and a one-block round trip cannot
+        //      come out ahead - which is why this template needs no deposit lock-up and
+        //      no exit fee. Add a protocol fee, a bad-debt write-off, a donation or a
+        //      rewards drop and value moves in a JUMP: a depositor can then buy the jump,
+        //      or exit just before a write-down, in one block, and you need an entry/exit
+        //      fee or a minimum holding period. That is a product decision with real
+        //      costs, not something a template can decide for you.
+        //   3. EVERY NEW ROW THAT HOLDS CASH MUST BE ADDED TO cash_in_circulation(), AND
+        //      EVERY NEW ROW THAT HOLDS DEBT TO scaled_debt_matches_positions(). The
+        //      shipped tests compare those to fixed totals after every step; a row they
+        //      do not sum makes the invariant pass while value goes missing.
+        //
+        // WHAT NO TEMPLATE CAN FIX, stated rather than implied:
+        //   - One oracle key posts the price. An honest-but-wrong post still moves who is
+        //     liquidatable; the bound and the interval cap how fast, not whether.
+        //   - While the oracle is silent NOBODY is liquidatable - the freshness check
+        //     halts liquidation exactly as it halts borrowing. That is a deliberate
+        //     trade: no liquidations at a stale price, at the cost of bad debt in an
+        //     outage.
+        //   - Liquidation is a race between liquidators and the bonus is what pays for
+        //     it; a borrower watching the chain can always add collateral first.
+        //   - A position that goes under water faster than liquidators arrive leaves BAD
+        //     DEBT, and this template has no write-off: the loss sits in the share price
+        //     as debt that will never be repaid. Adding a write-off is seam 2 above.
+        //   - The interest RATE is your economics. So are MAX_LTV_BPS, the threshold, the
+        //     bonus and the close factor: they decide whether liquidators show up before
+        //     a position goes under water, and no template can size them for your asset.
+        //   - Every rounding is in the pool's favour by at most one unit: a borrow records
+        //     at least what it took out, a payment retires only the units it covers and
+        //     is charged the rounded-up price of exactly those, and what the pool is
+        //     worth is rounded down. Dust accumulates to the lenders and never leaves.
+        //   - Amounts here are WHOLE units. Because a position's debt is stored in index
+        //     units, a borrow smaller than the index ratio rounds against the borrower -
+        //     harmless at a token's smallest denomination, which is what FT4 assets use,
+        //     and visible if you denominate in whole tokens.
+
+        struct module_args {
+            oracle_pubkey: pubkey;
+        }
+
+        entity account {
+            key owner: byte_array;
+            mutable cash: integer = 0;
+            mutable tokens: integer = 0;
+        }
+
+        // A lender's claim on the pool.
+        entity lender {
+            key owner: byte_array;
+            mutable shares: integer = 0;
+        }
+
+        // One position per borrower. `scaled_debt` is denominated in INDEX units, NOT in
+        // cash: what is owed is scaled_debt times the CURRENT index, and the current
+        // index comes from pool_now(). There is deliberately no cash `principal` field
+        // and no per-loan `accrued_at` - those are the two fields that go stale, and
+        // their staleness is the round-6 drain.
+        entity loan {
+            key borrower: byte_array;
+            mutable scaled_debt: integer = 0;
+            mutable collateral: integer = 0;
+        }
+
+        object pool {
+            mutable cash_available: integer = 0;
+            // The exact sum of every position's scaled_debt, in the SAME index units, so
+            // it cannot drift out of date. Never read this as a cash amount.
+            mutable total_scaled_debt: integer = 0;
+            mutable total_shares: integer = 0;
+            // The interest clock's anchor: written once, by the first operation that ever
+            // prices anything, and never again. Nothing else in this module writes them.
+            mutable opened: boolean = false;
+            mutable opened_at: timestamp = 0;
+        }
+
+        // price == 0 means "never posted": nothing that needs a price may run.
+        object price_feed {
+            mutable price: integer = 0;
+            mutable updated_at: timestamp = 0;
+        }
+
+        val BPS = 10000;
+        // Cash per token, scaled: PRICE_SCALE == 1.00.
+        val PRICE_SCALE = 1000000;
+        val MAX_PRICE = 1000 * PRICE_SCALE;
+        // A post may move the price at most 20% from the previous one...
+        val MAX_PRICE_MOVE_BPS = 2000;
+        // ...and at most once an hour.
+        val MIN_PRICE_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
+        // A price older than a day is not a price.
+        val MAX_PRICE_AGE_MS = 24 * 60 * 60 * 1000;
+
+        // Bound every amount BEFORE it is multiplied by a price: Rell integers are
+        // 64-bit and an overflow aborts.
+        val MAX_AMOUNT = 1000000000;
+        // One position's debt saturates here so that every ratio below stays inside a
+        // 64-bit integer; the pool's aggregate saturates at a higher ceiling.
+        val MAX_DEBT = MAX_AMOUNT;
+        val MAX_POOL_DEBT = 1000000000000000;
+
+        // INDEX_SCALE is the index's 1.00: a position's debt in cash is
+        // scaled_debt * index / INDEX_SCALE.
+        val INDEX_SCALE = 1000000000;
+        // The index stops growing at 100x - about two thousand years at the default
+        // rate - so the arithmetic can never abort.
+        val MAX_INDEX = 100 * INDEX_SCALE;
+
+        // Borrow up to 60% of collateral value...
+        val MAX_LTV_BPS = 6000;
+        // ...liquidatable once debt passes 75% of it...
+        val LIQUIDATION_THRESHOLD_BPS = 7500;
+        // ...and the liquidator seizes 10% more collateral than they repaid.
+        val LIQUIDATION_BONUS_BPS = 1000;
+        // At most half a position may be closed in one liquidation.
+        val CLOSE_FACTOR_BPS = 5000;
+
+        val YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+        val INTEREST_RATE_BPS_PER_YEAR = 500;
+
+        // The first deposit into an empty pool must be large enough that no later
+        // deposit can be rounded away against it (the ERC-4626 inflation steal seeds
+        // the pool with one unit).
+        val MIN_INITIAL_DEPOSIT = 1000;
+
+        // The one-time welcome grant is the ONLY place cash or tokens are created
+        // (a stand-in for a real deposit - replace it with an FT4 asset transfer and
+        // keep the same discipline).
+        val WELCOME_CASH = 10000;
+        val WELCOME_TOKENS = 100;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
+        // with contains_all(), and contains_all([]) is always true - never weaken
+        // this default.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        // Exposed so the shipped tests can sign price posts with the configured key.
+        function oracle_pubkey(): pubkey = chain_context.args.oracle_pubkey;
+
+        // -------------------------- THE ONE PRICING HELPER --------------------------
+
+        // Everything a path needs in order to price an entry or an exit, computed from
+        // the block clock at the moment it is asked for. Nothing in this module stores a
+        // cash-denominated debt or a share price, so this struct is the only place
+        // either one exists.
+        struct pool_state {
+            debt_index: integer;
+            debt: integer;
+            value: integer;
+            shares: integer;
+        }
+
+        // The interest index: simple interest since the pool's first priced block, times
+        // INDEX_SCALE. A PURE FUNCTION OF THE BLOCK CLOCK - it is not stored, so there is
+        // no cached copy to refresh and no accrual to forget.
+        function current_index(): integer {
+            if (not pool.opened) return INDEX_SCALE;
+            val elapsed = op_context.last_block_time - pool.opened_at;
+            if (elapsed <= 0) return INDEX_SCALE;
+            val growth =
+                INDEX_SCALE.to_big_integer() * INTEREST_RATE_BPS_PER_YEAR.to_big_integer() * elapsed.to_big_integer()
+                / (BPS.to_big_integer() * YEAR_MS.to_big_integer());
+            val grown = INDEX_SCALE.to_big_integer() + growth;
+            val cap = MAX_INDEX.to_big_integer();
+            return (if (grown > cap) cap else grown).to_integer();
+        }
+
+        // THE ONE HELPER. Every path that reads or writes the share price gets its
+        // numbers from here, because debt_of / shares_for / cash_for / payment_for /
+        // is_liquidatable all take the pool_state it returns and there is no other way
+        // to make one.
+        function pool_now(): pool_state {
+            if (not pool.opened) {
+                pool.opened = true;
+                pool.opened_at = op_context.last_block_time;
+            }
+            val now_index = current_index();
+            val debt = to_cash_down(pool.total_scaled_debt, now_index, MAX_POOL_DEBT);
+            return pool_state(
+                debt_index = now_index,
+                debt = debt,
+                value = pool.cash_available + debt,
+                shares = pool.total_shares
+            );
+        }
+
+        // Index units -> cash, rounded DOWN and saturated at `ceiling`. This is what a
+        // position OWES and what the pool is WORTH: never overstated, so the share price
+        // never counts value the pool has not earned and a borrow limit is never widened
+        // by rounding.
+        function to_cash_down(scaled: integer, debt_index: integer, ceiling: integer): integer {
+            if (scaled <= 0) return 0;
+            val whole = scaled.to_big_integer() * debt_index.to_big_integer() / INDEX_SCALE.to_big_integer();
+            val cap = ceiling.to_big_integer();
+            return (if (whole > cap) cap else whole).to_integer();
+        }
+
+        // Index units -> cash, rounded UP. This is what a payment is CHARGED for the
+        // units it retires, so a repayment can never buy more debt relief than it paid
+        // for. Saturating for the same reason: an aborting arithmetic would make a
+        // position un-priceable and therefore un-liquidatable.
+        function to_cash_up(scaled: integer, debt_index: integer, ceiling: integer): integer {
+            if (scaled <= 0) return 0;
+            val d = INDEX_SCALE.to_big_integer();
+            val n = scaled.to_big_integer() * debt_index.to_big_integer();
+            val whole = n / d;
+            // The remainder is smaller than INDEX_SCALE, so it always fits an integer.
+            val remainder = (n - whole * d).to_integer();
+            val cap = ceiling.to_big_integer();
+            val cash = (if (whole > cap) cap else whole).to_integer();
+            return if (remainder > 0 and cash < ceiling) cash + 1 else cash;
+        }
+
+        // Cash -> index units, rounded UP: a borrow records at least what it took out,
+        // so no amount of slicing walks cash out of the pool that nobody owes.
+        function to_scaled_up(cash: integer, debt_index: integer): integer {
+            if (cash <= 0) return 0;
+            val d = debt_index.to_big_integer();
+            val n = cash.to_big_integer() * INDEX_SCALE.to_big_integer();
+            val whole = n / d;
+            // The remainder is smaller than the index, which is bounded by MAX_INDEX.
+            val remainder = (n - whole * d).to_integer();
+            val scaled = whole.to_integer();
+            return if (remainder > 0) scaled + 1 else scaled;
+        }
+
+        // Cash -> index units, rounded DOWN: a payment retires only what it covers.
+        function to_scaled_down(cash: integer, debt_index: integer): integer {
+            if (cash <= 0) return 0;
+            return (cash.to_big_integer() * INDEX_SCALE.to_big_integer() / debt_index.to_big_integer()).to_integer();
+        }
+
+        // A payment against a position, priced in BOTH directions out of the same state:
+        // it retires as many index units as the offered cash covers, and charges for
+        // exactly those. Never more relief than was paid for, never more cash than was
+        // offered, and offering at least the whole debt clears the whole position.
+        struct payment {
+            scaled: integer;
+            cash: integer;
+        }
+
+        function payment_for(l: loan, offered: integer, st: pool_state): payment {
+            val scaled = min(l.scaled_debt, to_scaled_down(offered, st.debt_index));
+            require(scaled > 0, "payment too small to retire any debt");
+            return payment(scaled = scaled, cash = to_cash_up(scaled, st.debt_index, MAX_DEBT));
+        }
+
+        // What this position owes, in cash, right now.
+        function debt_of(l: loan, st: pool_state): integer =
+            to_cash_down(l.scaled_debt, st.debt_index, MAX_DEBT);
+
+        // The price of an entry. An empty pool mints one share per unit of cash.
+        function shares_for(cash: integer, st: pool_state): integer {
+            if (st.shares <= 0 or st.value <= 0) return cash;
+            return (cash.to_big_integer() * st.shares.to_big_integer() / st.value.to_big_integer()).to_integer();
+        }
+
+        // The price of an exit, out of the same state an entry is priced from.
+        function cash_for(shares: integer, st: pool_state): integer {
+            if (st.shares <= 0) return 0;
+            return (shares.to_big_integer() * st.value.to_big_integer() / st.shares.to_big_integer()).to_integer();
+        }
+
+        // ------------------------------- LOOKUPS ------------------------------------
+
+        function account_of(owner: byte_array): account =
+            require(account @? { .owner == owner }, "register an account first");
+
+        function loan_of(borrower: byte_array): loan {
+            val l = loan @? { .borrower == borrower };
+            if (l != null) return l;
+            return create loan(borrower = borrower);
+        }
+
+        function lender_of(owner: byte_array): lender {
+            val l = lender @? { .owner == owner };
+            if (l != null) return l;
+            return create lender(owner = owner, shares = 0);
+        }
+
+        // A price that is missing or stale is not a price: everything that depends on
+        // one refuses rather than using the last number it saw.
+        function fresh_price(): integer {
+            require(price_feed.price > 0, "no price posted yet");
+            require(op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS, "price is stale");
+            return price_feed.price;
+        }
+
+        function collateral_value(tokens: integer, price: integer): integer {
+            require(tokens >= 0 and tokens <= MAX_AMOUNT, "collateral out of range");
+            return tokens * price / PRICE_SCALE;
+        }
+
+        // A position is liquidatable when its debt has passed LIQUIDATION_THRESHOLD_BPS
+        // of what its collateral is worth right now. It takes the pool_state, so it
+        // cannot be asked about a stale debt.
+        function is_liquidatable(l: loan, st: pool_state, price: integer): boolean {
+            val owed = debt_of(l, st);
+            if (owed <= 0) return false;
+            return owed * BPS > collateral_value(l.collateral, price) * LIQUIDATION_THRESHOLD_BPS;
+        }
+
+        // ------------------------------- ORACLE ------------------------------------
+
+        // The oracle key is configured, never a parameter and never in source.
+        operation set_price(new_price: integer) {
+            require(op_context.is_signer(chain_context.args.oracle_pubkey), "not the oracle");
+            require(new_price > 0, "price must be positive");
+            require(new_price <= MAX_PRICE, "price too high");
+            val now = op_context.last_block_time;
+            if (price_feed.price > 0) {
+                require(
+                    now - price_feed.updated_at >= MIN_PRICE_UPDATE_INTERVAL_MS,
+                    "price posted too soon"
+                );
+                val previous = price_feed.price;
+                val move = if (new_price > previous) new_price - previous else previous - new_price;
+                require(move * BPS <= previous * MAX_PRICE_MOVE_BPS, "price move too large");
+            }
+            price_feed.price = new_price;
+            price_feed.updated_at = now;
+        }
+
+        // ------------------------------ ACCOUNTS -----------------------------------
+
+        operation register_account() {
+            val acc = auth.authenticate();
+            require(account @? { .owner == acc.id } == null, "already registered");
+            create account(owner = acc.id, cash = WELCOME_CASH, tokens = WELCOME_TOKENS);
+        }
+
+        // ------------------------------- LENDING -----------------------------------
+
+        operation deposit_cash(amount: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
+            require(me.cash >= amount, "insufficient cash");
+            val st = pool_now();
+            require(st.shares > 0 or amount >= MIN_INITIAL_DEPOSIT, "the first deposit is too small to seed the pool");
+            val minted = shares_for(amount, st);
+            require(minted > 0, "deposit too small to mint a share");
+            val position = lender_of(acc.id);
+            // The depositor's cash is the pool's credit, in the same operation.
+            update me ( .cash -= amount );
+            pool.cash_available += amount;
+            pool.total_shares += minted;
+            update position ( .shares += minted );
+        }
+
+        operation withdraw_cash(shares: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            val position = lender_of(acc.id);
+            require(shares > 0, "shares must be positive");
+            require(position.shares >= shares, "not enough shares");
+            val st = pool_now();
+            require(st.shares > 0, "pool is empty");
+            val amount = cash_for(shares, st);
+            require(amount > 0, "nothing to withdraw");
+            // Only cash the pool actually holds can leave it - what is out on loan is
+            // not withdrawable until it is repaid.
+            require(pool.cash_available >= amount, "pool is illiquid - wait for repayments");
+            update position ( .shares -= shares );
+            pool.total_shares -= shares;
+            pool.cash_available -= amount;
+            update me ( .cash += amount );
+        }
+
+        // ------------------------------ BORROWING ----------------------------------
+
+        operation add_collateral(amount: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
+            require(me.tokens >= amount, "insufficient tokens");
+            val l = loan_of(acc.id);
+            require(l.collateral + amount <= MAX_AMOUNT, "collateral too large");
+            update me ( .tokens -= amount );
+            update l ( .collateral += amount );
+        }
+
+        operation remove_collateral(amount: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            val l = loan_of(acc.id);
+            require(amount > 0, "amount must be positive");
+            require(l.collateral >= amount, "not that much collateral");
+            val st = pool_now();
+            val owed = debt_of(l, st);
+            if (owed > 0) {
+                // Withdrawing collateral must leave the position within the borrow limit
+                // at a FRESH price, never the last one seen.
+                val price = fresh_price();
+                val remaining = collateral_value(l.collateral - amount, price);
+                require(owed * BPS <= remaining * MAX_LTV_BPS, "that would put the position under water");
+            }
+            update l ( .collateral -= amount );
+            update me ( .tokens += amount );
+        }
+
+        operation borrow(amount: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
+            val l = loan_of(acc.id);
+            val st = pool_now();
+            val price = fresh_price();
+            val owed = debt_of(l, st);
+            val borrow_limit = collateral_value(l.collateral, price) * MAX_LTV_BPS / BPS;
+            require(owed + amount <= borrow_limit, "over the borrow limit");
+            require(owed + amount <= MAX_AMOUNT, "debt too large");
+            require(pool.cash_available >= amount, "pool is illiquid");
+            // What the position records is at least what left the pool.
+            val added = to_scaled_up(amount, st.debt_index);
+            // Cash leaves the pool and lands on the borrower; the debt records it.
+            pool.cash_available -= amount;
+            pool.total_scaled_debt += added;
+            update l ( .scaled_debt += added );
+            update me ( .cash += amount );
+        }
+
+        operation repay(amount: integer) {
+            val acc = auth.authenticate();
+            val me = account_of(acc.id);
+            val l = loan_of(acc.id);
+            require(amount > 0, "amount must be positive");
+            require(l.scaled_debt > 0, "nothing owed");
+            val st = pool_now();
+            // Offering more than is owed pays what is owed: payment_for clamps to the
+            // position and charges for exactly the units it retires.
+            val p = payment_for(l, amount, st);
+            require(me.cash >= p.cash, "insufficient cash");
+            update me ( .cash -= p.cash );
+            pool.cash_available += p.cash;
+            pool.total_scaled_debt -= p.scaled;
+            update l ( .scaled_debt -= p.scaled );
+        }
+
+        // ----------------------------- LIQUIDATION ---------------------------------
+
+        operation liquidate(borrower: byte_array, repay_amount: integer) {
+            val acc = auth.authenticate();
+            val liquidator = account_of(acc.id);
+            require(borrower != acc.id, "cannot liquidate your own position");
+            val l = require(loan @? { .borrower == borrower }, "no such position");
+            val st = pool_now();
+            val price = fresh_price();
+            require(is_liquidatable(l, st, price), "position is healthy");
+            require(repay_amount > 0, "amount must be positive");
+            val max_close = debt_of(l, st) * CLOSE_FACTOR_BPS / BPS;
+            require(repay_amount <= max_close, "over the close factor");
+            val p = payment_for(l, repay_amount, st);
+            require(liquidator.cash >= p.cash, "insufficient cash");
+            // Collateral worth the repayment plus the bonus, priced at the same fresh
+            // price the health check used.
+            val seize_value = p.cash * (BPS + LIQUIDATION_BONUS_BPS) / BPS;
+            val seize = seize_value * PRICE_SCALE / price;
+            require(seize > 0, "nothing to seize");
+            require(seize <= l.collateral, "not enough collateral to cover the bonus");
+            // Cash goes to the pool, collateral to the liquidator; the debt and the
+            // pool's record of it fall by the same amount, all in this operation.
+            update liquidator ( .cash -= p.cash, .tokens += seize );
+            pool.cash_available += p.cash;
+            pool.total_scaled_debt -= p.scaled;
+            update l ( .scaled_debt -= p.scaled, .collateral -= seize );
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+        // A query has no block clock, so nothing here can report a cash-denominated debt
+        // or a share price: those exist only inside an operation's pool_state. What a
+        // client needs to compute them itself - the scaled totals, the rate and the
+        // pool's anchor - is all public below.
+
+        query get_account(owner: byte_array) {
+            val a = account @? { .owner == owner };
+            return if (a != null) (cash = a.cash, tokens = a.tokens) else null;
+        }
+
+        query get_loan(borrower: byte_array) {
+            val l = loan @? { .borrower == borrower };
+            return if (l != null) (scaled_debt = l.scaled_debt, collateral = l.collateral) else null;
+        }
+
+        query get_shares(owner: byte_array): integer {
+            val l = lender @? { .owner == owner };
+            return if (l != null) l.shares else 0;
+        }
+
+        query get_pool() = (
+            cash_available = pool.cash_available,
+            total_scaled_debt = pool.total_scaled_debt,
+            total_shares = pool.total_shares,
+            opened_at = pool.opened_at,
+            index_scale = INDEX_SCALE,
+            rate_bps_per_year = INTEREST_RATE_BPS_PER_YEAR
+        );
+
+        query get_price() = (price = price_feed.price, updated_at = price_feed.updated_at);
+
+        query account_count(): integer = account @* {} ( .owner ).size();
+
+        // INVARIANT: cash is never created. Every unit is either on an account or in the
+        // pool's own balance; a loan MOVES cash and interest only creates a CLAIM.
+        query cash_in_circulation(): integer {
+            var total = pool.cash_available;
+            for (c in account @* {} ( .cash )) total += c;
+            return total;
+        }
+
+        // INVARIANT: collateral is never created either - it is on an account or locked
+        // in a position.
+        query tokens_in_circulation(): integer {
+            var total = 0;
+            for (t in account @* {} ( .tokens )) total += t;
+            for (c in loan @* {} ( .collateral )) total += c;
+            return total;
+        }
+
+        // INVARIANT: what the pool records as lent out is EXACTLY what the positions say
+        // they owe - exactly, because both are in the same index units. A
+        // cash-denominated version of this counter is what went stale in round 6.
+        query scaled_debt_matches_positions(): boolean {
+            var total = 0;
+            for (s in loan @* {} ( .scaled_debt )) total += s;
+            return total == pool.total_scaled_debt;
+        }
+    """.trimIndent() + "\n"
+
+    private fun lendingTestRell(): String = """
+        @test module;
+
+        // The lending template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block, which carries the oracle key the
+        // tests sign with) or `chr test`.
+        //
+        // test_round6_jit_interest_capture_must_fail replays the adversary's drain
+        // against this template step for step - the same 10000 cash, the same ten-year
+        // wait, the same one-block round trip straddling the borrower's touch - and
+        // requires the attacker to come out no better than they went in. It can only
+        // pass while every entry and exit is priced through pool_now().
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        // The oracle keypair: FT4's published test key, wired through test.moduleArgs
+        // (lib.ft4.test.core.auth.admin_priv_key + main.oracle_pubkey).
+        function oracle(): rell.test.keypair =
+            rell.test.keypair(priv = admin_priv_key(), pub = main.oracle_pubkey());
+
+        function post_price(price: integer) {
+            rell.test.tx().op(main.set_price(price)).nop().sign(oracle()).run();
+        }
+
+        function post_price_must_fail(price: integer, expected: text) {
+            rell.test.tx().op(main.set_price(price)).nop().sign(oracle()).run_must_fail(expected);
+        }
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(op)
+                .nop()
+                .sign(keypair)
+                .run_must_fail(expected);
+        }
+
+        // Stamp the next block `ms` after the last one.
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        // Cash and collateral are never created: every unit is on an account or in the
+        // pool, and what the pool records as lent out is EXACTLY what the positions say
+        // they owe - exactly, because both are counted in the same index units.
+        function assert_conserved() {
+            assert_equals(main.cash_in_circulation(), main.account_count() * main.WELCOME_CASH);
+            assert_equals(main.tokens_in_circulation(), main.account_count() * main.WELCOME_TOKENS);
+            assert_true(main.scaled_debt_matches_positions());
+        }
+
+        val HOUR = 60 * 60 * 1000;
+
+        // EXPLOIT MUST FAIL. Adversary round 6, corpus row r6-lending-jit-interest-capture:
+        // the attacker deposits at a share price that has not seen ten years of pending
+        // interest, waits one block for the borrower's next touch to land the accrual,
+        // and withdraws at the fresh price - 10000 in, 11500 out, taken from the honest
+        // lender. Here the entry is priced out of the SAME pool_state the exit will be,
+        // so the round trip earns one block of interest, which is nothing.
+        function test_round6_jit_interest_capture_must_fail() {
+            val honest = register_alice();
+            val borrower = register_bob();
+            val attacker = register_trudy();
+            signed(honest.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+
+            // The honest lender funds the pool and a borrower draws against collateral.
+            signed(honest.keypair, main.deposit_cash(10000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(6000));
+            assert_equals(main.get_shares(honest.account.id), 10000);
+            assert_equals(main.get_pool().total_scaled_debt, 6000);
+            assert_conserved();
+
+            // Ten years pass. 6000 at 5% simple is 3000 of interest the honest lender's
+            // capital earned. Nobody has touched the position - and it does not matter,
+            // because the index is a function of the clock, not of the touches.
+            after(10 * main.YEAR_MS);
+            assert_equals(main.get_pool().total_scaled_debt, 6000);
+
+            // The attacker buys in. The pool is already worth 4000 cash + 9000 debt.
+            signed(attacker.keypair, main.deposit_cash(10000));
+            val bought = main.get_shares(attacker.account.id);
+            assert_conserved();
+
+            // The borrower touches the position - in round 6 this is the block that
+            // landed the accrual and made the attacker's shares jump.
+            signed(borrower.keypair, main.repay(2));
+
+            // The attacker exits after one block in the pool.
+            signed(attacker.keypair, main.withdraw_cash(bought));
+            val out = main.get_account(attacker.account.id)!!.cash;
+            // THE DRAIN, REFUSED: 10000 went in and no more than 10000 comes out.
+            assert_equals(out > main.WELCOME_CASH, false);
+            assert_equals(out, 9999);
+            assert_equals(main.get_shares(attacker.account.id), 0);
+            // ...and the reason is the entry price: 10000 cash bought 7692 shares, not
+            // 10000, because the pool was already worth 13000 when they deposited.
+            assert_equals(bought, 7692);
+            assert_conserved();
+
+            // The honest lender's yield is still theirs: 30% of their position comes
+            // back as 3900, not 3000.
+            signed(honest.keypair, main.withdraw_cash(3000));
+            assert_equals(main.get_account(honest.account.id)!!.cash, 3900);
+            assert_conserved();
+        }
+
+        // REFUSED. Liquidating a healthy position, tried with every argument the caller
+        // controls: an absurd repay amount, a zero, a negative, a position with no debt,
+        // the caller's own position, and one that a bounded price post has merely moved
+        // close to the line.
+        function test_healthy_position_cannot_be_liquidated() {
+            val lender = register_alice();
+            val victim = register_bob();
+            val attacker = register_trudy();
+            signed(lender.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(victim.keypair, main.add_collateral(100));
+            signed(victim.keypair, main.borrow(6000));
+
+            // A repayment size that WOULD be accepted on a position that really was
+            // under water - so this refusal is the health check and nothing else.
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, 2000), "position is healthy");
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, 1), "position is healthy");
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, 999999999), "position is healthy");
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, 0), "position is healthy");
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, -1), "position is healthy");
+            // A lender who never borrowed has no position at all.
+            signed_must_fail(attacker.keypair, main.liquidate(lender.account.id, 1), "no such position");
+            // Nor may a borrower liquidate themselves for the bonus.
+            signed_must_fail(victim.keypair, main.liquidate(victim.account.id, 1), "cannot liquidate your own position");
+
+            // One bounded price post is not enough to cross the threshold either.
+            after(HOUR);
+            post_price(80 * main.PRICE_SCALE);
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, 1), "position is healthy");
+            assert_conserved();
+        }
+
+        // REFUSED. The borrower tries to make an under-water position untouchable: by
+        // walking the collateral out, by borrowing more against it, and by leaving it
+        // alone in the hope the interest arithmetic overflows and makes liquidate()
+        // abort.
+        function test_under_water_position_cannot_hide() {
+            val lender = register_alice();
+            val borrower = register_bob();
+            val liquidator = register_trudy();
+            signed(lender.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            signed(liquidator.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(6000));
+            after(HOUR);
+            post_price(80 * main.PRICE_SCALE);
+            after(HOUR);
+            post_price(70 * main.PRICE_SCALE);
+
+            // Neither escape route is open.
+            signed_must_fail(borrower.keypair, main.remove_collateral(1), "that would put the position under water");
+            signed_must_fail(borrower.keypair, main.borrow(1), "over the borrow limit");
+            // Nor does waiting: the index saturates instead of aborting, so a very old
+            // position is still priceable and therefore still liquidatable. (While the
+            // oracle is silent NOBODY is liquidatable - the freshness check halts
+            // liquidation too, which is a deliberate trade and is documented as one.)
+            after(1000 * main.YEAR_MS);
+            signed_must_fail(liquidator.keypair, main.liquidate(borrower.account.id, 1000), "price is stale");
+            post_price(70 * main.PRICE_SCALE);
+            signed(liquidator.keypair, main.liquidate(borrower.account.id, 1000));
+            assert_true(main.get_loan(borrower.account.id)!!.scaled_debt < 6000);
+            assert_true(main.get_loan(borrower.account.id)!!.collateral < 100);
+            assert_conserved();
+        }
+
+        // REFUSED. The 10% bonus looks like free money to a pair of accounts under one
+        // hand. It is not: the bonus is paid out of the liquidated position's OWN
+        // collateral, so every token stays inside the pair and the only cash that moves
+        // is the repayment the pair made.
+        function test_self_liquidation_nets_nothing() {
+            val lender = register_alice();
+            val self_a = register_bob();
+            val self_b = register_trudy();
+            signed(lender.keypair, main.register_account());
+            signed(self_a.keypair, main.register_account());
+            signed(self_b.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(self_a.keypair, main.add_collateral(100));
+            signed(self_a.keypair, main.borrow(6000));
+            after(HOUR);
+            post_price(80 * main.PRICE_SCALE);
+            after(HOUR);
+            post_price(70 * main.PRICE_SCALE);
+
+            val cash_before = main.get_account(self_a.account.id)!!.cash + main.get_account(self_b.account.id)!!.cash;
+            val tokens_before = main.get_account(self_a.account.id)!!.tokens
+                + main.get_account(self_b.account.id)!!.tokens
+                + main.get_loan(self_a.account.id)!!.collateral;
+            val scaled_before = main.get_loan(self_a.account.id)!!.scaled_debt;
+
+            signed(self_b.keypair, main.liquidate(self_a.account.id, 3000));
+
+            val cash_after = main.get_account(self_a.account.id)!!.cash + main.get_account(self_b.account.id)!!.cash;
+            val tokens_after = main.get_account(self_a.account.id)!!.tokens
+                + main.get_account(self_b.account.id)!!.tokens
+                + main.get_loan(self_a.account.id)!!.collateral;
+            val scaled_after = main.get_loan(self_a.account.id)!!.scaled_debt;
+
+            // Every seized token, bonus included, stayed inside the pair...
+            assert_equals(tokens_before, tokens_after);
+            // ...the pair paid out exactly the repayment and got nothing else back...
+            assert_equals(cash_before - cash_after, 3000);
+            // ...and it bought at most 3000 of debt relief. The bonus is not income.
+            assert_true(scaled_before - scaled_after <= 3000);
+            // Half the position is the most one liquidation may close.
+            signed_must_fail(self_b.keypair, main.liquidate(self_a.account.id, 3000), "over the close factor");
+            assert_conserved();
+        }
+
+        // REFUSED. The ERC-4626 first-depositor steal: seed the pool with one unit,
+        // inflate its value so a later depositor's shares round to zero, and keep their
+        // cash. The seed itself is refused, and so is any deposit that would mint zero
+        // shares - the victim keeps their cash instead of handing it over.
+        function test_first_depositor_inflation_refuses_instead_of_swallowing() {
+            val attacker = register_alice();
+            val victim = register_bob();
+            val borrower = register_trudy();
+            signed(attacker.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+
+            // The one-unit seed the attack starts from is not allowed to exist.
+            signed_must_fail(attacker.keypair, main.deposit_cash(1), "the first deposit is too small to seed the pool");
+
+            // So the attacker seeds legitimately and grows the pool with real interest.
+            signed(attacker.keypair, main.deposit_cash(1000));
+            assert_equals(main.get_shares(attacker.account.id), 1000);
+            signed(attacker.keypair, main.deposit_cash(5000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(6000));
+            after(100 * main.YEAR_MS);
+            assert_equals(main.get_shares(attacker.account.id), 6000);
+
+            // A deposit that would mint zero shares aborts - it is not swallowed.
+            signed_must_fail(victim.keypair, main.deposit_cash(1), "deposit too small to mint a share");
+            // ...and a deposit large enough to mint at least one share is priced at the
+            // pool's REAL value, so the round trip returns what went in bar rounding
+            // dust: the attacker's seed captures none of it.
+            signed(victim.keypair, main.deposit_cash(10000));
+            val minted = main.get_shares(victim.account.id);
+            assert_true(minted > 0);
+            signed(victim.keypair, main.withdraw_cash(minted));
+            val back = main.get_account(victim.account.id)!!.cash;
+            assert_true(back >= 9950 and back <= 10000);
+            assert_equals(main.get_shares(attacker.account.id), 6000);
+            assert_conserved();
+        }
+
+        // REFUSED. The borrow limit is checked against the position's WHOLE debt every
+        // time, so slicing it into pieces gains nothing.
+        function test_borrow_limit_cannot_be_sliced() {
+            val lender = register_alice();
+            val borrower = register_bob();
+            signed(lender.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(borrower.keypair, main.add_collateral(100));
+
+            var i = 0;
+            while (i < 6) {
+                signed(borrower.keypair, main.borrow(1000));
+                i += 1;
+            }
+            assert_equals(main.get_loan(borrower.account.id)!!.scaled_debt, 6000);
+            signed_must_fail(borrower.keypair, main.borrow(1), "over the borrow limit");
+            // Nor can collateral be walked out from under the debt.
+            signed_must_fail(borrower.keypair, main.remove_collateral(1), "that would put the position under water");
+            assert_conserved();
+        }
+
+        // REFUSED. No price, no lending; a price only the oracle may post; a post that
+        // jumps or comes too soon; and a price older than a day halts everything that
+        // needs one rather than falling back on the last number it saw.
+        function test_stale_or_missing_price_halts_lending() {
+            val lender = register_alice();
+            val borrower = register_bob();
+            signed(lender.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed_must_fail(borrower.keypair, main.borrow(1), "no price posted yet");
+
+            // The oracle is the configured key and nobody else.
+            rell.test.tx().op(main.set_price(100 * main.PRICE_SCALE)).sign(lender.keypair).run_must_fail("not the oracle");
+            post_price(100 * main.PRICE_SCALE);
+
+            // A second post inside the interval is refused, and after the interval a
+            // move beyond the bound still is.
+            post_price_must_fail(90 * main.PRICE_SCALE, "price posted too soon");
+            after(HOUR);
+            post_price_must_fail(1, "price move too large");
+            post_price(80 * main.PRICE_SCALE);
+            assert_equals(main.get_price().price, 80 * main.PRICE_SCALE);
+
+            signed(borrower.keypair, main.borrow(1000));
+            after(main.MAX_PRICE_AGE_MS + 1);
+            signed_must_fail(borrower.keypair, main.borrow(1), "price is stale");
+            signed_must_fail(borrower.keypair, main.remove_collateral(1), "price is stale");
+            assert_conserved();
+        }
+
+        // CONSERVATION. A full cycle - deposit, borrow, two years, repay in full,
+        // withdraw - moves the interest from the borrower to the lender and creates
+        // nothing: 501 out of one pocket and into the other (5000 at 5% for two years,
+        // plus the thirty seconds of block time the setup took, rounded up in the
+        // pool's favour), with the pool empty at the end.
+        function test_interest_moves_only_from_borrower_to_lender() {
+            val lender = register_alice();
+            val borrower = register_bob();
+            signed(lender.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            assert_conserved();
+
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(5000));
+            assert_conserved();
+
+            after(2 * main.YEAR_MS);
+            // Offering more than is owed pays what is owed and clears the position.
+            signed(borrower.keypair, main.repay(10000));
+            assert_equals(main.get_loan(borrower.account.id)!!.scaled_debt, 0);
+            assert_equals(main.get_pool().total_scaled_debt, 0);
+            assert_equals(main.get_account(borrower.account.id)!!.cash, 9499);
+            signed_must_fail(borrower.keypair, main.repay(1), "nothing owed");
+            assert_conserved();
+
+            signed(lender.keypair, main.withdraw_cash(10000));
+            assert_equals(main.get_account(lender.account.id)!!.cash, 10501);
+            assert_equals(main.get_pool().total_shares, 0);
+            assert_equals(main.get_pool().cash_available, 0);
+            // Nothing was created: the lender's 501 is exactly the borrower's 501.
+            assert_conserved();
+
+            // The borrower's collateral comes back once the debt is gone.
+            signed(borrower.keypair, main.remove_collateral(100));
+            assert_equals(main.get_account(borrower.account.id)!!.tokens, 100);
             assert_conserved();
         }
     """.trimIndent() + "\n"
