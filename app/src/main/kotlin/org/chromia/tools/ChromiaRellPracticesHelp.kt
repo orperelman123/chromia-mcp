@@ -198,6 +198,18 @@ object ChromiaRellPracticesHelp {
         IMMUTABLE listing row (a caller-supplied max_price CEILING is a sandwich: the seller reprices
         to the ceiling and pockets the buffer), offers escrow the bidder's points and settle
         atomically, and the header states honestly which royalty bypass no template can close.
+        READ THAT LESSON NARROWLY - IT IS ABOUT A FIXED PRICE ON A ROW SOMEONE ELSE CAN EDIT, NOT
+        ABOUT SLIPPAGE LIMITS IN GENERAL. The bug is that the counterparty can move the price
+        INSIDE the tolerance and keep the difference, so the tolerance is a gift to them. A
+        min_out FLOOR on an AMM swap is the OPPOSITE thing and must not be removed: the price
+        there comes from a pool the caller does not control, min_out cannot pay anybody anything,
+        and the only thing it can do is ABORT THE CALLER'S OWN TRADE when the pool moved against
+        them. Deleting it does not close a sandwich - it removes the only protection an AMM user
+        has, and turns a bounded loss into an unbounded one. The distinguishing question is not
+        "is there a caller-supplied bound" but: CAN THE COUNTERPARTY CHOOSE A PRICE ANYWHERE
+        INSIDE THAT BOUND AND POCKET THE DIFFERENCE? On a listing, yes. On a constant-product
+        swap, no. (There is no amm template yet, and a sandwich there is not statically
+        distinguishable from two honest trades - see exploit-corpus/CORPUS.md, r8-amm-*.)
         The AUCTION is in that template too - a timed ascending auction with NO mutable bid field
         (the standing bid is its own immutable escrow row, raising is delete-and-recreate, settlement
         is permissionless after the deadline), plus require_unencumbered, the one helper every
@@ -213,11 +225,19 @@ object ChromiaRellPracticesHelp {
         cash_for / payment_for all TAKE one, so a new operation cannot price an entry or an exit
         without a fresh state. It keeps the vault's bounded oracle, over-collateralisation, a
         liquidation threshold with a close factor and bonus, and the minimum-first-deposit guard
-        against ERC-4626 share inflation. Its EXTENDING section names the seam no rule can see: an
-        operation that moves pool value in a STEP rather than with the clock (a fee, a bad-debt
-        write-off, a donation) re-opens the just-in-time window - and the fix for a step is to net
-        it into the priced state so it accrues CONTINUOUSLY, never an entry/exit fee or a minimum
-        holding period: a toll on a round trip does not stop an exit.
+        against ERC-4626 share inflation. Its EXTENDING section names the seam no rule can see: ANY
+        CHANGE that makes pool value depend on something a caller can move in the same block - a
+        fee, a bad-debt write-off, a donation, or a UTILISATION RATE CURVE - re-opens the
+        just-in-time window, and it does not have to be a new operation. Adversary round 8 put the
+        step inside the shared PRICING FUNCTION, added no operation at all, satisfied every seam as
+        written, and a lender's own withdrawal then made a healthy borrower liquidatable at an
+        unchanged oracle price. The fix for a step is to net it into the priced state so it accrues
+        CONTINUOUSLY, never an entry/exit fee or a minimum holding period: a toll on a round trip
+        does not stop an exit. For a moving RATE the sanctioned shape - and the only one - is the
+        CHECKPOINTED INDEX the template now ships: a stored rate-weighted accumulator plus the
+        block it was accrued to, advanced by the one function that produces an index, so a new rate
+        applies only to time AFTER it changed. That is a stored snapshot, and it is safe for the
+        one reason the round-6 stale field was not: it is written on every path that reads it.
         ANY CLOCK-METERED PAYOUT - a stream, a vesting schedule, a drip, an interest accrual -
         must make the entitlement a PURE FUNCTION of an IMMUTABLE start plus a MONOTONE released
         total. A mutable anchor any caller may advance - "pay what has accrued since the last
@@ -236,10 +256,16 @@ object ChromiaRellPracticesHelp {
         even needing the timing. The stream is PREPAID - it can never promise more than it holds -
         and cancellation is terminal and PAYS BEFORE IT REFUNDS: the payee keeps everything
         accrued, the payer reclaims only the unearned remainder, and both halves are continuous in
-        the cancelling block so neither side gains by choosing the moment. A pause/resume that
-        stores resumed_at IS the round-7 anchor wearing a feature's clothes; model a pause as
-        cancel-and-reopen, or subtract a MONOTONE total-paused-milliseconds counter inside the pure
-        function. All six ship the real drain as a must-fail test.
+        the cancelling block so neither side gains by choosing the moment. PAUSE/RESUME IS SHIPPED
+        IN THE TEMPLATE, and this text used to describe it instead - which drained two builds in
+        adversary round 8, so read the correction rather than the shape. A monotone
+        total-paused-milliseconds counter is NOT a safety property: a monotone SUBTRAHEND is a
+        monotone CLAWBACK, and raising it lowers the entitlement for every past instant too. What
+        is load-bearing is that ACTIVE ELAPSED TIME NEVER GOES BACKWARDS, which needs
+        require(not s.paused) on pause and require(s.paused) on resume - one missing require()
+        handed a payer 100% of a payroll escrow. And a pause built as cancel-and-reopen must take
+        the SAME cancellable term the cancellation does, or it ends a vesting grant that the
+        header promised could not be clawed back. All six ship the real drain as a must-fail test.
         Official best-practices test also calls .sign on a rell.test keypair — skipped here (no signing / no key material).
         Pagination list queries: chromia_cookbook_help. Formatting: spaces around operators, indented blocks, multi-line params.
         Official analyze-page example chain name house-key-example has a hyphen; CLI 0.20.14+ forbids hyphens — do not ship it.

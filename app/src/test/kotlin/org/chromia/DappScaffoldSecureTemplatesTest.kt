@@ -105,7 +105,18 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(notes.contains("template=lending"), "notes must steer lending / credit-line / money-market builders to the template")
         assertTrue(notes.contains("NO CASH-DENOMINATED DEBT IS"), "the notes must name the guard, not just the template")
         assertTrue(notes.contains("template=streaming"), "notes must steer stream / payroll / vesting / subscription builders to the template")
-        assertTrue(notes.contains("NO OPERATION IN IT WRITES A"), "the notes must name the streaming guard, not just the template")
+        assertTrue(
+            notes.contains("NO OPERATION IN IT WRITES A\nTIMESTAMP AN ENTITLEMENT IS MEASURED FROM"),
+            "the notes must name the streaming guard precisely - the template DOES write paused_at, under a transition guard"
+        )
+        assertTrue(
+            notes.contains("require(not s.paused)") && notes.contains("require(s.paused)"),
+            "the notes must name the two pause guards - round 8 drained a build that had one of them"
+        )
+        assertFalse(
+            notes.contains("you need an entry/exit fee or a minimum holding period"),
+            "round 7 built exactly that and still drained - the notes must not carry advice the header retracted"
+        )
         assertFalse(
             Regex("rewards or vesting").containsMatchIn(notes),
             "the notes must stop routing vesting to staking now that its own class has a template"
@@ -423,14 +434,69 @@ class DappScaffoldSecureTemplatesTest {
         val poolNow = code.substringAfter("function pool_now(): pool_state {").substringBefore("\n}")
         assertTrue(poolNow.contains("val now_index = current_index();"), "pool_now must take the index from the clock")
         assertTrue(poolNow.contains("to_cash_down(pool.total_scaled_debt, now_index, MAX_POOL_DEBT)"), "pool_now must convert the pool's units to cash itself")
+        // THE INDEX IS CHECKPOINTED, AND THERE IS EXACTLY ONE PRODUCER OF IT. Round 8
+        // drained a build whose index multiplied the rate NOW by the WHOLE elapsed
+        // span, so a utilisation curve re-priced every past second on every deposit,
+        // borrow, repay and withdrawal. The checkpoint is the sanctioned exception to
+        // "never store a snapshot", and what makes it not the round-6 bug is that the
+        // only function that READS it WRITES it first.
+        assertTrue(code.contains("function current_index(): integer {"), "the index must exist as one function")
         assertTrue(
-            code.contains("function current_index(): integer {") &&
-                code.contains("val elapsed = op_context.last_block_time - pool.opened_at;"),
-            "the index must be a function of the block clock"
+            code.contains("val elapsed = op_context.last_block_time - pool.last_accrual_at;"),
+            "the checkpoint must accrue from the last accrual block, not from the pool's opening"
+        )
+        assertFalse(
+            code.contains("op_context.last_block_time - pool.opened_at"),
+            "an index measured from the pool's opening re-prices history whenever the rate moves - round 8"
+        )
+        assertEquals(
+            1,
+            Regex("function current_index\\(").findAll(code).count() +
+                Regex("function accrue_to_now\\(").findAll(code).count() - 1,
+            "exactly one function may produce an index, and exactly one may advance the checkpoint"
+        )
+        assertEquals(1, Regex("\\bcurrent_index\\(\\)").findAll(code).count() - 1, "current_index must have exactly one caller - pool_now")
+        assertEquals(1, Regex("\\baccrue_to_now\\(\\)").findAll(code).count() - 1, "accrue_to_now must have exactly one caller - pool_now")
+        assertEquals(
+            1,
+            Regex("pool\\.rate_ms_accrued\\s*\\+?=").findAll(code).count(),
+            "the accumulator is written in exactly one place, and only ever gains"
+        )
+        assertTrue(
+            code.contains("pool.rate_ms_accrued += current_rate_bps_per_year().to_big_integer() * elapsed.to_big_integer();"),
+            "the accumulator sums rate * interval BEFORE any division, so a flat rate is bit-identical to the old form"
+        )
+        // The checkpoint is advanced BEFORE anything is derived from it. Reversed, the
+        // interval just ended would accrue at the rate the operation is about to create.
+        assertTrue(
+            poolNow.indexOf("accrue_to_now();") in 0 until poolNow.indexOf("val now_index = current_index();"),
+            "pool_now must advance the checkpoint before it reads the index"
+        )
+        // The rate is a named seam, so a curve has exactly one place to go.
+        assertTrue(code.contains("function current_rate_bps_per_year(): integer"), "the rate must be a named function - that is where a curve goes")
+        assertEquals(
+            1,
+            Regex("\\bINTEREST_RATE_BPS_PER_YEAR\\b").findAll(code).count() - 1,
+            "the rate constant may be read only by current_rate_bps_per_year - anything else bypasses the curve seam"
         )
         // The anchor is written once, by pool_now, and by nothing else.
         assertEquals(1, Regex("pool\\.opened_at\\s*=").findAll(code).count(), "opened_at must be written in exactly one place")
         assertTrue(poolNow.contains("pool.opened_at = op_context.last_block_time;"), "and that place is pool_now")
+
+        // THE RECOVERABLE BOUND IS PER POSITION. Pool-wide, a stranger with no debt
+        // could add collateral, raise the share price, exit at it and take the
+        // collateral back next block - round 8's free lever, which this header used to
+        // call an accounting imprecision.
+        val recoverable = code.substringAfter("function recoverable_debt(").substringBefore("\n}")
+        assertTrue(
+            recoverable.contains("for (l in loan @* { .scaled_debt > 0 } ( .scaled_debt, .collateral ))"),
+            "the bound must be taken over positions that owe something, so a debt-free row contributes nothing"
+        )
+        assertTrue(recoverable.contains("total += if (backing < face) backing else face;"), "sum(min(face, backing)), never min(sum, sum)")
+        assertFalse(
+            recoverable.contains("pool.total_collateral"),
+            "a pool-wide aggregate is exactly the lever: it counts collateral behind no debt"
+        )
 
         // EVERY PRICING HELPER TAKES A pool_state - so it cannot be asked about a
         // stale number, and a new operation cannot price without calling pool_now().
@@ -594,13 +660,19 @@ class DappScaffoldSecureTemplatesTest {
         val main = DappScaffold.files("payroll", template = "streaming").getValue("src/main.rell")
         val code = withoutComments(main)
 
-        // NO OPERATION WRITES A TIMESTAMP. One assignment from the block clock exists
-        // in the whole module, and it is the create. `update s ( .anchor_at = ... )`
-        // - the round-7 line - has nowhere to live.
+        // THE BLOCK CLOCK IS WRITTEN IN EXACTLY TWO PLACES, and each is pinned with
+        // what makes it safe. `started_at` is the create - the round-7 line
+        // `update s ( .anchor_at = ... )` still has nowhere to live. `paused_at` is
+        // the transition INTO a pause, and round 8 is why the rule is no longer
+        // "never a mutable timestamp": a stored timestamp is safe exactly when it is
+        // written only on a state transition that can happen once per state, which is
+        // require(not s.paused) below. A THIRD assignment is the edit to refuse.
         assertEquals(
-            listOf("started_at = op_context.last_block_time"),
-            Regex("[\\w.]+\\s*=\\s*op_context\\.last_block_time").findAll(code).map { it.value }.toList(),
-            "the block clock may be READ anywhere but written exactly once, by the create"
+            listOf("started_at = op_context.last_block_time", ".paused_at = op_context.last_block_time"),
+            // (?<!val ) so the resume`s own `val frozen = op_context.last_block_time - ...`
+            // reads the clock without being counted as a write to a field.
+            Regex("(?<!val )[\\w.]+\\s*=\\s*op_context\\.last_block_time").findAll(code).map { it.value }.toList(),
+            "the block clock may be READ anywhere but written only by the create and by the pause transition"
         )
 
         // EVERY TERM OF THE DEAL IS IMMUTABLE, and the only mutable fields are the
@@ -612,9 +684,29 @@ class DappScaffoldSecureTemplatesTest {
             assertFalse(Regex("\\.$term\\s*=(?!=)").containsMatchIn(code), "no operation may write $term after creation")
         }
         assertEquals(
-            setOf("released", "escrow", "refunded", "closed"),
+            setOf("released", "escrow", "refunded", "closed", "paused", "paused_at", "paused_ms"),
             Regex("mutable\\s+(\\w+)").findAll(entity).map { it.groupValues[1] }.toSet(),
             "a new mutable field on the stream is the one edit to this template to refuse"
+        )
+
+        // THE PAUSE PAIR IS A STATE MACHINE, and that - not the monotonicity of
+        // paused_ms - is what keeps ACTIVE ELAPSED non-decreasing. Round 8 drained a
+        // build whose paused_ms was provably monotone. Each transition is written in
+        // exactly one place and gated on being in the other state.
+        assertEquals(
+            listOf(".paused = true"),
+            Regex("\\.paused\\s*=\\s*true").findAll(code).map { it.value }.toList(),
+            "a stream enters the paused state in exactly one place"
+        )
+        assertEquals(
+            listOf(".paused = false"),
+            Regex("\\.paused\\s*=\\s*false").findAll(code).map { it.value }.toList(),
+            "a stream leaves the paused state in exactly one place"
+        )
+        assertEquals(
+            listOf(".paused_ms = s.paused_ms + frozen"),
+            Regex("\\.paused_ms\\s*=[^,)]*").findAll(code).map { it.value.trim() }.toList(),
+            "paused_ms is written once, by the resume, and only ever gains the interval that was frozen"
         )
 
         // MONOTONE: `released` and `refunded` only ever rise, `escrow` only ever falls
@@ -634,10 +726,21 @@ class DappScaffoldSecureTemplatesTest {
         // defined once and called from exactly two places, and no operation can hand it
         // anything but the block clock because no operation takes a timestamp.
         val earnedBy = code.substringAfter("function earned_by(s: stream, at: timestamp): integer {").substringBefore("\n}")
+        val activeElapsed = code.substringAfter("function active_elapsed(s: stream, at: timestamp): integer {").substringBefore("\n}")
         listOf(".released", ".escrow", ".refunded", ".closed").forEach {
-            assertFalse(earnedBy.contains(it), "the entitlement must not depend on the mutable field $it")
+            assertFalse(earnedBy.contains(it), "the entitlement must not depend on the bookkeeping field $it")
+            assertFalse(activeElapsed.contains(it), "active elapsed time must not depend on the bookkeeping field $it")
         }
-        assertTrue(earnedBy.contains("val raw = at - s.started_at;"), "the entitlement must be measured from the IMMUTABLE start")
+        // The ONLY mutable state the entitlement may read is the pause trio, and it
+        // reads it through this one function, which measures from the IMMUTABLE start.
+        assertTrue(earnedBy.contains("val raw = active_elapsed(s, at);"), "the entitlement is priced off ACTIVE elapsed time")
+        assertTrue(activeElapsed.contains("val raw = at - s.started_at;"), "active elapsed must be measured from the IMMUTABLE start")
+        assertTrue(
+            activeElapsed.contains("val open_pause = if (s.paused) at - s.paused_at else 0;") &&
+                activeElapsed.contains("return raw - s.paused_ms - open_pause;"),
+            "an OPEN pause must be subtracted as it runs, or the entitlement jumps at the resume block"
+        )
+        assertEquals(2, Regex("\\bactive_elapsed\\(").findAll(code).count(), "active_elapsed is defined once and called only by earned_by")
         assertEquals(3, Regex("\\bearned_by\\(").findAll(code).count(), "earned_by must be defined once and called from exactly two places")
         assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*timestamp").containsMatchIn(code), "no operation may take a timestamp - that is the anchor by another route")
         assertTrue(code.contains("function owed(s: stream): integer = payable_at(s, op_context.last_block_time);"))
@@ -655,7 +758,7 @@ class DappScaffoldSecureTemplatesTest {
                 0 until payOut.indexOf("update payee_account ( .balance += amount );"),
             "the escrow debit and the release must be recorded with the credit"
         )
-        assertEquals(2, Regex("\\bpay_out\\(").findAll(code).count() - 1, "pay_out must have exactly two callers - settle and cancel_stream")
+        assertEquals(3, Regex("\\bpay_out\\(").findAll(code).count() - 1, "pay_out must have exactly three callers - settle, cancel_stream and pause_stream")
 
         // PREPAID: the payer is debited for the whole escrow before the row exists.
         val open = opBody(code, "open_stream")
@@ -684,6 +787,34 @@ class DappScaffoldSecureTemplatesTest {
             "cancel_stream must pay the payee everything accrued BEFORE it computes the payer's refund"
         )
         assertTrue(cancel.contains("update s ( .escrow = 0, .refunded = refund, .closed = true );"))
+
+        // PAUSE/RESUME. Round 8 drained two builds through this seam - one missing
+        // require(s.paused), one whose pause never looked at `cancellable`. All three
+        // guards are pinned here because all three are one line each.
+        val pause = opBody(code, "pause_stream")
+        assertTrue(pause.contains("require(acc.id == s.payer or acc.id == s.payee, \"only the payer or the payee may pause\");"))
+        assertTrue(
+            pause.contains("require(s.cancellable, \"a committed grant cannot be paused\");"),
+            "a pause that ignores `cancellable` voids the guarantee the header sells - round 8, dapp_a3"
+        )
+        assertTrue(
+            pause.contains("require(not s.paused, \"stream is already paused\");"),
+            "without this a second pause moves paused_at forward and a frozen stream keeps accruing"
+        )
+        assertTrue(
+            pause.indexOf("pay_out(s);") in 0 until pause.indexOf("update s ( .paused = true"),
+            "the pause must pay what the clock owed before it stops the clock"
+        )
+        val resume = opBody(code, "resume_stream")
+        assertTrue(resume.contains("require(acc.id == s.payer or acc.id == s.payee, \"only the payer or the payee may resume\");"))
+        assertTrue(
+            resume.contains("require(s.paused, \"stream is not paused\");"),
+            "THIS is round 8's drain: without it a resume of a running stream claws back earned income"
+        )
+        assertTrue(
+            resume.indexOf("require(s.paused,") in 0 until resume.indexOf("val frozen = op_context.last_block_time - s.paused_at;"),
+            "the frozen interval may only be computed once the stream is known to be paused"
+        )
 
         // Every operation that credits a balance debits the same amount in the same
         // body; the refund's debit is the escrow it zeroes in that same statement.
@@ -938,7 +1069,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_round7_anchor_reset_grief_must_fail",
             "test_escrow_equals_paid_plus_reclaimable_at_every_point",
             "test_cancellation_is_fair_in_both_directions",
-            "test_bounds_and_ownership"
+            "test_bounds_and_ownership",
+            "test_round8_pause_clawback_must_fail",
+            "test_round8_pause_cannot_end_a_committed_grant_must_fail"
         )
     )
 
@@ -1452,4 +1585,262 @@ class DappScaffoldSecureTemplatesTest {
         "this stream is not cancellable",
         attackLanded
     )
+
+    /**
+     * ROUND 8'S DRAIN, and it is ONE `require()`. dapp_a_pause and
+     * dapp_a2_pause_variant differ by exactly this line: with it every attack was
+     * refused, without it a spurious resume_stream on a RUNNING stream adds the
+     * whole span since the last pause to `paused_ms`, rewrites the payee's
+     * entitlement backwards past what they were already paid, and the payer
+     * cancels and keeps the escrow. `paused_ms` is monotone in BOTH versions,
+     * which is why the header's old "can never rewrite the past" was worthless.
+     */
+    @Test
+    fun streamingPauseTestGoesRedWhenAResumeNeedNotFollowAPause() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        guard = "require(s.paused, \"stream is not paused\");",
+        replacement = "",
+        exploitTest = "test_round8_pause_clawback_must_fail",
+        stillRefusedFragment = "only the payer or the payee may resume",
+        redFragment = attackLanded
+    )
+
+    /**
+     * The other transition guard. Without it a second pause moves `paused_at`
+     * forward, the open pause active_elapsed() subtracts shrinks, and a stream
+     * that is supposed to be frozen keeps accruing - the same seam, in the
+     * direction that costs the payer instead of the payee.
+     */
+    @Test
+    fun streamingPauseTestGoesRedWhenAStreamCanBePausedTwice() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        guard = "require(not s.paused, \"stream is already paused\");",
+        replacement = "",
+        exploitTest = "test_round8_pause_clawback_must_fail",
+        stillRefusedFragment = "only the payer or the payee may pause",
+        redFragment = attackLanded
+    )
+
+    /**
+     * Round 8, dapp_a3_pause_as_cancel: a pause that never looks at `cancellable`
+     * voids the one guarantee this template sells to a vesting grant. The drain
+     * there was terminal (cancel-and-reopen); here the pause is in-place, so what
+     * the missing line buys the payer is the power to freeze a grant nobody can
+     * cancel - the money never vests and never comes back.
+     */
+    @Test
+    fun streamingCommittedGrantTestGoesRedWhenThePauseIgnoresTheCancellableTerm() = assertGuardMutationRedensExploitTest(
+        "streaming",
+        guard = "require(s.cancellable, \"a committed grant cannot be paused\");",
+        replacement = "",
+        exploitTest = "test_round8_pause_cannot_end_a_committed_grant_must_fail",
+        stillRefusedFragment = "this stream is not cancellable",
+        redFragment = attackLanded
+    )
+
+    // ------------------------------------------------------------------------
+    // ROUND 8, dapp_b_ratecurve: the extension the header now sanctions, and the
+    // proof it is safe only because the index is checkpointed.
+    //
+    // This is not a mutant of the shipped template - it is the EXTENSION an author
+    // is told to write, applied to the template exactly as seam 2 now describes
+    // it: a utilisation curve in `current_rate_bps_per_year()` and nothing else
+    // touched. Round 8 built the same curve on the pre-checkpoint template, passed
+    // `rell_check` and `rell_security_check` with zero findings, and a lender's own
+    // withdrawal then made a HEALTHY borrower liquidatable at an UNCHANGED oracle
+    // price, because the index multiplied the rate NOW by the WHOLE elapsed span.
+    // ------------------------------------------------------------------------
+
+    /** The Compound/Aave kink, verbatim from round 8's build: 700 bps at 50% utilisation, 811 at 61.19%. */
+    private val utilisationCurve = """
+        val BASE_RATE_BPS = 200;
+        val SLOPE1_BPS = 800;
+        val KINK_BPS = 8000;
+        val SLOPE2_BPS = 6000;
+
+        function utilisation_bps(): integer {
+            val d = pool.total_scaled_debt;
+            if (d <= 0) return 0;
+            val total = pool.cash_available + d;
+            if (total <= 0) return 0;
+            val u = d.to_big_integer() * BPS.to_big_integer() / total.to_big_integer();
+            val cap = BPS.to_big_integer();
+            return (if (u > cap) cap else u).to_integer();
+        }
+
+        function current_rate_bps_per_year(): integer {
+            val u = utilisation_bps();
+            if (u <= KINK_BPS) return BASE_RATE_BPS + u * SLOPE1_BPS / KINK_BPS;
+            return BASE_RATE_BPS + SLOPE1_BPS + (u - KINK_BPS) * SLOPE2_BPS / (BPS - KINK_BPS);
+        }
+    """.trimIndent()
+
+    private val flatRateSeam = "function current_rate_bps_per_year(): integer = INTEREST_RATE_BPS_PER_YEAR;"
+
+    /**
+     * The attack, adapted from realworld/adversary-round8/dapp_b_ratecurve's
+     * test_b1: a borrower is healthy at 100 tokens against 6000 of debt after
+     * three and a half years, an unrelated lender withdraws their own 2000, and
+     * the position must STILL be healthy - the oracle has not moved and the
+     * borrower has done nothing. The withdrawal raises the rate from here on; it
+     * may not raise it on the past.
+     */
+    private fun rateCurveAttackTest(): String = """
+        @test module;
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function oracle(): rell.test.keypair =
+            rell.test.keypair(priv = admin_priv_key(), pub = main.oracle_pubkey());
+
+        function post_price(price: integer) {
+            rell.test.tx().op(main.set_price(price)).nop().sign(oracle()).run();
+        }
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        function assert_conserved() {
+            assert_equals(main.cash_in_circulation(), main.account_count() * main.WELCOME_CASH);
+            assert_equals(main.tokens_in_circulation(), main.account_count() * main.WELCOME_TOKENS);
+            assert_equals(main.scaled_debt_matches_positions(), true);
+            assert_equals(main.collateral_matches_positions(), true);
+        }
+
+        function wealth(owner: byte_array, price: integer): integer {
+            val a = main.get_account(owner)!!;
+            return a.cash + a.tokens * price / main.PRICE_SCALE;
+        }
+
+        // EXPLOIT MUST FAIL. A lender's own withdrawal must not make somebody else
+        // liquidatable. In round 8 it did: utilisation 5000 -> 6119 bps, rate
+        // 700 -> 811, applied to all three and a half years at once.
+        function test_round8_rate_curve_reprices_history_must_fail() {
+            val honest_lender = register_alice();
+            val borrower = register_bob();
+            val attacker = register_trudy();
+            signed(honest_lender.keypair, main.register_account());
+            signed(borrower.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            val price = 100 * main.PRICE_SCALE;
+            post_price(price);
+
+            signed(honest_lender.keypair, main.deposit_cash(10000));
+            signed(attacker.keypair, main.deposit_cash(2000));
+            signed(borrower.keypair, main.add_collateral(100));
+            signed(borrower.keypair, main.borrow(6000));
+            assert_conserved();
+
+            // The curve is live: 6000 out of 12000 is 50% utilisation, which on this
+            // curve is 700 bps. If this ever stopped holding the replay would not be
+            // replaying anything, so it is asserted rather than assumed.
+            assert_equals(main.utilisation_bps(), 5000);
+            assert_equals(main.current_rate_bps_per_year(), 700);
+
+            val attacker_start = wealth(attacker.account.id, price);
+            val collateral_before = main.get_loan(borrower.account.id)!!.collateral;
+
+            // Three and a half years of honest borrowing at 50% utilisation.
+            after(3 * main.YEAR_MS + main.YEAR_MS / 2);
+            post_price(price);
+
+            // HEALTHY: 100 tokens at 100 is 10000 of collateral and the threshold is 75%.
+            signed_must_fail(attacker.keypair, main.liquidate(borrower.account.id, 100), "position is healthy");
+            assert_conserved();
+
+            // THE ATTACK, ONE OPERATION: the attacker withdraws their own deposit,
+            // pushing utilisation - and therefore the rate - up.
+            signed(attacker.keypair, main.withdraw_cash(2000));
+            assert_conserved();
+            // The rate really did move, or this proves nothing.
+            assert_equals(main.current_rate_bps_per_year() > 700, true);
+
+            // THE PROPERTY: the past was not re-priced, so the same position at the
+            // same oracle price is still healthy and there is nothing to seize.
+            signed_must_fail(attacker.keypair, main.liquidate(borrower.account.id, 100), "position is healthy");
+            assert_equals(main.get_loan(borrower.account.id)!!.collateral, collateral_before);
+            assert_equals(wealth(attacker.account.id, price) <= attacker_start, true);
+            assert_conserved();
+        }
+
+    """.trimIndent() + "\n"
+
+    /**
+     * The sanctioned extension must be GREEN: a utilisation curve on the shipped
+     * template refuses round 8's drain.
+     */
+    @Test
+    fun lendingRateCurveExtensionRefusesRound8Drain() {
+        if (dbUrl == null) return
+        val files = rellOf("lending").toMutableMap()
+        val main = files.getValue("main.rell")
+        assertTrue(main.contains(flatRateSeam), "the rate must be a one-line seam a curve can replace: $flatRateSeam")
+        files["main.rell"] = main.replace(flatRateSeam, utilisationCurve)
+        files["test/main_test.rell"] = rateCurveAttackTest()
+        val run = runShipped("lending", label = "lending+utilisation-curve", files = files)
+        run.cases.forEach {
+            assertFalse(
+                it.error.orEmpty().contains("Unable to create GTX module") || it.error.orEmpty().contains("do not compile"),
+                "the sanctioned extension must compile and run, or it proves nothing: ${it.name} - ${it.error}"
+            )
+        }
+        assertTrue(run.ok, "a utilisation curve on the checkpointed index must refuse round 8's drain: ${run.notes} ${run.cases}")
+    }
+
+    /**
+     * ...and it is the CHECKPOINT that refuses it. Put back round 8's index - the
+     * rate NOW times the WHOLE elapsed span - and the same curve, the same attack
+     * and the same oracle price drain a healthy position. This is the mutant that
+     * makes the guard load-bearing rather than decorative.
+     */
+    @Test
+    fun lendingRateCurveDrainsOnceTheIndexIsNoLongerCheckpointed() {
+        if (dbUrl == null) return
+        val files = rellOf("lending").toMutableMap()
+        var main = files.getValue("main.rell")
+        assertTrue(main.contains(flatRateSeam))
+        main = main.replace(flatRateSeam, utilisationCurve)
+        // Round 8's index, restored: no checkpoint, the current rate applied to the
+        // whole span since the pool opened.
+        val checkpointed = "pool.rate_ms_accrued += current_rate_bps_per_year().to_big_integer() * elapsed.to_big_integer();"
+        assertTrue(main.contains(checkpointed), "the checkpoint must exist verbatim: $checkpointed")
+        main = main.replace(
+            checkpointed,
+            "pool.rate_ms_accrued = current_rate_bps_per_year().to_big_integer() * " +
+                "(op_context.last_block_time - pool.opened_at).to_big_integer();"
+        )
+        files["main.rell"] = main
+        files["test/main_test.rell"] = rateCurveAttackTest()
+        val mutant = runShipped("lending", label = "lending+curve-without-checkpoint", files = files)
+        mutant.cases.forEach {
+            val e = it.error.orEmpty()
+            assertFalse(
+                e.contains("Unable to create GTX module") || e.contains("do not compile") || e.contains("Missing metadata"),
+                "mutant failed for an environmental reason, proving nothing: ${it.name} - $e"
+            )
+        }
+        val case = mutant.cases.single { it.name.endsWith("test_round8_rate_curve_reprices_history_must_fail") }
+        assertFalse(case.ok, "without the checkpoint the rate curve must re-price history and the drain must land")
+        val error = case.error.orEmpty()
+        assertFalse(
+            error.contains("Unable to create GTX module"),
+            "mutant ran without its module_args - vacuous: $error"
+        )
+        assertTrue(
+            error.contains(attackLanded, ignoreCase = true),
+            "the liquidation of a healthy position must SUCCEED without the checkpoint ('$attackLanded'), got: $error"
+        )
+    }
 }

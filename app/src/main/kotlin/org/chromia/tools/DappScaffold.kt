@@ -248,9 +248,16 @@ object DappScaffold {
             that kills ERC-4626 share inflation; the shipped tests replay the round-6 drain
             (10000 in, 11500 out) and require the attacker to come out no better than they went in.
             Its oracle key is a module arg exactly like the vault's - same note as above applies.
-            Its EXTENDING section names the seam: any new operation that moves pool value in a STEP
-            rather than with the clock (a fee, a bad-debt write-off, a donation) re-opens the
-            just-in-time window, and then you need an entry/exit fee or a minimum holding period.
+            Its EXTENDING section names the seam: ANY CHANGE that makes pool value depend on
+            something a caller can move in the same block - a fee, a bad-debt write-off, a
+            donation, a utilisation rate curve - re-opens the just-in-time window, and it does not
+            have to be a new operation (round 8 put the step inside the shared pricing function and
+            drained a healthy borrower at an unchanged oracle price). AN ENTRY/EXIT FEE OR A
+            MINIMUM HOLDING PERIOD IS NOT THE FIX and this text used to say it was: round 7 built
+            both and still drained, because the attack is an EXIT by a lender who has been in the
+            pool for years, and a fixed percentage step is sized by the attacker. Net the step into
+            the priced state so it accrues CONTINUOUSLY; for a moving RATE that means the
+            CHECKPOINTED INDEX the template ships.
             Building a payment stream, payroll, a subscription, a vesting grant, a drip or any
             other payout METERED BY THE CLOCK to one named beneficiary: start from
             template=streaming. Round 7 drained an un-templated one built with only this server's
@@ -259,18 +266,26 @@ object DappScaffold {
             faster than one whole unit of entitlement, released zero each time, moved the anchor
             each time and ground the payee's income to ZERO while the payer took 100% of the escrow
             back. The template's answer is not "check the anchor": NO OPERATION IN IT WRITES A
-            TIMESTAMP. started_at is written once by the create and is not mutable; the entitlement
-            is a pure function of that immutable start, an immutable rate and the block clock, less
-            a MONOTONE released total - so settling a thousand times pays zero a thousand times and
-            changes nothing. Every term (payer, payee, rate, start, funded amount, cancellable) is
+            TIMESTAMP AN ENTITLEMENT IS MEASURED FROM. started_at is written once by the create and
+            is not mutable; the entitlement is a pure function of that immutable start, an immutable
+            rate and the block clock, less a MONOTONE released total - so settling a thousand times
+            pays zero a thousand times and changes nothing. Every term (payer, payee, rate, start, funded amount, cancellable) is
             immutable, the stream is PREPAID so it can never promise more than it holds, and
             cancellation pays the payee everything accrued BEFORE it refunds the payer the unearned
             remainder - both halves continuous in the block, so neither side gains by choosing the
-            moment. Its EXTENDING section names the seam: never add a mutable timestamp and never
-            measure from one (a pause/resume that stores resumed_at IS the round-7 anchor), a top-up
+            moment. PAUSE/RESUME IS SHIPPED IN THE TEMPLATE rather than described, because round 8
+            drained two builds through the paragraph that described it: a monotone paused-ms counter
+            is a monotone CLAWBACK, not a safety property, and what is load-bearing is that ACTIVE
+            ELAPSED TIME never goes backwards - require(not s.paused) on pause and require(s.paused)
+            on resume, one missing require() being a payer taking 100% of a payroll escrow. A pause
+            also takes the same cancellable term the cancellation does, because a grant either side
+            can freeze forever is not committed. Its EXTENDING section names the rest of the seam:
+            never measure an entitlement from a marker a caller can advance (a stored timestamp is
+            fine when active elapsed is monotone; the danger is a marker anyone can move), a top-up
             is a second stream row rather than a mutable funded amount, and a cliff belongs inside
             the pure function as an immutable term. The shipped tests replay the round-7 stranger
-            grief and require the payee to be paid what the clock says anyway.
+            grief and both round-8 pause drains, and require the payee to be paid what the clock
+            says anyway.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -3099,18 +3114,35 @@ object DappScaffold {
         //     pool_now() in this operation. Forgetting is not possible; the only way back
         //     to the round-6 bug is to hand-build a price out of the raw `scaled_debt`
         //     field - a deliberate act a reviewer can see, not an omission.
-        //   * The index is a PURE FUNCTION OF THE BLOCK CLOCK - simple interest since the
-        //     pool's first priced block - so there is no "index at last accrual" to
-        //     refresh and no accrue() to forget to call. `opened_at` is written once, by
-        //     the first operation that ever prices anything, and never again.
+        //   * The index is CHECKPOINTED, and there is exactly ONE producer of it. pool_now()
+        //     calls accrue_to_now() before it derives anything, so the checkpoint
+        //     (`rate_ms_accrued`, `last_accrual_at`) is written on EVERY path that reads
+        //     it and "forgot to accrue" is not a mistake reachable from outside that
+        //     helper. Round 6's stale field was a CASH debt plus a per-loan stamp that
+        //     only the paths a borrower signed refreshed - a snapshot with several
+        //     readers and few writers. This is the opposite shape: one reader, and it
+        //     writes. A SECOND FUNCTION THAT PRODUCES AN INDEX IS THE ROUND-6 BUG,
+        //     RE-CREATED, and it is the one edit here to refuse.
+        //   * The checkpoint is what lets the RATE move safely - see
+        //     current_rate_bps_per_year() and seam 2. An index computed as "the rate now
+        //     times the whole elapsed span" re-prices every past second whenever anyone
+        //     changes utilisation, which is adversary round 8's drain. With a flat rate
+        //     the two are arithmetically identical; the checkpoint costs nothing and is
+        //     the difference between a safe curve and a drain.
         //
         // THE SECOND GUARD, added after adversary round 7 drained the TEMPLATE ITSELF:
         // DEBT IS WORTH WHAT THE COLLATERAL CAN REPAY, NOT WHAT THE LOAN SAYS.
-        //   * pool_now() values the pool's debt as min(face, what pool.total_collateral
+        //   * pool_now() values the pool's debt PER POSITION, as the sum over positions
+        //     that owe something of min(what that position owes, what ITS OWN collateral
         //     is worth at a fresh price). A position past any liquidator's reach stops
         //     being counted at face the moment it passes its own collateral, so the
         //     share price falls as the loss happens rather than staying flat until the
         //     cash runs out.
+        //   * PER POSITION, not pool-wide, and round 8 is why. Pool-wide, one borrower's
+        //     surplus masks another's shortfall AND a stranger with no debt at all can
+        //     add collateral, raise the share price, exit at it, and take the collateral
+        //     back next block for nothing. Per position a debt-free row contributes zero
+        //     to both sides of its own min(), so there is nothing to lever.
         //   * That bound is a PURE FUNCTION of the clock and the price - not a write-off
         //     somebody triggers - so there is no block to be on the right side of.
         //   * Round 7 (realworld/adversary-round7/dapp_c_lending_base) drained 13920 of
@@ -3174,13 +3206,49 @@ object DappScaffold {
         //      to debt_of / shares_for / cash_for / payment_for and let them do it. Those
         //      raw fields are in INDEX units; treating one as cash IS the round-6 drain,
         //      and it is the one edit to this file to refuse.
-        //   2. ANY NEW OPERATION THAT MOVES POOL VALUE IN A STEP RE-OPENS THE JIT WINDOW,
-        //      AND THE FIX IS TO NET IT INTO pool_state, NOT TO CHARGE A TOLL.
+        //   2. ANY CHANGE THAT MAKES POOL VALUE DEPEND ON SOMETHING A CALLER CAN MOVE IN
+        //      THE SAME BLOCK RE-OPENS THE JIT WINDOW - WHEREVER IT LIVES - AND THE FIX
+        //      IS TO NET IT INTO pool_state, NOT TO CHARGE A TOLL.
         //      Here value moves only with the clock, continuously, so a deposit held for
         //      one block earns one block of interest and a one-block round trip cannot
         //      come out ahead. Add a protocol fee, a bad-debt write-off, a donation or a
         //      rewards drop naively and value moves in a JUMP, which somebody will
         //      straddle.
+        //
+        //      "WHEREVER IT LIVES" IS THE PART THIS SEAM USED TO GET WRONG. It said "ANY
+        //      NEW OPERATION THAT MOVES POOL VALUE IN A STEP", and adversary round 8 walked
+        //      straight through the gap: a UTILISATION RATE CURVE adds NO OPERATION AT ALL,
+        //      builds no cash number from a raw scaled field, and prices everything through
+        //      pool_now() - it satisfied seam 1 and seam 2 as written, and the gate returned
+        //      ok:true with zero findings. It still re-priced the ENTIRE interest history on
+        //      every deposit, borrow, repay and withdrawal, because the index multiplied the
+        //      rate NOW by the WHOLE elapsed span. A lender's own 2000 withdrawal moved
+        //      utilisation 5000 -> 6119 bps and the rate 700 -> 811, and a HEALTHY position
+        //      became liquidatable AT AN UNCHANGED ORACLE PRICE; the withdrawer liquidated it
+        //      for the bonus (realworld/adversary-round8/dapp_b_ratecurve). The step was in
+        //      the pricing FUNCTION, which is exactly where seam 2 told the author to put
+        //      things. So the test is not "did you add an operation" but: CAN A CALLER MOVE
+        //      ANY INPUT THIS BLOCK'S VALUE IS COMPUTED FROM, IN THIS BLOCK?
+        //
+        //      THE ONE SANCTIONED EXCEPTION TO "NEVER STORE A SNAPSHOT": A CHECKPOINTED
+        //      INDEX. The correct way to have a rate that moves is a stored, monotone
+        //      accumulator plus the block it was accrued to - `pool.rate_ms_accrued` and
+        //      `pool.last_accrual_at`, advanced by accrue_to_now(). A new rate then applies
+        //      only to time AFTER the block it changed in, so nothing a caller does now can
+        //      re-price a second of the past. THIS TEMPLATE SHIPS THAT SHAPE, with a flat
+        //      rate in current_rate_bps_per_year(); putting a curve in that one function is
+        //      then a safe edit, and it is the ONLY way to add one.
+        //      SAY OUT LOUD WHY IT IS NOT THE ROUND-6 BUG, because the central guard above
+        //      reads as forbidding exactly this: round 6 stored a CASH debt and a per-loan
+        //      accrual stamp that only the paths a borrower signed refreshed, so a lender's
+        //      exit priced against a number that was hours old. THE CHECKPOINT IS WRITTEN ON
+        //      EVERY PATH THAT READS IT - pool_now() is the only function that produces an
+        //      index and it calls accrue_to_now() before it derives anything - so "forgot to
+        //      accrue" is not a mistake that can be made from outside this helper. The
+        //      invariant to keep is that one sentence: A SECOND PRODUCER OF AN INDEX IS THE
+        //      ROUND-6 BUG, RE-CREATED. (Before round 8 this header had no exception at all,
+        //      and so pushed an author away from the only correct implementation of the most
+        //      common extension a money market has.)
         //
         //      THIS HEADER USED TO PRESCRIBE "an entry/exit fee or a minimum holding
         //      period". THAT ADVICE WAS WRONG and it is worth knowing why, because both
@@ -3214,11 +3282,12 @@ object DappScaffold {
         //      does - that is the shape, and it is the same one the streaming lesson in
         //      chromia_rell_practices_help names.
         //      WHAT IS STILL A STEP HERE, stated rather than implied: while
-        //      recoverable_debt()'s cap is ACTIVE - only in a pool whose debt already
-        //      exceeds its collateral - a price post and an add_collateral/liquidate both
-        //      move `value` in a jump. That window exists only in an already-insolvent
-        //      pool, and closing it would mean valuing the collateral continuously too,
-        //      which no oracle can do.
+        //      recoverable_debt()'s cap is ACTIVE ON A POSITION - only where that
+        //      position's own debt already exceeds its own collateral - a price post and
+        //      an add_collateral/liquidate ON THAT POSITION move `value` in a jump. The
+        //      bound is per position, so a debt-free stranger cannot reach it; closing
+        //      what is left would mean valuing collateral continuously, which no oracle
+        //      can do.
         //   3. EVERY NEW ROW THAT HOLDS CASH MUST BE ADDED TO cash_in_circulation(),
         //      EVERY NEW ROW THAT HOLDS DEBT TO scaled_debt_matches_positions(), AND
         //      EVERY NEW ROW THAT HOLDS COLLATERAL TO collateral_matches_positions().
@@ -3267,10 +3336,23 @@ object DappScaffold {
         //     honest lender 13920 of 14000 in adversary round 7: pool_now() valued every
         //     index unit at face, so the price was UNCHANGED and the whole loss landed on
         //     whoever exited last while the attacker who created it exited first.)
-        //   - The write-off's bound is at the POOL level, so a heavily over-collateralised
-        //     position's surplus can mask another's shortfall. Making it exact costs one
-        //     pass over every loan on every pricing call; recoverable_debt() says where
-        //     to make that change.
+        //   - The write-off's bound is PER POSITION - sum(min(face, backing)) - and it
+        //     costs one pass over the positions that owe something on every pricing call.
+        //     THIS HEADER USED TO TAKE IT AT THE POOL LEVEL and call the difference an
+        //     accounting imprecision with an O(n) fix available. That was under-stated to
+        //     the point of being wrong: `add_collateral` is permissionless and needs no
+        //     debt, and `remove_collateral` skips the health check entirely on a debt-free
+        //     position, so wherever the pool-level cap was active a stranger could raise
+        //     the share price with collateral they owed nothing against, exit at the raised
+        //     price, and take the collateral back in the next block - a free, self-service
+        //     lever, not an imprecision (adversary round 8, dapp_b_ratecurve test_b2). Per
+        //     position, a debt-free position contributes zero to both sides of its own
+        //     min(), so an outsider's collateral moves the share price by exactly nothing.
+        //     WHAT REMAINS: while the cap is ACTIVE on some position - only in a pool whose
+        //     debt already exceeds ITS OWN collateral - a price post and an
+        //     add_collateral/liquidate on THAT position still move `value` in a jump. That
+        //     window exists only against an already-insolvent position, and closing it
+        //     would mean valuing collateral continuously, which no oracle can do.
         //   - The interest RATE is your economics, and so is PROTOCOL_FEE_BPS (0 turns
         //     the fee off entirely; only WHEN it is taken is structural). So are
         //     MAX_LTV_BPS, the threshold, the
@@ -3341,6 +3423,18 @@ object DappScaffold {
             // prices anything, and never again. Nothing else in this module writes them.
             mutable opened: boolean = false;
             mutable opened_at: timestamp = 0;
+            // THE INTEREST CHECKPOINT, and the ONE sanctioned exception to "never
+            // store a snapshot" in this file. `rate_ms_accrued` is the sum, over
+            // every interval since the pool opened, of the rate that applied times
+            // the length of that interval; `last_accrual_at` is the block it has
+            // been summed to. It is NOT the round-6 stale field, and the difference
+            // is structural rather than a matter of discipline: pool_now() is the
+            // only function that produces an index, and it ADVANCES THIS CHECKPOINT
+            // BEFORE IT READS IT, so no path can read a value that has not just been
+            // brought to this block. Round 6's `accrued_at` was refreshed only on the
+            // paths a borrower signed. See seam 2.
+            mutable last_accrual_at: timestamp = 0;
+            mutable rate_ms_accrued: big_integer = 0L;
         }
 
         // price == 0 means "never posted": nothing that needs a price may run.
@@ -3450,15 +3544,54 @@ object DappScaffold {
             shares: integer;
         }
 
-        // The interest index: simple interest since the pool's first priced block, times
-        // INDEX_SCALE. A PURE FUNCTION OF THE BLOCK CLOCK - it is not stored, so there is
-        // no cached copy to refresh and no accrual to forget.
+        // THE RATE, AND THE SEAM WHERE A CURVE GOES. A flat rate here is economics, not
+        // structure: replace this body with a utilisation curve (the Compound/Aave kink
+        // is `BASE + u * SLOPE / KINK` below the kink and steeper above it) and nothing
+        // else in this file has to change, BECAUSE THE INDEX IS CHECKPOINTED. Read that
+        // sentence the other way round to see why it matters: with an index computed as
+        // "the rate NOW times the WHOLE elapsed time", a curve re-prices every past
+        // interval every time anyone deposits, borrows, repays or withdraws. That is
+        // adversary round 8's drain (realworld/adversary-round8/dapp_b_ratecurve), and
+        // it was built by an author following seam 1 and seam 2 exactly.
+        //
+        // WHATEVER THIS RETURNS MUST DEPEND ONLY ON STATE AS OF THIS BLOCK, and it is
+        // read exactly once per block per pricing path, by accrue_to_now() below, BEFORE
+        // the operation moves anything.
+        function current_rate_bps_per_year(): integer = INTEREST_RATE_BPS_PER_YEAR;
+
+        // THE CHECKPOINT. Advances the pool's rate-weighted time to THIS block at the
+        // rate that applied over the interval just ended, then stamps the block. Called
+        // by pool_now() and by nothing else, at the top, before any figure is derived.
+        //
+        // WHY THIS IS NOT THE ROUND-6 STALE SNAPSHOT, spelled out because the template's
+        // own central guard reads as forbidding it: round 6 stored a CASH debt and an
+        // accrual stamp that only the paths a borrower signed refreshed, so a lender's
+        // exit priced against a number that was hours old. Here the checkpoint is
+        // refreshed by the ONLY function that produces an index, so every path that can
+        // read it has already written it. The invariant to preserve is exactly that: IF
+        // YOU ADD A SECOND WAY TO PRODUCE AN INDEX, YOU HAVE RE-CREATED THE ROUND-6 BUG.
+        //
+        // With a FLAT rate this is arithmetically identical to multiplying the rate by
+        // the whole elapsed span - the accumulator is summed before any division, so
+        // partitioning the span changes nothing. With a curve it is the difference
+        // between a rate that applies from now on and a rate that rewrites history.
+        function accrue_to_now() {
+            if (not pool.opened) return;
+            val elapsed = op_context.last_block_time - pool.last_accrual_at;
+            if (elapsed <= 0) return;
+            pool.rate_ms_accrued += current_rate_bps_per_year().to_big_integer() * elapsed.to_big_integer();
+            pool.last_accrual_at = op_context.last_block_time;
+        }
+
+        // The interest index: simple interest on the CHECKPOINTED rate-weighted time,
+        // times INDEX_SCALE. It reads no clock of its own - accrue_to_now() has already
+        // brought the checkpoint to this block - so there is no second producer and no
+        // way to price against an interval that has not been accrued.
         function current_index(): integer {
             if (not pool.opened) return INDEX_SCALE;
-            val elapsed = op_context.last_block_time - pool.opened_at;
-            if (elapsed <= 0) return INDEX_SCALE;
+            if (pool.rate_ms_accrued <= 0L) return INDEX_SCALE;
             val growth =
-                INDEX_SCALE.to_big_integer() * INTEREST_RATE_BPS_PER_YEAR.to_big_integer() * elapsed.to_big_integer()
+                INDEX_SCALE.to_big_integer() * pool.rate_ms_accrued
                 / (BPS.to_big_integer() * YEAR_MS.to_big_integer());
             val grown = INDEX_SCALE.to_big_integer() + growth;
             val cap = MAX_INDEX.to_big_integer();
@@ -3473,7 +3606,13 @@ object DappScaffold {
             if (not pool.opened) {
                 pool.opened = true;
                 pool.opened_at = op_context.last_block_time;
+                pool.last_accrual_at = op_context.last_block_time;
             }
+            // THE CHECKPOINT IS ADVANCED BEFORE ANYTHING IS DERIVED, and this is the
+            // only place it happens. Whatever this operation is about to move - cash
+            // in, cash out, a repayment - the interval that has just ended accrued at
+            // the rate that applied THROUGH it.
+            accrue_to_now();
             val now_index = current_index();
             val face = to_cash_down(pool.total_scaled_debt, now_index, MAX_POOL_DEBT);
             // NO DEBT, NOTHING TO VALUE: an unlent pool is worth its cash and needs no
@@ -3481,7 +3620,7 @@ object DappScaffold {
             // collateral behind that loan, so a share cannot be priced without a fresh
             // price either. That is the same deliberate trade as halting borrowing.
             val price = if (face > 0) fresh_price() else 0;
-            val debt = recoverable_debt(face, price);
+            val debt = recoverable_debt(now_index, price);
             val fee = accrued_fee(pool.total_scaled_debt, debt);
             val net = pool.cash_available + debt - fee;
             return pool_state(
@@ -3505,18 +3644,38 @@ object DappScaffold {
         // the clock and the price - it moves continuously, it is not a write-off
         // somebody has to trigger, and there is no block to be on the right side of.
         //
-        // HONEST LIMIT, because the residual list is where an auditor trusts this file:
-        // the bound is at the POOL level, so one heavily over-collateralised position's
-        // surplus can mask another's shortfall. Making it exact means valuing every
-        // position on every pricing call - O(number of loans) per operation. If your
-        // pool has few, large positions, do that instead; the shape to keep is that the
-        // bound lives HERE, inside pool_now(), and not in an operation someone calls.
-        function recoverable_debt(face: integer, price: integer): integer {
-            if (face <= 0) return 0;
-            val backing = pool.total_collateral.to_big_integer() * price.to_big_integer()
-                / PRICE_SCALE.to_big_integer();
-            val f = face.to_big_integer();
-            return (if (backing < f) backing else f).to_integer();
+        // THE BOUND IS PER POSITION: sum(min(face_i, backing_i)), not
+        // min(sum face, sum backing). This header used to take it at the POOL level and
+        // call the difference an accounting imprecision with an O(n) fix. IT WAS NOT AN
+        // IMPRECISION, it was a free lever: `add_collateral` is permissionless and needs
+        // no debt, and `remove_collateral` skips the health check entirely on a debt-free
+        // position, so wherever the pool-level cap was active a stranger raised the share
+        // price with collateral they owed nothing against, exited at the raised price,
+        // and took the collateral back in the next block at zero cost
+        // (realworld/adversary-round8/dapp_b_ratecurve, test_b2). Per position, a
+        // DEBT-FREE position contributes zero to both sides of its own min(), so a
+        // stranger's collateral moves the share price by exactly nothing, and one
+        // borrower's surplus can no longer mask another's shortfall.
+        //
+        // It costs one pass over the positions that actually owe something, on every
+        // pricing call. That is the price of the guarantee, and it is paid HERE, inside
+        // pool_now(), rather than in an operation somebody has to remember to call.
+        //
+        // Round 7 is why the cap exists at all: every index unit valued at face let the
+        // first lender out be paid from the second lender's capital, because a position
+        // ten years past any liquidator's reach still counted at 306000 against 10000 of
+        // collateral, the share price never moved, and withdraw_cash is
+        // first-come-first-served.
+        function recoverable_debt(debt_index: integer, price: integer): integer {
+            var total = 0L;
+            for (l in loan @* { .scaled_debt > 0 } ( .scaled_debt, .collateral )) {
+                val face = to_cash_down(l.scaled_debt, debt_index, MAX_DEBT).to_big_integer();
+                val backing = l.collateral.to_big_integer() * price.to_big_integer()
+                    / PRICE_SCALE.to_big_integer();
+                total += if (backing < face) backing else face;
+            }
+            val cap = MAX_POOL_DEBT.to_big_integer();
+            return (if (total > cap) cap else total).to_integer();
         }
 
         // THE PROTOCOL'S CUT, ACCRUED CONTINUOUSLY. A share of ALL the interest this
@@ -3903,8 +4062,12 @@ object DappScaffold {
             interest_realised = pool.interest_realised,
             fee_collected = pool.fee_collected,
             opened_at = pool.opened_at,
+            // The checkpoint, so a client prices with the same arithmetic the chain
+            // does instead of re-deriving it from a rate and a span.
+            last_accrual_at = pool.last_accrual_at,
+            rate_ms_accrued = pool.rate_ms_accrued,
             index_scale = INDEX_SCALE,
-            rate_bps_per_year = INTEREST_RATE_BPS_PER_YEAR,
+            rate_bps_per_year = current_rate_bps_per_year(),
             protocol_fee_bps = PROTOCOL_FEE_BPS
         );
 
@@ -4592,21 +4755,79 @@ object DappScaffold {
         //   * `cancellable` is fixed at creation, so a VESTING GRANT (cancellable =
         //     false) genuinely cannot be clawed back, and a payroll stream
         //     (cancellable = true) genuinely can be ended. Which one you are building is
-        //     a term of the deal, not something to decide per call.
+        //     a term of the deal, not something to decide per call. THE TERM IS TAKEN BY
+        //     EVERY OPERATION THAT COULD VOID IT, not only by the one with "cancel" in
+        //     its name: pause_stream requires it too, because a grant either side can
+        //     freeze forever is not a commitment. Round 8 ended a cancellable = false
+        //     grant through an operation called `pause_stream`; see seam 1 and the
+        //     residual list.
         //
         // EXTENDING THIS TEMPLATE - the seams a static rule cannot see:
-        //   1. NEVER ADD A MUTABLE TIMESTAMP, AND NEVER MEASURE FROM ONE. If you need
-        //      "how much since last time", the answer is ALWAYS
+        //   1. NEVER MEASURE THE ENTITLEMENT FROM A MARKER A CALLER CAN ADVANCE. If you
+        //      need "how much since last time", the answer is ALWAYS
         //      `earned_by(s, now) - s.released`, never `now - s.last_paid_at`. The two
         //      look equivalent and are not: the first is a pure function of things no
         //      caller can move, the second hands the beneficiary's income to whoever
         //      calls the operation. This is the round-7 drain and it is the one edit to
-        //      this file to refuse. The same applies to a pause/resume feature: a pause
-        //      that stores "resumed_at" IS a mutable anchor. Model a pause as
-        //      cancel-and-reopen (a terminal settlement plus a new row with a new
-        //      immutable start), or - if the row must survive - store the total paused
-        //      MILLISECONDS as a monotone counter and subtract it inside earned_by, so
-        //      what is subtracted can only ever grow and can never rewrite the past.
+        //      this file to refuse.
+        //
+        //      A MUTABLE TIMESTAMP IS NOT ITSELF THE BUG, AND THIS SEAM USED TO SAY IT
+        //      WAS. It opened "NEVER ADD A MUTABLE TIMESTAMP, AND NEVER MEASURE FROM
+        //      ONE" and then offered, as its own second option, a pause that cannot be
+        //      built without one - you cannot measure how long a pause lasted without
+        //      recording when it began - so an author had to break half the advice and
+        //      was told nothing about which half was load-bearing. Stated plainly
+        //      instead: A STORED TIMESTAMP IS SAFE WHEN ACTIVE ELAPSED TIME IS MONOTONE.
+        //      What is dangerous is a marker ANY CALLER CAN ADVANCE; what is safe is a
+        //      field written only on a STATE TRANSITION that can happen once per state,
+        //      so the interval it measures is the interval that actually elapsed.
+        //
+        //      THIS SEAM ALSO USED TO STATE A SAFETY PROPERTY THAT IS FALSE, and it is
+        //      worth knowing exactly how, because the sentence read like a proof: "store
+        //      the total paused MILLISECONDS as a monotone counter and subtract it inside
+        //      earned_by, so what is subtracted can only ever grow and can never rewrite
+        //      the past." A MONOTONE SUBTRAHEND IS A MONOTONE CLAWBACK. Raising
+        //      `paused_ms` lowers `earned_by(s, at)` for EVERY `at`, the past included -
+        //      monotonicity of the counter is not a safety property at all, it is the
+        //      shape of the attack. Adversary round 8 built that shape with the counter
+        //      provably monotone and every shipped invariant green, and ONE spurious
+        //      `resume_stream` call rewrote a payee's entitlement below what they had
+        //      already been paid, after which the payer cancelled and took 100% of a
+        //      payroll escrow (realworld/adversary-round8/dapp_a2_pause_variant).
+        //
+        //      THE PROPERTY THAT IS ACTUALLY LOAD-BEARING: ACTIVE ELAPSED TIME MUST NEVER
+        //      GO BACKWARDS. That is why PAUSE/RESUME IS SHIPPED IN THIS TEMPLATE rather
+        //      than described - two rounds running, a paragraph that described a shape and
+        //      left the guards to the reader produced a drain. What makes the shipped
+        //      version safe is not the counter but the two `require()`s on the
+        //      transitions, and NEITHER OF THEM WAS NAMED ANYWHERE BEFORE ROUND 8:
+        //        * `require(not s.paused)` in pause_stream. Without it a second pause
+        //          moves `paused_at` FORWARD, the open pause it subtracts shrinks, and a
+        //          paused stream keeps accruing.
+        //        * `require(s.paused)` in resume_stream. Without it a resume of a RUNNING
+        //          stream adds the whole span since the last pause to `paused_ms`. That
+        //          single missing line is round 8's drain: dapp_a_pause and
+        //          dapp_a2_pause_variant differ by exactly this `require()`.
+        //      Together they make each transition happen once per state, so `paused_ms`
+        //      is exactly the time the stream really spent frozen and `active_elapsed()`
+        //      is non-decreasing in real time. TEST IT THAT WAY: assert that the
+        //      entitlement never falls from one block to the next, which is the property;
+        //      asserting that a counter only goes up proves nothing, and round 8's build
+        //      passed that assertion while it was being drained.
+        //
+        //      THE OTHER SHAPE - A PAUSE AS CANCEL-AND-REOPEN (a terminal settlement plus
+        //      a new row with a new immutable start) - IS ONLY SAFE ON A CANCELLABLE
+        //      STREAM, and this seam used to offer it without saying so. A pause is
+        //      explicitly not a cancellation, so an author has every reason not to check
+        //      `cancellable`. Round 8 did not: a `cancellable = false` grant of 600 was
+        //      ended in one operation, the contributor keeping 1 and the employer taking
+        //      599 back, voiding the guarantee the CANCELLATION section above sells
+        //      (realworld/adversary-round8/dapp_a3_pause_as_cancel). If you build it that
+        //      way, `require(s.cancellable)` comes FIRST, and be clear with yourself that
+        //      you have built a cancellation with a promise attached: nothing on the chain
+        //      obliges the payer to open the second row. The SHIPPED pause takes the same
+        //      term for the same reason - see pause_stream - because a committed grant
+        //      that either side can freeze forever is not committed either.
         //   2. EVERY NEW TERM MUST BE IMMUTABLE, AND EVERY NEW WAY OUT MUST PAY BEFORE
         //      IT REFUNDS. A top-up is not `update s ( .funded += more )` - changing
         //      `funded` changes the whole earned curve retroactively, including the span
@@ -4668,6 +4889,24 @@ object DappScaffold {
         //   - A STREAM IS PUBLIC. Who pays whom, how much and from when is on the chain.
         //     Payroll is exactly the case where that may be unacceptable, and this
         //     template does nothing about it.
+        //   - EVERY OPERATION THAT CAN VOID THE `cancellable = false` GUARANTEE MUST BE
+        //     NAMED IN THIS LIST. Today there are exactly TWO and both take the term:
+        //     `cancel_stream` (ends the stream and refunds) and `pause_stream` (freezes
+        //     it, which on a grant that can never be cancelled would strand the money
+        //     forever). THIS IS A LIST AN EXTENSION MUST BE ADDED TO, not a property a
+        //     reader can re-derive from an operation's name: a "pause", an "amend", a
+        //     "close", a "migrate", a "top-up that closes the old row" - anything that
+        //     can end the stream, freeze it, or move its escrow - voids a promise this
+        //     header sells, however little it looks like a cancellation. Round 8 drained
+        //     a vesting grant through an operation with no part of the word "cancel" in
+        //     it, and neither this list nor the security gate said a word.
+        //   - A PAUSE IS A DEAL TERM TOO, and this template gives it to BOTH parties on a
+        //     cancellable stream. Either side can stop the clock, which means either side
+        //     can stop the other's income or the other's obligation without ending the
+        //     arrangement. That is symmetric and it is deliberate - the alternative,
+        //     payer-only, lets an employer suspend a payee unilaterally - but it is not
+        //     the same thing as "the payee is safe". A payee who needs certainty needs
+        //     cancellable = false, which cannot be paused either.
 
         entity account {
             key owner: byte_array;
@@ -4705,6 +4944,17 @@ object DappScaffold {
             mutable escrow: integer = 0;
             mutable refunded: integer = 0;
             mutable closed: boolean = false;
+            // PAUSE STATE. These three are the ONLY mutable timestamp-ish state in the
+            // module and they are a unit: `paused` is the state, `paused_at` is written
+            // ONLY on the transition into a pause, `paused_ms` ONLY on the transition
+            // out of one. Each transition is gated on being in the other state
+            // (`require(not s.paused)` / `require(s.paused)`), which is what makes
+            // active_elapsed() non-decreasing in real time. `paused_ms` being monotone
+            // is NOT what makes this safe - a monotone subtrahend is a monotone
+            // clawback, and that is round 8's drain. See seam 1.
+            mutable paused: boolean = false;
+            mutable paused_at: timestamp = 0;
+            mutable paused_ms: integer = 0;
         }
 
         // The one-time welcome grant is the ONLY place points are created (a stand-in
@@ -4739,12 +4989,31 @@ object DappScaffold {
         function full_span(s: stream): integer =
             (s.funded * HOUR_MS + s.rate_per_hour - 1) / s.rate_per_hour;
 
-        // THE ENTITLEMENT, as of the block `at`. A PURE FUNCTION of an IMMUTABLE start,
-        // an IMMUTABLE rate and an IMMUTABLE funded amount. It reads no mutable field
-        // at all. Its two callers hand it the block clock and nothing else can be
-        // handed to it, because no operation in this module takes a timestamp.
-        function earned_by(s: stream, at: timestamp): integer {
+        // ACTIVE ELAPSED TIME: wall time since the IMMUTABLE start, less every
+        // millisecond the stream has spent frozen. THE PROPERTY THIS MUST HAVE, and the
+        // one seam 1 gets wrong if you read the old wording, is that it is NON-DECREASING
+        // IN REAL TIME. That is not a consequence of `paused_ms` only growing - raising
+        // `paused_ms` lowers this for every `at`, past included. It holds because the two
+        // operations below make each transition happen exactly once per state, so:
+        //   * while a pause is OPEN, `at` and the open pause grow together and this is
+        //     exactly FROZEN;
+        //   * at the resume block, `paused_ms` gains precisely the interval the open-pause
+        //     term stops subtracting, so this is CONTINUOUS across the resume - no jump in
+        //     either direction.
+        function active_elapsed(s: stream, at: timestamp): integer {
             val raw = at - s.started_at;
+            if (raw <= 0) return 0;
+            val open_pause = if (s.paused) at - s.paused_at else 0;
+            return raw - s.paused_ms - open_pause;
+        }
+
+        // THE ENTITLEMENT, as of the block `at`. A PURE FUNCTION of an IMMUTABLE start,
+        // an IMMUTABLE rate, an IMMUTABLE funded amount and the ACTIVE elapsed time
+        // above. It reads no bookkeeping field - not `released`, not `escrow`, not
+        // `refunded`, not `closed`. Its two callers hand it the block clock and nothing
+        // else can be handed to it, because no operation in this module takes a timestamp.
+        function earned_by(s: stream, at: timestamp): integer {
+            val raw = active_elapsed(s, at);
             if (raw <= 0) return 0;
             val span = full_span(s);
             val elapsed = if (raw > span) span else raw;
@@ -4859,6 +5128,49 @@ object DappScaffold {
             }
         }
 
+        // PAUSE. Permissioned exactly as cancel_stream is - the payer or the payee, and
+        // nobody else, because a stranger who could pause could stop anyone's income at
+        // will - and it takes the SAME `cancellable` term, because a committed grant
+        // either side could freeze forever is not committed. Round 8 ended a
+        // cancellable = false grant through a pause built without this line.
+        //
+        // It settles first, so the payee is holding what the clock owed them at this
+        // block before accrual stops. Nothing is subtracted here: active_elapsed()
+        // subtracts the OPEN pause as it runs, so the entitlement is frozen from this
+        // block whether or not anyone ever resumes.
+        operation pause_stream(stream_id: integer) {
+            val acc = auth.authenticate();
+            val s = stream_of(stream_id);
+            require(not s.closed, "stream is closed");
+            require(acc.id == s.payer or acc.id == s.payee, "only the payer or the payee may pause");
+            require(s.cancellable, "a committed grant cannot be paused");
+            // THE FIRST OF THE TWO TRANSITION GUARDS. Without it a second pause moves
+            // `paused_at` FORWARD, the open pause it subtracts shrinks, and a paused
+            // stream keeps accruing.
+            require(not s.paused, "stream is already paused");
+            pay_out(s);
+            update s ( .paused = true, .paused_at = op_context.last_block_time );
+        }
+
+        // RESUME. The ONLY writer of `paused_ms`, and it adds exactly the interval that
+        // was actually frozen.
+        //
+        // THE SECOND TRANSITION GUARD, `require(s.paused)`, IS ROUND 8'S DRAIN. Without
+        // it a resume of a RUNNING stream adds the whole span since the last pause to
+        // `paused_ms`, which lowers earned_by() for every instant including ones the
+        // payee has already been paid for; the payer then cancels and reclaims an escrow
+        // the clock had already given away. The counter is monotone either way - that is
+        // exactly why monotonicity is not the property to test.
+        operation resume_stream(stream_id: integer) {
+            val acc = auth.authenticate();
+            val s = stream_of(stream_id);
+            require(not s.closed, "stream is closed");
+            require(acc.id == s.payer or acc.id == s.payee, "only the payer or the payee may resume");
+            require(s.paused, "stream is not paused");
+            val frozen = op_context.last_block_time - s.paused_at;
+            update s ( .paused = false, .paused_ms = s.paused_ms + frozen );
+        }
+
         query get_balance(owner: byte_array): integer {
             val a = account @? { .owner == owner };
             return if (a != null) a.balance else 0;
@@ -4883,6 +5195,9 @@ object DappScaffold {
                 escrow = s.escrow,
                 refunded = s.refunded,
                 closed = s.closed,
+                paused = s.paused,
+                paused_at = s.paused_at,
+                paused_ms = s.paused_ms,
                 earned_total = earned_by(s, latest_block()),
                 claimable = payable_at(s, latest_block())
             );
@@ -4989,7 +5304,9 @@ object DappScaffold {
         // subtracted).
         function entitlement_now(stream_id: integer): integer {
             val s = main.get_stream(stream_id)!!;
-            val raw = main.chain_time() - s.started_at;
+            val at = main.chain_time();
+            val open_pause = if (s.paused) at - s.paused_at else 0;
+            val raw = at - s.started_at - s.paused_ms - open_pause;
             if (raw <= 0) return 0;
             val span = (s.funded * HOUR_MS + s.rate_per_hour - 1) / s.rate_per_hour;
             val elapsed = if (raw > span) span else raw;
@@ -5196,6 +5513,142 @@ object DappScaffold {
             signed(alice.keypair, main.open_stream(bob.account.id, 60, main.WELCOME_POINTS, true));
             signed_must_fail(alice.keypair, main.transfer_points(bob.account.id, 1), "insufficient balance");
             signed_must_fail(alice.keypair, main.transfer_points(alice.account.id, 1), "cannot transfer to yourself");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 8, dapp_a2_pause_variant: the header used
+        // to say that a monotone `paused_ms` "can never rewrite the past". It can - a
+        // monotone SUBTRAHEND is a monotone CLAWBACK - and in round 8 ONE spurious
+        // resume_stream on a RUNNING stream added the whole span since the last pause to
+        // the counter, dropped the payee's entitlement below what they had already been
+        // paid, and let the payer cancel and keep 100% of a payroll escrow. Every
+        // invariant this template ships stayed green while it happened, which is why the
+        // assertion here is the ENTITLEMENT NEVER FALLING rather than the counter rising.
+        function test_round8_pause_clawback_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // 600 an hour - one point every six seconds - with 600 escrowed: one hour
+            // of ACTIVE runway, however long the wall clock takes to deliver it.
+            signed(alice.keypair, main.open_stream(bob.account.id, 600, 600, true));
+            val id = main.streams_for_payee(bob.account.id)[0];
+            assert_conserved();
+
+            // A stranger can neither stop nor restart someone else's income.
+            signed_must_fail(trudy.keypair, main.pause_stream(id), "only the payer or the payee may pause");
+            signed_must_fail(trudy.keypair, main.resume_stream(id), "only the payer or the payee may resume");
+            // AND THE DRAIN ITSELF: resuming a stream that is not paused is refused. In
+            // round 8 this call succeeded and was the whole attack.
+            signed_must_fail(alice.keypair, main.resume_stream(id), "stream is not paused");
+            signed_must_fail(bob.keypair, main.resume_stream(id), "stream is not paused");
+
+            // Half an hour of work, then a pause.
+            after(30 * MINUTE_MS);
+            val earned_before_pause = main.get_stream(id)!!.earned_total;
+            assert_equals(earned_before_pause > 0, true);
+            signed(alice.keypair, main.pause_stream(id));
+            val paid_at_pause = paid_to(bob.account.id);
+            assert_equals(paid_at_pause > 0, true);
+            assert_conserved();
+
+            // Pausing twice is refused too: a second pause would move `paused_at`
+            // forward, shrinking the open pause, and the stream would accrue while
+            // frozen - the same guard in the other direction.
+            signed_must_fail(alice.keypair, main.pause_stream(id), "stream is already paused");
+
+            // THE FREEZE IS REAL: twenty minutes pass and the entitlement does not move.
+            val frozen = main.get_stream(id)!!.earned_total;
+            after(20 * MINUTE_MS);
+            assert_equals(main.get_stream(id)!!.earned_total, frozen);
+            assert_equals(main.get_stream(id)!!.claimable, 0);
+            assert_conserved();
+
+            // Resume, and the entitlement is CONTINUOUS across it - the counter gains
+            // exactly the interval the open-pause term stops subtracting.
+            signed(alice.keypair, main.resume_stream(id));
+            assert_equals(main.get_stream(id)!!.paused, false);
+            assert_equals(main.get_stream(id)!!.earned_total >= frozen, true);
+            // At most one block interval of accrual: 600 an hour is one point every six
+            // seconds and test blocks are ten seconds apart, so a resume that really was
+            // continuous can add at most two. A resume that RE-BASED the stream moves
+            // this by hundreds, in one direction or the other.
+            assert_equals(main.get_stream(id)!!.earned_total - frozen <= 2, true);
+
+            // Forty more minutes of work: seventy minutes of ACTIVE time against a
+            // sixty-minute stream, so the whole 600 is earned.
+            after(40 * MINUTE_MS);
+            val owed_now = main.get_stream(id)!!.claimable;
+            assert_equals(owed_now > 0, true);
+            assert_equals(main.get_stream(id)!!.earned_total, 600);
+
+            // THE ATTACK, from either side, at any time: a second resume. Refused.
+            signed_must_fail(alice.keypair, main.resume_stream(id), "stream is not paused");
+            signed_must_fail(bob.keypair, main.resume_stream(id), "stream is not paused");
+            signed_must_fail(trudy.keypair, main.resume_stream(id), "only the payer or the payee may resume");
+
+            // THE PROPERTY: the entitlement never went backwards, so nothing the payer
+            // did rewrote what the clock had already given the payee. In round 8 this
+            // number collapsed to zero.
+            assert_equals(main.get_stream(id)!!.earned_total, 600);
+            assert_equals(paid_to(bob.account.id) + main.get_stream(id)!!.claimable, entitlement_now(id));
+
+            // And the ending round 8 reached: alice cancels. There is nothing unearned
+            // left to reclaim, so bob keeps every point. In round 8 he kept 295 of 600.
+            signed(alice.keypair, main.cancel_stream(id));
+            assert_equals(paid_to(bob.account.id), 600);
+            assert_equals(paid_to(alice.account.id), -600);
+            assert_equals(main.get_stream(id)!!.refunded, 0);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Adversary round 8, dapp_a3_pause_as_cancel: the header
+        // offered "model a pause as cancel-and-reopen" without ever saying the pause
+        // must honour `cancellable`, and a pause is explicitly not a cancellation - so
+        // the author did not check. A four-year vesting grant of 600 was ended in one
+        // operation with the contributor keeping 1 and the employer taking 599 back.
+        // Here every operation that could void the term takes the term.
+        function test_round8_pause_cannot_end_a_committed_grant_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // A COMMITTED GRANT: 600 vesting at 1 point an hour, cancellable = false.
+            signed(alice.keypair, main.open_stream(bob.account.id, 1, 600, false));
+            val grant = main.streams_for_payee(bob.account.id)[0];
+            after(HOUR_MS);
+
+            // The guarantee as shipped: no cancellation, from either side.
+            signed_must_fail(alice.keypair, main.cancel_stream(grant), "this stream is not cancellable");
+            signed_must_fail(bob.keypair, main.cancel_stream(grant), "this stream is not cancellable");
+            // AND NOT THROUGH THE PAUSE EITHER, which is the round-8 drain: the payer
+            // may not end it, and may not freeze it forever, which on a stream nobody
+            // can cancel would strand the grant instead of vesting it.
+            signed_must_fail(alice.keypair, main.pause_stream(grant), "a committed grant cannot be paused");
+            signed_must_fail(bob.keypair, main.pause_stream(grant), "a committed grant cannot be paused");
+            signed_must_fail(trudy.keypair, main.pause_stream(grant), "only the payer or the payee may pause");
+            assert_conserved();
+
+            // The grant keeps vesting, and anybody may settle it for the beneficiary.
+            val vested = main.get_stream(grant)!!.claimable;
+            assert_equals(vested > 0, true);
+            signed(trudy.keypair, main.settle(grant));
+            assert_equals(paid_to(bob.account.id) >= vested, true);
+            assert_equals(main.get_balance(alice.account.id), main.WELCOME_POINTS - 600);
+            assert_conserved();
+
+            // A PAYROLL stream (cancellable = true) can be paused, by either side, and
+            // the pause pays out what the clock owed before it freezes.
+            signed(alice.keypair, main.open_stream(trudy.account.id, 3600, 300, true));
+            val payroll = main.streams_for_payee(trudy.account.id)[0];
+            after(MINUTE_MS);
+            signed(trudy.keypair, main.pause_stream(payroll));
+            assert_equals(main.get_stream(payroll)!!.paused, true);
+            assert_equals(paid_to(trudy.account.id) > 0, true);
             assert_conserved();
         }
     """.trimIndent() + "\n"
