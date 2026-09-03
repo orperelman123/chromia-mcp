@@ -1,0 +1,71 @@
+# Running an adversary round
+
+The standing method. Eight rounds have used it; it is written down because it
+kept living in one session's head, and a loop that dies with its context is not
+a loop.
+
+## The test
+
+> An agent builds a dapp using **only** this server's guidance, templates and
+> gates. An independent hostile auditor then attacks it. Whatever they can
+> drain is our failure, not the agent's.
+
+**A round passes only when the auditor reports they could drain nothing.**
+Not "fewer than last round". Coverage moving is not a pass.
+
+## Two rules that decide most arguments
+
+- **A drain in a class we have no template for is our failure too.** Eight
+  un-templated classes have been attacked and eight drained. "We never claimed
+  to cover streaming" is not a defence: the agent asked this server how to
+  build and this server answered. `docs/TEMPLATE-GAPS.md` is the ledger of
+  which asks currently get answered by a template that does not cover them.
+- **The prose is in scope.** Rounds 7, 8 and 9 were each topped by a defect in
+  our own text, not by a missing guard: a prescribed holding period that WAS
+  the vulnerability; a claim that a monotone paused-milliseconds counter "can
+  never rewrite the past" when a monotone subtrahend is a monotone clawback;
+  and a seam citing a victim's 144 bps execution loss as though it were the
+  pool's 79 bps reserve movement, which pointed at a safe band width in a seam
+  whose rule is that no width is safe. **A header sentence that is wrong is a
+  defect of the same kind as a missing guard**, and the residual list - where
+  an auditor places the most trust - is the worst place to be wrong.
+
+## Shape of a round
+
+1. **Build.** Several dapps, using only the MCP. Include at least one
+   **templated** class and one **un-templated** one - the templated builds are
+   where a regression would hide, and the shipped lending template has itself
+   been drained twice (`r7-lending-bad-debt-exit-race`,
+   `r8-lending-pool-cap-collateral-lever`), so "it has a template" is not cover.
+   Also build at least one dapp by following a template's own EXTENDING seams
+   literally: round 7 and round 8 both drained a build whose author did exactly
+   what the header said.
+2. **Attack.** Measure. A drain is numbers - what went in, what came out, whose
+   balance moved - not an argument that something looks unsafe.
+3. **Pin.** Every exploit becomes a row in
+   `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
+   `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
+   `FALSE_POSITIVE`). Coverage is then measured on every build instead of
+   claimed in a report.
+4. **Answer.** Choose deliberately, and say which you chose:
+   - a **rule**, only if it can be keyed on type and use rather than names, and
+     survives you attacking it yourself;
+   - a **template** that makes the class unwritable, when no precise rule
+     exists (principle 4) - the answer for AMM, since nothing in the source
+     distinguishes a sandwich from two honest trades;
+   - a **documented GAP**, when a rule would fire on correct code. A gate
+     agents route around is worse than no gate (principle 3). Say so in the
+     row; do not ship a noisy rule to make a number look better.
+5. **Prove.** Every guard needs a mutant that turns a shipped must-fail test
+   red **because the attack landed** - the error text must be the attack
+   succeeding (`run_must_fail: Transaction did not fail`), never a chain that
+   failed to start or an unrelated `require()`.
+
+## Verifying the round's own report
+
+Do not merge on a lane's word - re-run `scripts/loop-gate.mjs` yourself in its
+worktree, with `--expect-min` set to the **previously verified** count and never
+an estimate. A lane has reported a build as "still running" when it had failed
+seven minutes earlier, on a branch with five red tests. Recompute any number a
+report gives you that an argument rests on; that is how the 144 bps error was
+caught, and it had already passed a lane's own green gate.
