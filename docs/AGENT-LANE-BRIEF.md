@@ -42,3 +42,44 @@ Four principles, in priority order:
 ## Reporting
 
 Honest and short beats padded. Per finding: the exploit, the reproduction, the fix, the regression test, the commit. Separately: what you suspected but could not reproduce, and what you deliberately left alone with the reason. "These rules held against everything I threw at them" is a valuable result. Inventing findings to look productive makes the work worthless.
+
+## Running several agents at once
+
+The scarce resource on this machine is not reasoning, it is the **one build
+slot**. A full suite is 18-23 minutes, there is one Gradle daemon and one
+PostgreSQL, and four concurrent builds have already OOM-killed the Kotlin
+daemon once. Three agents once burned roughly 250k tokens each sitting in wait
+loops for a build that was starved behind others - about 750k tokens for zero
+output. More lanes than build slots is not parallelism, it is a queue with
+tokens attached to it.
+
+So split the work by whether it needs a build:
+
+- **Analysis parallelises.** Reading prose, recomputing a header's arithmetic
+  from the template's own constants, auditing the redirect table, tracing an
+  import graph, ranking corpus rows - none of it compiles anything. Run as many
+  of these at once as the question deserves, and say **READ-ONLY: do not edit,
+  do not run gradle** in the brief, in those words. This is also where the
+  richest findings currently are: three rounds running, the top finding was a
+  false sentence of ours, and a green suite cannot see one.
+- **Verification does not parallelise.** Applying a fix, running the gate,
+  merging, pushing - one lane at a time, and prefer taking the work over
+  dispatching it when a lane stalls.
+
+Give every agent the reasoning, not just the task. That means pointing it at
+GOAL.md, this file, docs/ADVERSARY-ROUND-BRIEF.md and docs/TEMPLATE-GAPS.md,
+and telling it **what is already known** so it does not spend a budget
+rediscovering a pinned finding. An agent handed a task without the why produces
+work that has to be re-derived; that is what makes the difference between a
+swarm and a crowd.
+
+Two things every brief needs, learned the hard way:
+
+- **A build takes 10-20 minutes: run it in the BACKGROUND and wait.** Do not
+  poll in a loop, and never report "waiting on the build" as a result. One lane
+  did exactly that after 264k tokens, and its build had failed seven minutes
+  earlier with five red tests on its branch.
+- **A lane's own report is not evidence.** Whoever merges re-runs the gate in
+  the lane's worktree with `--expect-min` set to the previously VERIFIED count,
+  and recomputes any number an argument rests on. Both have caught a defect
+  that had already passed a lane's green gate.
