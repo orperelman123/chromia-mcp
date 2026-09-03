@@ -936,11 +936,20 @@ object DappScaffold {
         import lib.ft4.accounts;
 
         // Governance template: a member-funded treasury that pays out only by
-        // stake-weighted vote. Four guards are STRUCTURAL - they live in the
+        // stake-weighted vote. Five guards are STRUCTURAL - they live in the
         // entities and constants, not in a require() a future operation can forget:
-        //   QUORUM        - execute_proposal needs yes_weight + no_weight >= quorum_weight,
-        //                   snapshotted from the total stake when the proposal was created,
-        //                   so joining late cannot shrink the bar.
+        //   QUORUM        - execute_proposal needs yes_weight + no_weight >= the LARGER of
+        //                   the quorum snapshotted at creation and the quorum of the total
+        //                   stake AT EXECUTION. The snapshot alone was round 10's drain: it
+        //                   is a floor, not a ceiling, and total_stake only grows here, so a
+        //                   proposal created and voted while the DAO was tiny kept its tiny
+        //                   bar forever - 100 proposals of 1000 each at quorum 500, executed
+        //                   months later against a 101,000 treasury by a member holding
+        //                   0.99 percent of live stake. The live term makes the bar move
+        //                   with the money; the snapshot stays for the day unstaking exists.
+        //   EXECUTION     - an approved proposal must be executed within EXECUTION_WINDOW_MS
+        //     WINDOW        of its deadline or it expires. An approval cannot be parked
+        //                   until the treasury is worth draining.
         //   VOTING WINDOW - VOTING_PERIOD_MS is a constant, not a parameter. Nothing a
         //                   proposer sends can close a vote before others can act. If you
         //                   make it configurable, floor it: require(period >= VOTING_PERIOD_MS).
@@ -996,6 +1005,10 @@ object DappScaffold {
         val WELCOME_POINTS = 1000;
         // Three days. A constant: there is no parameter that shortens it.
         val VOTING_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
+        // Seven days after the deadline to execute an approved proposal; after that
+        // it is dead and must be re-proposed against the DAO as it is NOW. Round 10:
+        // without this, an approval bought cheaply could wait for the treasury to grow.
+        val EXECUTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
         // Half of all stake must vote for a proposal to be decidable at all.
         val QUORUM_BPS = 5000;
         val MAX_TITLE_LENGTH = 200;
@@ -1082,7 +1095,16 @@ object DappScaffold {
             val p = require(proposal @? { .rowid == proposal_id }, "proposal not found");
             require(not p.executed, "proposal already executed");
             require(op_context.last_block_time >= p.deadline, "voting is still open");
-            require(p.yes_weight + p.no_weight >= p.quorum_weight, "quorum not reached");
+            require(op_context.last_block_time < p.deadline + EXECUTION_WINDOW_MS, "proposal expired");
+            // The bar is the LARGER of the snapshot and the quorum of today's total
+            // stake. Votes cast while the DAO was small do not carry against the DAO
+            // as it is when the money moves. Do not simplify this to the snapshot
+            // alone: that is the round-10 drain, and test_round10_parked_cheap_quorum_drain_must_fail
+            // goes red the moment you do.
+            require(
+                p.yes_weight + p.no_weight >= max(p.quorum_weight, quorum_for(dao.total_stake)),
+                "quorum not reached"
+            );
             require(p.yes_weight > p.no_weight, "proposal was not approved");
             require(dao.treasury_balance >= p.amount, "treasury cannot cover the proposal");
             val b = member_of(p.beneficiary);
@@ -1101,7 +1123,10 @@ object DappScaffold {
                 beneficiary = p.beneficiary,
                 amount = p.amount,
                 deadline = p.deadline,
+                expires_at = p.deadline + EXECUTION_WINDOW_MS,
                 quorum_weight = p.quorum_weight,
+                // The bar execute_proposal will actually apply if called now.
+                quorum_now = max(p.quorum_weight, quorum_for(dao.total_stake)),
                 yes_weight = p.yes_weight,
                 no_weight = p.no_weight,
                 executed = p.executed
@@ -1290,6 +1315,67 @@ object DappScaffold {
             close_voting_window();
             signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal was not approved");
             assert_equals(main.treasury_balance(), 901);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 10: the parked cheap quorum. Trudy is the DAO's
+        // only member. She stakes everything, proposes paying herself the whole
+        // treasury and votes yes - a real quorum, of a DAO worth 1000. Then alice
+        // and bob join and stake 1000 each. With a snapshot-only quorum her approval
+        // executes against a 3000 treasury on a bar set when it was 1000, and scaled
+        // up (100 proposals of 1000 each, 100 members) that is 100,000 of 101,000
+        // to a member holding 0.99 percent of live stake. Here the live term
+        // refuses it: 1000 of weight against quorum_for(3000) = 1500.
+        function test_round10_parked_cheap_quorum_drain_must_fail() {
+            val trudy = register_trudy();
+            signed(trudy.keypair, main.register_member());
+            signed(trudy.keypair, main.fund_treasury(1000));
+            assert_equals(main.total_stake(), 1000);
+            signed(trudy.keypair, main.create_proposal("pay me", trudy.account.id, 1000));
+            val pid = proposal_by(trudy.account.id);
+            assert_equals(main.get_proposal(pid).quorum_weight, 500);
+            signed(trudy.keypair, main.cast_vote(pid, true));
+
+            // The DAO grows around the parked approval.
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+            assert_equals(main.treasury_balance(), 3000);
+            assert_equals(main.get_proposal(pid).quorum_now, 1500);
+
+            close_voting_window();
+            signed_must_fail(trudy.keypair, main.execute_proposal(pid), "quorum not reached");
+            assert_equals(main.treasury_balance(), 3000);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_conserved();
+        }
+
+        // EXECUTION WINDOW. A legitimately approved proposal that nobody executes
+        // dies EXECUTION_WINDOW_MS after its deadline: it must be re-proposed against
+        // the DAO as it is then, so an approval cannot be held until it is worth
+        // more than the voters decided on.
+        function test_approved_proposal_expires_unexecuted() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(alice.keypair, main.fund_treasury(600));
+            signed(bob.keypair, main.fund_treasury(400));
+            signed(alice.keypair, main.create_proposal("pay bob", bob.account.id, 300));
+            val pid = proposal_by(alice.account.id);
+            signed(alice.keypair, main.cast_vote(pid, true));
+            signed(bob.keypair, main.cast_vote(pid, true));
+
+            // Deadline passed, window still open: executable (proved by the sibling
+            // happy-path test). Here we step PAST the window instead.
+            rell.test.set_next_block_time_delta(main.VOTING_PERIOD_MS + main.EXECUTION_WINDOW_MS + 1);
+            rell.test.block().run();
+            signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal expired");
+            assert_equals(main.treasury_balance(), 1000);
+            assert_equals(main.get_proposal(pid).executed, false);
             assert_conserved();
         }
     """.trimIndent() + "\n"

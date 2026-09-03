@@ -211,9 +211,15 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("val VOTING_PERIOD_MS ="), "voting window must be a named constant")
         assertFalse(Regex("operation\\s+create_proposal\\s*\\([^)]*period").containsMatchIn(main), "create_proposal must not take a period parameter")
         assertTrue(main.contains("deadline = now + VOTING_PERIOD_MS"), "the deadline must come from the constant")
-        // Quorum is snapshotted at creation and checked at execution.
+        // Quorum is snapshotted at creation and, at execution, the bar is the LARGER
+        // of that snapshot and the quorum of the stake as it is THEN. Round 10: the
+        // snapshot alone is a floor that stays put while the treasury grows.
         assertTrue(main.contains("quorum_weight = quorum_for(dao.total_stake)"), "quorum must be snapshotted from total stake at creation")
-        assertTrue(main.contains("require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\")"))
+        assertTrue(main.contains(GOVERNANCE_LIVE_QUORUM_GUARD), "execute_proposal must apply max(snapshot, live quorum)")
+        assertFalse(main.contains("require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\")"), "snapshot-only quorum is the round-10 drain")
+        // An approval cannot be parked: it expires EXECUTION_WINDOW_MS after the deadline.
+        assertTrue(main.contains("val EXECUTION_WINDOW_MS ="), "execution window must be a named constant")
+        assertTrue(main.contains("require(op_context.last_block_time < p.deadline + EXECUTION_WINDOW_MS, \"proposal expired\")"))
         // Votes weigh stake, and zero stake cannot propose or vote.
         assertTrue(main.contains("val weight = voter.stake;"), "a vote must weigh the voter's stake")
         assertTrue(main.contains("require(weight > 0, \"no voting weight"), "zero stake must not be able to vote")
@@ -1235,7 +1241,9 @@ class DappScaffoldSecureTemplatesTest {
         setOf(
             "test_round1_single_account_drain_must_fail",
             "test_stake_weighted_proposal_pays_once_and_conserves_points",
-            "test_majority_of_stake_can_reject"
+            "test_majority_of_stake_can_reject",
+            "test_round10_parked_cheap_quorum_drain_must_fail",
+            "test_approved_proposal_expires_unexecuted"
         )
     )
 
@@ -1322,6 +1330,19 @@ class DappScaffoldSecureTemplatesTest {
     private val attackLanded = "did not fail"
 
     /**
+     * The governance quorum guard as shipped since round 10, verbatim (the
+     * template is trimIndent-ed, so the operation body sits at four spaces).
+     * The bar is max(snapshot, live): removing it or reducing it to the
+     * snapshot alone are the two mutants below.
+     */
+    private val GOVERNANCE_LIVE_QUORUM_GUARD = listOf(
+        "    require(",
+        "        p.yes_weight + p.no_weight >= max(p.quorum_weight, quorum_for(dao.total_stake)),",
+        "        \"quorum not reached\"",
+        "    );"
+    ).joinToString("\n")
+
+    /**
      * The proof the exploit is unwritable: mutate ONE guard in the template and
      * the shipped replay must go red - for the exploit's reason, i.e. the attack
      * now SUCCEEDS where the test required it to be refused (or the conservation
@@ -1402,9 +1423,34 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun governanceExploitTestGoesRedWithoutTheQuorumGuard() = assertGuardRemovalRedensExploitTest(
         "governance",
-        "require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\");",
+        GOVERNANCE_LIVE_QUORUM_GUARD,
         "test_round1_single_account_drain_must_fail",
         "quorum not reached"
+    )
+
+    /**
+     * Round 10: put the snapshot-only quorum BACK (the exact line the template
+     * shipped with through round 9) and the parked-cheap-quorum replay must go
+     * red because the drain lands. This is the mutant that proves the live term
+     * is what refuses it, not the snapshot the old prose credited.
+     */
+    @Test
+    fun governanceRound10ReplayGoesRedWithSnapshotOnlyQuorum() = assertGuardMutationRedensExploitTest(
+        "governance",
+        GOVERNANCE_LIVE_QUORUM_GUARD,
+        "require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\");",
+        "test_round10_parked_cheap_quorum_drain_must_fail",
+        "quorum not reached",
+        attackLanded
+    )
+
+    /** The approval cannot be parked either: strip the window and the expiry replay goes red. */
+    @Test
+    fun governanceExpiryReplayGoesRedWithoutTheExecutionWindow() = assertGuardRemovalRedensExploitTest(
+        "governance",
+        "require(op_context.last_block_time < p.deadline + EXECUTION_WINDOW_MS, \"proposal expired\");",
+        "test_approved_proposal_expires_unexecuted",
+        "proposal expired"
     )
 
     @Test
