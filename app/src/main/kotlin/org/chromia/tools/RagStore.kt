@@ -16,6 +16,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.runBlocking
 import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.core.JsonParser
@@ -66,6 +67,13 @@ open class RagStore(
         const val MAX_HITS = 15
         /** Exact-identifier hits kept per identifier token in the query. */
         const val LEXICAL_HITS_PER_TOKEN = 3
+        /**
+         * Identifier tokens scanned per query, first-mentioned first. Each token
+         * is one pass over every segment; a pasted stack trace carried 40+ names
+         * and took 4.1 s against the 25823-segment store (2026-09-04).
+         */
+        const val MAX_IDENTIFIER_TOKENS = 8
+        private val DEFINITION_KEYWORDS = "function|operation|query|struct|entity|object|val|def|fun|class|enum|namespace"
 
         /**
          * Identifier-shaped tokens: snake_case, dotted.names, camelCase - at
@@ -82,14 +90,21 @@ open class RagStore(
                 .filter { it.length >= 5 }
                 .filterNot { token -> token.contains('.') && token.substringAfterLast('.').lowercase() in FILE_EXTENSIONS }
                 .distinct()
+                .take(MAX_IDENTIFIER_TOKENS)
                 .toList()
 
-        /** Definition sites outrank mentions; more mentions outrank fewer. */
-        internal fun lexicalScore(text: String, token: String): Int {
-            val definition = Regex("""(?im)^\s*(?:function|operation|query|struct|entity|object|val|def|fun|class|enum|namespace)\s+${Regex.escape(token)}\b""")
-            val mentions = Regex(Regex.escape(token), RegexOption.IGNORE_CASE).findAll(text).count()
-            return (if (definition.containsMatchIn(text)) 1000 else 0) + mentions
+        /** One token's compiled matchers - built once per query token, not once per segment. */
+        internal class TokenMatcher(token: String) {
+            val lower: String = token.lowercase()
+            private val definition = Regex("""(?im)^\s*(?:$DEFINITION_KEYWORDS)\s+${Regex.escape(token)}\b""")
+            private val mention = Regex(Regex.escape(token), RegexOption.IGNORE_CASE)
+
+            /** Definition sites outrank mentions; more mentions outrank fewer. */
+            fun score(text: String): Int =
+                (if (definition.containsMatchIn(text)) 1000 else 0) + mention.findAll(text).count()
         }
+
+        internal fun lexicalScore(text: String, token: String): Int = TokenMatcher(token).score(text)
 
         internal fun parseLastModified(header: String?): Instant? =
             header?.let { runCatching { Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(it.trim())) }.getOrNull() }
@@ -106,7 +121,7 @@ open class RagStore(
                     runBlocking {
                         logger.info("Download embedding from Gitlab registry")
                         http.downloadFile("$PACKAGE_URL/$FILE_NAME") { response ->
-                            onLastModified(parseLastModified(response.headers[io.ktor.http.HttpHeaders.LastModified]))
+                            onLastModified(parseLastModified(response.headers[HttpHeaders.LastModified]))
                         }?.let { tempFile ->
                             val loaded = runCatching {
                                 InMemoryEmbeddingStore.fromFile(tempFile)
@@ -166,6 +181,13 @@ open class RagStore(
     private val gitLabAccessToken = System.getenv("GITLAB_ACCESS_TOKEN")
     val docsFetcher by lazy { DocsFetcher() }
     private val segmentsById = ConcurrentHashMap<String, TextSegment>()
+
+    /** A segment with its text lowercased once, so the lexical scan is a plain indexOf per token. */
+    private class LexicalEntry(val segment: TextSegment, val lowerText: String)
+
+    /** Rebuilt with [segmentsById]; ~1 KB per segment (25 MB for the production store). */
+    @Volatile
+    private var lexicalIndex: List<LexicalEntry> = emptyList()
 
     var embeddingStore: InMemoryEmbeddingStore<TextSegment>? = null
         set(value) {
@@ -315,11 +337,12 @@ open class RagStore(
     internal fun lexicalHits(query: String): List<TextSegment> {
         val tokens = identifierTokens(query)
         if (tokens.isEmpty()) return emptyList()
-        val all = segmentsById.values
+        val index = lexicalIndex
         return tokens.flatMap { token ->
-            all.asSequence()
-                .filter { it.text().contains(token, ignoreCase = true) }
-                .map { it to lexicalScore(it.text(), token) }
+            val matcher = TokenMatcher(token)
+            index.asSequence()
+                .filter { it.lowerText.contains(matcher.lower) }
+                .map { it.segment to matcher.score(it.segment.text()) }
                 .sortedByDescending { it.second }
                 .take(LEXICAL_HITS_PER_TOKEN)
                 .map { it.first }
@@ -356,10 +379,13 @@ open class RagStore(
 
     private fun rebuildSegmentIndex(store: InMemoryEmbeddingStore<TextSegment>?) {
         segmentsById.clear()
+        lexicalIndex = emptyList()
         if (store == null) return
-        embeddingStoreSegments(store).forEach { segment ->
+        val segments = embeddingStoreSegments(store)
+        segments.forEach { segment ->
             segmentsById[segmentId(segment)] = segment
         }
+        lexicalIndex = segments.map { LexicalEntry(it, it.text().lowercase()) }
     }
 
     fun createAndUploadEmbeddings(upload: Boolean = true): InMemoryEmbeddingStore<TextSegment> = runBlocking {

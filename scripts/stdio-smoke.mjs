@@ -114,6 +114,14 @@ try {
   j = parse(await call('run_rell_tests', { files: { 't.rell': '@test module;\nfunction test_bad() { assert_equals(1, 2); }' } }));
   check('run_rell_tests reports failure', j.ok === false && j.failed === 1, JSON.stringify(j.cases ?? '').slice(0, 100));
 
+  // `tests` filter over the wire (round 11): one of two cases selected by glob,
+  // and an unmatched filter is red and names what it could have matched.
+  const twoCases = { 't.rell': '@test module;\nfunction test_ok() { assert_equals(1, 1); }\nfunction test_bad() { assert_equals(1, 2); }' };
+  j = parse(await call('run_rell_tests', { files: twoCases, tests: ['*_ok'] }));
+  check('run_rell_tests tests filter selects one case', j.ok === true && j.total === 1, JSON.stringify(j.cases ?? '').slice(0, 100));
+  j = parse(await call('run_rell_tests', { files: twoCases, tests: 'test_nope' }));
+  check('run_rell_tests unmatched filter is red and lists cases', j.ok === false && j.total === 0 && /test_ok/.test(j.notes ?? ''), (j.notes ?? '').slice(0, 160));
+
   const scaffold = parse(await call('scaffold_dapp', { name: 'stdio_journey', template: 'ft4' }));
   check('scaffold_dapp ft4', scaffold.template === 'ft4' && !!scaffold.files?.['client/example.ts'], null);
 

@@ -105,6 +105,34 @@ class RagStoreLexicalBoostTest {
         assertTrue(segmentId(prose) in ids)
     }
 
+    /**
+     * A pasted stack trace is a query too. Measured 2026-09-04 on the real
+     * 25823-segment store: one identifier +300 ms, 40 identifiers 4.1 s - each
+     * token scanned every segment with contains(ignoreCase) and compiled two
+     * regexes per matching segment. The token list is capped so the scan is
+     * bounded, first-mentioned names win (the agent leads with what it means).
+     */
+    @Test
+    fun identifierTokensAreCappedAtTheFirstFew() {
+        val flood = (1..30).joinToString(" ") { "name_$it" }
+        val tokens = RagStore.identifierTokens(flood)
+        assertEquals(RagStore.MAX_IDENTIFIER_TOKENS, tokens.size)
+        assertEquals((1..RagStore.MAX_IDENTIFIER_TOKENS).map { "name_$it" }, tokens)
+    }
+
+    @Test
+    fun lexicalMatchingIsCaseInsensitiveAndTheDefinitionStillLeads() {
+        val upper = TextSegment.from("See REQUIRE_MANDATORY_FLAGS in the accounts module.", Metadata.from("file_name", "notes.md"))
+        val fixture = InMemoryEmbeddingStore<TextSegment>().also { s ->
+            s.add(Embedding.from(far), definition)
+            s.add(Embedding.from(far), upper)
+            s.add(Embedding.from(far), unrelated)
+        }
+        val store = RagStore(loadFromRegistry = false, initialStore = fixture, embeddingModel = fixedModel())
+        val ids = store.lexicalHits("require_mandatory_flags").map { segmentId(it) }
+        assertEquals(listOf(segmentId(definition), segmentId(upper)), ids)
+    }
+
     @Test
     fun lexicalHitsAreCappedPerTokenAndTheMergeIsCappedAndDeduplicated() {
         val many = (1..10).map { i -> TextSegment.from("mention $i of require_mandatory_flags in passing", Metadata.from("file_name", "m$i.md")) }
