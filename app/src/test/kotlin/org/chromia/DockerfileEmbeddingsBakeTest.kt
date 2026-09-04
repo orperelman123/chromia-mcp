@@ -42,6 +42,23 @@ class DockerfileEmbeddingsBakeTest {
     }
 
     @Test
+    fun dockerfileUsesTheSameReleaseApiAndSecretNameAsTheRuntimeAndNeverAnArgForTheToken() {
+        val dockerfile = Files.readString(repoRoot().resolve("Dockerfile"))
+        assertTrue(
+            dockerfile.contains("https://api.github.com/repos/${RagStore.GITHUB_REPO}/releases/tags/${RagStore.GITHUB_RELEASE_TAG}"),
+            "Dockerfile must resolve the private asset through RagStore.GITHUB_RELEASE_API_URL"
+        )
+        assertTrue(
+            dockerfile.contains("--mount=type=secret,id=${RagStore.EMBEDDINGS_TOKEN_ENV}"),
+            "Dockerfile must read the token as a BuildKit secret named ${RagStore.EMBEDDINGS_TOKEN_ENV} (the runtime reads ${RagStore.EMBEDDINGS_TOKEN_FILE})"
+        )
+        assertTrue(
+            Regex("""(?m)^\s*ARG\s+${RagStore.EMBEDDINGS_TOKEN_ENV}""").containsMatchIn(dockerfile).not(),
+            "the token must never be an ARG - build args linger in image metadata"
+        )
+    }
+
+    @Test
     fun dockerfilePointsRuntimeAtTheBakedFile() {
         val dockerfile = Files.readString(repoRoot().resolve("Dockerfile"))
         assertTrue(

@@ -90,8 +90,12 @@ jobs:
           gh release upload embeddings app/build/embeddings.json app/build/embeddings.provenance.json --clobber
           gh release edit embeddings --notes "Rolling documentation index for the Chromia MCP server, replaced in place by the Embeddings refresh workflow. Last refresh: $(date -u +%Y-%m-%d) from $GITHUB_SHA ($(cat app/build/embeddings.provenance.json))."
 
+      # A convenience copy for inspecting a run; the release asset above is the
+      # deliverable. First run (2026-09-04) hit the account's artifact storage
+      # quota here AFTER a successful publish - this step must never red the run.
       - name: Upload embeddings artifact
         uses: actions/upload-artifact@v7
+        continue-on-error: true
         with:
           name: embeddings
           path: |

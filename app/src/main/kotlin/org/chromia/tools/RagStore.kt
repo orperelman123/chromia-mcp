@@ -16,8 +16,16 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.JsonToken
@@ -37,6 +45,7 @@ import kotlin.io.path.createTempFile
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 
 open class RagStore(
     loadFromRegistry: Boolean = true,
@@ -57,10 +66,32 @@ open class RagStore(
          * the GitLab package was last uploaded 2025-10-21 and nobody outside ChromaWay
          * can refresh it, while this asset is rebuilt from the live sources by CI.
          */
-        const val GITHUB_RELEASE_URL = "https://github.com/orperelman123/chromia-mcp/releases/download/embeddings/$FILE_NAME"
+        const val GITHUB_REPO = "orperelman123/chromia-mcp"
+        const val GITHUB_RELEASE_TAG = "embeddings"
+        const val GITHUB_RELEASE_URL = "https://github.com/$GITHUB_REPO/releases/download/$GITHUB_RELEASE_TAG/$FILE_NAME"
+        /** Release metadata endpoint; its `assets[].url` is the only download path a private repo allows. */
+        const val GITHUB_RELEASE_API_URL = "https://api.github.com/repos/$GITHUB_REPO/releases/tags/$GITHUB_RELEASE_TAG"
         const val EMBEDDINGS_PATH_ENV = "CHROMIA_EMBEDDINGS_PATH"
         /** Optional first remote to try, ahead of the GitHub release and the GitLab package. */
         const val EMBEDDINGS_URL_ENV = "CHROMIA_EMBEDDINGS_URL"
+        /**
+         * Token for the GitHub release download. The repository is private (2026-09-04),
+         * so the public `releases/download/...` URL answers 404 to anyone unauthenticated;
+         * with a token the asset is fetched through the releases API instead
+         * (`Accept: application/octet-stream` on `assets[].url`). A fine-grained token with
+         * read access to Contents on the repo is enough. `GITHUB_TOKEN` is honoured as a
+         * fallback so a GitHub Actions job needs nothing extra.
+         */
+        const val EMBEDDINGS_TOKEN_ENV = "CHROMIA_EMBEDDINGS_TOKEN"
+        const val GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+        /** Render mounts Secret Files here at runtime; the Dockerfile reads the same file as a BuildKit secret. */
+        val EMBEDDINGS_TOKEN_FILE: Path = Path.of("/etc/secrets", EMBEDDINGS_TOKEN_ENV)
+
+        /** `CHROMIA_EMBEDDINGS_TOKEN`, else the secret file, else `GITHUB_TOKEN`; blank counts as unset. */
+        fun embeddingsToken(env: Map<String, String> = System.getenv(), tokenFile: Path = EMBEDDINGS_TOKEN_FILE): String? =
+            env[EMBEDDINGS_TOKEN_ENV]?.takeIf { it.isNotBlank() }
+                ?: runCatching { if (tokenFile.isRegularFile()) tokenFile.readText().trim().takeIf { it.isNotEmpty() } else null }.getOrNull()
+                ?: env[GITHUB_TOKEN_ENV]?.takeIf { it.isNotBlank() }
         /**
          * Whole-request budget for one remote download. Was 10 s, sized for the
          * 18.8 MB GitLab package; the fresh store is 150 MB, which 10 s would
@@ -149,7 +180,8 @@ open class RagStore(
          */
         fun downloadRemoteEmbeddings(
             client: HttpClient? = null,
-            urls: List<String> = remoteEmbeddingsUrls()
+            urls: List<String> = remoteEmbeddingsUrls(),
+            token: String? = embeddingsToken()
         ): RemoteEmbeddings? {
             val owned = client == null
             val http = client ?: createRegistryDownloadClient()
@@ -158,8 +190,9 @@ open class RagStore(
                     var lastModified: Instant? = null
                     val loaded = runCatching {
                         runBlocking {
-                            logger.info("Downloading embeddings from $url")
-                            http.downloadFile(url) { response ->
+                            val (downloadUrl, headers) = resolveDownload(http, url, token)
+                            logger.info("Downloading embeddings from $downloadUrl")
+                            http.downloadFile(downloadUrl, headers) { response ->
                                 lastModified = parseLastModified(response.headers[HttpHeaders.LastModified])
                             }?.let { tempFile ->
                                 try {
@@ -180,6 +213,36 @@ open class RagStore(
                     http.close()
                 }
             }
+        }
+
+        /**
+         * The URL and headers to actually GET for [url]. Only the GitHub release with a
+         * token is special: the public download URL is 404 on a private repo, so the
+         * asset id is looked up on the releases API and fetched as an octet-stream
+         * with the token. Everything else is fetched as given.
+         */
+        internal suspend fun resolveDownload(http: HttpClient, url: String, token: String?): Pair<String, Map<String, String>> {
+            if (url != GITHUB_RELEASE_URL || token.isNullOrBlank()) return url to emptyMap()
+            val auth = mapOf(HttpHeaders.Authorization to "Bearer $token", "X-GitHub-Api-Version" to "2022-11-28")
+            val release = http.get(GITHUB_RELEASE_API_URL) {
+                auth.forEach { (k, v) -> header(k, v) }
+                header(HttpHeaders.Accept, "application/vnd.github+json")
+            }
+            if (release.status != HttpStatusCode.OK) {
+                logger.info("GitHub release lookup answered HTTP ${release.status}; trying the public asset URL")
+                return url to emptyMap()
+            }
+            val asset = runCatching {
+                Json.parseToJsonElement(release.bodyAsText()).jsonObject["assets"]?.jsonArray
+                    ?.map { it.jsonObject }
+                    ?.firstOrNull { it["name"]?.jsonPrimitive?.content == FILE_NAME }
+                    ?.get("url")?.jsonPrimitive?.content
+            }.getOrNull()
+            if (asset == null) {
+                logger.info("GitHub release $GITHUB_RELEASE_TAG has no $FILE_NAME asset; trying the public asset URL")
+                return url to emptyMap()
+            }
+            return asset to auth + (HttpHeaders.Accept to "application/octet-stream")
         }
     }
 
@@ -896,6 +959,9 @@ internal fun createRegistryDownloadClient(
     engine: HttpClientEngine = CIO.create()
 ): HttpClient = HttpClient(engine) {
     expectSuccess = false
+    // downloadFile follows redirects itself so an Authorization header never
+    // travels to the object-storage host GitHub redirects release assets to.
+    followRedirects = false
     install(HttpTimeout) {
         requestTimeoutMillis = RagStore.REGISTRY_REQUEST_TIMEOUT_MS
         socketTimeoutMillis = RagStore.REGISTRY_SOCKET_TIMEOUT_MS

@@ -36,29 +36,55 @@ RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "${RENDER_GIT_COM
 # GitHub release asset published by the `Embeddings refresh` workflow, then the
 # GitLab package - DockerfileEmbeddingsBakeTest pins the two together) and the
 # same retry/timeout hardening spirit as the Maven settings above.
-# MUST NOT fail the image build when both are unreachable: the file is
-# downloaded into a directory so the later COPY succeeds even when empty,
-# and the runtime download fallback then still applies - a registry outage at
+#
+# The repository is private, so the public release URL is 404 without a token.
+# A token is read ONLY from a BuildKit secret (never an ARG: build args linger
+# in image metadata; Render's own docs say the same and mount its Secret Files
+# for exactly this). On Render: add a Secret File named CHROMIA_EMBEDDINGS_TOKEN
+# whose content is a fine-grained GitHub token with read access to this repo's
+# Contents - the build mounts it here and the runtime reads the same file from
+# /etc/secrets/. Without it the bake falls through to the public URL (works the
+# day the repo goes public) and then the GitLab package; runtime downloads at
+# boot with the same precedence, streaming, so a missing bake costs ~12 s of
+# boot, not memory.
+#
+# MUST NOT fail the image build when every remote is unreachable: the file is
+# downloaded into a directory so the later COPY succeeds even when empty, and
+# the runtime download fallback then still applies - a registry outage at
 # image-build time must never brick a deploy.
-RUN mkdir -p /embeddings && \
-    EMB_URLS="https://github.com/orperelman123/chromia-mcp/releases/download/embeddings/embeddings.json https://gitlab.com/api/v4/projects/71940508/packages/generic/embeddings/v1/embeddings.json"; \
-    for EMB_URL in $EMB_URLS; do \
-        if command -v curl >/dev/null 2>&1; then \
-            curl --fail --silent --show-error --location \
-                --connect-timeout 15 --max-time 600 \
-                --retry 6 --retry-delay 5 --retry-all-errors \
-                -o /embeddings/embeddings.json "$EMB_URL" && break; \
-        elif command -v wget >/dev/null 2>&1; then \
-            wget --quiet --timeout=180 --tries=6 --waitretry=5 \
-                -O /embeddings/embeddings.json "$EMB_URL" && break; \
+RUN --mount=type=secret,id=CHROMIA_EMBEDDINGS_TOKEN,required=false \
+    mkdir -p /embeddings && \
+    GH_API_URL="https://api.github.com/repos/orperelman123/chromia-mcp/releases/tags/embeddings"; \
+    GH_URL="https://github.com/orperelman123/chromia-mcp/releases/download/embeddings/embeddings.json"; \
+    GL_URL="https://gitlab.com/api/v4/projects/71940508/packages/generic/embeddings/v1/embeddings.json"; \
+    TOKEN="$(cat /run/secrets/CHROMIA_EMBEDDINGS_TOKEN 2>/dev/null || true)"; \
+    fetch() { curl --fail --silent --show-error --location --connect-timeout 15 --max-time 600 \
+                   --retry 6 --retry-delay 5 --retry-all-errors -o /embeddings/embeddings.json "$@"; }; \
+    ok=""; \
+    if ! command -v curl >/dev/null 2>&1; then \
+        echo "##### WARNING: no curl in build image - embeddings.json NOT baked; runtime will download at boot #####" >&2; ok="none"; \
+    fi; \
+    if [ -z "$ok" ] && [ -n "$TOKEN" ]; then \
+        ASSET_URL="$(curl --fail --silent --location --connect-timeout 15 --max-time 60 \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GH_API_URL" 2>/dev/null \
+            | tr -d '\n\r ' | sed 's/},{"url"/}\n{"url"/g' | grep '"name":"embeddings.json"' \
+            | grep -o 'https://api.github.com/repos/[^"]*/releases/assets/[0-9]*' | head -n1)"; \
+        if [ -n "$ASSET_URL" ] && fetch -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream" "$ASSET_URL"; then \
+            ok="GitHub release asset (via API, token)"; \
         else \
-            echo "##### WARNING: neither curl nor wget in build image - embeddings.json NOT baked; runtime will download at boot #####" >&2; break; \
+            echo "embeddings.json: authenticated GitHub download failed; trying the public remotes" >&2; rm -f /embeddings/embeddings.json; \
         fi; \
-        echo "embeddings.json download from $EMB_URL failed; trying the next remote" >&2; rm -f /embeddings/embeddings.json; \
-    done; \
+    fi; \
+    if [ -z "$ok" ]; then \
+        for EMB_URL in $GH_URL $GL_URL; do \
+            if fetch "$EMB_URL"; then ok="$EMB_URL"; break; fi; \
+            echo "embeddings.json download from $EMB_URL failed; trying the next remote" >&2; rm -f /embeddings/embeddings.json; \
+        done; \
+    fi; \
     if [ -f /embeddings/embeddings.json ]; then \
-        echo "Baked embeddings.json into image from $EMB_URL ($(du -h /embeddings/embeddings.json | cut -f1))"; \
-    else \
+        echo "Baked embeddings.json into image from $ok ($(du -h /embeddings/embeddings.json | cut -f1))"; \
+    elif [ "$ok" != "none" ]; then \
         echo "##### WARNING: embeddings.json build-time download FAILED from every remote - image ships without baked embeddings; runtime will download at boot #####" >&2; \
     fi
 

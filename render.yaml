@@ -60,6 +60,16 @@
 #   Docker build runs the full test suite in the same build as the jar, so a
 #   deploy cannot ship untested code.
 #
+# CHROMIA_EMBEDDINGS_TOKEN (Secret File, dashboard, NOT in this file) - the RAG
+#   index is the `embeddings` release asset of this PRIVATE repo, published by
+#   the Embeddings refresh workflow. Without a token the public asset URL is
+#   404 and both the image build and the boot fall through to the 2025-10-21
+#   GitLab package (fetch_docs then carries the STALE note). Add a Secret File
+#   named CHROMIA_EMBEDDINGS_TOKEN whose content is a fine-grained GitHub
+#   token with read access to this repo's Contents: the Docker build mounts
+#   it as a BuildKit secret and the runtime reads /etc/secrets/<name>. Making
+#   the repo public makes the token unnecessary.
+#
 # CHROMIA_MCP_AUTH_TOKEN is deliberately NOT set: the public endpoint serves
 #   ChatGPT's no-auth connector contract (search/fetch). To require a bearer
 #   token, add it in the dashboard as a secret env var - never as a
