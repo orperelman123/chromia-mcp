@@ -334,6 +334,17 @@ class DappBuildToolsTest {
         assertTrue(args.contains("lib.ft4.core.accounts"))
         assertTrue(Ft4ModuleArgs.notes("hello").contains("default"))
         assertTrue(Ft4ModuleArgs.notes("hello").contains("main"))
+        assertEquals("[]", noIccf["warnings"].toString(), "a valid name carries no warning")
+
+        // name="My Dapp" answered name:"hello" with no warning (DX audit
+        // 2026-09-04, T16) - the same silent substitution scaffold_dapp lost in cycle 2.
+        val substituted = Ft4ModuleArgs.toJson("My Dapp", false)
+        assertEquals("hello", substituted["name"]!!.jsonPrimitive.content)
+        val warning = substituted["warnings"]!!.jsonArray.single().jsonPrimitive.content
+        assertTrue(warning.startsWith("Requested name 'My Dapp' is not a valid chain name"), warning)
+        assertTrue(warning.contains("the yaml uses 'hello' instead"), warning)
+        assertTrue(warning.endsWith("e.g. name=\"my_dapp\"."), warning)
+        assertEquals("[]", Ft4ModuleArgs.toJson(" Hello ", false)["warnings"].toString(), "case/whitespace is not a substitution")
     }
 
     @Test

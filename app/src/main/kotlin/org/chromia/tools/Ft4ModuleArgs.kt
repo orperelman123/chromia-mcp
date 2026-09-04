@@ -190,6 +190,22 @@ object Ft4ModuleArgs {
                     DappScaffold.forbiddenModules.forEach { add(JsonPrimitive(it)) }
                 }
             )
+            // Never silently substitute the name (scaffold_dapp got this in cycle
+            // 2; `name="My Dapp"` here still answered "hello" - DX audit 2026-09-04).
+            val requested = name?.trim().orEmpty()
+            val warnings = buildJsonArray {
+                if (requested.isNotEmpty() && requested.lowercase() != chain) {
+                    val suggestion = DappScaffold.suggestName(requested)?.takeIf { it != chain }
+                    add(
+                        JsonPrimitive(
+                            "Requested name '$requested' is not a valid chain name (must match [a-z][a-z0-9_]{0,31}); " +
+                                "the yaml uses '$chain' instead - pass a valid name to use it" +
+                                (if (suggestion != null) ", e.g. name=\"$suggestion\"." else ".")
+                        )
+                    )
+                }
+            }
+            put("warnings", warnings)
             put("notes", notes(chain, includeIccf))
         }
     }

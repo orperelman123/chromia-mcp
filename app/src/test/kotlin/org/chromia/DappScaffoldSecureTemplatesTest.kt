@@ -1540,7 +1540,17 @@ class DappScaffoldSecureTemplatesTest {
                 "$template mutant failed for an environmental reason, proving nothing about the guard: ${it.name} - $e"
             )
         }
-        val case = mutant.cases.single { it.name.endsWith(exploitTest) }
+        // A bare `single {}` here threw NoSuchElementException with no context when
+        // the runner hit its 90s deadline on a starved box (gate #9, 2026-09-04,
+        // 0.4 GB free RAM): name the cases that DID come back and the runner's notes,
+        // so a timeout reads as a timeout and not as a missing test.
+        val case = mutant.cases.singleOrNull { it.name.endsWith(exploitTest) }
+        assertNotNull(
+            case,
+            "$template: the mutant run returned ${mutant.cases.size} case(s) [${mutant.cases.joinToString { it.name }}]" +
+                " and none is $exploitTest - the runner did not finish (ok=${mutant.ok}; notes: ${mutant.notes})"
+        )
+        case!!
         assertFalse(case.ok, "$template: $exploitTest must FAIL once '$guard' is mutated - it stayed green, so it proves nothing")
         val error = case.error.orEmpty()
         // Right reason: the attack step now SUCCEEDS (run_must_fail reports that the

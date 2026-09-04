@@ -232,7 +232,7 @@ class ProvisionTestnetContainerStrategy(
         val statusTxRid = extractString(args, "statusTxRid")?.takeIf { it.isNotBlank() }
         if (statusTxRid != null) return ticketStatus(statusTxRid, gateway)
 
-        val cluster = extractString(args, "cluster")?.takeIf { it.isNotBlank() }
+        val requestedCluster = extractString(args, "cluster")?.trim()?.takeIf { it.isNotBlank() }
             ?: TestnetProvisioning.DEFAULT_CLUSTER
         val scu = extractPositiveInt(args, "scu") ?: TestnetProvisioning.DEFAULT_SCU
         val durationWeeks = extractPositiveInt(args, "durationWeeks")
@@ -255,6 +255,11 @@ class ProvisionTestnetContainerStrategy(
         val clusterNames = clusters.mapNotNull {
             (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull
         }
+        // `Blue` is not a different cluster (DX audit 2026-09-04): fold onto the
+        // live name so the rest of the call - and the lease itself - use it.
+        val cluster = clusterNames.firstOrNull { it == requestedCluster }
+            ?: clusterNames.firstOrNull { it.equals(requestedCluster, ignoreCase = true) }
+            ?: requestedCluster
         val clusterEntry = clusters.firstOrNull {
             (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull == cluster
         } as? JsonObject
@@ -769,7 +774,7 @@ class DeployTestnetChainStrategy(
             )
         }
         val providedYml = extractString(args, "chromiaYml")?.takeIf { it.isNotBlank() }
-        val mode = when (val m = extractString(args, "mode")?.takeIf { it.isNotBlank() } ?: "create") {
+        val mode = when (val m = extractString(args, "mode")?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "create") {
             "create", "update" -> m
             else -> return toolErrorResult("mode must be \"create\" or \"update\"; got \"$m\"")
         }
@@ -813,7 +818,24 @@ class DeployTestnetChainStrategy(
             }
             notes += "Generated chromia.yml (scaffold pins + deployments.testnet block) since none was provided. " +
                 "compile.rellVersion $rellVersionUsed ($rellVersionSource)."
+            // A chr older than 0.30.0 writes the pre-0.30 deployment layout and
+            // bundles a Rell two minor versions behind the production pin (the
+            // box that ran the 2026-09-04 DX audit had 0.29.10). Say so once,
+            // instead of letting the deploy fail on a template the old compiler
+            // cannot build.
+            outdatedChrNote(probed?.cli)?.let { notes += it }
             generated
+        }
+        // The chain name keys the yml's `blockchains` block and is what
+        // `chr --blockchain` looks up: with a provided yml that lacks it the
+        // preflight's first blocker is whatever else is missing, and the real
+        // mistake is never named (DX audit 2026-09-04, T11).
+        declaredChainNames(yml).takeIf { it.isNotEmpty() && blockchain !in it }?.let { declared ->
+            return toolErrorResult(
+                "blockchain \"$blockchain\" is not declared in the provided chromiaYml (blockchains: " +
+                    "${declared.joinToString(", ")}) - `chr deployment $mode --blockchain $blockchain` has nothing to " +
+                    "deploy. Pass blockchain=\"${declared.first()}\" or add the chain to the yml."
+            )
         }
         if (containerArg != null && yml.contains("<containerIID>")) {
             yml = yml.replace("<containerIID>", containerArg)

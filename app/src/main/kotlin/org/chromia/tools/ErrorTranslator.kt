@@ -255,6 +255,15 @@ object ErrorTranslator {
             nextAction = "run_rell_tests moduleArgs accepts the x\"...\" literal, 0x..., and bare hex - update the server if it still fails; everywhere else (chromia_dapp_query arguments, client calls) strip the wrapper and pass the bare hex \"02C4...\".",
             relatedTools = listOf("run_rell_tests", "ft4_module_args", "scaffold_dapp")
         ),
+        rule(
+            id = "gtx_module_missing_module_args",
+            family = "rell-test",
+            pattern = "unable to create gtx module|bad module_args for module",
+            meaning = "The blockchain configuration synthesized for the run (rell.test.tx().run(), chr test, chr node start) is missing or mis-shaped module_args for a module that declares `struct module_args` without defaults.",
+            likelyCause = "run_rell_tests was called without moduleArgs (or with the keys under the wrong module name - `Bad module_args for module 'X': Wrong key ... 'k'` names the misfiled key), or chromia.yml moduleArgs / test.moduleArgs lacks the module. FT4 test helpers need lib.ft4.core.admin (admin_pubkey) and lib.ft4.test.core.auth (admin_priv_key). DX audit 2026-09-04: the most common stall on the test path.",
+            nextAction = "Pass one moduleArgs object keyed by module name, taking the values from the chromia.yml scaffold_dapp returned for THIS template (blockchains.<name>.moduleArgs merged with test.moduleArgs); run_rell_tests' own notes list exactly which modules are missing. For a real project, add the module under chromia.yml moduleArgs.",
+            relatedTools = listOf("run_rell_tests", "scaffold_dapp", "ft4_module_args", "validate_chromia_yml")
+        ),
 
         // ---- postchain runtime / postgres ---------------------------------
         rule(

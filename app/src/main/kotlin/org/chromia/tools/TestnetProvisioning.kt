@@ -576,3 +576,28 @@ data class ChrVersions(val cli: String?, val rell: String?) {
         }
     }
 }
+
+/**
+ * The oldest chr whose `chr deployment create` writes the documented
+ * `deployments.<net>.chains` layout (CLI 0.30.0 changelog). Older CLIs also
+ * bundle a Rell behind the production pin.
+ */
+internal const val MIN_DOCUMENTED_CHR = "0.30.0"
+
+/** Null when [cli] is unknown or at least [MIN_DOCUMENTED_CHR]; otherwise the one-line warning. */
+internal fun outdatedChrNote(cli: String?): String? {
+    val parts = cli?.split('.')?.mapNotNull { it.toIntOrNull() } ?: return null
+    val min = MIN_DOCUMENTED_CHR.split('.').map { it.toInt() }
+    if (parts.size != 3) return null
+    val older = parts.zip(min).firstOrNull { (a, b) -> a != b }?.let { (a, b) -> a < b } ?: false
+    if (!older) return null
+    return "WARNING: the installed chr $cli predates $MIN_DOCUMENTED_CHR - it writes the pre-0.30 deployment layout" +
+        " (no deployments.<net>.chains) and bundles an older Rell than the production pin, so templates that use" +
+        " newer language features will not build with it. Upgrade chr to a 0.33.x release before a real deploy."
+}
+
+/** The chain names under a chromia.yml `blockchains:` block, in file order; empty when the yml has none. */
+internal fun declaredChainNames(yml: String): List<String> {
+    val root = runCatching { SimpleYaml.parse(yml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
+    return root.mapping("blockchains")?.entries?.map { it.key }.orEmpty()
+}

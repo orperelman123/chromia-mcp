@@ -184,6 +184,20 @@ class TranslateErrorToolTest {
             context = "calling run_rell_tests with moduleArgs from chromia.yml"
         )
 
+    @Test
+    fun gtxModuleCreationWithoutModuleArgs() {
+        // DX audit 2026-09-04 (T15): the most common stall on the test path
+        // answered matched:false although run_rell_tests' own notes explain it.
+        assertRule("gtx_module_missing_module_args", "Unable to create GTX module")
+        assertRule(
+            "gtx_module_missing_module_args",
+            "Bad module_args for module 'lib.ft4': Wrong key in Gtv dictionary for type 'lib.ft4:module_args': 'rate_limit'"
+        )
+        val t = ErrorTranslator.translate("Unable to create GTX module", null)
+        assertTrue(t.nextAction.contains("keyed by module name"), t.nextAction)
+        assertTrue("run_rell_tests" in t.relatedTools && "scaffold_dapp" in t.relatedTools, t.relatedTools.toString())
+    }
+
     // ---- family: postchain runtime / postgres ------------------------------
 
     @Test

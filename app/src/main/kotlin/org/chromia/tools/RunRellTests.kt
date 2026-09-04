@@ -534,7 +534,9 @@ object RunRellTests {
                         CaseResult(r.case.name, error == null, error?.message)
                     },
                     notes = "Test execution exceeded ${timeoutSeconds}s and was abandoned - " +
-                        "check for an infinite loop or unbounded work in a test. $finished case(s) finished before the timeout." +
+                        "check for an infinite loop or unbounded work in a test. $finished case(s) finished before the timeout;" +
+                        " `cases` is PARTIAL (every case passing here does not mean the suite passed). A starved host" +
+                        " produces the same shape as a runaway test - re-run once before blaming the test." +
                         " $leaked abandoned runner thread(s) from timed-out calls may still be executing " +
                         "(daemon threads; they cannot be stopped safely and each pins a core until their loop ends)." +
                         printsNote(printer),

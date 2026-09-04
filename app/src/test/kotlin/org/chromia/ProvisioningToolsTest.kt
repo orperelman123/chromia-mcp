@@ -36,6 +36,8 @@ import org.chromia.tools.TxOp
 import org.chromia.tools.TxOutcome
 import org.chromia.tools.TxPoster
 import org.chromia.tools.WriteDeploymentConfig
+import org.chromia.tools.declaredChainNames
+import org.chromia.tools.outdatedChrNote
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -391,6 +393,16 @@ class ProvisioningToolsTest {
         )
         assertEquals(true, tooLong.isError)
         assertTrue(resultText(tooLong).contains("between 1 and 12"))
+
+        // `Blue` is not a different cluster (DX audit 2026-09-04, T3): the dry
+        // run folds onto the live name and prices it.
+        val cased = strategy.execute(
+            call("provision_testnet_container", buildJsonObject { put("cluster", " Blue ") }),
+            repositoryFor(chain)
+        )
+        assertTrue(cased.isError != true, resultText(cased))
+        assertEquals("blue", resultJson(cased)["cluster"]!!.jsonPrimitive.content)
+        assertEquals("dry_run", resultJson(cased)["status"]!!.jsonPrimitive.content)
     }
 
     // ---- provision: live paths ----------------------------------------------
@@ -808,6 +820,77 @@ class ProvisioningToolsTest {
         // With a provided chromiaYml nothing needs probing: chr is never
         // invoked on a dry run.
         assertTrue(runner.commands.isEmpty())
+    }
+
+    @Test
+    fun deployNamesAChainTheProvidedYmlDoesNotDeclareAndFoldsModeCase(@TempDir dir: Path) = runBlocking {
+        // DX audit 2026-09-04 (T11/T12): blockchain="other" against a yml whose
+        // only chain is my_dapp surfaced the preflight's first blocker (whatever
+        // else was missing) and never the wrong name; mode="Update" was refused.
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        DeployKeyStore(keystoreDir).also {
+            it.storeEphemeral(testPub, testPriv)
+            it.recordContainer("or_container_42", testPub)
+        }
+        val strategy = deployStrategy(envWith(dir = dir), keystoreDir, FakeRunner(), dir)
+        val wrong = strategy.execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+                put("chromiaYml", deployYml())
+                put("blockchain", "other")
+                put("mode", "Update")
+            }),
+            repositoryFor(FakeChain(testPub, testAccount, adId))
+        )
+        assertEquals(true, wrong.isError, resultText(wrong))
+        val text = resultText(wrong)
+        assertTrue(text.contains("blockchain \\\"other\\\" is not declared in the provided chromiaYml (blockchains: my_dapp)"), text)
+        assertTrue(text.contains("`chr deployment update --blockchain other` has nothing to deploy"), text)
+        assertTrue(text.contains("Pass blockchain=\\\"my_dapp\\\""), text)
+
+        val cased = strategy.execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+                put("chromiaYml", deployYml())
+                put("blockchain", "my_dapp")
+                put("mode", " Update ")
+            }),
+            repositoryFor(FakeChain(testPub, testAccount, adId))
+        )
+        val json = resultJson(cased)
+        assertEquals("dry_run", json["status"]!!.jsonPrimitive.content, resultText(cased))
+        assertTrue(json["command"]!!.jsonPrimitive.content.contains("deployment update"), resultText(cased))
+    }
+
+    @Test
+    fun deployWarnsWhenTheInstalledChrPredatesTheDocumentedLayout(@TempDir dir: Path) = runBlocking {
+        // The box that ran the 2026-09-04 DX audit had chr 0.29.10 (Rell 0.15.0):
+        // the generated yml was pinned honestly, but nothing said the CLI itself
+        // was behind the 0.30.0 layout the pins document (T13).
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        DeployKeyStore(keystoreDir).also {
+            it.storeEphemeral(testPub, testPriv)
+            it.recordContainer("or_container_42", testPub)
+        }
+        val old = FakeRunner(versionStdout = "chr version 0.29.10\nrell version 0.15.0\n")
+        val strategy = deployStrategy(envWith(dir = dir), keystoreDir, old, dir)
+        val result = strategy.execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+                put("container", "or_container_42")
+            }),
+            repositoryFor(FakeChain(testPub, testAccount, adId))
+        )
+        val notes = resultJson(result)["notes"]!!.jsonPrimitive.content
+        assertTrue(notes.contains("WARNING: the installed chr 0.29.10 predates 0.30.0"), notes)
+        assertTrue(notes.contains("Upgrade chr to a 0.33.x release"), notes)
+
+        assertNull(outdatedChrNote("0.33.2"))
+        assertNull(outdatedChrNote("0.30.0"))
+        assertNull(outdatedChrNote(null))
+        assertNotNull(outdatedChrNote("0.29.10"))
+        assertEquals(listOf("my_dapp"), declaredChainNames(deployYml()))
+        assertEquals(emptyList<String>(), declaredChainNames("compile:\n  rellVersion: 0.16.1\n"))
     }
 
     @Test
