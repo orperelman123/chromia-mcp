@@ -944,6 +944,15 @@ class DeployTestnetChainStrategy(
             })
         }
 
+        // `chr deployment create` builds the project first, and a build fails
+        // with "Library ft4 is not installed, install before building" unless
+        // `chr install` has vendored the yml's `libs:` under src/lib. The
+        // in-process gates never needed that (this server vendors FT4 itself),
+        // so a dry run said "ready" for a live command that could not succeed
+        // (first REAL deploy, 2026-09-04). Install first when libs are declared.
+        val declaredLibs = declaredLibNames(yml)
+        val installCommand = if (declaredLibs.isEmpty()) null else chrCommand.command + "install"
+
         if (dryRun) {
             return toolSuccessResult(buildJsonObject {
                 put("status", "dry_run")
@@ -954,6 +963,11 @@ class DeployTestnetChainStrategy(
                     put("preflight", "ready")
                 })
                 pubHex?.let { put("deployPubkey", it) }
+                installCommand?.let {
+                    put("installCommand", it.joinToString(" "))
+                    notes += "The live run first runs `chr install` (chromia.yml declares libs: " +
+                        "${declaredLibs.joinToString(", ")}) so the build can resolve them - a fresh project directory has no src/lib."
+                }
                 put("command", command.joinToString(" "))
                 put("chrResolution", chrCommand.source)
                 rellVersionUsed?.let { put("rellVersion", it) }
@@ -997,6 +1011,19 @@ class DeployTestnetChainStrategy(
                 java.nio.file.Files.writeString(target, content)
             }
 
+            if (installCommand != null) {
+                val install = processRunner.run(installCommand, workDir, emptyMap(), CHR_TIMEOUT_MS)
+                val installOut = TestnetProvisioning.sanitizeText((install.stdout + "\n" + install.stderr).trim(), secrets)
+                if (install.exitCode != 0) {
+                    return toolErrorResult(
+                        "chr install failed (exit ${install.exitCode}) before the deployment could build - chromia.yml declares " +
+                            "libs (${declaredLibs.joinToString(", ")}) that chr must vendor under src/lib first. Check each lib's " +
+                            "registry/path/tagOrBranch/rid pins and that this host can reach the registry. Output: " +
+                            installOut.takeLast(1200)
+                    )
+                }
+                notes += "chr install vendored the declared libs (${declaredLibs.joinToString(", ")})."
+            }
             val pubForEnv = pubHex ?: TestnetProvisioning.derivePubKey(privKey!!).toHex()
             val result = processRunner.run(
                 command, workDir,

@@ -3645,8 +3645,9 @@ object McpTools {
             Deploy dapp sources to a leased TESTNET container with no human involved. Order is fixed and
             gated: (1) the security gate (rell_security_check) - CRITICAL/HIGH findings refuse the deploy
             even on testnet; (2) the compile + config gate (deployment_preflight with the sources) - any
-            blocker refuses; (3) only then `chr deployment create|update --settings chromia.yml --network
-            testnet --blockchain <name>` runs headlessly, signed via POSTCHAIN_CLIENT_PRIVKEY from the
+            blocker refuses; (3) only then `chr install` (when chromia.yml declares libs - a fresh project
+            has no src/lib and the build fails without it) followed by `chr deployment create|update
+            --settings chromia.yml --network testnet --blockchain <name>` run headlessly, signed via POSTCHAIN_CLIENT_PRIVKEY from the
             server-held deploy key for the container (stored by provision_testnet_container, or env
             CHROMIA_TESTNET_DEPLOY_PRIVKEY); (4) the new chain BRID is read back and a live height probe
             verifies it (a fresh chain can take minutes to start - that is reported honestly, with

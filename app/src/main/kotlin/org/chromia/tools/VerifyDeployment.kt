@@ -98,13 +98,29 @@ object VerifyDeployment {
      * hint. Unknown-chain answers (the node responded, but not for this BRID)
      * and unreachable-node answers (nothing responded) need different fixes.
      */
-    fun failureHint(message: String, network: String): String {
+    /** The node answered, but not for this BRID (as opposed to not answering at all). */
+    fun isUnknownChain(message: String): Boolean {
         val m = message.lowercase()
-        val unknownChain = listOf(
+        return listOf(
             "can't find blockchain", "cannot find blockchain", "unknown blockchain",
             "blockchain not found", "404"
         ).any { it in m }
-        if (unknownChain) {
+    }
+
+    /**
+     * The Directory lists the chain on [hosts] but a host answered "unknown
+     * chain": registered, not serving yet. First real deploy (2026-09-04):
+     * ~5 minutes between `chr deployment create` and the first height answer,
+     * during which the wrong-BRID hint below was the only thing this tool said.
+     */
+    fun startingHint(hosts: List<String>): String =
+        "Chain is REGISTERED but not serving yet: the Directory chain lists it on ${hosts.joinToString(", ")} " +
+            "and the node(s) answered 'unknown blockchain' - a chain created in the last minutes is still " +
+            "starting on its cluster (observed: ~5 min on testnet). The BRID and network are right; re-run " +
+            "verify_deployment in 1-2 minutes, and use chromia_dapp_query as soon as live=true."
+
+    fun failureHint(message: String, network: String): String {
+        if (isUnknownChain(message)) {
             // Live-verified 2026-09-02: the predefined mainnet/testnet endpoints are
             // SYSTEM-cluster nodes, so a dapp chain hosted in another cluster (e.g.
             // "pink") answers 404 here even though it is live on this network.
@@ -114,6 +130,7 @@ object VerifyDeployment {
                 "live but hosted in a cluster the predefined \"$network\" system nodes do not serve - " +
                 "pass the dapp's own node URL as `network` to verify it directly."
         }
+        val m = message.lowercase()
         val unreachable = listOf(
             "unknownhost", "unknown host", "connection refused", "connect timed out",
             "timed out", "timeout", "no route to host", "failed to connect",

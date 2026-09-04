@@ -3,13 +3,18 @@ package org.chromia
 import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.put
 import net.postchain.common.BlockchainRid
+import net.postchain.common.toHex
 import org.chromia.data.client.PostchainClientService
 import org.chromia.data.config.ChromiaConfig
 import org.chromia.domain.NetworkResult
@@ -19,6 +24,7 @@ import org.chromia.tools.PromptManager
 import org.chromia.tools.ToolExecutor
 import org.chromia.tools.VerifyDeployment
 import org.chromia.tools.VerifyDeploymentStrategy
+import org.chromia.tools.WriteDeploymentConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -164,6 +170,50 @@ class VerifyDeploymentToolTest {
         assertTrue(notes.contains("not on this network"), notes)
         assertTrue(notes.contains("check the BRID and network"), notes)
         assertEquals(1, repo.heightCalls, "no second probe after a failed first one")
+    }
+
+    @Test
+    fun registeredChainThatIsStillStartingIsNotCalledAWrongBrid() {
+        // First real deploy (2026-09-04): ~5 minutes of "check the BRID and
+        // network" for a chain the Directory already listed on node6-8.
+        repo.nextHeight = NetworkResult.Error(
+            "currentBlockHeight: 404 Not Found  Can't find blockchain with blockchainRID: $upperBrid from https://node8.testnet.chromia.com"
+        )
+        repo.next = NetworkResult.Success(buildJsonObject {
+            put("data", buildJsonArray { add(JsonPrimitive("https://node6.testnet.chromia.com")); add(JsonPrimitive("https://node8.testnet.chromia.com")) })
+        })
+        val result = call(buildJsonObject { put("brid", hexBrid); put("network", "testnet"); put("waitMs", 0) })
+        assertTrue(result.isError != true)
+        val s = result.structuredContent!!
+        assertFalse(s["live"]!!.jsonPrimitive.boolean)
+        assertTrue(s["registered"]!!.jsonPrimitive.boolean, s.toString())
+        assertEquals(listOf("https://node6.testnet.chromia.com", "https://node8.testnet.chromia.com"), s["hostedOn"]!!.jsonArray.map { it.jsonPrimitive.content })
+        val notes = s["notes"]!!.jsonPrimitive.content
+        assertTrue(notes.startsWith("Chain is REGISTERED but not serving yet: the Directory chain lists it on https://node6"), notes)
+        assertTrue(notes.contains("re-run verify_deployment in 1-2 minutes"), notes)
+        assertFalse(notes.contains("check the BRID and network"), "a registered chain must not be diagnosed as a wrong BRID: $notes")
+        // The question went to the testnet Directory chain, keyed by the raw BRID bytes.
+        val dir = repo.lastDapp!!
+        assertEquals(WriteDeploymentConfig.TESTNET_DIRECTORY_BRID, dir.brid.uppercase())
+        assertEquals("cm_get_blockchain_api_urls", dir.query)
+        assertEquals("testnet", dir.network)
+        assertEquals(upperBrid, (dir.arguments["blockchain_rid"] as ByteArray).toHex().uppercase())
+
+        // The Directory answering "no such chain" confirms the wrong-BRID reading.
+        repo.next = NetworkResult.Success(buildJsonObject { put("data", buildJsonArray { }) })
+        val unknown = call(buildJsonObject { put("brid", hexBrid); put("network", "testnet"); put("waitMs", 0) }).structuredContent!!
+        assertFalse(unknown["registered"]!!.jsonPrimitive.boolean, unknown.toString())
+        val unknownNotes = unknown["notes"]!!.jsonPrimitive.content
+        assertTrue(unknownNotes.contains("check the BRID and network"), unknownNotes)
+        assertTrue(unknownNotes.contains("The Directory chain lists no API URLs for this BRID on \"testnet\""), unknownNotes)
+
+        // A raw node URL has no Directory to ask: the old hint, no query.
+        repo.lastDapp = null
+        val raw = call(buildJsonObject { put("brid", hexBrid); put("network", "https://node.example:7740"); put("waitMs", 0) }).structuredContent!!
+        assertNull(raw["registered"], raw.toString())
+        assertNull(repo.lastDapp, "no Directory chain is known for a raw node URL")
+        assertTrue(VerifyDeployment.isUnknownChain("HTTP 404 Not Found"))
+        assertFalse(VerifyDeployment.isUnknownChain("Connection refused"))
     }
 
     @Test

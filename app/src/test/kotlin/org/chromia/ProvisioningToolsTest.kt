@@ -37,6 +37,7 @@ import org.chromia.tools.TxOutcome
 import org.chromia.tools.TxPoster
 import org.chromia.tools.WriteDeploymentConfig
 import org.chromia.tools.declaredChainNames
+import org.chromia.tools.declaredLibNames
 import org.chromia.tools.outdatedChrNote
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -712,6 +713,8 @@ class ProvisioningToolsTest {
         var deployExit: Int = 0,
         var deployStdout: String = "",
         var deployStderr: String = "",
+        var installExit: Int = 0,
+        var installStderr: String = "",
         var onDeploy: ((workDir: Path, env: Map<String, String>) -> Unit)? = null
     ) : ProcessRunner {
         val commands = mutableListOf<List<String>>()
@@ -721,6 +724,10 @@ class ProvisioningToolsTest {
             envsSeen.add(extraEnv)
             return if (command.contains("--version")) {
                 ProcOut(versionExit, versionStdout, "")
+            } else if (command.last() == "install") {
+                // Real chr vendors the libs under src/lib; the build then finds them.
+                if (installExit == 0) Files.createDirectories(workDir.resolve("src").resolve("lib").resolve("ft4"))
+                ProcOut(installExit, "", installStderr)
             } else {
                 onDeploy?.invoke(workDir, extraEnv)
                 ProcOut(deployExit, deployStdout, deployStderr)
@@ -986,6 +993,63 @@ class ProvisioningToolsTest {
         assertTrue(deployArgv.containsAll(listOf("deployment", "create", "--network", "testnet")), deployArgv.toString())
         // The private key must not leak into the result even though chr saw it in env.
         assertFalse(resultText(result).contains(testPriv, ignoreCase = true))
+        // First REAL deploy (2026-09-04): `chr deployment create` failed with
+        // "Library ft4 is not installed, install before building" because
+        // nothing had run `chr install` in the fresh project dir - the yml
+        // declares libs, so install must precede the deployment, key-free.
+        val installIdx = runner.commands.indexOfFirst { it.last() == "install" }
+        val deployIdx = runner.commands.indexOfFirst { it.contains("deployment") }
+        assertTrue(installIdx in 0 until deployIdx, "chr install must run before chr deployment: ${runner.commands}")
+        assertEquals(emptyMap<String, String>(), runner.envsSeen[installIdx], "install needs no key material")
+        assertTrue(json["notes"]!!.jsonPrimitive.content.contains("chr install vendored the declared libs (ft4)"), json.toString())
+    }
+
+    @Test
+    fun deployDryRunAnnouncesTheInstallStepAndALiveInstallFailureIsNamed(@TempDir dir: Path) = runBlocking {
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        DeployKeyStore(keystoreDir).also {
+            it.storeEphemeral(testPub, testPriv)
+            it.recordContainer("or_container_42", testPub)
+        }
+        val chain = FakeChain(testPub, testAccount, adId)
+        val args = buildJsonObject {
+            put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+            put("chromiaYml", deployYml())
+        }
+        val dry = deployStrategy(envWith(dir = dir), keystoreDir, FakeRunner(), dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(chain))
+        val dryJson = resultJson(dry)
+        assertEquals("dry_run", dryJson["status"]!!.jsonPrimitive.content)
+        assertTrue(dryJson["installCommand"]!!.jsonPrimitive.content.endsWith(" install"), dryJson.toString())
+        assertTrue(dryJson["notes"]!!.jsonPrimitive.content.contains("first runs `chr install` (chromia.yml declares libs: ft4)"), dryJson.toString())
+
+        val failing = FakeRunner(installExit = 1, installStderr = "Could not resolve lib ft4 from registry")
+        val live = deployStrategy(envWith(dir = dir), keystoreDir, failing, dir).execute(
+            call("deploy_testnet_chain", buildJsonObject { args.forEach { (k, v) -> put(k, v) }; put("dryRun", false) }),
+            repositoryFor(chain)
+        )
+        assertEquals(true, live.isError, resultText(live))
+        val text = resultText(live)
+        assertTrue(text.contains("chr install failed (exit 1) before the deployment could build"), text)
+        assertTrue(text.contains("libs (ft4)"), text)
+        assertTrue(text.contains("Could not resolve lib ft4"), text)
+        assertTrue(failing.commands.none { it.contains("deployment") }, "a failed install must not be followed by a deploy: ${failing.commands}")
+
+        // A yml without libs skips the step entirely.
+        val noLibs = deployYml().replace(Regex("(?m)^libs:\\R(?:[ \\t]+.*\\R?)*"), "")
+        assertFalse(noLibs.contains("libs:"), noLibs)
+        assertTrue(noLibs.contains("deployments:"), noLibs)
+        val plain = deployStrategy(envWith(dir = dir), keystoreDir, FakeRunner(), dir).execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+                put("chromiaYml", noLibs)
+            }),
+            repositoryFor(chain)
+        )
+        assertEquals("dry_run", resultJson(plain)["status"]!!.jsonPrimitive.content, resultText(plain))
+        assertNull(resultJson(plain)["installCommand"], resultText(plain))
+        assertEquals(emptyList<String>(), declaredLibNames(noLibs))
+        assertEquals(listOf("ft4"), declaredLibNames(deployYml()))
     }
 
     // ---- D1: chr binary resolution (live-run defect 2026-09-02) -------------

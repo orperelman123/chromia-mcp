@@ -7,6 +7,7 @@ import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import net.postchain.common.BlockchainRid
+import net.postchain.common.hexStringToByteArray
 import org.chromia.domain.BlockchainFilters
 import org.chromia.domain.ChromiaRepository
 import org.chromia.domain.NetworkResult
@@ -1852,13 +1853,37 @@ class VerifyDeploymentStrategy(
                 }
             )
         if (first is NetworkResult.Error) {
+            // First REAL deploy (2026-09-04): for ~5 minutes after `chr deployment
+            // create` the cluster nodes answered 404 for the new chain, and this
+            // tool said "check the BRID and network" - a wrong-BRID diagnosis for
+            // a chain that was registered and starting. The Directory knows the
+            // difference: a registered chain has API URLs, an unknown BRID has none.
+            val hosts = if (VerifyDeployment.isUnknownChain(first.message)) {
+                directoryHostsFor(repository, network, brid, remainingMs())
+            } else null
+            if (hosts != null && hosts.isNotEmpty()) {
+                notes += VerifyDeployment.startingHint(hosts)
+                notes += "Node error: ${first.message}"
+                return toolSuccessResult(
+                    buildJsonObject {
+                        put("live", false)
+                        put("brid", brid)
+                        put("heightProgressing", false)
+                        put("registered", true)
+                        put("hostedOn", buildJsonArray { hosts.forEach { add(JsonPrimitive(it)) } })
+                        put("notes", notes.joinToString(" "))
+                    }
+                )
+            }
             notes += "Height probe failed: ${VerifyDeployment.failureHint(first.message, network)}"
+            if (hosts != null) notes += "The Directory chain lists no API URLs for this BRID on \"$network\" - it is not a registered chain there."
             notes += "Node error: ${first.message}"
             return toolSuccessResult(
                 buildJsonObject {
                     put("live", false)
                     put("brid", brid)
                     put("heightProgressing", false)
+                    if (hosts != null) put("registered", false)
                     put("notes", notes.joinToString(" "))
                 }
             )
@@ -1911,6 +1936,30 @@ class VerifyDeploymentStrategy(
                 )
             }
         )
+    }
+
+    /**
+     * The API URLs the Directory chain of [network] lists for [brid]
+     * (`cm_get_blockchain_api_urls`), or null when the question cannot be
+     * asked: [network] is a raw node URL rather than mainnet/testnet, the
+     * Directory did not answer, or the budget is spent. Empty list = the
+     * Directory answered and does not know the chain.
+     */
+    private suspend fun directoryHostsFor(
+        repository: ChromiaRepository,
+        network: String,
+        brid: String,
+        budgetMs: Long
+    ): List<String>? {
+        val directory = ChromiaYmlValidator.officialDirectoryBrid(network.trim().lowercase()) ?: return null
+        val answer = ProbeBudget.withBudget(budgetMs) {
+            repository.executeCustomQuery(
+                network, BlockchainRid.buildFromHex(directory),
+                "cm_get_blockchain_api_urls", mapOf("blockchain_rid" to brid.hexStringToByteArray())
+            )
+        } ?: return null
+        val data = (answer as? NetworkResult.Success)?.data?.get("data") as? JsonArray ?: return null
+        return data.mapNotNull { (it as? JsonPrimitive)?.content }
     }
 
     /** Optional small wait override; a non-integer value is a validation error. */

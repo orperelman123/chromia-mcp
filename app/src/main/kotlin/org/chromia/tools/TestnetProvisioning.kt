@@ -601,3 +601,13 @@ internal fun declaredChainNames(yml: String): List<String> {
     val root = runCatching { SimpleYaml.parse(yml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
     return root.mapping("blockchains")?.entries?.map { it.key }.orEmpty()
 }
+
+/**
+ * The library names under a chromia.yml `libs:` block. Each one must be
+ * vendored by `chr install` before `chr build`/`chr deployment` can compile
+ * the project ("Library ft4 is not installed, install before building").
+ */
+internal fun declaredLibNames(yml: String): List<String> {
+    val root = runCatching { SimpleYaml.parse(yml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
+    return root.mapping("libs")?.entries?.map { it.key }.orEmpty()
+}
