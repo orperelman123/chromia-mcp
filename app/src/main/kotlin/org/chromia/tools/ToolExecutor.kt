@@ -242,6 +242,40 @@ internal fun toolErrorResult(message: String): CallToolResult =
     )
 
 /**
+ * translate_error rules whose match means the REMOTE side failed on a valid
+ * call: an explorer incident, its testnet refusal, rate limiting, 5xx. Schema
+ * drift and argument errors are deliberately absent - those are ours.
+ */
+internal val UPSTREAM_RULE_IDS = setOf("graphql_internal_error", "explorer_testnet_400", "http_rate_limited", "http_unavailable")
+
+/**
+ * An explorer/node failure, with the upstream verdict inline when the
+ * translator can give one. The explorer answered `GraphQL Error:
+ * INTERNAL_ERROR for <uuid>` on every aggregation field for hours on
+ * 2026-09-04 (bisected live: `__typename` and `totalRewardsPaid` fine, every
+ * `dashboardData` sub-field failing) and the tools relayed the opaque line
+ * alone; the "not your fault, go chain-direct" verdict sat in translate_error,
+ * one more call an agent had to know to make. Text keeps the original message
+ * first (callers and tests match on it); `upstream`, `upstream_rule` and
+ * `next_action` let a script branch without parsing prose.
+ */
+internal fun upstreamAwareErrorResult(message: String): CallToolResult {
+    val translation = runCatching { ErrorTranslator.translate(message) }.getOrNull()
+    val ruleId = translation?.ruleId?.takeIf { it in UPSTREAM_RULE_IDS } ?: return toolErrorResult(message)
+    val full = "$message\nUPSTREAM ($ruleId): ${translation.meaning} ${translation.nextAction}"
+    return CallToolResult(
+        content = listOf(TextContent(full)),
+        structuredContent = buildJsonObject {
+            put("error", full)
+            put("upstream", true)
+            put("upstream_rule", ruleId)
+            put("next_action", translation.nextAction)
+        },
+        isError = true
+    )
+}
+
+/**
  * Sane ceiling for explorer pagination: the tool schemas default to 10-50
  * per page, so an absurdly large limit is an agent mistake worth flagging
  * rather than forwarding (QA finding).
@@ -517,7 +551,7 @@ abstract class BaseToolStrategy : ToolStrategy {
     protected fun handleResult(result: NetworkResult<JsonObject>, errorMessage: String): CallToolResult {
         return when (result) {
             is NetworkResult.Success -> toolSuccessResult(result.data)
-            is NetworkResult.Error -> toolErrorResult("$errorMessage: ${result.message}")
+            is NetworkResult.Error -> upstreamAwareErrorResult("$errorMessage: ${result.message}")
         }
     }
 

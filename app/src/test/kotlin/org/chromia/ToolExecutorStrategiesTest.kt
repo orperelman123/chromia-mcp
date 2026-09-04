@@ -150,6 +150,62 @@ class ToolExecutorStrategiesTest {
         assertEquals(true, result.isError)
     }
 
+    /**
+     * Round 13 (2026-09-04): the explorer answered `GraphQL Error: INTERNAL_ERROR
+     * for <uuid>` on every aggregation field for hours (bisected live: `__typename`
+     * and `totalRewardsPaid` fine, every `dashboardData` sub-field and
+     * `groupedTransactionsByBlockchain` failing - the explorer, not our query).
+     * The tool relayed the opaque line and nothing else; the "not your fault,
+     * go chain-direct" verdict existed only in translate_error, one more call an
+     * agent had to know to make. An error the server can classify as UPSTREAM
+     * says so on the spot, in text and in a field scripts can branch on.
+     */
+    @Test
+    fun explorerUpstreamIncidentIsNamedInlineWithTheNextAction() = runBlocking {
+        val repo = RecordingRepository()
+        repo.next = NetworkResult.Error("GraphQL Error: INTERNAL_ERROR for 608627eb-bf9d-e9e5-971b-188b3dcf94bb")
+        val request = CallToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
+        val result = NetworkStatsStrategy().execute(request, repo)
+        val text = (result.content.first() as TextContent).text!!
+        assertEquals(true, result.isError)
+        assertTrue(text.startsWith("Failed to get network stats: GraphQL Error: INTERNAL_ERROR"), text)
+        assertTrue(text.contains("UPSTREAM"), text)
+        assertTrue(text.contains("chromia_dapp_query"), "must point at the chain-direct alternative: $text")
+        val structured = result.structuredContent!!
+        assertEquals("true", structured.getValue("upstream").jsonPrimitive.content)
+        assertEquals("graphql_internal_error", structured.getValue("upstream_rule").jsonPrimitive.content)
+        assertTrue(structured.getValue("next_action").jsonPrimitive.content.contains("retry"), structured.toString())
+    }
+
+    @Test
+    fun explorerTestnet400IsNamedUpstreamToo() = runBlocking {
+        val repo = RecordingRepository()
+        repo.next = NetworkResult.Error("HTTP 400: Bad Request (network=testnet)")
+        val request = CallToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "testnet") })
+        val result = NetworkStatsStrategy().execute(request, repo)
+        val structured = result.structuredContent!!
+        assertEquals("explorer_testnet_400", structured.getValue("upstream_rule").jsonPrimitive.content)
+        assertTrue((result.content.first() as TextContent).text!!.contains("network=mainnet"))
+    }
+
+    /** An error the translator cannot classify as upstream keeps the plain shape - no false reassurance. */
+    @Test
+    fun unclassifiedExplorerErrorStaysPlain() = runBlocking {
+        val repo = RecordingRepository()
+        repo.next = NetworkResult.Error("explorer HTTP 502")
+        val request = CallToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
+        val result = NetworkStatsStrategy().execute(request, repo)
+        val structured = result.structuredContent!!
+        // 502 IS classified (http_unavailable) - it is upstream by definition.
+        assertEquals("http_unavailable", structured.getValue("upstream_rule").jsonPrimitive.content)
+
+        repo.next = NetworkResult.Error("Validation error of type FieldUndefined: Field 'foo' in type 'Query' is undefined")
+        val schemaDrift = NetworkStatsStrategy().execute(request, repo)
+        val plain = schemaDrift.structuredContent!!
+        assertTrue(!plain.containsKey("upstream"), "schema drift is OUR query, not an incident: $plain")
+        assertTrue((schemaDrift.content.first() as TextContent).text!!.startsWith("Failed to get network stats: Validation error"))
+    }
+
     @Test
     fun getAllTransactionsForwardsFiltersAndReturnsSuccessJson() = runBlocking {
         val repo = RecordingRepository()
