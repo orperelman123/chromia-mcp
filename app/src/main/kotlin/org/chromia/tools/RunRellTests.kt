@@ -147,6 +147,25 @@ object RunRellTests {
     internal fun isTestModuleSource(content: String): Boolean =
         TEST_MODULE_REGEX.containsMatchIn(maskRellSource(content, maskStrings = true))
 
+    private val TEST_FUNCTION_REGEX = Regex("""\bfunction\s+(test_\w+)\s*\(""")
+
+    /**
+     * `module:test_x` for every test function declared in the @test modules of
+     * [sources] (comments and strings masked) - what a `tests` filter could have
+     * matched. Source-derived, so it is available even when the runner ran nothing.
+     */
+    internal fun testFunctionNames(sources: Map<String, String>, testModules: Collection<String>): List<String> =
+        sources.entries
+            .filter { (_, content) -> isTestModuleSource(content) }
+            .flatMap { (path, content) ->
+                val module = moduleNameForPath(path, content).ifEmpty { testModules.firstOrNull().orEmpty() }
+                TEST_FUNCTION_REGEX.findAll(maskRellSource(content, maskStrings = true))
+                    .map { m -> if (module.isEmpty()) m.groupValues[1] else "$module:${m.groupValues[1]}" }
+                    .toList()
+            }
+            .distinct()
+            .sorted()
+
     /**
      * Rell module name for a source path: path separators become dots. A file
      * named module.rell - or any file whose CONTENT has no module header - belongs
@@ -243,9 +262,18 @@ object RunRellTests {
         databaseUrl: String? = System.getenv(DATABASE_URL_ENV),
         /** module name -> module_args, e.g. {"lib.ft4.core.accounts": {"rate_limit": {...}}}. */
         moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap(),
-        timeoutSeconds: Long = configuredTimeoutSeconds()
+        timeoutSeconds: Long = configuredTimeoutSeconds(),
+        /**
+         * Test selection, `chr test --tests` semantics: each pattern is a glob
+         * (`*`, `?`) matched whole against the function name (`test_x`), the
+         * qualified name (`main_test:test_x`) or the test module; empty = all.
+         */
+        tests: List<String> = emptyList()
     ): Result {
         require(files.isNotEmpty()) { "Provide a non-empty `files` map" }
+        require(tests.none { it.isBlank() }) {
+            "`tests` must not contain blank patterns - pass test names or globs such as test_x, *inflation*, main_test:test_x"
+        }
         RellCheck.requireTotalSizeWithinCap(files)
         RellCheck.requireSomeSourceContent(files)
         files.keys.forEach { relPath ->
@@ -304,7 +332,7 @@ object RunRellTests {
                 else -> (RellLibs.userAppModules(sources) - testModules.toSet()).ifEmpty { null }
             }
             requireModuleArgsResolve(tempDir, moduleArgs.keys)
-            val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds)
+            val outcome = execute(tempDir, appModules, testModules, databaseUrl, moduleArgs, timeoutSeconds, tests, sources)
             cleanupDeferred = outcome.cleanupDeferred
             if (submittedFt4 > 0) {
                 outcome.result.copy(notes = outcome.result.notes + " " + RellLibs.submittedVendoredNote(sources))
@@ -429,7 +457,10 @@ object RunRellTests {
         testModules: List<String>,
         databaseUrl: String?,
         moduleArgs: Map<String, Map<String, kotlinx.serialization.json.JsonElement>> = emptyMap(),
-        timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS
+        timeoutSeconds: Long = EXECUTION_TIMEOUT_SECONDS,
+        tests: List<String> = emptyList(),
+        /** The normalized sources, for naming the test functions a filter could have matched. */
+        sources: Map<String, String> = emptyMap()
     ): ExecuteOutcome {
         val leakedBefore = leakedRunners.get()
         if (leakedBefore >= MAX_LEAKED_RUNNERS) {
@@ -463,6 +494,8 @@ object RunRellTests {
             .logPrinter(printer)
             .databaseUrl(databaseUrl)
             .printTestCases(false)
+            // The runner's own selector (what `chr test --tests` passes through).
+            .apply { if (tests.isNotEmpty()) testPatterns(tests) }
             .onTestCaseFinished { collected.add(it) }
             .build()
 
@@ -604,7 +637,18 @@ object RunRellTests {
         val dbLimited = cases.count { it.dbRequired }
         val notes = buildString {
             append("Ran ${cases.size} test(s) in ${testModules.size} test module(s): ${cases.size - failed} passed, $failed failed.")
-            if (cases.isEmpty()) {
+            if (tests.isNotEmpty()) append(" Filter tests=[${tests.joinToString(", ")}].")
+            if (cases.isEmpty() && tests.isNotEmpty()) {
+                // A filter that selects nothing is the likeliest way to get a
+                // "0 tests, 0 failures" answer; name the functions it COULD have
+                // matched so the next call is right (patterns match whole names).
+                val available = testFunctionNames(sources, testModules)
+                append(
+                    " no test function matched tests=[${tests.joinToString(", ")}] - patterns match the WHOLE name" +
+                        " (use * to widen: *inflation*), the qualified module:function, or the module." +
+                        if (available.isEmpty()) "" else " Test functions found: ${available.joinToString(", ")}."
+                )
+            } else if (cases.isEmpty()) {
                 // ok=false with total=0 and no explanation left agents guessing
                 // (audit 2026-09-01): the @test module was found, but nothing ran.
                 append(" 0 test functions found - test functions must be named test_*.")

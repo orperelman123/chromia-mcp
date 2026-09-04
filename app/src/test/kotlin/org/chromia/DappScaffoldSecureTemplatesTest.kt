@@ -1352,8 +1352,13 @@ class DappScaffoldSecureTemplatesTest {
         // so main.oracle_pubkey was missing and every case died with "Unable to
         // create GTX module" - a failure that satisfied the old
         // wrong-reason check while proving nothing about the guard.
-    private fun runShipped(template: String, label: String = template, files: Map<String, String> = rellOf(template)): RunRellTests.Result {
-        val result = RunRellTests.run(files, databaseUrl = dbUrl, moduleArgs = moduleArgsOf(template), timeoutSeconds = SHIPPED_SUITE_TIMEOUT_SECONDS)
+    private fun runShipped(
+        template: String,
+        label: String = template,
+        files: Map<String, String> = rellOf(template),
+        tests: List<String> = emptyList()
+    ): RunRellTests.Result {
+        val result = RunRellTests.run(files, databaseUrl = dbUrl, moduleArgs = moduleArgsOf(template), timeoutSeconds = SHIPPED_SUITE_TIMEOUT_SECONDS, tests = tests)
         // Printed so the gradle XML carries the per-case verdicts the report pastes.
         println("[$label] ok=${result.ok} total=${result.total} passed=${result.passed} failed=${result.failed}")
         result.cases.forEach { println("[$label]   ${it.name}: ${if (it.ok) "PASS" else "FAIL"}${it.error?.let { e -> " - $e" } ?: ""}") }
@@ -1533,17 +1538,18 @@ class DappScaffoldSecureTemplatesTest {
             main = main.replace(from, to)
         }
         files["main.rell"] = main
-        val mutant = runShipped(template, label = "$template-without[${guard.take(48)}]", files = files)
-        // The mutant must still be a working dapp: the OTHER shipped tests keep
-        // passing, so the only thing the mutated guard changes is the exploit.
-        // (Rules out a mutant that fails for environmental reasons - a missing
-        // module arg, a compile error - which is exactly what the first vault
-        // mutants did while looking green.)
+        // Only the exploit case runs: the verdict below reads exactly one case,
+        // and the environmental failures it rules out (module args, compile,
+        // schema) hit every case alike, so one case sees them as surely as ten.
+        // Running the whole suite per mutant was 60 x a full suite - 2148 of the
+        // gate's 2380 seconds (gate #17, 2026-09-04) - and pushed the test task
+        // against its 45-minute CI budget. The shipped suites still run whole,
+        // once each, in the *ShippedTestsRunGreen tests.
+        val mutant = runShipped(template, label = "$template-without[${guard.take(48)}]", files = files, tests = listOf(exploitTest))
         // The mutant must still be a RUNNING dapp: no case may fail for an
         // environmental reason (module args, compile, schema) - that is the
-        // vacuous-mutant failure mode. Other shipped tests MAY go red too: when a
-        // guard is removed, value gets created, and the conservation test and the
-        // exploit replay can both trip. Two independent proofs, not a broken run.
+        // vacuous-mutant failure mode, exactly what the first vault mutants did
+        // while looking green.
         mutant.cases.forEach {
             val e = it.error.orEmpty()
             assertFalse(
@@ -1722,7 +1728,7 @@ class DappScaffoldSecureTemplatesTest {
         val files = rellOf("vault").toMutableMap()
         val bound = "require(price * 10000 >= prev * (10000 - MAX_PRICE_MOVE_BPS), \"price move exceeds bound\");"
         files["main.rell"] = files.getValue("main.rell").replace(bound, "")
-        val mutant = runShipped("vault", label = "vault-without-lower-bound-only", files = files)
+        val mutant = runShipped("vault", label = "vault-without-lower-bound-only", files = files, tests = listOf("test_round1_price_crash_must_fail"))
         val case = mutant.cases.single { it.name.endsWith("test_round1_price_crash_must_fail") }
         assertFalse(case.ok, "the exploit test asserts the bound's message, so it must go red")
         assertTrue(

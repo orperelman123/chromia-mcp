@@ -1773,6 +1773,8 @@ object McpTools {
             examples of all three to copy; template=governance and template=vault ship the
             adversary's DAO drain and oracle mint as must-fail tests - copy those for your own
             exploit-must-fail cases.
+            Chasing one red case? Pass `tests` (same as `chr test --tests`) to run only the
+            matching functions instead of the whole suite.
             Nothing is deployed; sources run in a temp directory and are deleted afterwards.
         """.trimIndent(),
         inputSchema = Tool.Input(
@@ -1783,6 +1785,13 @@ object McpTools {
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell paths to contents: app modules plus at least one @test module, e.g. {\"main.rell\": \"module; ...\", \"main_test.rell\": \"@test module; import main; function test_x() { ... }\"}. Paths are relative to the Rell source root - drop the project's src/ prefix (a leading ./ or src/ is normalized away automatically).")
+                        )
+                    ),
+                    "tests" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Optional test selection, `chr test --tests` semantics: each entry is a glob (* and ?) matched against the WHOLE function name (test_first_deposit), the qualified module:function (main_test:test_first_deposit) or the test module name; several entries union. Omit to run every test. A filter that matches nothing returns ok=false and lists the test functions it could have matched. A single comma-separated string is accepted too.")
                         )
                     ),
                     "moduleArgs" to JsonObject(

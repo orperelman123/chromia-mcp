@@ -1434,9 +1434,27 @@ class RunRellTestsStrategy : BaseToolStrategy() {
             }
         }
 
+        // `tests`: an array of patterns, or - what agents actually type - one name
+        // or a comma list as a string. Anything else is named by position.
+        val tests = when (val testsArg = args["tests"]) {
+            null, is JsonNull -> emptyList()
+            is JsonPrimitive -> {
+                if (!testsArg.isString) return toolErrorResult("`tests` must be an array of test-name patterns (or one comma-separated string); got ${testsArg.content}")
+                testsArg.content.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            }
+            is JsonArray -> {
+                val bad = testsArg.withIndex().firstOrNull { (_, v) -> v !is JsonPrimitive || !v.isString }
+                if (bad != null) {
+                    return toolErrorResult("`tests[${bad.index}]` must be a string pattern such as test_x or *inflation*; got ${bad.value}")
+                }
+                testsArg.map { it.jsonPrimitive.content.trim() }.filter { it.isNotEmpty() }
+            }
+            else -> return toolErrorResult("`tests` must be an array of test-name patterns; got ${testsArg::class.simpleName}")
+        }
+
         return runCatching {
             val result = withContext(Dispatchers.IO) {
-                with(RunRellTests) { run(files, moduleArgs = moduleArgs).toJson() }
+                with(RunRellTests) { run(files, moduleArgs = moduleArgs, tests = tests).toJson() }
             }
             toolSuccessResult(result)
         }.getOrElse { e ->

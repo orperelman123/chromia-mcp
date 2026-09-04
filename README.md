@@ -63,6 +63,11 @@ Executes `@test module;` Rell tests in-process with the embedded runner (the sam
 2. `rell_security_check` — it's secure
 3. `run_rell_tests` — it behaves correctly
 
+`tests` selects cases the way `chr test --tests` does — globs matched against the whole
+function name, `module:function`, or the module (`["test_first_deposit*"]`, or one
+comma-separated string). A filter that matches nothing is `ok=false` and the notes list the
+test functions it could have matched, so a typo never reads as a green run.
+
 Pure-logic tests run with no setup. Tests that touch entities/database need PostgreSQL —
 set `CHROMIA_TEST_DATABASE_URL` (jdbc url) on the server. Database-backed runs share one
 schema, so one server serializes them internally; give each server *instance* its own
