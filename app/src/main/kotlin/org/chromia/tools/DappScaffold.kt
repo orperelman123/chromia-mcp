@@ -111,7 +111,8 @@ object DappScaffold {
         require(namePattern.matches(normalized)) {
             "'$requested' is not a valid chain name: it must start with a lowercase letter and " +
                 "contain only lowercase letters, digits, or underscores, at most 32 characters " +
-                "([a-z][a-z0-9_]{0,31})."
+                "([a-z][a-z0-9_]{0,31})." +
+                (suggestName(requested)?.let { " Did you mean name=\"$it\"?" } ?: "")
         }
         return normalized
     }

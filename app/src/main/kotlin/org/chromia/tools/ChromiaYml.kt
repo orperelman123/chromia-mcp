@@ -270,6 +270,23 @@ object ChromiaYmlValidator {
                         }
                     }
                 }
+                // `chains.<name>: null` is the pre-0.30 placeholder agents still
+                // write; chr rejects it, and this validator passed it with only the
+                // container warning (DX audit 2026-09-04, Q7). Every chains value
+                // must be the dapp RID `chr deployment create` writes.
+                chains?.entries?.forEach { (chainName, valueNode) ->
+                    val raw = (valueNode as? YamlNode.Scalar)?.raw?.trim()
+                    val placeholder = raw == null || raw.isEmpty() || raw.equals("null", ignoreCase = true) || raw == "~"
+                    val hex = raw?.let { normalizeDirectoryBrid(it) }
+                    if (placeholder) {
+                        errors += "deployments.$net.chains.$chainName is empty/null - chr rejects a placeholder there." +
+                            " Remove the chains key until `chr deployment create` writes the dapp RID into it (CLI 0.30.0+)," +
+                            " or set the real value: x\"<64-hex dapp blockchain RID>\"."
+                    } else if (hex == null || hex.length != DIRECTORY_BRID_HEX_LENGTH) {
+                        errors += "deployments.$net.chains.$chainName must be the dapp's $DIRECTORY_BRID_HEX_LENGTH-hex blockchain RID" +
+                            " (x\"...\"), as written by `chr deployment create`; found \"${raw.take(40)}\"."
+                    }
+                }
             }
         }
 
@@ -466,6 +483,18 @@ internal object SimpleYaml {
     private data class Line(val number: Int, val indent: Int, val content: String)
 
     private fun preprocess(text: String): List<Line> {
+        // A tab in the indentation is the mistake, not the "bad indent" it
+        // produces one line later once tabs are widened to two spaces (DX audit
+        // 2026-09-04, Q2): name the line with the tab. YAML forbids tabs for
+        // indentation, so chr's parser rejects the file too.
+        text.lines().forEachIndexed { index, raw ->
+            if (raw.takeWhile { it == ' ' || it == '\t' }.contains('\t') && stripComment(raw).isNotBlank()) {
+                throw IllegalArgumentException(
+                    "tab character in the indentation of line ${index + 1} - YAML indentation must be spaces only" +
+                        " (chr rejects tabs as well); replace the tab(s) with spaces"
+                )
+            }
+        }
         return text.replace("\t", "  ").lines().mapIndexedNotNull { index, raw ->
             val noComment = stripComment(raw)
             if (noComment.isBlank()) null

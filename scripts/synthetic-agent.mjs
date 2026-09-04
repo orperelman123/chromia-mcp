@@ -44,7 +44,23 @@ async function rpc(method, params, t = 240000) {
   await fetch(s.msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
   return p;
 }
-const call = (n, a, t) => rpc('tools/call', { name: n, arguments: a }, t);
+// Every tool call is counted and timed: the journey's tool-call count is the
+// DX number the loop tracks per cycle (how many calls an agent needs from
+// "nothing" to "verified, deployable"), and the slowest call names where the
+// agent waits.
+const callLog = [];
+const call = async (n, a, t) => {
+  const t0 = Date.now();
+  try { return await rpc('tools/call', { name: n, arguments: a }, t); } finally { callLog.push([n, Date.now() - t0]); }
+};
+function callSummary() {
+  if (!callLog.length) return 'tool calls: 0';
+  const ms = callLog.map(c => c[1]).sort((a, b) => a - b);
+  const p50 = ms[Math.floor(ms.length / 2)];
+  const slowest = callLog.reduce((m, c) => (c[1] > m[1] ? c : m));
+  const total = ms.reduce((a, b) => a + b, 0);
+  return `tool calls: ${callLog.length}, total ${(total / 1000).toFixed(1)}s, p50 ${p50}ms, slowest ${slowest[0]} ${slowest[1]}ms`;
+}
 const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?.result ?? m);
 const parse = m => { try { return JSON.parse(text(m)); } catch { return {}; } };
 
@@ -183,11 +199,11 @@ try {
   }
 
   const skippedNote = skipped ? ` (${skipped} step(s) skipped with reasons above)` : '';
-  console.log(`\n=== SYNTHETIC AGENT JOURNEY: ${steps.length}/${steps.length} steps completed${skippedNote} ===`);
+  console.log(`\n=== SYNTHETIC AGENT JOURNEY: ${steps.length}/${steps.length} steps completed${skippedNote}; ${callSummary()} ===`);
   try { session.controller.abort(); } catch {}
   process.exit(0);
 } catch (e) {
-  console.log(`\n=== SYNTHETIC AGENT BLOCKED: ${e.message} (${steps.filter(s => s[1]).length}/${steps.length || 10} steps) ===`);
+  console.log(`\n=== SYNTHETIC AGENT BLOCKED: ${e.message} (${steps.filter(s => s[1]).length}/${steps.length || 10} steps; ${callSummary()}) ===`);
   try { session?.controller.abort(); } catch {}
   process.exit(1);
 }

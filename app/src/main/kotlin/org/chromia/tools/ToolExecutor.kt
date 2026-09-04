@@ -241,6 +241,11 @@ internal fun extractRellFilesMap(filesArg: Any?): Pair<LinkedHashMap<String, Str
     return files to invalid
 }
 
+/** A Rell file's first statement: `module;`, `@test module;`, `@mount("x") module;`. */
+private val RELL_HEADER_REGEX = Regex("""(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*module\s*;""")
+/** A chromia.yml root key. */
+private val YAML_ROOT_KEY_REGEX = Regex("""(?m)^(?:blockchains|compile|deployments|libs|database|test)\s*:""")
+
 private val OWN_IMPORT_REGEX = Regex("""(?m)^\s*import\s+(?:\w+\s*:\s*)?([A-Za-z_][\w.]*)\s*(?:\.\{[^}]*\})?\s*;""")
 
 /**
@@ -1626,6 +1631,19 @@ class CheckDappProjectStrategy : BaseToolStrategy() {
                     "(`files` is accepted as an alias)"
             )
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
+        // Swapped arguments (yaml = Rell source, rell = the chromia.yml) produced
+        // two true-but-useless errors - "YAML parse error: expected key: value at
+        // line 1" and "Syntax error: Unexpected token 'blockchains'" - that read
+        // as two broken files (DX audit 2026-09-04, Q4). Name the swap.
+        val singleRell = rellFiles.values.singleOrNull()
+        if (yaml != null && RELL_HEADER_REGEX.containsMatchIn(yaml) && singleRell != null && YAML_ROOT_KEY_REGEX.containsMatchIn(singleRell)) {
+            return toolErrorResult(
+                "check_dapp_project: the arguments look swapped - `yaml` starts with a Rell module header" +
+                    " (`${RELL_HEADER_REGEX.find(yaml)?.value?.trim()}`) and `rell` has a chromia.yml root key" +
+                    " (`${YAML_ROOT_KEY_REGEX.find(singleRell)?.value?.trim()}`). Pass the chromia.yml text as `yaml`" +
+                    " and the Rell sources as `rell` ({\"src/main.rell\": \"module; ...\"})."
+            )
+        }
         var result = CheckDappProject.check(
             yaml = yaml ?: DappScaffold.defaultChromiaYml(),
             rellFiles = rellFiles,

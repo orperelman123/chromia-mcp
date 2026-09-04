@@ -1262,11 +1262,25 @@ class DappBuildToolsTest {
                 url: https://node0.testnet.chromia.com:7740
                 brid: x"${WriteDeploymentConfig.TESTNET_DIRECTORY_BRID}"
                 chains:
-                  hello:
+                  hello: x"${"AB".repeat(32)}"
         """.trimIndent()
         val ok = ChromiaYmlValidator.validate(yaml)
         assertTrue(ok.ok, ok.errors.toString())
         assertTrue(ok.warnings.none { it.contains("brid") }, ok.warnings.toString())
+
+        // The pre-0.30 placeholder (`hello:` / `hello: null`) is what chr rejects
+        // and what write_deployment_config's own description says it omits; this
+        // validator used to pass it (DX audit 2026-09-04, Q7).
+        for (placeholder in listOf("hello:", "hello: null", "hello: ~")) {
+            val nulled = ChromiaYmlValidator.validate(yaml.replace("hello: x\"${"AB".repeat(32)}\"", placeholder))
+            assertFalse(nulled.ok, "$placeholder must not validate: ${nulled.errors}")
+            assertTrue(
+                nulled.errors.any { it.startsWith("deployments.testnet.chains.hello is empty/null - chr rejects a placeholder there.") },
+                "$placeholder: ${nulled.errors}"
+            )
+        }
+        val wrong = ChromiaYmlValidator.validate(yaml.replace("hello: x\"${"AB".repeat(32)}\"", "hello: peg"))
+        assertTrue(wrong.errors.any { it.contains("chains.hello must be the dapp's 64-hex blockchain RID") }, wrong.errors.toString())
 
         val shortBrid = """
             blockchains:

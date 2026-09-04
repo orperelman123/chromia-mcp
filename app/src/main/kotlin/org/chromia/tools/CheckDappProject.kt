@@ -126,6 +126,16 @@ object CheckDappProject {
                     "normalization - rename one so both can be checked."
             }
             val compilable = normalized.mapValues { (_, paths) -> rellFiles.getValue(paths.first()) }
+            // The yaml's `module:` must name a module that was actually sent.
+            // `module: app` with main.rell submitted compiled main.rell, found it
+            // fine, and reported ok=true on a project `chr build` rejects with
+            // "Module 'app' not found" (DX audit 2026-09-04, Q3). A gate that
+            // vouches for a chain must at least see that chain's root module.
+            declaredModulesNotSubmitted(yaml, compilable).forEach { (chain, module, found) ->
+                errors += "$YAML_PATH: blockchains.$chain.module '$module' is not among the submitted sources" +
+                    " (submitted modules: ${found.ifEmpty { "none" }}) - `chr build` fails with \"Module '$module' not found\"." +
+                    " Set module to the submitted root module's name, or submit the file(s) that define '$module'."
+            }
             if (compilable.isEmpty()) {
                 // Skipping the gate silently reported ok=true on unaudited code
                 // (audit 2026-09-01): rell input was supplied but nothing is
@@ -195,6 +205,34 @@ object CheckDappProject {
      * module matches a submitted module - a partial submission must keep the
      * old behavior rather than fail each chain with "module not found".
      */
+    /**
+     * (chain, declared module, submitted module names) for every
+     * `blockchains.<chain>.module` that no submitted file defines. A module is
+     * considered present when a submitted module equals it, is one of its
+     * submodules (`main.x` for `main` - a directory module compiles with its
+     * children), or when a file sits under its directory. `lib.*` modules are
+     * vendored, never submitted, and are skipped. Empty when the yaml does not
+     * parse or declares no blockchains - those are the validator's findings.
+     */
+    internal fun declaredModulesNotSubmitted(yaml: String, rellFiles: Map<String, String>): List<Triple<String, String, String>> {
+        val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
+        val blockchains = root.mapping("blockchains") ?: return emptyList()
+        if (rellFiles.isEmpty()) return emptyList()
+        val normalizedPaths = rellFiles.keys.map { RellCheck.normalizeSourceRoot(it) }
+        val submitted = rellFiles.map { (path, content) ->
+            RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(path), content)
+        }.filter { it.isNotEmpty() }.distinct().sorted()
+        val found = submitted.joinToString(", ")
+        return blockchains.entries.mapNotNull { (chain, node) ->
+            val module = (node as? YamlNode.Mapping)?.scalar("module")?.trim().orEmpty()
+            if (module.isEmpty() || module.startsWith("lib.")) return@mapNotNull null
+            val dir = module.replace('.', '/') + "/"
+            val present = submitted.any { it == module || it.startsWith("$module.") } ||
+                normalizedPaths.any { it.startsWith(dir) }
+            if (present) null else Triple(chain, module, found)
+        }
+    }
+
     internal fun perBlockchainModules(yaml: String, rellFiles: Map<String, String>): Map<String, String> {
         val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return emptyMap()
         val blockchains = root.mapping("blockchains") ?: return emptyMap()

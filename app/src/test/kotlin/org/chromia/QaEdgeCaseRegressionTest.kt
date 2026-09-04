@@ -9,6 +9,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.chromia.tools.AssetTopHoldersStrategy
 import org.chromia.tools.AllTransactionsStrategy
+import org.chromia.tools.CheckDappProject
+import org.chromia.tools.ChromiaYmlValidator
 import org.chromia.tools.DappScaffold
 import org.chromia.tools.RellCheck
 import org.chromia.tools.RunRellTests
@@ -260,6 +262,63 @@ class QaEdgeCaseRegressionTest {
         val alone = callViaExecutor("rell_check", buildJsonObject { put("source", "@test module;\nfunction test_x() { assert_true(true); }") })
         val aloneText = (alone.content.first() as TextContent).text!!
         assertTrue(aloneText.contains("\"ok\":true"), aloneText)
+    }
+
+    // DX audit 2026-09-04 round 2 (Q3): chromia.yml `module: app` with main.rell
+    // submitted came back ok=true - the gate compiled the file it had and never
+    // noticed the chain's root module was not among them; `chr build` fails.
+    @Test
+    fun projectGateFailsWhenTheYamlModuleWasNotSubmitted() {
+        val yml = DappScaffold.files("peg", template = "hello").getValue("chromia.yml")
+        val main = DappScaffold.files("peg", template = "hello").getValue("src/main.rell")
+        val wrong = CheckDappProject.check(yml.replace("module: main", "module: app"), mapOf("src/main.rell" to main))
+        assertFalse(wrong.ok, "a chain whose root module was never sent must not pass: ${wrong.errors}")
+        val error = wrong.errors.single { it.startsWith("chromia.yml: blockchains.peg.module 'app'") }
+        assertTrue(error.contains("(submitted modules: main)"), error)
+        assertTrue(error.contains("`chr build` fails with \"Module 'app' not found\""), error)
+        // Directory modules and submodules count as present; lib.* is vendored.
+        assertTrue(CheckDappProject.declaredModulesNotSubmitted("blockchains:\n  a:\n    module: app\n", mapOf("app/module.rell" to "module;\n")).isEmpty())
+        assertTrue(CheckDappProject.declaredModulesNotSubmitted("blockchains:\n  a:\n    module: app\n", mapOf("app/core.rell" to "module;\n")).isEmpty())
+        assertTrue(CheckDappProject.declaredModulesNotSubmitted("blockchains:\n  a:\n    module: lib.ft4\n", mapOf("main.rell" to "module;\n")).isEmpty())
+        assertEquals(
+            listOf(Triple("a", "app", "main")),
+            CheckDappProject.declaredModulesNotSubmitted("blockchains:\n  a:\n    module: app\n", mapOf("src/main.rell" to "module;\n"))
+        )
+        // The matching yaml still passes.
+        assertTrue(CheckDappProject.check(yml, mapOf("src/main.rell" to main)).ok)
+    }
+
+    // DX audit 2026-09-04 round 2 (Q2): a tab in the indentation surfaced as
+    // "bad indent at line 4" - one line after the tab, with no word about tabs.
+    @Test
+    fun tabIndentationIsNamedOnItsOwnLine() {
+        val yml = "blockchains:\n  peg:\n\tmodule: main\n    config:\n      features:\n        merkle_hash_version: 2\n"
+        val result = ChromiaYmlValidator.validate(yml)
+        assertFalse(result.ok)
+        assertEquals("YAML parse error: tab character in the indentation of line 3 - YAML indentation must be spaces only (chr rejects tabs as well); replace the tab(s) with spaces", result.errors.single())
+    }
+
+    // DX audit 2026-09-04 round 2 (Q4): yaml and rell swapped read as two broken files.
+    @Test
+    fun swappedYamlAndRellArgumentsAreNamedAsSwapped() {
+        val yml = DappScaffold.files("peg", template = "hello").getValue("chromia.yml")
+        val main = DappScaffold.files("peg", template = "hello").getValue("src/main.rell")
+        val result = callViaExecutor("check_dapp_project", buildJsonObject { put("yaml", main); put("rell", yml) })
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("the arguments look swapped"), text)
+        assertTrue(text.contains("`yaml` starts with a Rell module header (`module;`)"), text)
+        assertTrue(text.contains("`rell` has a chromia.yml root key (`blockchains:`)"), text)
+    }
+
+    // DX audit 2026-09-04 round 2 (Q6): write_deployment_config's invalid-name
+    // error quoted the regex and nothing else.
+    @Test
+    fun deploymentConfigInvalidNameSuggestsTheValidOne() {
+        val result = callViaExecutor("write_deployment_config", buildJsonObject { put("network", "testnet"); put("name", "My-Peg") })
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("Did you mean name=\"my_peg\"?"), text)
     }
 
     // DX audit 2026-09-04 (P9): `require(true, "oops);` is reported as a syntax
