@@ -14,7 +14,7 @@
 // non-network checks never warn).
 //   node scripts/e2e-sweep.mjs http://127.0.0.1:3001
 //   node scripts/e2e-sweep.mjs https://chromia-mcp.onrender.com
-import { upstreamSignature, UpstreamError } from './upstream-classifier.mjs';
+import { upstreamSignature, UpstreamError, probeExplorerCanary, registerUpstreamSignature } from './upstream-classifier.mjs';
 const BASE = process.argv[2] || 'https://chromia-mcp.onrender.com';
 console.log('TARGET:', BASE);
 
@@ -176,6 +176,22 @@ await check('chromia_help topic', async () => {
   const t = text(await call('chromia_help', { topic: 'chr_deploy' }));
   expect(t.includes('0.33'), 'no CLI payload'); return null;
 });
+// Explorer canary (informational, not a check): ask the explorer itself for
+// `{ __typename }` before the explorer-backed tools run. If it refuses the
+// smallest valid document, an "HTTP 400: Bad Request" from those tools in this
+// run is the explorer's and is classified WARN-UPSTREAM; without that evidence
+// a 400 stays what it usually is - OUR malformed query - and FAILs. The
+// guardrails below are untouched: an explorer-wide outage still exceeds the
+// warning ceiling and exits 3.
+{
+  const canary = await probeExplorerCanary('mainnet');
+  if (canary.ok) console.log('INFO explorer canary: `{ __typename }` answered (HTTP 200)');
+  else {
+    registerUpstreamSignature('explorer-rejects-valid-graphql', /\bHTTP 400\b/);
+    console.log(`INFO explorer canary: explorer refused \`{ __typename }\` (HTTP ${canary.status}: ${canary.body.slice(0, 80)}) - ` +
+      'explorer 400s in this run are classified upstream');
+  }
+}
 await check('get_network_stats', async () => {
   const t = liveText(await call('get_network_stats', {}));
   expect(t.includes('countAllAccounts'), t.slice(0, 80)); return null;

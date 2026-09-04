@@ -48,6 +48,54 @@ export const UPSTREAM_SIGNATURES = [
   { name: 'upstream-unreachable', re: /UnknownHostException|Unknown host|UnresolvedAddress|Connection refused|Connection reset|No route to host|failed to connect|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND/i },
 ];
 
+/**
+ * The explorer backend our explorer tools query (ChromiaConfig.explorerUrl -
+ * a hardcoded default, no env override, so the harness can canary the very
+ * same endpoint the server hits).
+ */
+export const EXPLORER_URL = 'https://explorer.chromia.com/api/explorer-service';
+
+/**
+ * A run-scoped signature added on EVIDENCE gathered in this run, not on the
+ * static allowlist. "HTTP 400: Bad Request" is deliberately absent above: a
+ * 400 is normally OUR malformed query. But when the explorer answers 400 to
+ * `{ __typename }` - the smallest valid GraphQL document there is - every
+ * 400 it hands our explorer tools in the same run is the explorer's, not
+ * ours. probeExplorerCanary() gathers that evidence; the caller registers.
+ * (2026-09-04: explorer answered `{"message":{}}` HTTP 400 to every document
+ * on both networks; CI showed 7 FAILs that looked like a query regression.)
+ */
+export function registerUpstreamSignature(name, re) {
+  if (!UPSTREAM_SIGNATURES.some(s => s.name === name)) UPSTREAM_SIGNATURES.push({ name, re });
+}
+
+/**
+ * POST `{ __typename }` to the explorer for [network]. ok=true only for a 2xx
+ * carrying a `data` object; anything else (non-2xx, no JSON, no data) is the
+ * explorer refusing valid GraphQL. Never throws: a transport failure is
+ * reported as ok=false with the error text as `body`.
+ */
+export async function probeExplorerCanary(network = 'mainnet', url = EXPLORER_URL, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${url}?network=${network}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ query: '{ __typename }' }),
+      signal: controller.signal,
+    });
+    const body = (await res.text()).slice(0, 200);
+    let hasData = false;
+    try { hasData = typeof JSON.parse(body)?.data === 'object'; } catch { /* not JSON */ }
+    return { ok: res.ok && hasData, status: res.status, body };
+  } catch (e) {
+    return { ok: false, status: 0, body: String(e?.message ?? e) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The matched signature name for a clean tool-error text, or null (= ours). */
 export function upstreamSignature(text) {
   const t = String(text ?? '');

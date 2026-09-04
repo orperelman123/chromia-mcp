@@ -18,6 +18,22 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Same database and chr as ci.yml: the build step runs the full suite (the
+    # jar is never built untested), and the template mutant tests REQUIRE a
+    # database rather than skipping without one. Run 33849222724 (2026-09-04)
+    # failed 20 of them for want of Postgres before the fuzzer ever started.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postchain
+          POSTGRES_INITDB_ARGS: "--locale=C.UTF-8"
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
 
@@ -26,13 +42,25 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
+      - name: Install Chromia CLI
+        run: |
+          curl -fsSL https://apt.chromia.com/chromia.gpg | sudo tee /usr/share/keyrings/chromia.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/chromia.gpg] https://apt.chromia.com stable main" | sudo tee /etc/apt/sources.list.d/chromia.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chr
+          chr --version
+
       - name: Build server
+        env:
+          CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
+          # Network-only live tests (dry runs and public reads; no key, nothing spent).
+          CHROMIA_LIVE_PROVISIONING_TESTS: "true"
         run: ./gradlew :app:test :app:shadowJar --console=plain
 
       - name: Deep fuzz against a live server
