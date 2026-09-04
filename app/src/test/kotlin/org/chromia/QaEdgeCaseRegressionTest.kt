@@ -5,6 +5,7 @@ import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.chromia.tools.AssetTopHoldersStrategy
@@ -15,6 +16,7 @@ import org.chromia.tools.DappScaffold
 import org.chromia.tools.RellCheck
 import org.chromia.tools.RunRellTests
 import org.chromia.tools.ScaffoldDappStrategy
+import org.chromia.tools.WriteDeploymentConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -286,6 +288,119 @@ class QaEdgeCaseRegressionTest {
         )
         // The matching yaml still passes.
         assertTrue(CheckDappProject.check(yml, mapOf("src/main.rell" to main)).ok)
+    }
+
+    // Live round 8 (2026-09-04): the stablecoin scaffold passed the deploy dry
+    // run ("ready") and the real `chr deployment create` died with "Missing
+    // module_args for module(s): main" - its yml leaves main.oracle_pubkey
+    // deliberately unset and no gate checked that the chain configures every
+    // module_args its modules require. Both gates check it now, and the compile
+    // result names what is required.
+    @Test
+    fun unconfiguredModuleArgsAreABlockerBeforeChrSeesThem() = runBlocking {
+        val files = DappScaffold.files("peg", template = "stablecoin")
+        val rell = files.filterKeys { it.endsWith(".rell") }
+        val yml = files.getValue("chromia.yml")
+
+        val compiled = RellCheck.check(rell, null)
+        assertTrue(compiled.ok, compiled.notes)
+        assertEquals(mapOf("main" to listOf("oracle_pubkey")), compiled.requiredModuleArgs,
+            "only the CHAIN's modules count - lib.ft4.core.admin is pulled in by the @test modules alone")
+        assertEquals(emptyMap<String, List<String>>(), RellCheck.check(DappScaffold.files("h", template = "hello").filterKeys { it.endsWith(".rell") }, null).requiredModuleArgs)
+
+        val gate = CheckDappProject.check(yml, rell)
+        assertFalse(gate.ok, "the scaffold yml configures no main.oracle_pubkey: ${gate.errors}")
+        val error = gate.errors.single { it.contains("blockchains.peg.moduleArgs has no `main` entry") }
+        assertTrue(error.contains("no default for oracle_pubkey"), error)
+        assertTrue(error.contains("\"Missing module_args for module(s): main\""), error)
+        assertTrue(error.contains("  main:\n    oracle_pubkey: <value>"), error)
+        assertTrue(error.contains("never the test key from test.moduleArgs"), error)
+
+        // Configured (the commented lines in the scaffold, uncommented with a real key): passes.
+        val configured = yml.replace("      # main:\n      #   oracle_pubkey: x\"<your oracle public key>\"", "      main:\n        oracle_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\"")
+        assertTrue(configured != yml, "the scaffold's commented placeholder must be where this test expects it")
+        val okGate = CheckDappProject.check(configured, rell)
+        assertTrue(okGate.errors.none { it.contains("moduleArgs has no") }, okGate.errors.toString())
+
+        // The deploy preflight blocks on it too (it is what the dry run consults).
+        val preflight = org.chromia.tools.DeploymentPreflight.run(
+            yml.trimEnd() + "\n\n" + WriteDeploymentConfig.deploymentsYaml(WriteDeploymentConfig.resolveNetwork("testnet")!!, "peg").replace("<containerIID>", "c1"),
+            "testnet", rell, null
+        ) { _, _ -> org.chromia.domain.NetworkResult.Success(1L) }
+        assertFalse(preflight.ready, preflight.toJson().toString())
+        val blocker = preflight.findings.single { it.check == "module_args" }
+        assertTrue(blocker.message.contains("has no `main` entry"), blocker.message)
+        assertTrue(blocker.fix.startsWith("Add under blockchains.peg.moduleArgs:"), blocker.fix)
+        val readyPreflight = org.chromia.tools.DeploymentPreflight.run(
+            configured.trimEnd() + "\n\n" + WriteDeploymentConfig.deploymentsYaml(WriteDeploymentConfig.resolveNetwork("testnet")!!, "peg").replace("<containerIID>", "c1"),
+            "testnet", rell, null
+        ) { _, _ -> org.chromia.domain.NetworkResult.Success(1L) }
+        assertTrue(readyPreflight.findings.none { it.check == "module_args" }, readyPreflight.toJson().toString())
+
+        // Another chain in the same yml whose module is not this one is not judged.
+        assertTrue(
+            CheckDappProject.moduleArgsNotConfigured("blockchains:\n  other:\n    module: app\n", mapOf("main" to listOf("k")), listOf("main")).isEmpty()
+        )
+    }
+
+    // Live stablecoin chain 2922E3E2... (2026-09-04): `get_cdp` with `account`
+    // instead of `owner` came back "Query 'get_cdp' failed: Invalid argument(s):
+    // account" - the node names the wrong name and never the right one, although
+    // it publishes the signature through rell.get_app_structure.
+    @Test
+    fun aRefusedQueryIsAnsweredWithItsRealSignature() = runBlocking {
+        // Shape as the node returns it (captured from the live chain).
+        val structure = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"modules":{"lib.ft4":{"name":"lib.ft4","functions":{}},"main":{"name":"main","queries":{
+              "get_cdp":{"mount":"get_cdp","parameters":[{"name":"owner","type":"byte_array"}],"type":{"type":"nullable","value":{"type":"tuple","fields":[]}}},
+              "get_system":{"mount":"get_system","parameters":[],"type":{"type":"tuple","fields":[]}},
+              "get_tokens":{"mount":"get_tokens","parameters":[{"name":"owner","type":"byte_array"}],"type":"integer"},
+              "paged":{"mount":"acct.paged","parameters":[{"name":"page_size","type":{"type":"nullable","value":"integer"}},{"name":"ids","type":{"type":"list","value":"byte_array"}}],"type":"integer"}
+            }}}}"""
+        ).jsonObject
+        val wrongName = org.chromia.tools.QuerySignatureHint.hint(structure, "get_cdp", setOf("account"))!!
+        assertTrue(wrongName.startsWith("The chain's `get_cdp` takes (owner: byte_array) (from rell.get_app_structure) - not a parameter: account; missing: owner."), wrongName)
+        assertEquals("The chain's `get_system` takes no arguments (from rell.get_app_structure) - not a parameter: x. Argument names must match exactly; byte_array values are hex strings.",
+            org.chromia.tools.QuerySignatureHint.hint(structure, "get_system", setOf("x")))
+        val typed = org.chromia.tools.QuerySignatureHint.hint(structure, "acct.paged", emptySet())!!
+        assertTrue(typed.contains("(page_size: integer?, ids: list<byte_array>)"), typed)
+        val unknown = org.chromia.tools.QuerySignatureHint.hint(structure, "get_cdps", emptySet())!!
+        assertTrue(unknown.startsWith("No query is mounted as `get_cdps` on this chain. Did you mean `get_cdp`"), unknown)
+        assertTrue(unknown.contains("Mounted queries (4): get_cdp, "), unknown)
+        assertTrue(unknown.contains("acct.paged"), "mounted names, not Rell names: $unknown")
+        assertEquals(null, org.chromia.tools.QuerySignatureHint.hint(kotlinx.serialization.json.buildJsonObject { }, "q", emptySet()))
+        assertTrue(org.chromia.tools.QuerySignatureHint.applies("query: 400 Bad Request  Query 'get_cdp' failed: Invalid argument(s): account from https://node8"))
+        assertFalse(org.chromia.tools.QuerySignatureHint.applies("Connection refused"))
+
+        // Through the tool: the node's refusal stays first, the signature follows, one extra read.
+        val repo = RecordingRepository()
+        repo.next = org.chromia.domain.NetworkResult.Error("Postchain client error for blockchain X: query: 400 Bad Request  Query 'get_cdp' failed: Invalid argument(s): account from https://node8")
+        repo.dappAnswers["rell.get_app_structure"] = org.chromia.domain.NetworkResult.Success(structure)
+        val result = org.chromia.tools.DappInteractionStrategy().execute(
+            CallToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
+                put("blockchainRid", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+                put("query", "get_cdp")
+                put("arguments", buildJsonObject { put("account", "abcd") })
+            }),
+            repo
+        )
+        assertEquals(true, result.isError)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.startsWith("Failed to execute dapp query get_cdp --> {account=abcd}: Postchain client error"), text)
+        assertTrue(text.contains("Invalid argument(s): account from https://node8. The chain's `get_cdp` takes (owner: byte_array)"), text)
+        assertEquals(listOf("get_cdp", "rell.get_app_structure"), repo.dappCalls.map { it.query })
+
+        // A refusal of another kind is passed through untouched - no structure read.
+        val other = RecordingRepository()
+        other.next = org.chromia.domain.NetworkResult.Error("Connection refused")
+        org.chromia.tools.DappInteractionStrategy().execute(
+            CallToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
+                put("blockchainRid", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+                put("query", "get_cdp")
+            }),
+            other
+        )
+        assertEquals(listOf("get_cdp"), other.dappCalls.map { it.query })
     }
 
     // DX audit 2026-09-04 round 2 (Q2): a tab in the indentation surfaced as

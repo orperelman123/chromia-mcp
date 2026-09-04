@@ -3645,7 +3645,9 @@ object McpTools {
             Deploy dapp sources to a leased TESTNET container with no human involved. Order is fixed and
             gated: (1) the security gate (rell_security_check) - CRITICAL/HIGH findings refuse the deploy
             even on testnet; (2) the compile + config gate (deployment_preflight with the sources) - any
-            blocker refuses; (3) only then `chr install` (when chromia.yml declares libs - a fresh project
+            blocker refuses, including a module whose `struct module_args` has no default and no entry
+            under blockchains.<name>.moduleArgs (the oracle/vault/lending/stablecoin templates leave
+            main.oracle_pubkey deliberately unset - set it before deploying); (3) only then `chr install` (when chromia.yml declares libs - a fresh project
             has no src/lib and the build fails without it) followed by `chr deployment create|update
             --settings chromia.yml --network testnet --blockchain <name>` run headlessly, signed via POSTCHAIN_CLIENT_PRIVKEY from the
             server-held deploy key for the container (stored by provision_testnet_container, or env
@@ -3706,7 +3708,11 @@ object McpTools {
                             "type" to JsonPrimitive("string"),
                             "enum" to JsonArray(listOf(JsonPrimitive("create"), JsonPrimitive("update"))),
                             "description" to JsonPrimitive(
-                                "\"create\" for a first deploy (default), \"update\" to upgrade an existing chain"
+                                "\"create\" for a first deploy (default), \"update\" to ship new code to a chain that " +
+                                    "already exists in the container: the tool reads the chain's RID from " +
+                                    "deployments.testnet.chains.<name> in chromiaYml or, when absent, from the " +
+                                    "Directory, and refuses when no such chain is deployed. The new code takes " +
+                                    "effect at a later block height (~1-2 min); re-query before concluding it did not apply."
                             )
                         )
                     ),

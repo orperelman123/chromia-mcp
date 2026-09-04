@@ -602,6 +602,44 @@ internal fun declaredChainNames(yml: String): List<String> {
     return root.mapping("blockchains")?.entries?.map { it.key }.orEmpty()
 }
 
+/** The 64-hex RID under `deployments.<net>.chains.<blockchain>`, uppercased, or null when absent/not a RID. */
+internal fun chainsEntryRid(yml: String, blockchain: String, net: String = "testnet"): String? {
+    val root = runCatching { SimpleYaml.parse(yml) }.getOrNull() as? YamlNode.Mapping ?: return null
+    val raw = root.mapping("deployments")?.mapping(net)?.mapping("chains")?.scalar(blockchain) ?: return null
+    return ChromiaYmlValidator.normalizeDirectoryBrid(raw.trim())?.takeIf { it.length == 64 }?.uppercase()
+}
+
+/**
+ * Return [yml] with `chains: { blockchain: x"rid" }` under `deployments.<net>`
+ * (appended to an existing `chains:` block, else added after the last line of
+ * the `deployments.<net>` mapping). Text-level on purpose: the yml is the
+ * agent's file and every other line must come back byte-identical.
+ */
+internal fun withChainsEntry(yml: String, blockchain: String, rid: String, net: String = "testnet"): String {
+    val lines = yml.lines().toMutableList()
+    val deployments = lines.indexOfFirst { Regex("^deployments\\s*:\\s*$").matches(it) }
+    if (deployments < 0) return yml
+    val netIdx = (deployments + 1 until lines.size).firstOrNull { Regex("^(\\s+)" + Regex.escape(net) + "\\s*:\\s*$").matches(lines[it]) }
+        ?: return yml
+    val netIndent = lines[netIdx].takeWhile { it == ' ' }.length
+    // the deployments.<net> mapping ends at the first non-blank line indented <= netIndent
+    var end = netIdx + 1
+    while (end < lines.size && (lines[end].isBlank() || lines[end].takeWhile { it == ' ' }.length > netIndent)) end++
+    val keyIndent = " ".repeat(netIndent + 2)
+    val chainsIdx = (netIdx + 1 until end).firstOrNull { Regex("^" + keyIndent + "chains\\s*:\\s*$").matches(lines[it]) }
+    val entry = "$keyIndent  $blockchain: x\"$rid\""
+    if (chainsIdx != null) {
+        lines.add(chainsIdx + 1, entry)
+    } else {
+        // insert before trailing blank lines of the block
+        var at = end
+        while (at > netIdx + 1 && lines[at - 1].isBlank()) at--
+        lines.add(at, entry)
+        lines.add(at, "${keyIndent}chains:")
+    }
+    return lines.joinToString("\n")
+}
+
 /**
  * The library names under a chromia.yml `libs:` block. Each one must be
  * vendored by `chr install` before `chr build`/`chr deployment` can compile

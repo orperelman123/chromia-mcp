@@ -33,6 +33,9 @@ class RecordingRepository : ChromiaRepository {
     var lastIncludeGroupedDeposits: Boolean? = null
     var lastIncludeGroupedWithdrawals: Boolean? = null
     var lastDapp: DappCall? = null
+    /** Per-query answers for executeCustomQuery (query name -> result); anything not listed answers `next`. */
+    val dappAnswers: MutableMap<String, JsonResult> = mutableMapOf()
+    val dappCalls: MutableList<DappCall> = mutableListOf()
 
     // verify_deployment probes the height twice; queue consecutive answers here.
     // Empty queue falls back to `nextHeight` for single-answer tests.
@@ -96,8 +99,9 @@ class RecordingRepository : ChromiaRepository {
     ): JsonResult {
         lastCall = "executeCustomQuery"
         lastDapp = DappCall(network, blockchainRid.toHex(), queryName, arguments)
+        dappCalls += lastDapp!!
         if (dappDelayMs > 0) kotlinx.coroutines.delay(dappDelayMs)
-        return next
+        return dappAnswers[queryName] ?: next
     }
 
     override suspend fun getAllTransactions(network: String?, filters: TransactionFilters): JsonResult {

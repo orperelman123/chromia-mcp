@@ -93,7 +93,16 @@ object RellCheck {
         val modules: List<String>,
         val errors: List<Diagnostic>,
         val warnings: List<Diagnostic>,
-        val notes: String
+        val notes: String,
+        /**
+         * Module name -> the fields of its `struct module_args`, for every module
+         * whose module_args has at least one field WITHOUT a default. These are the
+         * modules chromia.yml MUST configure under blockchains.<chain>.moduleArgs:
+         * `chr build` fails with "Missing module_args for module(s): X" otherwise,
+         * while this compile passes (it runs with moduleArgsMissingError=false so
+         * sources can be checked without a yml). Empty when nothing is required.
+         */
+        val requiredModuleArgs: Map<String, List<String>> = emptyMap()
     )
 
     fun check(files: Map<String, String>, modules: List<String>?): Result {
@@ -404,12 +413,17 @@ object RellCheck {
 
         val compiledModules = mutableListOf<String>()
         var compiledTestModules = 0
+        val requiredModuleArgs = linkedMapOf<String, List<String>>()
         val failure = runCatching {
             val app = RellApiCompile.compileApp(config, sourceDir.toFile(), modules, testModules)
             compiledTestModules = app.modules.count { it.test }
             app.modules
                 .filter { !it.test && !it.abstract && !it.external }
                 .forEach { compiledModules.add(it.name.toString()) }
+            // hasDefaultConstructor == every attribute has a default expression.
+            app.moduleArgs.filter { (_, def) -> !def.hasDefaultConstructor }
+                .toSortedMap(compareBy { it.toString() })
+                .forEach { (module, def) -> requiredModuleArgs[module.toString()] = def.struct.strAttributes.keys.sorted() }
         }.exceptionOrNull()
 
         if (failure != null && failure !is RellCliException && failure !is IllegalArgumentException) {
@@ -452,7 +466,16 @@ object RellCheck {
                 (maskedHint?.let { " $it" } ?: "") +
                 (unterminatedStringHint(sourceDir, errors.firstOrNull())?.let { " $it" } ?: "")
         }
-        return Result(ok, compiledModules, errors, warnings, notes)
+        // chr builds a CHAIN from its app modules only; a module_args struct pulled
+        // in solely by the @test modules (lib.ft4.core.admin via lib.ft4.test.core)
+        // is not the chain's to configure. Re-resolve without the tests when it
+        // matters - only when something is required at all, so the common case
+        // pays nothing.
+        val required = if (ok && requiredModuleArgs.isNotEmpty() && testModules.isNotEmpty()) {
+            val appOnly = compileQuietly(sourceDir, modules, emptyList())?.moduleArgs?.keys?.map { it.toString() }?.toSet()
+            if (appOnly == null) requiredModuleArgs else requiredModuleArgs.filterKeys { it in appOnly }
+        } else if (ok) requiredModuleArgs else emptyMap()
+        return Result(ok, compiledModules, errors, warnings, notes, required)
     }
 
     /**

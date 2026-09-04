@@ -916,6 +916,31 @@ class DeployTestnetChainStrategy(
             ProbeBudget.PREFLIGHT_DEADLINE_ENV, env[ProbeBudget.PREFLIGHT_DEADLINE_ENV]
         )
         var probeStartNanos = -1L
+
+        // ---- update: chr must know WHICH chain ------------------------------
+        // `chr deployment update --blockchain X` reads the chain's RID from
+        // deployments.testnet.chains.X; the scaffold yml (and the block appended
+        // above) has no chains key because a FIRST create must not see one.
+        // First live update (2026-09-04): the dry run said "ready" for a yml
+        // that carried no RID at all. The Directory knows the RID; splice it.
+        if (mode == "update" && chainsEntryRid(yml, blockchain) == null) {
+            val rid = containerChainRid(repository, container, blockchain, probeDeadlineMs)
+                ?: return toolSuccessResult(buildJsonObject {
+                    put("status", "refused")
+                    put("blockchain", blockchain)
+                    put("container", container)
+                    put("notes", (notes + (
+                        "Refusing mode=update: the Directory lists no blockchain named \"$blockchain\" in container " +
+                            "\"$container\", and the chromiaYml has no deployments.testnet.chains.$blockchain RID - there is " +
+                            "no deployed chain to update. Use mode=\"create\" for a first deploy, or pass the container the " +
+                            "chain lives in."
+                        )).joinToString(" "))
+                })
+            yml = withChainsEntry(yml, blockchain, rid)
+            notes += "Added deployments.testnet.chains.$blockchain: x\"$rid\" (from the Directory's " +
+                "get_container_blockchain) so `chr deployment update` targets the deployed chain."
+        }
+
         val preflight = DeploymentPreflight.run(yml, "testnet", files, null) { network, bridHex ->
             if (probeStartNanos < 0) probeStartNanos = System.nanoTime()
             val remainingMs = probeDeadlineMs - (System.nanoTime() - probeStartNanos) / 1_000_000
@@ -949,11 +974,16 @@ class DeployTestnetChainStrategy(
 
         val command = chrCommand.command + listOf(
             "deployment", mode,
-            "--settings", "chromia.yml", "--network", "testnet", "--blockchain", blockchain,
+            "--settings", "chromia.yml", "--network", "testnet", "--blockchain", blockchain
+        ) + if (mode == "create") {
             // Headless: chr prompts "Please specify -y option to force deployment" without it
             // (live run 2026-09-02, chr 0.29.10).
-            "-y"
-        )
+            listOf("-y")
+        } else {
+            // `deployment update` has no -y (chr 0.29.10 `--help`; live 2026-09-04 it
+            // exited 1 with "no such option -y" after a dry run had said "ready").
+            emptyList()
+        }
 
         if (privKey == null && !dryRun) {
             return toolSuccessResult(buildJsonObject {
@@ -1166,7 +1196,13 @@ class DeployTestnetChainStrategy(
                 put("notes", (notes + listOfNotNull(
                     "chr deployment $mode succeeded.",
                     verifyNote.ifBlank { null },
-                    if (live) "The chain is known and answering on testnet." else null
+                    if (live) "The chain is known and answering on testnet." else null,
+                    // First live update (2026-09-04, agent_hello): the chain kept
+                    // answering with the OLD code for ~1 minute after chr returned
+                    // - the new configuration activates at a later block height.
+                    if (mode == "update") "The new configuration takes effect at a later block height: queries may " +
+                        "answer with the previous code for ~1-2 minutes (observed: 60s on testnet) - re-query before " +
+                        "concluding the update did not apply." else null
                 )).joinToString(" "))
             })
         } finally {

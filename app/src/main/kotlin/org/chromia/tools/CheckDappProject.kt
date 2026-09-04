@@ -179,6 +179,16 @@ object CheckDappProject {
                                 if (seenWarnings.add(line)) warnings += line
                             }
                             if (!result.ok) allOk = false
+                            // chr compiles WITH the yml's moduleArgs and refuses a
+                            // module whose module_args are not configured; this
+                            // compile ran without them, so check coverage here.
+                            if (result.ok && !usedDefaultYaml) {
+                                moduleArgsNotConfigured(yaml, result.requiredModuleArgs, result.modules)
+                                    .forEach { (chain, module, fields) ->
+                                        val line = moduleArgsNotConfiguredError(chain, module, fields)
+                                        if (seenErrors.add(line)) errors += line
+                                    }
+                            }
                         },
                         onFailure = { e ->
                             allOk = false
@@ -214,6 +224,46 @@ object CheckDappProject {
      * vendored, never submitted, and are skipped. Empty when the yaml does not
      * parse or declares no blockchains - those are the validator's findings.
      */
+    /**
+     * For every chain in `blockchains:`, the compiled modules that declare a
+     * `struct module_args` without defaults and have NO entry under that chain's
+     * `moduleArgs:` - the exact set `chr build` names in "Missing module_args for
+     * module(s): ...". The stablecoin scaffold went through a dry run that said
+     * "ready" and died there on the real deploy (2026-09-04): its yml leaves
+     * main.oracle_pubkey deliberately unset (commented, so no placeholder key can
+     * reach a chain), and no gate checked coverage. Returns
+     * (chain, module, fields) triples; only chains whose root module is among
+     * the compiled modules are judged (another chain's modules are not its
+     * business - multi-chain repos).
+     */
+    internal fun moduleArgsNotConfigured(
+        yaml: String,
+        requiredModuleArgs: Map<String, List<String>>,
+        compiledModules: Collection<String>
+    ): List<Triple<String, String, List<String>>> {
+        if (requiredModuleArgs.isEmpty()) return emptyList()
+        val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
+        val blockchains = root.mapping("blockchains") ?: return emptyList()
+        return blockchains.entries.flatMap { (chain, node) ->
+            val mapping = node as? YamlNode.Mapping ?: return@flatMap emptyList()
+            val rootModule = mapping.scalar("module")?.trim().orEmpty()
+            if (rootModule.isEmpty() || rootModule !in compiledModules) return@flatMap emptyList()
+            val configured = mapping.mapping("moduleArgs")?.entries?.keys.orEmpty()
+            requiredModuleArgs.filterKeys { it !in configured }
+                .map { (module, fields) -> Triple(chain, module, fields) }
+        }
+    }
+
+    /** One error line per (chain, module) from [moduleArgsNotConfigured], naming chr's failure and the fix. */
+    internal fun moduleArgsNotConfiguredError(chain: String, module: String, fields: List<String>): String =
+        "$YAML_PATH: blockchains.$chain.moduleArgs has no `$module` entry, but module $module declares" +
+            " `struct module_args` with no default for ${fields.joinToString(", ")} - `chr build` (and so every" +
+            " `chr deployment`) fails with \"Missing module_args for module(s): $module\". Add under" +
+            " blockchains.$chain.moduleArgs:\n  $module:\n" + fields.joinToString("\n") { "    $it: <value>" } +
+            (if (fields.any { it.contains("pubkey") || it.contains("key") })
+                "\n(a key field takes the 33-byte compressed public key as x\"...\"; never the test key from test.moduleArgs)"
+            else "")
+
     internal fun declaredModulesNotSubmitted(yaml: String, rellFiles: Map<String, String>): List<Triple<String, String, String>> {
         val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
         val blockchains = root.mapping("blockchains") ?: return emptyList()

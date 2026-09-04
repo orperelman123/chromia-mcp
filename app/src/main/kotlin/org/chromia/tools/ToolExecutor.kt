@@ -1036,6 +1036,20 @@ class DappInteractionStrategy(
             )
         } ?: return toolErrorResult(ProbeBudget.queryTimeoutHint(network, deadlineMs))
 
+        // A node's "Invalid argument(s): account" names the wrong name and not
+        // the right one; the chain publishes its signatures, so ask it (one
+        // extra read, only on that class of refusal - live stablecoin chain,
+        // 2026-09-04). Never let the follow-up hide the original error.
+        if (result is NetworkResult.Error && queryName != "rell.get_app_structure" && QuerySignatureHint.applies(result.message)) {
+            val structure = ProbeBudget.withBudget(deadlineMs) {
+                repository.executeCustomQuery(network, BlockchainRid.buildFromHex(blockchainRid), "rell.get_app_structure", emptyMap())
+            } as? NetworkResult.Success
+            val hint = structure?.let { QuerySignatureHint.hint(it.data, queryName ?: "", arguments.keys) }
+            if (hint != null) {
+                return toolErrorResult("Failed to execute dapp query $queryName --> $arguments: ${result.message}. $hint")
+            }
+        }
+
         return handleResult(result, "Failed to execute dapp query $queryName --> $arguments")
     }
 

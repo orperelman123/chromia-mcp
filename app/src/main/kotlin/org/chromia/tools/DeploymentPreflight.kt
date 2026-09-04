@@ -424,6 +424,22 @@ object DeploymentPreflight {
                 }
                 if (compile.ok) {
                     compiledModules = compile.modules
+                    // The compile above runs without the yml's moduleArgs; chr does
+                    // not. A stablecoin dry run said "ready" and the live `chr
+                    // deployment create` died with "Missing module_args for
+                    // module(s): main" (2026-09-04) - the oracle key the yml
+                    // deliberately leaves unset. Same check as check_dapp_project.
+                    CheckDappProject.moduleArgsNotConfigured(yaml, compile.requiredModuleArgs, compile.modules)
+                        .forEach { (chain, module, fields) ->
+                            findings += Finding(
+                                SEVERITY_BLOCKER, "module_args",
+                                "blockchains.$chain.moduleArgs has no `$module` entry, but $module declares " +
+                                    "`struct module_args` with no default for ${fields.joinToString(", ")} - " +
+                                    "`chr deployment` fails with \"Missing module_args for module(s): $module\"",
+                                CheckDappProject.moduleArgsNotConfiguredError(chain, module, fields)
+                                    .substringAfter("Add under ").let { "Add under $it" }
+                            )
+                        }
                     val security = RellSecurityCheck.analyze(rellFiles, false)
                     security.findings.forEach { f ->
                         val serious = f.severity == "CRITICAL" || f.severity == "HIGH"

@@ -36,9 +36,11 @@ import org.chromia.tools.TxOp
 import org.chromia.tools.TxOutcome
 import org.chromia.tools.TxPoster
 import org.chromia.tools.WriteDeploymentConfig
+import org.chromia.tools.chainsEntryRid
 import org.chromia.tools.declaredChainNames
 import org.chromia.tools.declaredLibNames
 import org.chromia.tools.outdatedChrNote
+import org.chromia.tools.withChainsEntry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -871,7 +873,8 @@ class ProvisioningToolsTest {
                 put("blockchain", "my_dapp")
                 put("mode", " Update ")
             }),
-            repositoryFor(FakeChain(testPub, testAccount, adId))
+            // update needs a deployed chain to target (the Directory lists it)
+            repositoryFor(FakeChain(testPub, testAccount, adId).apply { containerChains = listOf("my_dapp" to "04".repeat(32)) })
         )
         val json = resultJson(cased)
         assertEquals("dry_run", json["status"]!!.jsonPrimitive.content, resultText(cased))
@@ -1132,6 +1135,88 @@ class ProvisioningToolsTest {
         assertTrue(resultText(failed).contains("chr deployment create failed (exit 2): Invalid blockchain configuration. Something else"), resultText(failed))
         assertFalse(resultText(failed).contains(" Warning: "), resultText(failed))
         assertEquals("a\nb", DeployTestnetChainStrategy.withoutLibWarnings("a\nlib/x.rell(1:1) Warning: y\nb\n"))
+    }
+
+    @Test
+    fun updateCarriesTheChainRidFromTheDirectoryAndNoConfirmFlag(@TempDir dir: Path) = runBlocking {
+        // First live `mode=update` (2026-09-04, agent_hello): the dry run said
+        // "ready" and chr exited 1 with "no such option -y" - `deployment update`
+        // has no -y. And the yml carried no deployments.testnet.chains.<name>
+        // RID, which is how `update` knows WHICH chain to reconfigure.
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        DeployKeyStore(keystoreDir).also {
+            it.storeEphemeral(testPub, testPriv)
+            it.recordContainer("or_container_42", testPub)
+        }
+        val rid = "04".repeat(32)
+        val chain = FakeChain(testPub, testAccount, adId).apply { containerChains = listOf("my_dapp" to rid) }
+        var ymlSeenByChr: String? = null
+        val runner = FakeRunner(onDeploy = { workDir, _ -> ymlSeenByChr = Files.readString(workDir.resolve("chromia.yml")) })
+        val args = buildJsonObject {
+            put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+            put("chromiaYml", deployYml())
+            put("mode", "update")
+        }
+        val dry = deployStrategy(envWith(dir = dir), keystoreDir, runner, dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(chain))
+        val dryJson = resultJson(dry)
+        assertEquals("dry_run", dryJson["status"]!!.jsonPrimitive.content, resultText(dry))
+        val command = dryJson["command"]!!.jsonPrimitive.content
+        assertTrue(command.contains("deployment update"), command)
+        assertFalse(command.contains(" -y"), "update has no -y: $command")
+        assertTrue(dryJson["notes"]!!.jsonPrimitive.content.contains("Added deployments.testnet.chains.my_dapp: x\"$rid\""), resultText(dry))
+        // create keeps -y
+        val createCmd = resultJson(
+            deployStrategy(envWith(dir = dir), keystoreDir, runner, dir).execute(
+                call("deploy_testnet_chain", buildJsonObject { put("rell", args["rell"]!!); put("chromiaYml", deployYml()) }),
+                repositoryFor(chain)
+            )
+        )["command"]!!.jsonPrimitive.content
+        assertTrue(createCmd.endsWith(" -y"), createCmd)
+
+        val live = deployStrategy(envWith(dir = dir), keystoreDir, runner, dir).execute(
+            call("deploy_testnet_chain", buildJsonObject { args.forEach { (k, v) -> put(k, v) }; put("dryRun", false) }),
+            repositoryFor(chain)
+        )
+        assertTrue(live.isError != true, resultText(live))
+        assertEquals("deployed", resultJson(live)["status"]!!.jsonPrimitive.content, resultText(live))
+        assertEquals(rid, resultJson(live)["brid"]!!.jsonPrimitive.content)
+        assertTrue(resultJson(live)["notes"]!!.jsonPrimitive.content.contains("takes effect at a later block height"), resultText(live))
+        val deployCommand = runner.commands.last { "deployment" in it }
+        assertEquals("update", deployCommand[deployCommand.indexOf("deployment") + 1])
+        assertFalse("-y" in deployCommand, deployCommand.toString())
+        assertNotNull(ymlSeenByChr)
+        assertEquals(rid, chainsEntryRid(ymlSeenByChr!!, "my_dapp"), ymlSeenByChr)
+        assertTrue(ymlSeenByChr!!.contains("    chains:\n      my_dapp: x\"$rid\""), ymlSeenByChr)
+        // every other line is untouched
+        assertEquals(
+            deployYml().lines().filter { it.isNotBlank() },
+            ymlSeenByChr!!.lines().filter { it.isNotBlank() && it.trim() != "chains:" && !it.contains("my_dapp: x\"") }
+        )
+
+        // No chain of that name in the container: nothing to update, say so.
+        val nothing = deployStrategy(envWith(dir = dir), keystoreDir, runner, dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(FakeChain(testPub, testAccount, adId)))
+        assertEquals("refused", resultJson(nothing)["status"]!!.jsonPrimitive.content, resultText(nothing))
+        assertTrue(resultText(nothing).contains("no deployed chain to update"), resultText(nothing))
+        assertTrue(resultText(nothing).contains("Use mode=\\\"create\\\" for a first deploy"), resultText(nothing))
+
+        // A yml that already names the RID is used as-is: no Directory lookup.
+        val pinned = withChainsEntry(deployYml(), "my_dapp", "AB".repeat(32))
+        assertEquals("AB".repeat(32), chainsEntryRid(pinned, "my_dapp"))
+        val fresh = FakeChain(testPub, testAccount, adId)
+        val asIs = deployStrategy(envWith(dir = dir), keystoreDir, runner, dir).execute(
+            call("deploy_testnet_chain", buildJsonObject { put("rell", args["rell"]!!); put("chromiaYml", pinned); put("mode", "update") }),
+            repositoryFor(fresh)
+        )
+        assertEquals("dry_run", resultJson(asIs)["status"]!!.jsonPrimitive.content, resultText(asIs))
+        assertFalse("get_container_blockchain" in fresh.queriesSeen, fresh.queriesSeen.toString())
+        // idempotent splice into an existing chains block
+        val twice = withChainsEntry(pinned, "other", "CD".repeat(32))
+        assertEquals("CD".repeat(32), chainsEntryRid(twice, "other"))
+        assertEquals("AB".repeat(32), chainsEntryRid(twice, "my_dapp"))
+        assertEquals(1, twice.lines().count { it.trim() == "chains:" })
+        assertNull(chainsEntryRid(deployYml(), "my_dapp"))
     }
 
     @Test
