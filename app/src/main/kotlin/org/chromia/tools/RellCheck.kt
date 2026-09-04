@@ -420,10 +420,18 @@ object RellCheck {
             app.modules
                 .filter { !it.test && !it.abstract && !it.external }
                 .forEach { compiledModules.add(it.name.toString()) }
-            // hasDefaultConstructor == every attribute has a default expression.
+            // hasDefaultConstructor == every attribute has a default expression;
+            // per field, hasDefaultValue. chr refuses a module with NO entry
+            // ("Missing module_args for module(s)") and a PARTIAL one ("Bad
+            // module_args ... Missing struct attribute value: 'main:module_args.
+            // treasury_pubkey'" - lending template, 2026-09-04), so the fields
+            // that need a value are what is recorded.
             app.moduleArgs.filter { (_, def) -> !def.hasDefaultConstructor }
                 .toSortedMap(compareBy { it.toString() })
-                .forEach { (module, def) -> requiredModuleArgs[module.toString()] = def.struct.strAttributes.keys.sorted() }
+                .forEach { (module, def) ->
+                    requiredModuleArgs[module.toString()] =
+                        def.struct.strAttributes.filterValues { !it.hasDefaultValue }.keys.sorted()
+                }
         }.exceptionOrNull()
 
         if (failure != null && failure !is RellCliException && failure !is IllegalArgumentException) {

@@ -50,6 +50,17 @@ class DappScaffoldSecureTemplatesTest {
 
     private val dbUrl: String? = System.getenv(RunRellTests.DATABASE_URL_ENV)
 
+    // These tests assert what a template's shipped suite (or its mutant) DECIDES,
+    // not how fast the runner decides it; the 90s production deadline has its own
+    // tests (the abandon path in AuditFindingsRegressionTest, the env cap in
+    // RunRellTestsToolTest). The lending suite alone takes ~56s under the
+    // real chr on the dev box, and this class ran 75 full suites against a shared
+    // database while another agent's `chr test` was on the same host - gate #9
+    // (amm) and gate #14 (lending) each lost one to the deadline with the verdict
+    // otherwise green, at 40 minutes a rerun. A deadline still exists, so a real
+    // runaway is still caught, just not mistaken for a starved box.
+    private val SHIPPED_SUITE_TIMEOUT_SECONDS = 600L
+
     /** Rell's run_must_fail failure text when the transaction it expected to fail succeeds. */
     private val RUN_MUST_FAIL_UNEXPECTED_SUCCESS = "Transaction did not fail"
     private fun opBody(main: String, op: String): String =
@@ -1342,7 +1353,7 @@ class DappScaffoldSecureTemplatesTest {
         // create GTX module" - a failure that satisfied the old
         // wrong-reason check while proving nothing about the guard.
     private fun runShipped(template: String, label: String = template, files: Map<String, String> = rellOf(template)): RunRellTests.Result {
-        val result = RunRellTests.run(files, databaseUrl = dbUrl, moduleArgs = moduleArgsOf(template))
+        val result = RunRellTests.run(files, databaseUrl = dbUrl, moduleArgs = moduleArgsOf(template), timeoutSeconds = SHIPPED_SUITE_TIMEOUT_SECONDS)
         // Printed so the gradle XML carries the per-case verdicts the report pastes.
         println("[$label] ok=${result.ok} total=${result.total} passed=${result.passed} failed=${result.failed}")
         result.cases.forEach { println("[$label]   ${it.name}: ${if (it.ok) "PASS" else "FAIL"}${it.error?.let { e -> " - $e" } ?: ""}") }

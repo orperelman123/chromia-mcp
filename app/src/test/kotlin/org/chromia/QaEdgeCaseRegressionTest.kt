@@ -341,6 +341,33 @@ class QaEdgeCaseRegressionTest {
         assertTrue(
             CheckDappProject.moduleArgsNotConfigured("blockchains:\n  other:\n    module: app\n", mapOf("main" to listOf("k")), listOf("main")).isEmpty()
         )
+
+        // PARTIAL entry (round 9, lending through the real chr): main.oracle_pubkey
+        // set, treasury_pubkey still a commented placeholder -> "Bad module_args
+        // for module 'main': Missing struct attribute value: 'main:module_args.
+        // treasury_pubkey'". Only fields WITHOUT a default count.
+        val lending = DappScaffold.files("pool", template = "lending")
+        val lendingRell = lending.filterKeys { it.endsWith(".rell") }
+        val lendingYml = lending.getValue("chromia.yml")
+        assertEquals(mapOf("main" to listOf("oracle_pubkey", "treasury_pubkey")), RellCheck.check(lendingRell, null).requiredModuleArgs)
+        val half = lendingYml.replace("      # main:\n      #   oracle_pubkey: x\"<your oracle public key>\"", "      main:\n        oracle_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\"")
+        assertTrue(half != lendingYml, "the lending scaffold's commented placeholder must be where this test expects it")
+        assertTrue(half.contains("      #   treasury_pubkey: x\"<your protocol fee key>\""), half)
+        val partial = CheckDappProject.check(half, lendingRell)
+        val partialError = partial.errors.single { it.contains("moduleArgs.main is missing treasury_pubkey") }
+        assertTrue(partialError.contains("\"Bad module_args for module 'main': Missing struct attribute value: 'main:module_args.treasury_pubkey'\""), partialError)
+        assertTrue(partialError.contains("  main:\n    treasury_pubkey: <value>"), partialError)
+        assertFalse(partialError.contains("oracle_pubkey: <value>"), "only the missing field is asked for: $partialError")
+        val whole = half.replace("      #   treasury_pubkey: x\"<your protocol fee key>\"", "        treasury_pubkey: x\"03c1f231e767f93212f2e474ac3145ae50923bddce53e069548d4d11b851be4378\"")
+        assertTrue(CheckDappProject.check(whole, lendingRell).errors.none { it.contains("moduleArgs") }, CheckDappProject.check(whole, lendingRell).errors.toString())
+        assertEquals(
+            listOf(Triple("c", "main", listOf("b"))),
+            CheckDappProject.moduleArgsNotConfigured("blockchains:\n  c:\n    module: main\n    moduleArgs:\n      main:\n        a: 1\n", mapOf("main" to listOf("a", "b")), listOf("main"))
+        )
+        // A struct field WITH a default is never demanded.
+        val defaulted = RellCheck.check(mapOf("main.rell" to "module;\nstruct module_args { admin: byte_array; max_items: integer = 10; }\nquery q() = chain_context.args.max_items;\n"), null)
+        assertTrue(defaulted.ok, defaulted.errors.toString())
+        assertEquals(mapOf("main" to listOf("admin")), defaulted.requiredModuleArgs)
     }
 
     // Live stablecoin chain 2922E3E2... (2026-09-04): `get_cdp` with `account`

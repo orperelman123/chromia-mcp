@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { probeExplorerCanary, upstreamSignature } from './upstream-classifier.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv[2];
@@ -58,6 +59,23 @@ const rpc = (method, params, t = 240000) => {
 const text = m => m?.result?.content?.[0]?.text ?? JSON.stringify(m?.error ?? m?.result);
 const results = [];
 const check = (label, ok, detail) => { results.push([label, ok]); console.log(`${ok ? 'PASS' : 'FAIL'} ${label} ${detail ?? ''}`); };
+// A live check that failed on an allowlisted UPSTREAM signature (the explorer
+// answering INTERNAL_ERROR, a node pool stalling) is a warning, not a verdict
+// on the transport this smoke exists to test: the round-trip itself worked.
+// Anything else is ours. CI 33864861449 (2026-09-04): the explorer was down and
+// this smoke went red on `get_network_stats` while every transport check passed.
+const liveCheck = async (label, ok, t) => {
+  if (ok) return check(label, true, t.slice(0, 60));
+  let sig = upstreamSignature(t);
+  if (!sig && /\bHTTP 400\b/.test(t)) {
+    // A 400 is normally OUR malformed query - unless the explorer refuses the
+    // smallest valid document too (same evidence rule as the e2e sweep).
+    const canary = await probeExplorerCanary('mainnet');
+    if (!canary.ok) sig = `explorer-rejects-valid-graphql (canary HTTP ${canary.status})`;
+  }
+  if (sig) { results.push([label, true]); console.log(`WARN-UPSTREAM ${label} [${sig}] ${t.slice(0, 100)}`); return; }
+  check(label, false, t.slice(0, 100));
+};
 
 const call = (name, args) => rpc('tools/call', { name, arguments: args });
 const parse = m => { try { return JSON.parse(text(m)); } catch { return {}; } };
@@ -112,7 +130,7 @@ try {
   check('chromia_help topic', t.length > 100, null);
 
   t = text(await call('get_network_stats', {}));
-  check('live analytics over stdio', t.includes('countAllAccounts'), t.slice(0, 60));
+  await liveCheck('live analytics over stdio', t.includes('countAllAccounts'), t);
 
   t = text(await call('no_such_tool', {}));
   check('unknown tool errors cleanly', /unknown tool|not found/i.test(t), t.slice(0, 60));

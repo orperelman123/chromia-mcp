@@ -431,12 +431,19 @@ object DeploymentPreflight {
                     // deliberately leaves unset. Same check as check_dapp_project.
                     CheckDappProject.moduleArgsNotConfigured(yaml, compile.requiredModuleArgs, compile.modules)
                         .forEach { (chain, module, fields) ->
+                            val partial = CheckDappProject.hasModuleArgsEntry(yaml, chain, module)
                             findings += Finding(
                                 SEVERITY_BLOCKER, "module_args",
-                                "blockchains.$chain.moduleArgs has no `$module` entry, but $module declares " +
-                                    "`struct module_args` with no default for ${fields.joinToString(", ")} - " +
-                                    "`chr deployment` fails with \"Missing module_args for module(s): $module\"",
-                                CheckDappProject.moduleArgsNotConfiguredError(chain, module, fields)
+                                if (partial) {
+                                    "blockchains.$chain.moduleArgs.$module is missing ${fields.joinToString(", ")} " +
+                                        "(declared in $module's `struct module_args` with no default) - `chr deployment` " +
+                                        "fails with \"Bad module_args for module '$module': Missing struct attribute value\""
+                                } else {
+                                    "blockchains.$chain.moduleArgs has no `$module` entry, but $module declares " +
+                                        "`struct module_args` with no default for ${fields.joinToString(", ")} - " +
+                                        "`chr deployment` fails with \"Missing module_args for module(s): $module\""
+                                },
+                                CheckDappProject.moduleArgsNotConfiguredError(chain, module, fields, partial)
                                     .substringAfter("Add under ").let { "Add under $it" }
                             )
                         }

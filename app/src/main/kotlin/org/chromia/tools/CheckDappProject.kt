@@ -185,7 +185,7 @@ object CheckDappProject {
                             if (result.ok && !usedDefaultYaml) {
                                 moduleArgsNotConfigured(yaml, result.requiredModuleArgs, result.modules)
                                     .forEach { (chain, module, fields) ->
-                                        val line = moduleArgsNotConfiguredError(chain, module, fields)
+                                        val line = moduleArgsNotConfiguredError(chain, module, fields, hasModuleArgsEntry(yaml, chain, module))
                                         if (seenErrors.add(line)) errors += line
                                     }
                             }
@@ -248,21 +248,39 @@ object CheckDappProject {
             val mapping = node as? YamlNode.Mapping ?: return@flatMap emptyList()
             val rootModule = mapping.scalar("module")?.trim().orEmpty()
             if (rootModule.isEmpty() || rootModule !in compiledModules) return@flatMap emptyList()
-            val configured = mapping.mapping("moduleArgs")?.entries?.keys.orEmpty()
-            requiredModuleArgs.filterKeys { it !in configured }
-                .map { (module, fields) -> Triple(chain, module, fields) }
+            val configured = mapping.mapping("moduleArgs")
+            requiredModuleArgs.mapNotNull { (module, fields) ->
+                val entry = configured?.entries?.get(module)
+                val present = (entry as? YamlNode.Mapping)?.entries?.keys.orEmpty()
+                // No entry at all: every field is missing. A partial entry: chr
+                // says "Bad module_args ... Missing struct attribute value" for
+                // each field without a default that the yml leaves out (a
+                // commented-out placeholder line is the natural way to get here).
+                val missing = if (entry == null) fields else fields.filter { it !in present }
+                if (missing.isEmpty()) null else Triple(chain, module, missing)
+            }
         }
     }
 
     /** One error line per (chain, module) from [moduleArgsNotConfigured], naming chr's failure and the fix. */
-    internal fun moduleArgsNotConfiguredError(chain: String, module: String, fields: List<String>): String =
-        "$YAML_PATH: blockchains.$chain.moduleArgs has no `$module` entry, but module $module declares" +
+    internal fun moduleArgsNotConfiguredError(chain: String, module: String, fields: List<String>, partial: Boolean = false): String =
+        (if (partial) "$YAML_PATH: blockchains.$chain.moduleArgs.$module is missing ${fields.joinToString(", ")}, which" +
+            " module $module's `struct module_args` declares with no default - `chr build` (and so every" +
+            " `chr deployment`) fails with \"Bad module_args for module '$module': Missing struct attribute value:" +
+            " '$module:module_args.${fields.first()}'\". Add under"
+        else "$YAML_PATH: blockchains.$chain.moduleArgs has no `$module` entry, but module $module declares" +
             " `struct module_args` with no default for ${fields.joinToString(", ")} - `chr build` (and so every" +
-            " `chr deployment`) fails with \"Missing module_args for module(s): $module\". Add under" +
+            " `chr deployment`) fails with \"Missing module_args for module(s): $module\". Add under") +
             " blockchains.$chain.moduleArgs:\n  $module:\n" + fields.joinToString("\n") { "    $it: <value>" } +
             (if (fields.any { it.contains("pubkey") || it.contains("key") })
                 "\n(a key field takes the 33-byte compressed public key as x\"...\"; never the test key from test.moduleArgs)"
             else "")
+
+    /** True when `blockchains.<chain>.moduleArgs.<module>` exists (so a finding is about missing fields, not a missing entry). */
+    internal fun hasModuleArgsEntry(yaml: String, chain: String, module: String): Boolean {
+        val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return false
+        return (root.mapping("blockchains")?.mapping(chain)?.mapping("moduleArgs")?.entries?.get(module)) != null
+    }
 
     internal fun declaredModulesNotSubmitted(yaml: String, rellFiles: Map<String, String>): List<Triple<String, String, String>> {
         val root = runCatching { SimpleYaml.parse(yaml) }.getOrNull() as? YamlNode.Mapping ?: return emptyList()
