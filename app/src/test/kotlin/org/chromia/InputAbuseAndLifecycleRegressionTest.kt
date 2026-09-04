@@ -300,5 +300,75 @@ class InputAbuseAndLifecycleRegressionTest {
         assertTrue(result.cases.all { it.error?.contains("Unable to create GTX module") == true }, result.cases.toString())
         assertTrue(result.notes.contains("lib.ft4.core.admin (admin_pubkey)"), result.notes)
         assertTrue(result.notes.contains("lib.ft4.test.core.auth (admin_priv_key)"), result.notes)
+        // The note must NAME the modules that were not supplied, computed from
+        // the compiled app - not describe them (DX audit 2026-09-04). Only
+        // lib.ft4.core.admin blocks GTX module creation: lib.ft4.test.core.auth's
+        // admin_priv_key defaults to null and fails later, at the `!!`, so the
+        // compiler-derived list is exactly the one module.
+        assertTrue(result.notes.contains("MISSING module_args for: lib.ft4.core.admin. Take the values"), result.notes)
+    }
+
+    /**
+     * DX audit 2026-09-04: the stablecoin template's tests run with no moduleArgs
+     * at all failed six times with the same opaque GTX error and a note that
+     * pointed at template=ft4 - whose args do not include `main.oracle_pubkey`.
+     * The compiler knows exactly which modules declare module_args without
+     * defaults; the note must list them, and a complete set must not be blamed.
+     */
+    @Test
+    fun missingModuleArgsAreNamedFromTheCompiledApp() {
+        val dbUrl = System.getenv(RunRellTests.DATABASE_URL_ENV)
+        org.junit.jupiter.api.Assumptions.assumeTrue(!dbUrl.isNullOrBlank(), "needs ${RunRellTests.DATABASE_URL_ENV}")
+        val rell = DappScaffold.files("peg", template = "stablecoin")
+            .filterKeys { it.endsWith(".rell") }
+            .mapKeys { (path, _) -> path.removePrefix("src/") }
+        val none = RunRellTests.run(rell, databaseUrl = dbUrl, moduleArgs = emptyMap())
+        assertFalse(none.ok, none.notes)
+        assertTrue(none.cases.all { it.error?.contains("Unable to create GTX module") == true }, none.cases.toString())
+        val missing = none.notes.substringAfter("MISSING module_args for: ", "").substringBefore(". Take the values")
+        assertTrue(missing.isNotEmpty(), "the note must list the unsupplied modules: ${none.notes}")
+        val named = missing.split(", ")
+        assertTrue("main" in named && "lib.ft4.core.admin" in named, "missing list: $missing")
+        assertFalse("lib.ft4.test.core.auth" in named, "a module whose module_args all default is not what blocks GTX module creation: $missing")
+        assertTrue(none.notes.contains("chromia.yml scaffold_dapp returned for THIS template"), none.notes)
+        assertFalse(none.notes.contains("template=ft4 for a working set"), "must not point a stablecoin build at another template's keys: ${none.notes}")
+
+        // Only main missing: the note narrows to it.
+        val ft4Only = RunRellTests.run(rell, databaseUrl = dbUrl, moduleArgs = DappScaffold.ft4TestModuleArgs())
+        assertFalse(ft4Only.ok, ft4Only.notes)
+        assertTrue(ft4Only.notes.contains("MISSING module_args for: main."), ft4Only.notes)
+        assertFalse(ft4Only.notes.contains("lib.ft4.core.admin, lib.ft4.test.core.auth, main"), ft4Only.notes)
+    }
+
+    /**
+     * DX audit 2026-09-04: `rate_limit` filed under `lib.ft4` instead of
+     * `lib.ft4.core.accounts` came back as "Rell test sources do not compile: Bad
+     * module_args for module 'lib.ft4': Wrong key ... 'rate_limit'" - a binding
+     * error headed as a compile error, with no word on where the key belongs.
+     * The compiled app knows which module declares the field; say so.
+     */
+    @Test
+    fun strayModuleArgsKeyIsRoutedToTheModuleThatDeclaresIt() {
+        val rell = DappScaffold.files("notes", template = "ft4")
+            .filterKeys { it.endsWith(".rell") }
+            .mapKeys { (path, _) -> path.removePrefix("src/") }
+        val misfiled = DappScaffold.ft4TestModuleArgs().toMutableMap()
+        misfiled["lib.ft4"] = misfiled.getValue("lib.ft4") + ("rate_limit" to misfiled.getValue("lib.ft4.core.accounts").getValue("rate_limit"))
+        val e = assertThrows(IllegalArgumentException::class.java) { RunRellTests.run(rell, databaseUrl = null, moduleArgs = misfiled) }
+        val msg = e.message.orEmpty()
+        assertTrue(msg.startsWith("module_args do not bind (the Rell sources compiled; this is the moduleArgs argument):"), msg)
+        assertFalse(msg.contains("do not compile"), "a binding failure must not be headed as a compile failure: $msg")
+        assertTrue(msg.contains("'rate_limit' is not a field of lib.ft4's module_args (its fields: query_max_page_size)"), msg)
+        assertTrue(msg.contains("It is declared by lib.ft4.core.accounts - move it under that module name in moduleArgs."), msg)
+
+        // The hint never guesses: a key nobody declares is said to be undeclared.
+        val fields = mapOf("lib.ft4" to listOf("query_max_page_size"), "main" to listOf("oracle_pubkey"))
+        val unknown = RunRellTests.moduleArgsKeyHint("main", "oracle_key", fields)
+        assertTrue(unknown.contains("'oracle_key' is not a field of main's module_args (its fields: oracle_pubkey)"), unknown)
+        assertTrue(unknown.contains("No compiled module declares a module_args field named 'oracle_key'"), unknown)
+        val regex = RunRellTests.BAD_MODULE_ARGS_KEY_REGEX.find(
+            "Bad module_args for module 'lib.ft4': Wrong key in Gtv dictionary for type 'lib.ft4:module_args': 'rate_limit'"
+        )
+        assertEquals(listOf("lib.ft4", "rate_limit"), regex?.destructured?.toList())
     }
 }

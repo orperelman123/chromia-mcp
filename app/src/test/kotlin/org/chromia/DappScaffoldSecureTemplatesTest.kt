@@ -8,6 +8,7 @@ import org.chromia.tools.RunRellTests
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -158,6 +159,28 @@ class DappScaffoldSecureTemplatesTest {
      * wrote the whole value class freehand. `lending` is now a real template, so the
      * near-miss NAMES for it must route there rather than to the nearest cousin.
      */
+    /**
+     * DX audit 2026-09-04: `template="Stablecoin"` fell back to hello with an
+     * "Unknown template" warning, and `name="My-Peg App"` fell back to `hello`
+     * with a regex and no example. Case and whitespace are not a different ask;
+     * an invalid name should come back with the name it most likely meant.
+     */
+    @Test
+    fun scaffoldToleratesTemplateCaseAndSuggestsAValidName() {
+        for (asked in listOf("Stablecoin", " stablecoin ", "STABLECOIN")) {
+            val out = DappScaffold.toJson("peg", template = asked)
+            assertEquals("stablecoin", out.getValue("template").toString().trim('"'), "template '$asked' must resolve to stablecoin")
+            assertEquals("[]", out.getValue("warnings").toString(), "case/whitespace must not be reported as an unknown template: $asked")
+            assertTrue(out.getValue("files").toString().contains("mint_stable"), "the stablecoin files must be the ones returned for '$asked'")
+        }
+        val warning = DappScaffold.toJson("My-Peg App", template = "stablecoin").getValue("warnings").toString()
+        assertTrue(warning.contains("e.g. name=\\\"my_peg_app\\\""), "an invalid name must come with the valid name it most likely meant: $warning")
+        assertEquals("my_peg_app", DappScaffold.suggestName("My-Peg App"))
+        assertEquals("v2_peg", DappScaffold.suggestName("2 v2 peg"))
+        assertNull(DappScaffold.suggestName("123"), "a name with no usable letter has no suggestion")
+        assertEquals(32, DappScaffold.suggestName("a".repeat(40))!!.length)
+    }
+
     @Test
     fun unknownTemplateFallbackRoutesToTheClosestTemplate() {
         assertTrue(

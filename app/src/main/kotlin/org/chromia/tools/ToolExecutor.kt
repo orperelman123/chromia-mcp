@@ -241,6 +241,34 @@ internal fun extractRellFilesMap(filesArg: Any?): Pair<LinkedHashMap<String, Str
     return files to invalid
 }
 
+private val OWN_IMPORT_REGEX = Regex("""(?m)^\s*import\s+(?:\w+\s*:\s*)?([A-Za-z_][\w.]*)\s*(?:\.\{[^}]*\})?\s*;""")
+
+/**
+ * Places a single `source` argument in the files map. An app module is
+ * main.rell. A `@test module` is NOT: filed as main.rell, `import main;`
+ * resolved to the test file itself and every `main.x` came back as "Unknown
+ * name: 'main.x'" - twenty errors about a file that was never submitted (DX
+ * audit 2026-09-04, rell_security_check on the stablecoin test module alone).
+ * A test module goes to test/main_test.rell, and the returned note names the
+ * own modules it imports that have to be passed alongside it via `files`.
+ */
+internal fun placeSingleSource(source: String, files: LinkedHashMap<String, String>): String? {
+    if (!RunRellTests.isTestModuleSource(source)) {
+        files["main.rell"] = source
+        return null
+    }
+    files["test/main_test.rell"] = source
+    val own = OWN_IMPORT_REGEX.findAll(maskRellSource(source, maskStrings = true))
+        .map { it.groupValues[1] }
+        .filter { !it.startsWith("lib.") && !it.startsWith("^") && !it.startsWith("rell.") }
+        .distinct().toList()
+    return "`source` is a @test module, placed at test/main_test.rell. " +
+        (if (own.isEmpty()) "It imports no module of its own, so it was compiled alone."
+        else "It imports ${own.joinToString(", ")} - not submitted, so every name from ${
+            if (own.size == 1) "it" else "them"} is unresolved. Pass `files` with the app module(s) AND the test file," +
+            " e.g. {\"main.rell\": ..., \"test/main_test.rell\": ...}.")
+}
+
 abstract class BaseToolStrategy : ToolStrategy {
     /**
      * Absent and JSON-null mean "not provided". Primitive values coerce via
@@ -1228,9 +1256,7 @@ class RellCheckStrategy : BaseToolStrategy() {
                 "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
             )
         }
-        if (source != null && files.isEmpty()) {
-            files["main.rell"] = source
-        }
+        val sourceNote = if (source != null && files.isEmpty()) placeSingleSource(source, files) else null
         if (files.isEmpty()) {
             return toolErrorResult(
                 "rell_check needs Rell code: pass `source` (single main.rell) or `files` ({\"path.rell\": \"code\"})"
@@ -1239,7 +1265,9 @@ class RellCheckStrategy : BaseToolStrategy() {
 
         return runCatching {
             val result = withContext(Dispatchers.IO) {
-                with(RellCheck) { check(files, modules).toJson() }
+                val checked = RellCheck.check(files, modules)
+                val noted = if (sourceNote == null || checked.ok) checked else checked.copy(notes = "$sourceNote ${checked.notes}")
+                with(RellCheck) { noted.toJson() }
             }
             toolSuccessResult(result)
         }.getOrElse { e ->
@@ -1261,9 +1289,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
                 "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
             )
         }
-        if (source != null && files.isEmpty()) {
-            files["main.rell"] = source
-        }
+        val sourceNote = if (source != null && files.isEmpty()) placeSingleSource(source, files) else null
         if (files.isEmpty()) {
             return toolErrorResult(
                 "rell_security_check needs Rell code: pass `source` or `files` ({\"path.rell\": \"code\"})"
@@ -1287,7 +1313,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
                         put(
                             "notes",
                             "Code does not compile - fix rell_check errors first, then re-run the security check. " +
-                                compile.notes
+                                (sourceNote?.let { "$it " } ?: "") + compile.notes
                         )
                     }
                 )

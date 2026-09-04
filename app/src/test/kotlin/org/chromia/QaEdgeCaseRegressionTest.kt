@@ -234,4 +234,46 @@ class QaEdgeCaseRegressionTest {
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("limit must not exceed"), text.take(200))
     }
+
+    // DX audit 2026-09-04 (P6): rell_security_check / rell_check with `source` =
+    // the stablecoin TEST module alone filed it as main.rell, so `import main;`
+    // resolved to itself and 20 "Unknown name: 'main.x'" errors described a file
+    // that was never sent. The test module must be placed as a test module and
+    // the note must name the module it imports and how to pass it.
+    @Test
+    fun testModuleAsSingleSourceIsPlacedAsATestModuleAndTheMissingImportIsNamed() {
+        val test = DappScaffold.files("peg", template = "stablecoin").getValue("src/test/main_test.rell")
+        for (tool in listOf("rell_check", "rell_security_check")) {
+            val result = callViaExecutor(tool, buildJsonObject { put("source", test) })
+            val text = (result.content.first() as TextContent).text!!
+            assertFalse(text.contains("Unknown name: 'main."), "$tool: the test file must not be compiled AS main: ${text.take(400)}")
+            assertTrue(text.contains("`source` is a @test module, placed at test/main_test.rell."), "$tool: ${text.take(600)}")
+            assertTrue(text.contains("It imports main - not submitted"), "$tool: ${text.take(600)}")
+            assertTrue(text.contains("Pass `files` with the app module(s) AND the test file"), "$tool: ${text.take(600)}")
+        }
+        // An app module as `source` is unchanged: main.rell, no note.
+        val ok = callViaExecutor("rell_check", buildJsonObject { put("source", "module;\nquery ping() = \"pong\";") })
+        val okText = (ok.content.first() as TextContent).text!!
+        assertTrue(okText.contains("\"ok\":true"), okText)
+        assertFalse(okText.contains("@test module, placed"), okText)
+        // A self-contained test module compiles alone and says so only on failure.
+        val alone = callViaExecutor("rell_check", buildJsonObject { put("source", "@test module;\nfunction test_x() { assert_true(true); }") })
+        val aloneText = (alone.content.first() as TextContent).text!!
+        assertTrue(aloneText.contains("\"ok\":true"), aloneText)
+    }
+
+    // DX audit 2026-09-04 (P9): `require(true, "oops);` is reported as a syntax
+    // error at the `(` - true for the parser, useless for the agent. The note
+    // must say what the line most likely is.
+    @Test
+    fun unterminatedStringLiteralIsNamedInTheNotes() {
+        val result = RellCheck.check(mapOf("main.rell" to "module;\noperation x() {\n    require(true, \"oops);\n}\n"), null)
+        assertFalse(result.ok)
+        assertEquals(3, result.errors.first().line)
+        assertTrue(result.notes.contains("Line 3 of main.rell has an odd number of double quotes - most likely an unterminated string literal"), result.notes)
+        // A genuine syntax error on a line with balanced quotes gets no such guess.
+        val plain = RellCheck.check(mapOf("main.rell" to "module;\noperation x() {\n    require(true, \"oops\")\n}\n"), null)
+        assertFalse(plain.ok)
+        assertFalse(plain.notes.contains("unterminated string literal"), plain.notes)
+    }
 }

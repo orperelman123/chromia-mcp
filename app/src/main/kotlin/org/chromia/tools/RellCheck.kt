@@ -8,6 +8,7 @@ import kotlinx.serialization.json.put
 import net.postchain.rell.api.base.PrinterRellCliEnv
 import net.postchain.rell.api.base.RellApiCompile
 import net.postchain.rell.api.base.RellCliException
+import net.postchain.rell.base.model.rr.RR_App
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -351,6 +352,45 @@ object RellCheck {
         )
     }
 
+    /**
+     * The modules compiled into this app whose `struct module_args` has at least
+     * one attribute without a default - exactly the set Postchain's "Unable to
+     * create GTX module" is complaining about when one of them has no entry.
+     * Names the missing modules instead of telling the agent to go and find
+     * them (DX audit 2026-09-04: the stablecoin template's tests failed six
+     * times with an identical opaque error and a note pointing at a different
+     * template's keys). Returns an empty list when the app does not compile;
+     * the caller has already reported that.
+     */
+    internal fun modulesRequiringModuleArgs(sourceDir: Path, modules: List<String>?, testModules: List<String>): List<String> =
+        compileQuietly(sourceDir, modules, testModules)?.moduleArgs
+            // hasDefaultConstructor == every attribute has a default expression.
+            ?.filter { (_, def) -> !def.hasDefaultConstructor }
+            ?.keys?.map { it.toString() }?.sorted()
+            .orEmpty()
+
+    /**
+     * Every compiled module's `struct module_args` field names, by module name.
+     * Lets a "Wrong key in Gtv dictionary" binding error say which module the
+     * stray key belongs to instead of leaving the agent to grep FT4 (DX audit
+     * 2026-09-04: `rate_limit` filed under `lib.ft4` instead of
+     * `lib.ft4.core.accounts` produced an error that read as a compile failure).
+     */
+    internal fun moduleArgsFields(sourceDir: Path, modules: List<String>?, testModules: List<String>): Map<String, List<String>> =
+        compileQuietly(sourceDir, modules, testModules)?.moduleArgs
+            ?.map { (module, def) -> module.toString() to def.struct.strAttributes.keys.sorted() }
+            ?.toMap()
+            .orEmpty()
+
+    private fun compileQuietly(sourceDir: Path, modules: List<String>?, testModules: List<String>): RR_App? {
+        val config = RellApiCompile.Config.Builder()
+            .cliEnv(PrinterRellCliEnv({}, {}))
+            .quiet(true)
+            .moduleArgsMissingError(false)
+            .build()
+        return runCatching { RellApiCompile.compileApp(config, sourceDir.toFile(), modules, testModules) }.getOrNull()
+    }
+
     private fun compile(sourceDir: Path, modules: List<String>?, testModules: List<String> = emptyList()): Result {
         val captured = mutableListOf<String>()
         val cliEnv = PrinterRellCliEnv({ captured.add(it) }, { captured.add(it) })
@@ -409,10 +449,31 @@ object RellCheck {
             "Compiled ${parts.joinToString(" and ")} successfully with Rell ${rellVersion()}."
         } else {
             "Compilation failed with ${errors.size} error(s). Fix the first error and re-run; later errors often cascade." +
-                (maskedHint?.let { " $it" } ?: "")
+                (maskedHint?.let { " $it" } ?: "") +
+                (unterminatedStringHint(sourceDir, errors.firstOrNull())?.let { " $it" } ?: "")
         }
         return Result(ok, compiledModules, errors, warnings, notes)
     }
+
+    /**
+     * `require(true, "oops);` gets "Syntax error: ';', '=', ... expected, got
+     * '('" at the START of the statement - the lexer swallowed the rest of the
+     * line as a string and the parser complained about the token before it. The
+     * error points at the right line and the wrong thing (DX audit 2026-09-04).
+     * When the first error is a syntax error and its line holds an odd number
+     * of unescaped double quotes, say what the line most likely is.
+     */
+    private fun unterminatedStringHint(sourceDir: Path, first: Diagnostic?): String? {
+        if (first?.file == null || first.line == null || !first.text.startsWith("Syntax error")) return null
+        val line = runCatching { Files.readAllLines(sourceDir.resolve(first.file)).getOrNull(first.line - 1) }
+            .getOrNull() ?: return null
+        val quotes = UNESCAPED_QUOTE_REGEX.findAll(line).count()
+        if (quotes % 2 == 0) return null
+        return "Line ${first.line} of ${first.file} has an odd number of double quotes - most likely an unterminated" +
+            " string literal (the lexer took the rest of the line as the string, so the reported token is not the bug)."
+    }
+
+    private val UNESCAPED_QUOTE_REGEX = Regex("""(?<!\\)"""")
 
     private fun parseMessage(raw: String): Diagnostic {
         val match = MESSAGE_REGEX.find(raw.trim())

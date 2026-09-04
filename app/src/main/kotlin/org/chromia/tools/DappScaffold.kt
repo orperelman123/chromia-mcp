@@ -536,21 +536,41 @@ object DappScaffold {
         }
     }
 
+    /**
+     * The valid chain name an invalid request most likely meant: lower-cased,
+     * every run of other characters folded to one underscore, leading
+     * non-letters dropped, cut to the 32-char limit. Null when nothing usable
+     * remains. "My-Peg App" -> "my_peg_app". Offered in the warning, never
+     * applied silently: the name keys the deployments block.
+     */
+    internal fun suggestName(raw: String): String? {
+        val folded = raw.trim().lowercase()
+            .replace(Regex("[^a-z0-9_]+"), "_")
+            .trimStart { it !in 'a'..'z' }
+            .trim('_')
+            .take(32)
+        return folded.takeIf { namePattern.matches(it) }
+    }
+
     fun toJson(name: String?, template: String = "hello"): JsonObject {
         val chain = normalizeName(name)
-        val effectiveTemplate = if (template in templates) template else "hello"
-        val fileMap = files(chain, template)
+        // `Stablecoin`, ` amm ` - case and whitespace are not a different ask
+        // (DX audit 2026-09-04: a capitalised template name fell back to hello).
+        val effectiveTemplate = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) } ?: "hello"
+        val fileMap = files(chain, effectiveTemplate)
         // Never silently substitute what the agent asked for (QA finding):
         // surface every fallback as an explicit warning.
         val warnings = mutableListOf<String>()
         val requested = name?.trim().orEmpty()
         if (requested.isNotEmpty() && requested.lowercase() != chain) {
+            val suggestion = suggestName(requested)?.takeIf { it != chain }
             warnings.add(
                 "Requested name '$requested' is not a valid chain name (must match [a-z][a-z0-9_]{0,31}); " +
-                    "scaffolded as '$chain' instead - pass a valid name to use it."
+                    "scaffolded as '$chain' instead - pass a valid name to use it" +
+                    (if (suggestion != null) ", e.g. name=\"$suggestion\"." else ".")
             )
         }
-        if (template != effectiveTemplate) {
+        if (!template.trim().equals(effectiveTemplate, ignoreCase = true)) {
             warnings.add(
                 "Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the " +
                     "'$effectiveTemplate' template. " + closestTemplateNote(template)

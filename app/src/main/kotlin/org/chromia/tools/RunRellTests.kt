@@ -114,6 +114,35 @@ object RunRellTests {
     internal fun isVendoredFt4Warning(line: String): Boolean =
         FT4_WARNING_REGEX.containsMatchIn(line.trim())
 
+    /** "Bad module_args for module 'lib.ft4': Wrong key in Gtv dictionary for type 'lib.ft4:module_args': 'rate_limit'" */
+    internal val BAD_MODULE_ARGS_KEY_REGEX =
+        Regex("""Bad module_args for module '([\w.]+)':.*?Wrong key in Gtv dictionary(?: for type '[^']*')?:\s*'(\w+)'""")
+
+    /**
+     * Where a stray module_args key actually belongs, from the compiled app's
+     * `struct module_args` declarations. Never guesses: a key no module declares
+     * is reported as such, with the offending module's real fields.
+     */
+    internal fun moduleArgsKeyHint(module: String, key: String, fields: Map<String, List<String>>): String {
+        val own = fields[module]
+        val owners = fields.filter { (m, f) -> m != module && key in f }.keys.sorted()
+        return buildString {
+            append("'$key' is not a field of $module's module_args")
+            if (own != null) append(" (its fields: ${own.joinToString(", ").ifEmpty { "none" }})")
+            append(". ")
+            when {
+                owners.isNotEmpty() -> append(
+                    "It is declared by ${owners.joinToString(" and ")} - move it under that module name in moduleArgs."
+                )
+                fields.isEmpty() -> append("Check the key against the module's `struct module_args` declaration.")
+                else -> append(
+                    "No compiled module declares a module_args field named '$key' - check the spelling against" +
+                        " the `struct module_args` of: ${fields.keys.sorted().joinToString(", ")}."
+                )
+            }
+        }
+    }
+
     /** True when the (masked) source declares a `@test module`. */
     internal fun isTestModuleSource(content: String): Boolean =
         TEST_MODULE_REGEX.containsMatchIn(maskRellSource(content, maskStrings = true))
@@ -539,6 +568,19 @@ object RunRellTests {
                     (recovered.ifEmpty { listOf(printed) } + RellCheck.maskedTestModuleHint(module, recovered.isNotEmpty()))
                         .joinToString("\n")
                 }
+                // "Bad module_args for module 'X': Wrong key ... 'k'" is not a
+                // source error - the sources compiled and the VALUES did not bind.
+                // Headed "do not compile" it sent agents back into main.rell (DX
+                // audit 2026-09-04). Say what it is and, when the compiled app
+                // declares that field on another module, name the module.
+                val badKey = BAD_MODULE_ARGS_KEY_REGEX.find(printed)
+                if (badKey != null) {
+                    val (module, key) = badKey.destructured
+                    throw IllegalArgumentException(
+                        "module_args do not bind (the Rell sources compiled; this is the moduleArgs argument):\n" +
+                            "$diagnostics\n" + moduleArgsKeyHint(module, key, RellCheck.moduleArgsFields(sourceDir, appModules, testModules))
+                    )
+                }
                 throw IllegalArgumentException(
                     "Rell test sources do not compile:\n$diagnostics".trimEnd()
                 )
@@ -578,8 +620,29 @@ object RunRellTests {
                         " rell.test.tx().run() is missing module_args a compiled module requires: pass an entry for every" +
                         " module that declares module_args without defaults. For FT4 tests using lib.ft4.test.core" +
                         " helpers that includes lib.ft4.core.admin (admin_pubkey) and lib.ft4.test.core.auth" +
-                        " (admin_priv_key) - test-only keys; see scaffold_dapp template=ft4 for a working set."
+                        " (admin_priv_key) - test-only keys."
                 )
+                // Name them. The generic sentence above sent an agent running the
+                // stablecoin template to "template=ft4 for a working set", which has
+                // no main.oracle_pubkey (DX audit 2026-09-04). The compiler knows
+                // exactly which modules need args; say which ones were not supplied.
+                val missing = RellCheck.modulesRequiringModuleArgs(sourceDir, appModules, testModules) - moduleArgs.keys
+                if (missing.isNotEmpty()) {
+                    append(
+                        " MISSING module_args for: ${missing.joinToString(", ")}. Take the values from the" +
+                            " chromia.yml scaffold_dapp returned for THIS template - blockchains.<name>.moduleArgs" +
+                            " merged with test.moduleArgs - and pass them as one moduleArgs object keyed by module name." +
+                            " (Only modules whose module_args has a field with no default are listed; a defaulted" +
+                            " field the tests dereference, like lib.ft4.test.core.auth's admin_priv_key, fails later" +
+                            " with its own error.)"
+                    )
+                } else if (moduleArgs.isNotEmpty()) {
+                    append(
+                        " Every module that declares module_args has an entry, so the failure is inside the values:" +
+                            " check each key name and type against the module's `struct module_args` (byte_array" +
+                            " values may be x\"...\", 0x... or bare hex)."
+                    )
+                }
             }
             if (dbLimited > 0) {
                 append(" $dbLimited failure(s) are environmental (dbRequired=true): the test touches entities/objects and needs PostgreSQL via $DATABASE_URL_ENV.")
