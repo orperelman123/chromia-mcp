@@ -1,5 +1,9 @@
 package org.chromia
 
+import dev.langchain4j.data.document.Metadata
+import dev.langchain4j.data.embedding.Embedding
+import dev.langchain4j.data.segment.TextSegment
+import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
@@ -23,6 +27,7 @@ import org.chromia.tools.FetchDocumentStrategy
 import org.chromia.tools.RagStore
 import org.chromia.tools.SearchDocsStrategy
 import org.chromia.tools.createRegistryDownloadClient
+import org.chromia.tools.embeddingStoreSegments
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -30,6 +35,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 
 class RagStoreRegistryDownloadTest {
@@ -103,7 +109,7 @@ class RagStoreRegistryDownloadTest {
             val client = createRegistryDownloadClient(engine)
             try {
                 assertNull(
-                    RagStore.downloadFromRegistry(client),
+                    RagStore.downloadRemoteEmbeddings(client),
                     "HTTP $status must skip the registry store"
                 )
             } finally {
@@ -123,10 +129,99 @@ class RagStoreRegistryDownloadTest {
         }
         val client = createRegistryDownloadClient(engine)
         try {
-            assertNull(RagStore.downloadFromRegistry(client), "corrupt registry body must not throw")
+            assertNull(RagStore.downloadRemoteEmbeddings(client), "corrupt registry body must not throw")
         } finally {
             client.close()
         }
+    }
+
+    private fun fixtureJson(vararg names: String): String {
+        val store = InMemoryEmbeddingStore<TextSegment>()
+        names.forEach { name ->
+            store.add(Embedding.from(FloatArray(4) { 0.25f }), TextSegment.from("doc $name", Metadata.from("file_name", name)))
+        }
+        return store.serializeToJson()
+    }
+
+    @Test
+    fun remoteOrderIsEnvOverrideThenGitHubReleaseThenGitLabPackage() {
+        assertEquals(
+            listOf(RagStore.GITHUB_RELEASE_URL, "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"),
+            RagStore.remoteEmbeddingsUrls(emptyMap())
+        )
+        assertEquals(
+            listOf("https://mirror.example/e.json", RagStore.GITHUB_RELEASE_URL, "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"),
+            RagStore.remoteEmbeddingsUrls(mapOf(RagStore.EMBEDDINGS_URL_ENV to "https://mirror.example/e.json"))
+        )
+        // A blank override is no override; an override equal to a default is not tried twice.
+        assertEquals(2, RagStore.remoteEmbeddingsUrls(mapOf(RagStore.EMBEDDINGS_URL_ENV to "  ")).size)
+        assertEquals(2, RagStore.remoteEmbeddingsUrls(mapOf(RagStore.EMBEDDINGS_URL_ENV to RagStore.GITHUB_RELEASE_URL)).size)
+    }
+
+    @Test
+    fun theGitHubReleaseAssetIsTakenFirstAndItsLastModifiedIsKept() {
+        val requested = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requested += request.url.toString()
+            respond(
+                content = fixtureJson("fresh.md"),
+                status = HttpStatusCode.OK,
+                headers = headersOf(
+                    HttpHeaders.ContentType to listOf("application/octet-stream"),
+                    HttpHeaders.LastModified to listOf("Mon, 31 Aug 2026 11:20:00 GMT")
+                )
+            )
+        }
+        val client = createRegistryDownloadClient(engine)
+        try {
+            val remote = RagStore.downloadRemoteEmbeddings(client)!!
+            assertEquals(listOf(RagStore.GITHUB_RELEASE_URL), requested, "GitLab must not be contacted when the release asset loads")
+            assertEquals(RagStore.GITHUB_RELEASE_URL, remote.url)
+            assertEquals(Instant.parse("2026-08-31T11:20:00Z"), remote.lastModified)
+            assertEquals("fresh.md", embeddingStoreSegments(remote.store).single().metadata().getString("file_name"))
+            assertTrue(RagStore.describeRemote(remote.url).startsWith("GitHub release asset"))
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun aMissingOrCorruptReleaseAssetFallsThroughToTheGitLabPackage() {
+        listOf<(String) -> Pair<String, HttpStatusCode>>(
+            { _ -> "Not Found" to HttpStatusCode.NotFound },
+            { _ -> "<html>rate limited</html>" to HttpStatusCode.TooManyRequests },
+            { _ -> "{\"entries\":[{\"id\":\"x\"}]}" to HttpStatusCode.OK } // corrupt: entry without vector
+        ).forEach { githubAnswer ->
+            val requested = mutableListOf<String>()
+            val engine = MockEngine { request ->
+                val url = request.url.toString()
+                requested += url
+                if (url == RagStore.GITHUB_RELEASE_URL) {
+                    val (body, status) = githubAnswer(url)
+                    respond(body, status)
+                } else {
+                    respond(fixtureJson("old.md"), HttpStatusCode.OK)
+                }
+            }
+            val client = createRegistryDownloadClient(engine)
+            try {
+                val remote = RagStore.downloadRemoteEmbeddings(client)!!
+                assertEquals(listOf(RagStore.GITHUB_RELEASE_URL, "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"), requested)
+                assertEquals("${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}", remote.url)
+                assertNull(remote.lastModified, "no Last-Modified header on the fallback response")
+                assertTrue(RagStore.describeRemote(remote.url).startsWith("GitLab registry package"))
+            } finally {
+                client.close()
+            }
+        }
+    }
+
+    @Test
+    fun theDownloadClientBudgetFitsTheFullStoreNotJustTheOldPackage() {
+        // 150 MB at 10 s was a 15 MB/s floor; the whole-request budget must be minutes, with a
+        // socket timeout doing the stall detection instead.
+        assertTrue(RagStore.REGISTRY_REQUEST_TIMEOUT_MS >= 300_000L, "request budget ${RagStore.REGISTRY_REQUEST_TIMEOUT_MS}")
+        assertTrue(RagStore.REGISTRY_SOCKET_TIMEOUT_MS in 10_000L..60_000L, "socket timeout ${RagStore.REGISTRY_SOCKET_TIMEOUT_MS}")
     }
 
     @Test

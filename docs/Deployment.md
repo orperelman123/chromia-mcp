@@ -94,6 +94,24 @@ load over a real SSE session:
 (Measured on Windows working-set; Linux RSS in the container will differ by a few
 percent — `MALLOC_ARENA_MAX=2` in the image keeps glibc from inflating it.)
 
+**2026-09-04 update — the table above was measured against the 18.8 MB / 3208-segment GitLab
+package, which turned out to be the 2025-10-21 build.** The current store (published as the
+`embeddings` GitHub release asset) is 150 MB / 25 823 segments and changes the picture:
+
+| Component | Measured (current store) |
+|---|---|
+| Live heap after load (vectors ~40 MB, text ~25 MB, lowercased lexical index ~25 MB) | ~105–130 MB |
+| Heap floor for load + first search | between 200 MB (OOM) and 224 MB (ok) |
+| `-Xmx179m` (the old `MaxRAMPercentage=35` on 512 MB) | loads, then `ExitOnOutOfMemoryError` on the first search |
+| `-Xmx256m` (`MaxRAMPercentage=50` on 512 MB): 30 searches / 6 concurrent | median 119 ms / 772 ms, 0 errors |
+| Working set at `-Xmx256m` after the burst | ~425 MB |
+
+The file is no longer parsed whole: `InMemoryEmbeddingStore.fromFile` needed a 150 MB direct
+buffer (`Files.readAllBytes`) and died under `-XX:MaxDirectMemorySize=64m`; `EmbeddingStoreJson`
+streams it entry by entry, so there is no boot transient above the live footprint. A 512 MB
+instance still fits, with the store's growth as the only margin; **1 GB is the comfortable size
+for the full index.**
+
 **Why the live service used to read 84% idle / 95.7% peak:** the old
 `-XX:MaxRAMPercentage=70` with no GC flag. On a sub-2 GB container the JVM silently
 defaults to **SerialGC, which commits the entire ~358 MB heap up front and never

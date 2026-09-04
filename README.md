@@ -246,12 +246,20 @@ or Deep Research MCP):
 Blueprint for a one-click Render deploy.
 
 **Embeddings are baked into the image at build time:** the Docker build downloads
-`embeddings.json` from the GitLab package registry (same URL as the runtime fallback;
-`DockerfileEmbeddingsBakeTest` keeps the two in sync) and sets `CHROMIA_EMBEDDINGS_PATH`
-so boot loads the index from disk instead of downloading it — the boot-time download+parse
-spike used to OOM-crash-loop 512MB containers. If GitLab is unreachable during the image
-build, the build still succeeds with a loud warning and the runtime GitLab download fallback
-applies as before. To pick up refreshed embeddings, redeploy (rebuild the image).
+`embeddings.json` from the same remotes, in the same order, as the runtime fallback — the
+[`embeddings` release asset](https://github.com/orperelman123/chromia-mcp/releases/tag/embeddings)
+published by the `Embeddings refresh` workflow, then the GitLab package registry
+(`DockerfileEmbeddingsBakeTest` keeps Dockerfile and `RagStore.remoteEmbeddingsUrls` in sync) —
+and sets `CHROMIA_EMBEDDINGS_PATH` so boot loads the index from disk instead of downloading it.
+If both remotes are unreachable during the image build, the build still succeeds with a loud
+warning and the runtime download fallback applies. To pick up refreshed embeddings, redeploy
+(rebuild the image).
+
+**Memory for the full index:** the current store is 150 MB on disk / 25 823 segments and needs
+a heap between 200 and 224 MB to load and answer the first search (measured 2026-09-04; the
+file is streamed in by `EmbeddingStoreJson`, never read whole). The image sets
+`-XX:MaxRAMPercentage=50`, i.e. 256 MB heap on a 512 MB instance and a ~425 MB working set;
+that fits, with the store's growth as the only margin. A 1 GB instance is the comfortable size.
 
 **Skipping RAG entirely (lite config):** when `search`, `fetch_docs`, and `fetch` are ALL in
 `CHROMIA_MCP_DISABLE_TOOLS`, startup logs `docs tools disabled - skipping index warmup` and
@@ -322,9 +330,11 @@ Every push runs the full pyramid — none of these can be skipped:
 - `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21); the jar is
   attached as a run artifact
 - `.github/workflows/embeddings-refresh.yml` — weekly RAG embeddings regeneration (Mondays
-  04:00 UTC, or manual dispatch); uploads to the GitLab package registry when a
-  `GITLAB_ACCESS_TOKEN` repo secret is configured, otherwise attaches `embeddings.json` as an
-  artifact
+  04:00 UTC, or manual dispatch). Runs `scripts/rag-eval.mjs` (16 probe questions, segment
+  floor) and a size check against the published asset; only a store that passes both is
+  uploaded, with `--clobber`, as `embeddings.json` on the rolling `embeddings` release, next to
+  an `embeddings.provenance.json` sidecar (date, commit, segments, probe score). Uses the
+  built-in `GITHUB_TOKEN` — no secret to configure.
 
 ## Installation
 
@@ -709,5 +719,6 @@ MCP resources are the existing health JSON, `docs-repositories.json`, and `promp
 
 - Stdio mode: `./gradlew :app:run` or `java -jar app/build/libs/chromia-mcp-server.jar --stdio`
 - Fat JAR: `./gradlew :app:shadowJar` (do not run `jib` and `shadowJar` as concurrent Gradle tasks; they both write under `app/build/libs`)
-- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file) and falls back to the published GitLab package only if the local file is missing. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`). Upload still needs `GITLAB_ACCESS_TOKEN`.
-- Index age is not silent: at load the server logs where the index came from (local path + mtime, or the GitLab package + its `Last-Modified`) and its segment count. Past 120 days (`RagStore.STALE_AFTER`) it logs a WARN and every `fetch_docs` answer ends with a `NOTE: documentation index is STALE ...` line (also `index_note` in the structured output) naming the generation date and the fix. Found 2026-09-04: the published package was still the 2025-10-21 build (18.8 MB), so a server without a local file - production included - answered from a year-old store. Publishing a fresh one is `./gradlew :app:generateEmbeddings` with `GITLAB_ACCESS_TOKEN` (package-registry write on project 71940508).
+- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file) and only if the local file is missing downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
+- Index age is not silent: at load the server logs where the index came from (local path + mtime, or the remote URL + its `Last-Modified`) and its segment count. Past 120 days (`RagStore.STALE_AFTER`) it logs a WARN and every `fetch_docs` answer ends with a `NOTE: documentation index is STALE ...` line (also `index_note` in the structured output) naming the generation date and the fix. Found 2026-09-04: the published GitLab package was still the 2025-10-21 build (18.8 MB), so a server without a local file - production included - answered from a year-old store. The fix is the `Embeddings refresh` workflow (Actions tab, "Run workflow"): it regenerates, gates, and publishes the release asset the server and the Docker image download first.
+- The store is read as a stream (`EmbeddingStoreJson`, Gson `JsonReader`, 1000-entry batches into `InMemoryEmbeddingStore.addAll`), not with `InMemoryEmbeddingStore.fromFile`. Found 2026-09-04 under the production JVM flags: `fromFile`'s `Files.readAllBytes` on the 150 MB store failed with "Cannot reserve 150059434 bytes of direct buffer memory" (`-XX:MaxDirectMemorySize=64m`) and the server silently fell back to the stale package - a fresh asset alone would have changed nothing in production. Streaming loads the 25 823 segments in ~4.5 s with the file never in memory; the download path (`downloadFile`) streams to a temp file the same way instead of `body<ByteArray>()`. Loading needs a 200-224 MB heap for this store; the image's `-XX:MaxRAMPercentage` went 35 -> 50 accordingly (256 MB on a 512 MB instance, measured working set ~425 MB).

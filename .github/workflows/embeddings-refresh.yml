@@ -1,19 +1,38 @@
 name: Embeddings refresh
 
-# Regenerates the RAG embeddings from the live docs sources weekly so
-# doc-search answers do not go stale. Uploads to the GitLab package registry
-# when a GITLAB_ACCESS_TOKEN secret is configured; otherwise attaches
-# embeddings.json as a run artifact.
+# Regenerates the RAG embeddings from the live docs sources and publishes them
+# as the `embeddings.json` asset of the rolling `embeddings` release - the URL
+# RagStore.GITHUB_RELEASE_URL and the Dockerfile bake step download from.
+#
+# Why a release asset and not the GitLab package: the package registry belongs
+# to ChromaWay's project and its last upload was 2025-10-21; nobody outside can
+# refresh it. The asset is rebuilt here with the repository's own GITHUB_TOKEN.
+#
+# Nothing is published unless the store passes scripts/rag-eval.mjs (probe
+# questions answered, segment floor) and is not drastically smaller than the
+# asset it replaces (a half-failed ingest must not overwrite a good index).
 
 on:
   schedule:
     - cron: '0 4 * * 1' # Mondays 04:00 UTC
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to the embeddings release when the gate passes'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: embeddings-refresh
+  cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -26,19 +45,58 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate embeddings (with registry upload when token present)
-        env:
-          GITLAB_ACCESS_TOKEN: ${{ secrets.GITLAB_ACCESS_TOKEN }}
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Generate embeddings and build the server jar
+        run: ./gradlew :app:generateEmbeddingsNoUpload :app:shadowJar --console=plain
+
+      - name: Gate - probe questions and segment floor
         run: |
-          if [ -n "$GITLAB_ACCESS_TOKEN" ]; then
-            ./gradlew :app:generateEmbeddings --console=plain
-          else
-            ./gradlew :app:generateEmbeddingsNoUpload --console=plain
+          set -o pipefail
+          node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar --embeddings app/build/embeddings.json | tee rag-eval.txt
+
+      - name: Gate - not drastically smaller than the published asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          new=$(stat -c %s app/build/embeddings.json)
+          old=$(gh release view embeddings --json assets --jq '.assets[] | select(.name=="embeddings.json") | .size' 2>/dev/null || echo 0)
+          echo "new=$new bytes, published=$old bytes"
+          if [ "$old" -gt 0 ] && [ "$new" -lt $((old * 8 / 10)) ]; then
+            echo "::error::new store is under 80% of the published asset size - refusing to publish"; exit 1
           fi
+
+      - name: Write provenance sidecar
+        run: |
+          segments=$(grep -o '[0-9]* segments' rag-eval.txt | head -n1 | cut -d' ' -f1)
+          probes=$(grep -o '[0-9]*/[0-9]* probes answered' rag-eval.txt | head -n1 | cut -d' ' -f1)
+          printf '{"generated_at":"%s","commit":"%s","run":"%s","segments":%s,"probes":"%s","size_bytes":%s}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            "${segments:-0}" "${probes:-?}" "$(stat -c %s app/build/embeddings.json)" > app/build/embeddings.provenance.json
+          cat app/build/embeddings.provenance.json
+
+      - name: Publish to the rolling embeddings release
+        if: ${{ github.event_name == 'schedule' || inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view embeddings >/dev/null 2>&1; then
+            gh release create embeddings --prerelease --title "RAG embeddings (rolling)" \
+              --notes "Rolling documentation index for the Chromia MCP server. embeddings.json is replaced in place by the Embeddings refresh workflow; embeddings.provenance.json says when and from what."
+          fi
+          gh release upload embeddings app/build/embeddings.json app/build/embeddings.provenance.json --clobber
+          gh release edit embeddings --notes "Rolling documentation index for the Chromia MCP server, replaced in place by the Embeddings refresh workflow. Last refresh: $(date -u +%Y-%m-%d) from $GITHUB_SHA ($(cat app/build/embeddings.provenance.json))."
 
       - name: Upload embeddings artifact
         uses: actions/upload-artifact@v7
         with:
           name: embeddings
-          path: app/build/embeddings.json
+          path: |
+            app/build/embeddings.json
+            app/build/embeddings.provenance.json
+            rag-eval.txt
           if-no-files-found: error
+          retention-days: 7

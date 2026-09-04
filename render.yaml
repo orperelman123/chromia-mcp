@@ -26,9 +26,15 @@
 #   ~250MB under docs-search load - comfortable on 512MB. (The earlier 84% idle / 95.7% peak readings came from the old
 #   JVM flags: on a sub-2GB container the JVM silently defaults to SerialGC,
 #   which commits the entire 70%-of-RAM heap up front and never returns it.
-#   Fixed in the Dockerfile: explicit G1, 35% heap cap, heap-shrink flags.)
-#   Upgrade to standard (2GB) ONLY if the heavy tools must run hosted - that
-#   changes cost; see docs/Deployment.md "Owner options".
+#   Fixed in the Dockerfile: explicit G1, heap cap, heap-shrink flags.)
+#   2026-09-04: those numbers were against the stale 18.8MB / 3208-segment
+#   package. The current index (150MB / 25823 segments, `embeddings` GitHub
+#   release asset) needs a 200-224MB heap; the Dockerfile cap is now 50%
+#   (256MB on starter) and the measured working set ~425MB. Starter still
+#   fits, with the store's growth as the only margin - a 1GB plan is the
+#   comfortable size for the full index. Upgrade to standard (2GB) if the
+#   heavy tools must run hosted - that changes cost; see docs/Deployment.md
+#   "Owner options".
 #
 # healthCheckPath: /health - the app's real health endpoint (open even when
 #   CHROMIA_MCP_AUTH_TOKEN is set). The live service currently has NO health

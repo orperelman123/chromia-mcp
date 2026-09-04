@@ -8,9 +8,10 @@ import java.nio.file.Path
 
 /**
  * The Dockerfile bakes embeddings.json into the image at build time from the
- * SAME GitLab registry URL the runtime fallback uses. The URL cannot be
- * shared as code between a Dockerfile and Kotlin, so this test is the single
- * source of truth: if RagStore.PACKAGE_URL/FILE_NAME ever changes, this
+ * SAME remotes, in the SAME order, as the runtime fallback: the GitHub release
+ * asset first, the GitLab package second. The URLs cannot be shared as code
+ * between a Dockerfile and Kotlin, so this test is the single source of truth:
+ * if RagStore.GITHUB_RELEASE_URL or PACKAGE_URL/FILE_NAME ever changes, this
  * fails until the Dockerfile download step is updated to match.
  */
 class DockerfileEmbeddingsBakeTest {
@@ -29,14 +30,15 @@ class DockerfileEmbeddingsBakeTest {
     }
 
     @Test
-    fun dockerfileDownloadsFromTheRuntimeRegistryUrl() {
+    fun dockerfileDownloadsFromTheRuntimeRemotesInTheRuntimeOrder() {
         val dockerfile = Files.readString(repoRoot().resolve("Dockerfile"))
-        val runtimeUrl = "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"
-        assertTrue(
-            dockerfile.contains(runtimeUrl),
-            "Dockerfile must bake embeddings from the runtime registry URL $runtimeUrl - " +
-                "update the Dockerfile download step to match RagStore.PACKAGE_URL/FILE_NAME"
-        )
+        val urls = RagStore.remoteEmbeddingsUrls(emptyMap())
+        val positions = urls.map { url ->
+            val at = dockerfile.indexOf(url)
+            assertTrue(at >= 0, "Dockerfile must bake embeddings from the runtime remote $url - update the download step")
+            at
+        }
+        assertTrue(positions == positions.sorted(), "Dockerfile must try the remotes in runtime order: $urls")
     }
 
     @Test

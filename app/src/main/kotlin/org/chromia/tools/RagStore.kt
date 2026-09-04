@@ -49,11 +49,39 @@ open class RagStore(
 
     companion object {
         const val FILE_NAME = "embeddings.json"
+        /** GitLab generic package - the original publish target; only writable with a ChromaWay token. */
         const val PACKAGE_URL = "https://gitlab.com/api/v4/projects/71940508/packages/generic/embeddings/v1"
+        /**
+         * Release asset the `Embeddings refresh` workflow publishes (tag `embeddings`,
+         * asset clobbered in place so the URL is stable). Tried before [PACKAGE_URL]:
+         * the GitLab package was last uploaded 2025-10-21 and nobody outside ChromaWay
+         * can refresh it, while this asset is rebuilt from the live sources by CI.
+         */
+        const val GITHUB_RELEASE_URL = "https://github.com/orperelman123/chromia-mcp/releases/download/embeddings/$FILE_NAME"
         const val EMBEDDINGS_PATH_ENV = "CHROMIA_EMBEDDINGS_PATH"
-        const val REGISTRY_REQUEST_TIMEOUT_MS = 10_000L
+        /** Optional first remote to try, ahead of the GitHub release and the GitLab package. */
+        const val EMBEDDINGS_URL_ENV = "CHROMIA_EMBEDDINGS_URL"
+        /**
+         * Whole-request budget for one remote download. Was 10 s, sized for the
+         * 18.8 MB GitLab package; the fresh store is 150 MB, which 10 s would
+         * abort on anything slower than 15 MB/s. Stalls are caught by the socket
+         * timeout instead, so a dead peer does not hold the loader for the full budget.
+         */
+        const val REGISTRY_REQUEST_TIMEOUT_MS = 600_000L
+        const val REGISTRY_SOCKET_TIMEOUT_MS = 30_000L
         const val REGISTRY_CONNECT_TIMEOUT_MS = 5_000L
         const val LOAD_RETRY_COOLDOWN_MS = 60_000L
+
+        /** Remote candidates in order: env override, GitHub release asset, GitLab package. */
+        fun remoteEmbeddingsUrls(env: Map<String, String> = System.getenv()): List<String> =
+            listOfNotNull(env[EMBEDDINGS_URL_ENV]?.takeIf { it.isNotBlank() }, GITHUB_RELEASE_URL, "$PACKAGE_URL/$FILE_NAME").distinct()
+
+        /** Human-readable origin for a remote URL, used in [Provenance.origin]. */
+        internal fun describeRemote(url: String): String = when {
+            url.startsWith(PACKAGE_URL) -> "GitLab registry package $url"
+            url == GITHUB_RELEASE_URL -> "GitHub release asset $url"
+            else -> "remote embeddings $url"
+        }
 
         /**
          * An index older than this is announced as stale. The store is a snapshot
@@ -109,32 +137,44 @@ open class RagStore(
         internal fun parseLastModified(header: String?): Instant? =
             header?.let { runCatching { Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(it.trim())) }.getOrNull() }
 
-        fun downloadFromRegistry(
+        /** A remotely fetched store with where it came from and the server's Last-Modified (null when absent). */
+        data class RemoteEmbeddings(val store: InMemoryEmbeddingStore<TextSegment>, val url: String, val lastModified: Instant?)
+
+        /**
+         * First remote in [urls] that answers 200 with a parseable store. A 404,
+         * an HTTP error, a timeout or a corrupt body moves on to the next URL,
+         * so a missing GitHub asset still reaches the GitLab package and vice
+         * versa. The body is streamed to a temp file and parsed entry by entry
+         * ([EmbeddingStoreJson]) - never held in memory whole.
+         */
+        fun downloadRemoteEmbeddings(
             client: HttpClient? = null,
-            /** Receives the package's Last-Modified (null when the header is absent or unparseable). */
-            onLastModified: (Instant?) -> Unit = {}
-        ): InMemoryEmbeddingStore<TextSegment>? {
+            urls: List<String> = remoteEmbeddingsUrls()
+        ): RemoteEmbeddings? {
             val owned = client == null
             val http = client ?: createRegistryDownloadClient()
-            return try {
-                runCatching {
-                    runBlocking {
-                        logger.info("Download embedding from Gitlab registry")
-                        http.downloadFile("$PACKAGE_URL/$FILE_NAME") { response ->
-                            onLastModified(parseLastModified(response.headers[HttpHeaders.LastModified]))
-                        }?.let { tempFile ->
-                            val loaded = runCatching {
-                                InMemoryEmbeddingStore.fromFile(tempFile)
-                            }.onFailure { error ->
-                                logger.warn("Failed to parse embeddings from registry: ${error.message}")
-                            }.getOrNull()
-                            tempFile.deleteIfExists()
-                            loaded
+            try {
+                for (url in urls) {
+                    var lastModified: Instant? = null
+                    val loaded = runCatching {
+                        runBlocking {
+                            logger.info("Downloading embeddings from $url")
+                            http.downloadFile(url) { response ->
+                                lastModified = parseLastModified(response.headers[HttpHeaders.LastModified])
+                            }?.let { tempFile ->
+                                try {
+                                    EmbeddingStoreJson.read(tempFile)
+                                } finally {
+                                    tempFile.deleteIfExists()
+                                }
+                            }
                         }
-                    }
-                }.onFailure { error ->
-                    logger.warn("GitLab registry embeddings download skipped: ${error.message}")
-                }.getOrNull()
+                    }.onFailure { error ->
+                        logger.warn("Embeddings download from $url skipped: ${error.message}")
+                    }.getOrNull()
+                    if (loaded != null) return RemoteEmbeddings(loaded, url, lastModified)
+                }
+                return null
             } finally {
                 if (owned) {
                     http.close()
@@ -173,8 +213,8 @@ open class RagStore(
             if (days <= staleAfter.toDays()) return null
             return "documentation index is STALE: generated ${DateTimeFormatter.ISO_LOCAL_DATE.format(generatedAt!!.atZone(ZoneOffset.UTC))}, " +
                 "$days days ago (limit ${staleAfter.toDays()}). Anything released since - chr, FT4, Rell, the docs site - is missing " +
-                "or outdated here; confirm versions against GitLab tags. Fix: regenerate and publish with " +
-                "`./gradlew :app:generateEmbeddings` (needs GITLAB_ACCESS_TOKEN) or ship a fresh embeddings.json via $EMBEDDINGS_PATH_ENV."
+                "or outdated here; confirm versions against GitLab tags. Fix: run the `Embeddings refresh` GitHub workflow " +
+                "(publishes $GITHUB_RELEASE_URL), or ship a fresh embeddings.json via $EMBEDDINGS_PATH_ENV."
         }
     }
 
@@ -215,10 +255,13 @@ open class RagStore(
                     val mtime = runCatching { localEmbeddingsPath.getLastModifiedTime().toInstant() }.getOrNull()
                     recordProvenance(Provenance("local file $localEmbeddingsPath", mtime, embeddingStoreSegments(store).size))
                 } ?: run {
-                    var lastModified: Instant? = null
-                    val store = (registryLoader ?: { downloadFromRegistry(onLastModified = { lastModified = it }) })()
-                    store?.also {
-                        recordProvenance(Provenance("GitLab registry package $PACKAGE_URL/$FILE_NAME", lastModified, embeddingStoreSegments(it).size))
+                    val remote = if (registryLoader != null) {
+                        registryLoader()?.let { RemoteEmbeddings(it, "injected loader", null) }
+                    } else {
+                        downloadRemoteEmbeddings()
+                    }
+                    remote?.store?.also {
+                        recordProvenance(Provenance(describeRemote(remote.url), remote.lastModified, embeddingStoreSegments(it).size))
                     }
                 }
             }
@@ -835,7 +878,7 @@ internal fun loadLocalEmbeddings(path: Path): InMemoryEmbeddingStore<TextSegment
     if (!path.isRegularFile()) return null
     return runCatching {
         logger.info("Loading embeddings from local file $path")
-        InMemoryEmbeddingStore.fromFile(path).also {
+        EmbeddingStoreJson.read(path).also {
             logger.info("Successfully loaded embeddings from local file")
         }
     }.onFailure { error ->
@@ -855,6 +898,7 @@ internal fun createRegistryDownloadClient(
     expectSuccess = false
     install(HttpTimeout) {
         requestTimeoutMillis = RagStore.REGISTRY_REQUEST_TIMEOUT_MS
+        socketTimeoutMillis = RagStore.REGISTRY_SOCKET_TIMEOUT_MS
         connectTimeoutMillis = RagStore.REGISTRY_CONNECT_TIMEOUT_MS
     }
 }

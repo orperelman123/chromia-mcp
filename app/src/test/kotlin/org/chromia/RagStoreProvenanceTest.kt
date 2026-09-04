@@ -63,7 +63,8 @@ class RagStoreProvenanceTest {
         assertTrue(warning.contains("318 days ago"), warning)
         assertTrue(warning.contains("limit 120"), warning)
         assertTrue(warning.contains("GitLab tags"), "the agent must be told how to verify: $warning")
-        assertTrue(warning.contains(":app:generateEmbeddings") && warning.contains("GITLAB_ACCESS_TOKEN"), "the operator must be told how to fix: $warning")
+        // The fix is the workflow anyone with repo access can run, not a GitLab token only ChromaWay holds.
+        assertTrue(warning.contains("Embeddings refresh") && warning.contains(RagStore.GITHUB_RELEASE_URL), "the operator must be told how to fix: $warning")
         assertTrue(warning.contains(RagStore.EMBEDDINGS_PATH_ENV), warning)
 
         // Exactly at the limit is still fresh; one day past is not.
@@ -114,9 +115,14 @@ class RagStoreProvenanceTest {
 
         val p = store.provenance
         assertNotNull(p)
-        assertTrue(p!!.origin.contains("GitLab registry package"), p.origin)
-        assertTrue(p.origin.contains(RagStore.PACKAGE_URL), p.origin)
+        assertTrue(p!!.origin.contains("injected loader"), p.origin)
         assertNull(p.generatedAt, "an injected loader carries no Last-Modified")
+        // Real remotes are named by kind so the log says which publish path served the index.
+        assertEquals("GitHub release asset ${RagStore.GITHUB_RELEASE_URL}", RagStore.describeRemote(RagStore.GITHUB_RELEASE_URL))
+        assertEquals(
+            "GitLab registry package ${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}",
+            RagStore.describeRemote("${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}")
+        )
         assertEquals(2, p.segments)
         assertNull(store.staleWarning(now), "unknown age is never reported stale")
     }
