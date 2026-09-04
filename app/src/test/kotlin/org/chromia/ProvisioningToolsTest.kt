@@ -224,6 +224,8 @@ class ProvisioningToolsTest {
         var ticketContainerName = "or_container_42"
         var ticketErrorMessage = ""
         var ticketExists = true
+        /** (name, rid) pairs the Directory lists for the container (`get_container_blockchain`). */
+        var containerChains = listOf<Pair<String, String>>()
         val queriesSeen = mutableListOf<String>()
 
         fun answer(queryName: String, args: Gtv): Gtv {
@@ -276,6 +278,12 @@ class ProvisioningToolsTest {
                     "container_name" to gtv(ticketContainerName),
                     "cluster_name" to gtv("blue")
                 ))
+                "get_container_blockchain" -> gtv(containerChains.map { (name, rid) ->
+                    gtv(mapOf(
+                        "name" to gtv(name), "rid" to gtv(rid.hexToBytes()),
+                        "state" to gtv("RUNNING"), "system" to gtv(0L)
+                    ))
+                })
                 else -> error("unexpected query in test: $queryName")
             }
         }
@@ -824,9 +832,10 @@ class ProvisioningToolsTest {
         // on "Please specify -y option to force deployment".
         assertTrue(command.endsWith(" -y"), command)
         assertEquals(testPub, json["deployPubkey"]!!.jsonPrimitive.content)
-        // With a provided chromiaYml nothing needs probing: chr is never
-        // invoked on a dry run.
-        assertTrue(runner.commands.isEmpty())
+        // A dry run never runs install or deployment; the only chr invocation
+        // is the read-only `--version` that checks the yml's Rell pin against
+        // the installed CLI (first FT4 live deploy, 2026-09-04).
+        assertTrue(runner.commands.all { it.contains("--version") }, runner.commands.toString())
     }
 
     @Test
@@ -1002,6 +1011,127 @@ class ProvisioningToolsTest {
         assertTrue(installIdx in 0 until deployIdx, "chr install must run before chr deployment: ${runner.commands}")
         assertEquals(emptyMap<String, String>(), runner.envsSeen[installIdx], "install needs no key material")
         assertTrue(json["notes"]!!.jsonPrimitive.content.contains("chr install vendored the declared libs (ft4)"), json.toString())
+    }
+
+    @Test
+    fun providedScaffoldYmlIsCompletedWithTheDeploymentsBlockAndTheInstalledRell(@TempDir dir: Path) = runBlocking {
+        // First FT4 live deploy (2026-09-04): scaffold_dapp's chromia.yml handed
+        // straight to deploy_testnet_chain with a container was REFUSED for
+        // "deployments.testnet not found" - the tool knew the container and the
+        // network. And its rellVersion pin is the production Rell, which an
+        // older installed chr refuses with "Unknown Rell version".
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        DeployKeyStore(keystoreDir).also {
+            it.storeEphemeral(testPub, testPriv)
+            it.recordContainer("or_container_42", testPub)
+        }
+        val chain = FakeChain(testPub, testAccount, adId)
+        val scaffoldYml = DappScaffold.files("my_dapp").getValue("chromia.yml")
+        assertFalse(scaffoldYml.contains("deployments:"), scaffoldYml)
+        val old = FakeRunner(versionStdout = "chr version 0.29.10\nrell version 0.15.0\n")
+        val strategy = deployStrategy(envWith(dir = dir), keystoreDir, old, dir)
+        val result = strategy.execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+                put("chromiaYml", scaffoldYml)
+                put("container", "or_container_42")
+            }),
+            repositoryFor(chain)
+        )
+        val json = resultJson(result)
+        assertEquals("dry_run", json["status"]!!.jsonPrimitive.content, resultText(result))
+        val notes = json["notes"]!!.jsonPrimitive.content
+        assertTrue(notes.contains("Appended the deployments.testnet block"), notes)
+        assertTrue(notes.contains("container \"or_container_42\""), notes)
+        assertTrue(notes.contains("compile.rellVersion ${DappScaffold.RELL_VERSION} in the provided chromiaYml is not the Rell the installed chr bundles (0.15.0)"), notes)
+        assertTrue(notes.contains("WARNING: the installed chr 0.29.10 predates 0.30.0"), notes)
+        assertEquals("0.15.0", json["rellVersion"]!!.jsonPrimitive.content)
+        assertTrue(json["rellVersionSource"]!!.jsonPrimitive.content.contains("the provided pin ${DappScaffold.RELL_VERSION} was replaced"), json.toString())
+
+        // A yml that already has a deployments block and a matching pin is left alone.
+        val complete = deployStrategy(envWith(dir = dir), keystoreDir, FakeRunner(), dir).execute(
+            call("deploy_testnet_chain", buildJsonObject {
+                put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+                put("chromiaYml", deployYml())
+            }),
+            repositoryFor(chain)
+        )
+        val completeNotes = resultJson(complete)["notes"]!!.jsonPrimitive.content
+        assertEquals("dry_run", resultJson(complete)["status"]!!.jsonPrimitive.content, resultText(complete))
+        assertFalse(completeNotes.contains("Appended the deployments"), completeNotes)
+        assertFalse(completeNotes.contains("was replaced"), completeNotes)
+        assertNull(resultJson(complete)["rellVersion"], resultText(complete))
+    }
+
+    @Test
+    fun theDirectoryNotChrsExitCodeDecidesWhetherTheDeployHappened(@TempDir dir: Path) = runBlocking {
+        // First FT4 live deploy (2026-09-04): the proposal was accepted and the
+        // chain came up RUNNING, but chr 0.29.10 exited 1 - its post-deploy
+        // find_blockchain_rid hit a node that had not seen the block. The tool
+        // reported a failure; the natural retry then failed for real with
+        // "A blockchain with the same name already exists".
+        val keystoreDir = Files.createDirectory(dir.resolve("keys"))
+        DeployKeyStore(keystoreDir).also {
+            it.storeEphemeral(testPub, testPriv)
+            it.recordContainer("or_container_42", testPub)
+        }
+        val rid = "D8".repeat(32)
+        val chain = FakeChain(testPub, testAccount, adId).apply { containerChains = listOf("my_dapp" to rid) }
+        val libNoise = (1..17).joinToString("\n") { "lib/ft4/external/accounts/queries.rell($it:1) Warning: Variable 'x' cannot be null at this location" }
+        val raced = FakeRunner(
+            deployExit = 1,
+            deployStderr = "$libNoise\nErrors: 0, User Warnings: 0, Lib Warnings: 17\nquery: 400 Bad Request  " +
+                "[proposal_blockchain:find_blockchain_rid(proposal_blockchain/proposal_blockchain.rell:107)] Query " +
+                "'find_blockchain_rid' failed: No blockchain proposal found in given transaction from https://node3.testnet.chromia.com:7740"
+        )
+        val args = buildJsonObject {
+            put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
+            put("chromiaYml", deployYml())
+            put("dryRun", false)
+        }
+        val result = deployStrategy(envWith(dir = dir), keystoreDir, raced, dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(chain))
+        assertTrue(result.isError != true, resultText(result))
+        val json = resultJson(result)
+        assertEquals("deployed", json["status"]!!.jsonPrimitive.content, resultText(result))
+        assertEquals(rid, json["brid"]!!.jsonPrimitive.content)
+        val notes = json["notes"]!!.jsonPrimitive.content
+        assertTrue(notes.contains("post-deploy RID lookup raced the block"), notes)
+        assertTrue(notes.contains("the deploy SUCCEEDED - do not retry create"), notes)
+        assertTrue("get_container_blockchain" in chain.queriesSeen, chain.queriesSeen.toString())
+
+        // The name-taken refusal: in THIS container it is "already deployed"
+        // (nothing changed, use mode=update); elsewhere on the network it is a
+        // real refusal that names the fix.
+        val taken = FakeRunner(
+            deployExit = 1,
+            deployStderr = "$libNoise\nDeployment of blockchain my_dapp failed: [common:require_unique_blockchain(common/blockchain.rell:30)] " +
+                "Operation 'proposal_blockchain:propose_blockchain' failed: A blockchain with the same name already exists"
+        )
+        val already = deployStrategy(envWith(dir = dir), keystoreDir, taken, dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(chain))
+        assertTrue(already.isError != true, resultText(already))
+        assertEquals("already_deployed", resultJson(already)["status"]!!.jsonPrimitive.content)
+        assertEquals(rid, resultJson(already)["brid"]!!.jsonPrimitive.content)
+        val alreadyNotes = resultJson(already)["notes"]!!.jsonPrimitive.content
+        assertTrue(alreadyNotes.contains("re-run with mode=\"update\""), alreadyNotes)
+        assertFalse(alreadyNotes.contains(" Warning: "), "lib warnings must not bury the message: $alreadyNotes")
+
+        val elsewhere = deployStrategy(envWith(dir = dir), keystoreDir, taken, dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(FakeChain(testPub, testAccount, adId)))
+        assertEquals(true, elsewhere.isError, resultText(elsewhere))
+        assertTrue(resultText(elsewhere).contains("already exists on testnet, but not in container"), resultText(elsewhere))
+        assertTrue(resultText(elsewhere).contains("or_container_42"), resultText(elsewhere))
+        assertTrue(resultText(elsewhere).contains("pick another name"), resultText(elsewhere))
+
+        // Any other failure is still a failure - with the library noise stripped.
+        val broken = FakeRunner(deployExit = 2, deployStderr = "$libNoise\nInvalid blockchain configuration. Something else")
+        val failed = deployStrategy(envWith(dir = dir), keystoreDir, broken, dir)
+            .execute(call("deploy_testnet_chain", args), repositoryFor(chain))
+        assertEquals(true, failed.isError, resultText(failed))
+        assertTrue(resultText(failed).contains("chr deployment create failed (exit 2): Invalid blockchain configuration. Something else"), resultText(failed))
+        assertFalse(resultText(failed).contains(" Warning: "), resultText(failed))
+        assertEquals("a\nb", DeployTestnetChainStrategy.withoutLibWarnings("a\nlib/x.rell(1:1) Warning: y\nb\n"))
     }
 
     @Test

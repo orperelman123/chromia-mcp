@@ -826,6 +826,33 @@ class DeployTestnetChainStrategy(
             outdatedChrNote(probed?.cli)?.let { notes += it }
             generated
         }
+        if (providedYml != null) {
+            // The scaffold yml handed straight to this tool (the natural path:
+            // scaffold_dapp -> deploy_testnet_chain) has no deployments block,
+            // and the preflight refused it although the tool knew the container
+            // and the network (first FT4 live deploy, 2026-09-04). Complete it
+            // the same way the generated yml is built; never touch a yml that
+            // already has a deployments block.
+            if (containerArg != null && !yml.contains(Regex("(?m)^deployments\\s*:"))) {
+                yml = yml.trimEnd() + "\n\n" + WriteDeploymentConfig.deploymentsYaml(spec, blockchain)
+                notes += "Appended the deployments.testnet block (official testnet Directory BRID, node URLs, " +
+                    "container \"$containerArg\") to the provided chromiaYml, which had none."
+            }
+            // The scaffold pins the production Rell; the installed chr may bundle
+            // an older one and refuse the pin with "Unknown Rell version".
+            val pinned = Regex("(?m)^\\s*rellVersion:\\s*([0-9][\\w.-]*)\\s*$").find(yml)?.groupValues?.get(1)
+            val probed = probeChrVersions()
+            val probedRell = probed?.rell
+            if (pinned != null && probedRell != null && pinned != probedRell) {
+                yml = yml.replace("rellVersion: $pinned", "rellVersion: $probedRell")
+                rellVersionUsed = probedRell
+                rellVersionSource = "probed: chr ${probed.cli ?: "?"} bundles Rell $probedRell; the provided pin $pinned was replaced for this deploy"
+                notes += "compile.rellVersion $pinned in the provided chromiaYml is not the Rell the installed chr " +
+                    "bundles ($probedRell) - chr would refuse it with \"Unknown Rell version\", so this deploy uses " +
+                    "$probedRell (see rellVersionSource and updatedChromiaYml). Keep your own file's pin if you build elsewhere."
+            }
+            outdatedChrNote(probed?.cli)?.let { notes += it }
+        }
         // The chain name keys the yml's `blockchains` block and is what
         // `chr --blockchain` looks up: with a provided yml that lacks it the
         // preflight's first blocker is whatever else is missing, and the real
@@ -1036,10 +1063,49 @@ class DeployTestnetChainStrategy(
             val combinedOut = TestnetProvisioning.sanitizeText(
                 (result.stdout + "\n" + result.stderr).trim(), secrets
             )
+            // The Directory is the arbiter of what got deployed, not chr's exit
+            // code. First FT4 live deploy (2026-09-04): the proposal was accepted
+            // and the chain came up RUNNING, but chr 0.29.10 exited 1 with
+            // "find_blockchain_rid ... No blockchain proposal found in given
+            // transaction" - its post-deploy RID lookup hit a node that had not
+            // seen the block yet. Reporting that as a failure made the agent's
+            // natural retry fail for real ("same name already exists").
+            var directoryRid: String? = null
             if (result.exitCode != 0) {
-                return toolErrorResult(
-                    "chr deployment $mode failed (exit ${result.exitCode}): ${combinedOut.takeLast(1500)}"
-                )
+                val raced = CHR_RID_LOOKUP_RACE_REGEX.containsMatchIn(combinedOut)
+                val taken = CHR_NAME_TAKEN_REGEX.containsMatchIn(combinedOut)
+                directoryRid = if (raced || taken) {
+                    containerChainRid(repository, container, blockchain, probeDeadlineMs)
+                } else null
+                val failureText = withoutLibWarnings(combinedOut).takeLast(1500)
+                when {
+                    directoryRid != null && taken -> return toolSuccessResult(buildJsonObject {
+                        put("status", "already_deployed")
+                        put("blockchain", blockchain)
+                        put("container", container)
+                        put("brid", directoryRid)
+                        put("chrResolution", chrCommand.source)
+                        put("notes", (notes + (
+                            "chr deployment create refused: blockchain \"$blockchain\" already exists in container " +
+                                "\"$container\" with RID $directoryRid (the Directory lists it). Nothing was changed. To ship " +
+                                "new code to that chain re-run with mode=\"update\"; to create a second chain pick another " +
+                                "name. chr said: $failureText"
+                            )).joinToString(" "))
+                    })
+                    directoryRid != null -> notes += "chr exited ${result.exitCode} after the proposal was accepted: its " +
+                        "post-deploy RID lookup raced the block that includes the proposal (chr 0.29.x, " +
+                        "\"No blockchain proposal found in given transaction\"). The Directory lists blockchain " +
+                        "\"$blockchain\" in container \"$container\" with RID $directoryRid, so the deploy SUCCEEDED - " +
+                        "do not retry create."
+                    taken -> return toolErrorResult(
+                        "chr deployment $mode failed: a blockchain named \"$blockchain\" already exists on testnet, but " +
+                            "not in container \"$container\" - blockchain names are unique per network, so pick another " +
+                            "name (blockchains.<name> in chromia.yml and the `blockchain` argument). chr said: $failureText"
+                    )
+                    else -> return toolErrorResult(
+                        "chr deployment $mode failed (exit ${result.exitCode}): $failureText"
+                    )
+                }
             }
 
             // brid: CLI >= 0.30 writes deployments.testnet.chains.<name>: x"<rid>"
@@ -1050,12 +1116,15 @@ class DeployTestnetChainStrategy(
             // matching any held secret are dropped before anything reaches the
             // output (the sweep test covers a chr that echoes its env).
             val secretsUpper = secrets.map { it.uppercase() }.toSet()
-            val brid = Regex(Regex.escape(blockchain) + ":\\s*x?[\"']?([0-9A-Fa-f]{64})[\"']?")
-                .find(updatedYml)?.groupValues?.get(1)?.uppercase()
-                ?.takeIf { it !in secretsUpper }
+            val brid = directoryRid
+                ?: Regex(Regex.escape(blockchain) + ":\\s*x?[\"']?([0-9A-Fa-f]{64})[\"']?")
+                    .find(updatedYml)?.groupValues?.get(1)?.uppercase()
+                    ?.takeIf { it !in secretsUpper }
                 ?: Regex("[0-9A-Fa-f]{64}").findAll(result.stdout)
                     .map { it.value.uppercase() }
                     .firstOrNull { it != WriteDeploymentConfig.TESTNET_DIRECTORY_BRID && it !in secretsUpper }
+                // chr 0.29.x prints nothing reusable on success either: ask the Directory.
+                ?: containerChainRid(repository, container, blockchain, probeDeadlineMs)
 
             // ---- verify ------------------------------------------------------
             var live = false
@@ -1134,7 +1203,47 @@ class DeployTestnetChainStrategy(
         cachedVersions
     }
 
+    /**
+     * The RID the testnet Directory lists for [blockchain] inside [container]
+     * (`get_container_blockchain`), or null when it lists none or did not
+     * answer within [budgetMs]. Keyless, read-only.
+     */
+    private suspend fun containerChainRid(
+        repository: ChromiaRepository,
+        container: String,
+        blockchain: String,
+        budgetMs: Long
+    ): String? {
+        val answer = ProbeBudget.withBudget(budgetMs) {
+            repository.executeCustomQuery(
+                "testnet", BlockchainRid.buildFromHex(WriteDeploymentConfig.TESTNET_DIRECTORY_BRID),
+                "get_container_blockchain", mapOf("name" to container)
+            )
+        } as? NetworkResult.Success ?: return null
+        val chains = answer.data["data"] as? JsonArray ?: return null
+        return chains.mapNotNull { it as? JsonObject }
+            .firstOrNull { it["name"]?.jsonPrimitive?.contentOrNull == blockchain }
+            ?.get("rid")?.jsonPrimitive?.contentOrNull?.uppercase()
+            ?.takeIf { it.length == 64 }
+    }
+
     companion object {
         const val CHR_TIMEOUT_MS = 300_000L
+
+        /** chr's post-deploy RID lookup answered before the proposal's block was visible on the queried node. */
+        internal val CHR_RID_LOOKUP_RACE_REGEX =
+            Regex("""find_blockchain_rid|No blockchain proposal found in given transaction""", RegexOption.IGNORE_CASE)
+
+        /** The Directory refused the proposal because the name is taken on this network. */
+        internal val CHR_NAME_TAKEN_REGEX =
+            Regex("""blockchain with the same name already exists""", RegexOption.IGNORE_CASE)
+
+        /**
+         * chr prints every vendored-library warning before the one line that
+         * matters; on the FT4 template that is 17+ lines of `lib/ft4/...
+         * Warning:` and the real error fell off the 1500-char tail.
+         */
+        internal fun withoutLibWarnings(out: String): String =
+            out.lines().filterNot { it.contains(" Warning: ") }.joinToString("\n").trim()
     }
 }
