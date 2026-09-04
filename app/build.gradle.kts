@@ -247,6 +247,12 @@ val localEmbeddingsFile = layout.buildDirectory.file("embeddings.json")
 
 fun JavaExec.withLocalEmbeddingsPath() {
     environment("CHROMIA_EMBEDDINGS_PATH", localEmbeddingsFile.get().asFile.absolutePath)
+    // The jar is Java 21 bytecode (class file 65); these tasks used to run on
+    // whatever JVM the Gradle daemon happened to be (a Temurin 17 daemon on the
+    // dev box, 2026-09-04) and died with UnsupportedClassVersionError before
+    // main - so `generateEmbeddingsNoUpload` could not regenerate the store.
+    // Launch with the same toolchain that compiled it.
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) })
 }
 
 tasks.register<JavaExec>("run") {

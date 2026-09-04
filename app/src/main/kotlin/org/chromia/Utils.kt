@@ -66,11 +66,16 @@ fun getResourcePath(pathStr: String) = object {}.javaClass.classLoader.getResour
 fun File.safeDelete(): Boolean = if (isDirectory) deleteRecursively() else delete()
 
 
-suspend fun HttpClient.downloadFile(url: String) = runCatching {
+suspend fun HttpClient.downloadFile(
+    url: String,
+    /** Sees the successful (200) response before the body is read - for headers such as Last-Modified. */
+    onResponse: (HttpResponse) -> Unit = {}
+) = runCatching {
     val response: HttpResponse = get(url)
 
     when (response.status) {
         HttpStatusCode.OK -> {
+            onResponse(response)
             val tempFile = createTempFile("embedding")
             try {
                 tempFile.outputStream().use { output ->

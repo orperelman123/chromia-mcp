@@ -1076,7 +1076,10 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
                     isError = true
                 )
             } else {
-                val result = formatFetchDocsText(hits)
+                // A stale index answers confidently from an old release; say so on
+                // every hit list rather than only in a boot log nobody reads.
+                val staleNote = ragStore.staleWarning()
+                val result = formatFetchDocsText(hits) + (staleNote?.let { "\n\nNOTE: $it" } ?: "")
                 val hitsJson = buildJsonArray {
                     hits.forEach { segment ->
                         add(
@@ -1094,6 +1097,7 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
                     structuredContent = buildJsonObject {
                         put("text", result)
                         put("hits", hitsJson)
+                        if (staleNote != null) put("index_note", staleNote)
                     }
                 )
             }

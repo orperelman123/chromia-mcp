@@ -26,10 +26,15 @@ import org.chromia.tools.docs.fetcher.DocsFetcher
 import org.chromia.tools.docs.fetcher.IngestPathFilter
 import org.chromia.uploadFile
 import java.nio.file.Path
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createTempFile
 import kotlin.io.path.deleteIfExists
+import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isRegularFile
 
 open class RagStore(
@@ -49,8 +54,50 @@ open class RagStore(
         const val REGISTRY_CONNECT_TIMEOUT_MS = 5_000L
         const val LOAD_RETRY_COOLDOWN_MS = 60_000L
 
+        /**
+         * An index older than this is announced as stale. The store is a snapshot
+         * of moving sources (chr releases monthly, FT4 and the docs site move
+         * with it); at this age an agent asking "how do I..." is being answered
+         * from a different release than the one it deploys with.
+         */
+        val STALE_AFTER: Duration = Duration.ofDays(120)
+
+        /** Hits per query, lexical and semantic together. */
+        const val MAX_HITS = 15
+        /** Exact-identifier hits kept per identifier token in the query. */
+        const val LEXICAL_HITS_PER_TOKEN = 3
+
+        /**
+         * Identifier-shaped tokens: snake_case, dotted.names, camelCase - at
+         * least 5 chars. Plain words and acronyms (`FT4`, `Rell`) are not
+         * identifiers; neither is a file name (`chromia.yml`, `main.rell`),
+         * which would pull in every segment that mentions the file.
+         */
+        private val IDENTIFIER_TOKEN = Regex("""\b(?:[A-Za-z][A-Za-z0-9]*(?:[_.][A-Za-z0-9]+)+|[a-z][a-z0-9]+[A-Z][A-Za-z0-9]*)\b""")
+        private val FILE_EXTENSIONS = setOf("yml", "yaml", "rell", "md", "json", "kt", "kts", "ts", "js", "py", "xml", "html", "txt", "jar", "com", "org", "io", "dev")
+
+        internal fun identifierTokens(query: String): List<String> =
+            IDENTIFIER_TOKEN.findAll(query)
+                .map { it.value.trim('.', '_') }
+                .filter { it.length >= 5 }
+                .filterNot { token -> token.contains('.') && token.substringAfterLast('.').lowercase() in FILE_EXTENSIONS }
+                .distinct()
+                .toList()
+
+        /** Definition sites outrank mentions; more mentions outrank fewer. */
+        internal fun lexicalScore(text: String, token: String): Int {
+            val definition = Regex("""(?im)^\s*(?:function|operation|query|struct|entity|object|val|def|fun|class|enum|namespace)\s+${Regex.escape(token)}\b""")
+            val mentions = Regex(Regex.escape(token), RegexOption.IGNORE_CASE).findAll(text).count()
+            return (if (definition.containsMatchIn(text)) 1000 else 0) + mentions
+        }
+
+        internal fun parseLastModified(header: String?): Instant? =
+            header?.let { runCatching { Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(it.trim())) }.getOrNull() }
+
         fun downloadFromRegistry(
-            client: HttpClient? = null
+            client: HttpClient? = null,
+            /** Receives the package's Last-Modified (null when the header is absent or unparseable). */
+            onLastModified: (Instant?) -> Unit = {}
         ): InMemoryEmbeddingStore<TextSegment>? {
             val owned = client == null
             val http = client ?: createRegistryDownloadClient()
@@ -58,7 +105,9 @@ open class RagStore(
                 runCatching {
                     runBlocking {
                         logger.info("Download embedding from Gitlab registry")
-                        http.downloadFile("$PACKAGE_URL/$FILE_NAME")?.let { tempFile ->
+                        http.downloadFile("$PACKAGE_URL/$FILE_NAME") { response ->
+                            onLastModified(parseLastModified(response.headers[io.ktor.http.HttpHeaders.LastModified]))
+                        }?.let { tempFile ->
                             val loaded = runCatching {
                                 InMemoryEmbeddingStore.fromFile(tempFile)
                             }.onFailure { error ->
@@ -79,6 +128,41 @@ open class RagStore(
         }
     }
 
+    /**
+     * Where the loaded index came from and how old it is. Round 10 (2026-09-04)
+     * found the published registry package was generated 2025-10-21 - 18.8 MB
+     * against the 140 MB / 25555-segment local ingest of 2026-08-26 that was
+     * never uploaded - so production, the Docker image and every clone without
+     * a local file answered from a year-old store, and `fetch_docs` could not
+     * find FT4's `require_mandatory_flags` (added to the sources since). Nothing
+     * said so: the store is a black box unless its age is written down.
+     */
+    data class Provenance(
+        /** Human-readable origin: the local path or the registry package URL. */
+        val origin: String,
+        /** When the index was generated (local mtime / registry Last-Modified); null = unknown. */
+        val generatedAt: Instant?,
+        val segments: Int
+    ) {
+        fun ageDays(now: Instant): Long? = generatedAt?.let { Duration.between(it, now).toDays() }
+
+        fun describe(now: Instant = Instant.now()): String {
+            val date = generatedAt?.let { DateTimeFormatter.ISO_LOCAL_DATE.format(it.atZone(ZoneOffset.UTC)) } ?: "unknown date"
+            val age = ageDays(now)?.let { " ($it days old)" } ?: ""
+            return "documentation index: $segments segments from $origin, generated $date$age"
+        }
+
+        /** A warning naming the fix when the index is older than [staleAfter]; null when fresh or of unknown age. */
+        fun staleWarning(now: Instant = Instant.now(), staleAfter: Duration = STALE_AFTER): String? {
+            val days = ageDays(now) ?: return null
+            if (days <= staleAfter.toDays()) return null
+            return "documentation index is STALE: generated ${DateTimeFormatter.ISO_LOCAL_DATE.format(generatedAt!!.atZone(ZoneOffset.UTC))}, " +
+                "$days days ago (limit ${staleAfter.toDays()}). Anything released since - chr, FT4, Rell, the docs site - is missing " +
+                "or outdated here; confirm versions against GitLab tags. Fix: regenerate and publish with " +
+                "`./gradlew :app:generateEmbeddings` (needs GITLAB_ACCESS_TOKEN) or ship a fresh embeddings.json via $EMBEDDINGS_PATH_ENV."
+        }
+    }
+
     private val gitLabAccessToken = System.getenv("GITLAB_ACCESS_TOKEN")
     val docsFetcher by lazy { DocsFetcher() }
     private val segmentsById = ConcurrentHashMap<String, TextSegment>()
@@ -93,12 +177,41 @@ open class RagStore(
     // embeddingStore null until redeploy - every search/fetch_docs answered
     // "not found" forever (audit F5). Keep the load recipe and retry it on use,
     // at most once per cooldown window.
+    /**
+     * Origin and age of the loaded index; null until a load succeeds, and for
+     * fixture stores handed in directly. Read by the docs tools to warn on a
+     * stale store (see [Provenance]).
+     */
+    @Volatile
+    var provenance: Provenance? = null
+        internal set
+
     private val storeLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? =
         if (loadFromRegistry && initialStore == null) {
-            { loadLocalEmbeddings(localEmbeddingsPath) ?: (registryLoader ?: { downloadFromRegistry() })() }
+            {
+                loadLocalEmbeddings(localEmbeddingsPath)?.also { store ->
+                    val mtime = runCatching { localEmbeddingsPath.getLastModifiedTime().toInstant() }.getOrNull()
+                    recordProvenance(Provenance("local file $localEmbeddingsPath", mtime, embeddingStoreSegments(store).size))
+                } ?: run {
+                    var lastModified: Instant? = null
+                    val store = (registryLoader ?: { downloadFromRegistry(onLastModified = { lastModified = it }) })()
+                    store?.also {
+                        recordProvenance(Provenance("GitLab registry package $PACKAGE_URL/$FILE_NAME", lastModified, embeddingStoreSegments(it).size))
+                    }
+                }
+            }
         } else {
             null
         }
+
+    private fun recordProvenance(p: Provenance) {
+        provenance = p
+        logger.info(p.describe())
+        p.staleWarning()?.let { logger.warn(it) }
+    }
+
+    /** The stale-index warning for the loaded store, or null when fresh, unknown, or not loaded. */
+    fun staleWarning(now: Instant = Instant.now()): String? = provenance?.staleWarning(now)
     internal var loadRetryCooldownMs: Long = LOAD_RETRY_COOLDOWN_MS
     internal var clock: () -> Long = { System.currentTimeMillis() }
     private var nextLoadRetryAtMs = 0L
@@ -165,11 +278,12 @@ open class RagStore(
         val retriever: ContentRetriever = EmbeddingStoreContentRetriever.builder()
             .embeddingStore(store)
             .embeddingModel(model)
-            .maxResults(15) // topK
+            .maxResults(MAX_HITS) // topK
             .minScore(0.6) // similarity score
             .build()
         return runCatching {
-            retriever.retrieve(Query.from(query))?.mapNotNull { it.textSegment() }?.also { rememberQueryHits(it) }
+            val semantic = retriever.retrieve(Query.from(query))?.mapNotNull { it.textSegment() } ?: emptyList()
+            mergeHits(lexicalHits(query), semantic).also { rememberQueryHits(it) }
         }.getOrElse { error ->
             // A throwing retriever (e.g. embedding-dimension mismatch against a
             // foreign store) used to degrade to emptyList(), so a BROKEN index
@@ -186,6 +300,37 @@ open class RagStore(
                 error
             )
         }
+    }
+
+    /**
+     * Exact-identifier hits for the identifier-shaped tokens in [query], best
+     * first. Round 10 (2026-09-04): `require_mandatory_flags` was IN the store
+     * (three segments of ft4-lib's accounts/module.rell) and still missed under
+     * every phrasing, the bare identifier included - BGE-small ranks prose about
+     * auth descriptors above the code that defines the name, and an agent asks
+     * about names. Dense retrieval alone is the wrong tool for a name; this is
+     * the lexical half of a hybrid: scan the in-memory segment index for the
+     * token, prefer the segment that DEFINES it, cap per token.
+     */
+    internal fun lexicalHits(query: String): List<TextSegment> {
+        val tokens = identifierTokens(query)
+        if (tokens.isEmpty()) return emptyList()
+        val all = segmentsById.values
+        return tokens.flatMap { token ->
+            all.asSequence()
+                .filter { it.text().contains(token, ignoreCase = true) }
+                .map { it to lexicalScore(it.text(), token) }
+                .sortedByDescending { it.second }
+                .take(LEXICAL_HITS_PER_TOKEN)
+                .map { it.first }
+                .toList()
+        }
+    }
+
+    /** Lexical hits first (the name the agent asked about), then semantic, deduplicated, capped at [MAX_HITS]. */
+    internal fun mergeHits(lexical: List<TextSegment>, semantic: List<TextSegment>): List<TextSegment> {
+        val seen = HashSet<String>()
+        return (lexical + semantic).filter { seen.add(segmentId(it)) }.take(MAX_HITS)
     }
 
     internal fun rememberQueryHits(segments: List<TextSegment>) {

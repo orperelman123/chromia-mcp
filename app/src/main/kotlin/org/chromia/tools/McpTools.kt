@@ -1303,6 +1303,14 @@ object McpTools {
                                 )
                             )
                         )
+                    ),
+                    "index_note" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Present only when the documentation index is older than its freshness limit: says when it was generated and that newer releases may be missing - confirm versions against GitLab tags."
+                            )
+                        )
                     )
                 )
             ),
