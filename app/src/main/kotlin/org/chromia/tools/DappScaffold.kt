@@ -123,7 +123,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -168,6 +168,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to ammMainRell(),
                 "src/test/main_test.rell" to ammTestRell()
+            )
+            "stablecoin" -> linkedMapOf(
+                "chromia.yml" to stablecoinChromiaYml(chain),
+                "src/main.rell" to stablecoinMainRell(),
+                "src/test/main_test.rell" to stablecoinTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -323,6 +328,30 @@ object DappScaffold {
             the guards do NOT stop ships as a test too: price impact you re-quote into, and a
             cheap liveness grief where anyone touching the reserves makes pending swaps
             revert. Both are in the header's residual list, which is the part to read first.
+            Building a stablecoin, a CDP, a synthetic - any COIN MINTED AGAINST LOCKED COLLATERAL
+            that a price can put under water: start from template=stablecoin, NOT template=vault.
+            Round 9 drained an un-templated one built with only this server's guidance, and it was
+            un-templated because this text sent "stablecoin" to the vault: the build followed the
+            vault's reserve discipline to the letter and REDEEMED THE COIN FOR COLLATERAL AT PAR out
+            of a reserve that no longer covered it. Two identical positions, three honest -20% posts,
+            13332 of coin against collateral worth 10240 - whoever redeemed first took 100 cents on
+            the dollar, the last holder was left with 3082 of a coin nothing backed, THIRTY TOKENS
+            moved on transaction order alone, and the gate said ok:true with zero findings while
+            every conservation invariant held. A CDP's coin is a LIABILITY of a position, not a
+            claim on a pool. The template has NO operation that pays a coin holder par out of
+            somebody else's position: the peg is the debtor's right to burn at par against their
+            OWN debt; an under-water position is closed by LIQUIDATION that pays every liquidator
+            the position's PRO-RATA share (collateral * repaid / debt, never more, whatever the
+            order) so liquidation never pushes a position's ratio down; and when the whole system
+            is worth less than its coin at a fresh price anyone may SETTLE - each position returns
+            its surplus to its owner, the rest is one pool, and every coin redeems for the same
+            share of it in any order. Mint and withdraw are ratio-checked against the WHOLE debt at
+            a FRESH bounded price, and settlement stops every other value-moving operation. The
+            shipped tests replay round 9 in both orders and require both parties to end exactly
+            equal, by liquidation and by settlement, with conservation exact after every step. Its
+            oracle key is a module arg exactly like the vault's - same note as above applies. What
+            no template can fix, and its header says so: a price that falls faster than liquidators
+            act still leaves bad debt, and the coin is then worth the settlement rate, not par.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -369,6 +398,31 @@ object DappScaffold {
                     "matches nothing, so the ordering problem is yours and it is the hard half. " +
                     "If what you actually want is a swap venue with no order book, that IS " +
                     "covered: `template=amm`."
+            // Ahead of `lending` (which claims "debt") and of `vault` (which used to
+            // claim "stablecoin" and answered round 9's build with a reserve-backed
+            // exchange: the drain was written on that advice).
+            has("stablecoin", "stable_coin", "stable coin", "cdp", "collateralized_debt", "collateralised_debt",
+                "collateral_debt", "peg", "synthetic_asset", "syntheticasset") ->
+                "Use `template=stablecoin`: it is the template for this class, and this class is what " +
+                    "adversary round 9 drained WITH NO TEMPLATE AT ALL - the answer here used to be " +
+                    "`template=vault`, and the vault's discipline (every credit paid out of a reserve " +
+                    "row) was followed to the letter: the coin was redeemed for collateral at PAR " +
+                    "out of a reserve that no longer covered it. Two identical positions, three honest " +
+                    "-20% price posts, both under water at 13332 of coin against collateral worth " +
+                    "10240 - and whoever redeemed first took 100 cents on the dollar while the last " +
+                    "holder was left with 3082 of a coin nothing backed: THIRTY TOKENS moved on " +
+                    "transaction order alone, gate ok:true, zero findings, every conservation " +
+                    "invariant exact. A CDP's coin is a LIABILITY of a position, not a claim on a " +
+                    "pool, and the template is built on that: there is NO operation that pays a coin " +
+                    "holder par out of somebody else's position. The peg is the debtor's right to burn " +
+                    "at par against their OWN debt; an under-water position is closed by LIQUIDATION " +
+                    "that pays every liquidator the position's PRO-RATA share (never more, whatever " +
+                    "the order); and when the whole system is worth less than its coin anyone may " +
+                    "SETTLE, after which every coin redeems for the same share of one pool. Mint and " +
+                    "withdraw are ratio-checked against the WHOLE debt at a FRESH bounded price. The " +
+                    "shipped tests replay round 9 in both orders and require both parties to end " +
+                    "exactly equal, by liquidation and by settlement, with conservation exact after " +
+                    "every step. Its oracle key is a module arg exactly like the vault's."
             has("lend", "borrow", "credit", "loan", "debt", "money_market", "moneymarket", "interest", "yield_farm") ->
                 "Use `template=lending`: it is the template for this class, and this class is what " +
                     "adversary round 6 drained. A hand-built pool accrued interest LAZILY (only " +
@@ -444,13 +498,17 @@ object DappScaffold {
                     "pool, NOT an order book. If you need resting orders that get matched, no " +
                     "shipped template covers that - ask again with `order book` and read what you " +
                     "would be taking on."
-            has("oracle", "vault", "redeem", "redemption", "price", "stablecoin") ->
+            has("oracle", "vault", "redeem", "redemption", "price") ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
                     "ships the 100 -> 200,000,000 oracle mint as a must-fail test. If what you are " +
                     "building is a CURVE rather than a reserve priced by a feed - a swap pool, an " +
                     "AMM, a DEX pair - that is `template=amm`, a different exploit class with its " +
-                    "own template; this answer used to send it here and round 8 drained the result."
+                    "own template; this answer used to send it here and round 8 drained the result. " +
+                    "If the coin is minted against LOCKED COLLATERAL that a price can put under water " +
+                    "- a stablecoin, a CDP, a synthetic - that is `template=stablecoin`: this answer " +
+                    "used to send it here too, and round 9 drained the result by redeeming at par " +
+                    "out of a reserve that no longer covered the coin."
             has("stak", "reward", "harvest", "emission", "farm", "airdrop") ->
                 "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
                     "releases at most what the pool holds, every credit is a pool debit in the same " +
@@ -461,13 +519,15 @@ object DappScaffold {
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics."
             else ->
-                "No shipped template covers that name. The seven hardened ones are `governance` " +
+                "No shipped template covers that name. The eight hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
                     "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
                     "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
                     "that moves), `streaming` (a clock-metered payout to one named beneficiary - " +
-                    "payroll, subscriptions, vesting, drips) and `amm` (a constant-product swap " +
-                    "pool: exact-quoted-reserve swaps and term-committed liquidity positions); " +
+                    "payroll, subscriptions, vesting, drips), `amm` (a constant-product swap " +
+                    "pool: exact-quoted-reserve swaps and term-committed liquidity positions) and " +
+                    "`stablecoin` (a coin minted against locked collateral: ratio-checked mints, " +
+                    "pro-rata liquidation, shared settlement, no redemption at par); " +
                     "`ft4` is the plain token skeleton with " +
                     "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +
@@ -1400,6 +1460,719 @@ object DappScaffold {
      */
     fun vaultTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
         oracleTestModuleArgs()
+
+    private fun stablecoinChromiaYml(name: String): String = oracleChromiaYml(name, "stablecoin")
+
+    private fun stablecoinMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Stablecoin template: a collateralised debt position (CDP) that mints a coin
+        // against locked collateral priced by an oracle. This is NOT the vault - a CDP's
+        // coin is not paid out of a reserve, it is a LIABILITY of a position whose backing
+        // moves with a price - and adversary round 9 built it on the vault's advice and
+        // drained it. Six guards are STRUCTURAL:
+        //   RESERVE-BACKED  - locked collateral is a row of the same entity as users'
+        //                     balances, keyed by the chain's own id; every collateral move
+        //                     debits one row and credits another in the same operation.
+        //   BOUNDED PRICE   - the vault's oracle, unchanged: one configured key, at most
+        //                     MAX_PRICE_MOVE_BPS per post, one post per
+        //                     MIN_PRICE_UPDATE_INTERVAL_MS, stale after MAX_PRICE_AGE_MS.
+        //   RATIO           - a position must hold MIN_COLLATERAL_RATIO_BPS of what it owes
+        //                     at a fresh price to mint or to withdraw.
+        //   LIQUIDATION     - below LIQUIDATION_RATIO_BPS ANYONE may repay a position's
+        //                     debt and take collateral worth the repayment plus a bounded
+        //                     bonus - capped at the position's PRO-RATA share, so an
+        //                     under-water position pays every liquidator the same rate and
+        //                     liquidation can never push a position below the bonus ratio.
+        //                     This is the operation round 9's build did not have: nothing
+        //                     closed a position whose collateral had fallen under its debt.
+        //   NO REDEMPTION   - there is NO operation that pays a coin holder par out of
+        //     AT PAR          somebody else's position. That was round 9's drain: 13332 of
+        //                     coin against collateral worth 10240, and whoever redeemed first
+        //                     took collateral at 100 cents while the last holder was left
+        //                     with 3082 of a coin nothing backed - THIRTY TOKENS moved on
+        //                     transaction order alone. Here the peg is held by the debtor's
+        //                     right to burn at par against their OWN debt, by liquidation,
+        //                     and by settlement.
+        //   SETTLEMENT      - when the whole system's collateral is worth less than its
+        //                     coin at a fresh price, anyone may settle: every position's
+        //                     surplus goes back to its owner, the rest of the collateral is
+        //                     one pool, and every coin redeems for the SAME pro-rata share of
+        //                     it in any order. A shortfall is shared, never raced for.
+        // The oracle is the ONE key in chain_context.args.oracle_pubkey - configured, never
+        // a parameter, never in source.
+        // What no template can fix: a price that falls faster than liquidators act still
+        // leaves bad debt - the coin is then worth the settlement rate, not par. Size the
+        // ratios and the move bound for your collateral's volatility, and keep the
+        // conservation tests green.
+
+        struct module_args {
+            oracle_pubkey: pubkey;
+        }
+
+        // The collateral asset (a stand-in for a real deposit - replace with an FT4 asset
+        // transfer and keep the same discipline). Tokens are never created after the
+        // one-time welcome grant; every move is a transfer between two rows.
+        entity token_account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // The coin. Minted only against a position's debt, destroyed only by burning
+        // against a debt or redeeming after settlement.
+        entity stable_account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // A collateralised debt position: locked collateral, and the coin minted against it.
+        entity cdp {
+            key owner: byte_array;
+            mutable collateral: integer = 0;
+            mutable debt: integer = 0;
+        }
+
+        object system {
+            mutable total_collateral: integer = 0;
+            mutable total_debt: integer = 0;
+        }
+
+        // price == 0 means "never posted": nothing that needs a price may run.
+        object price_feed {
+            mutable price: integer = 0;
+            mutable updated_at: timestamp = 0;
+        }
+
+        // Written once, by settle(). After that only redeem_settled and the queries run.
+        object settlement {
+            mutable settled: boolean = false;
+            mutable price: integer = 0;
+            mutable pool: integer = 0;     // collateral set aside for coin holders
+            mutable supply: integer = 0;   // coin outstanding when the system settled
+            mutable paid: integer = 0;     // collateral paid to holders so far
+            mutable redeemed: integer = 0; // coin burned by holders so far
+        }
+
+        val BPS = 10000;
+        // Cash per token, scaled: PRICE_SCALE == 1.00.
+        val PRICE_SCALE = 1000000;
+        val MAX_PRICE = 1000 * PRICE_SCALE;
+        val MAX_PRICE_MOVE_BPS = 2000;
+        val MIN_PRICE_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
+        val MAX_PRICE_AGE_MS = 24 * 60 * 60 * 1000;
+        // Bound every amount - and the system's totals - BEFORE it is multiplied by a
+        // price or a ratio: Rell integers are 64-bit and overflow aborts. Every product
+        // below is at most MAX_AMOUNT * MAX_PRICE or MAX_AMOUNT * MAX_AMOUNT.
+        val MAX_AMOUNT = 1000000000;
+        // A position must be worth 150% of what it owes to mint or withdraw...
+        val MIN_COLLATERAL_RATIO_BPS = 15000;
+        // ...and below 120% anyone may liquidate it...
+        val LIQUIDATION_RATIO_BPS = 12000;
+        // ...taking collateral worth the repayment plus 5%, never more than pro rata.
+        val LIQUIDATION_BONUS_BPS = 500;
+        // The one-time welcome grant is the ONLY place collateral is created.
+        val WELCOME_TOKENS = 100;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this default.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        // The reserve's row is keyed by the chain's id: not a key, never a parameter.
+        function vault_id(): byte_array = chain_context.blockchain_rid;
+
+        function oracle_pubkey(): pubkey = chain_context.args.oracle_pubkey;
+
+        function tokens_of(owner: byte_array): token_account =
+            require(token_account @? { .owner == owner }, "register an account first");
+
+        function stable_of(owner: byte_array): stable_account =
+            require(stable_account @? { .owner == owner }, "register an account first");
+
+        function cdp_of(owner: byte_array): cdp {
+            val c = cdp @? { .owner == owner };
+            if (c != null) return c;
+            return create cdp(owner = owner);
+        }
+
+        function collateral_reserve(): token_account {
+            val v = vault_id();
+            val r = token_account @? { .owner == v };
+            if (r != null) return r;
+            return create token_account(owner = v, balance = 0);
+        }
+
+        // Every operation that moves value while the system is live starts here.
+        function live() {
+            require(not settlement.settled, "system is settled");
+        }
+
+        function current_price(): integer {
+            require(price_feed.price > 0, "price feed not initialised");
+            require(
+                op_context.last_block_time - price_feed.updated_at <= MAX_PRICE_AGE_MS,
+                "price feed is stale"
+            );
+            return price_feed.price;
+        }
+
+        function collateral_value(tokens: integer, price: integer): integer {
+            require(tokens >= 0 and tokens <= MAX_AMOUNT, "collateral out of range");
+            return tokens * price / PRICE_SCALE;
+        }
+
+        // The position may mint or withdraw: MIN_COLLATERAL_RATIO_BPS at this price.
+        function meets_ratio(collateral: integer, debt: integer, price: integer): boolean =
+            debt == 0 or debt * MIN_COLLATERAL_RATIO_BPS <= collateral_value(collateral, price) * BPS;
+
+        // The position is safe from liquidation: LIQUIDATION_RATIO_BPS at this price.
+        function is_healthy(c: cdp, price: integer): boolean =
+            c.debt == 0 or c.debt * LIQUIDATION_RATIO_BPS <= collateral_value(c.collateral, price) * BPS;
+
+        // The vault's set_price, unchanged.
+        operation set_price(price: integer) {
+            live();
+            require(op_context.is_signer(chain_context.args.oracle_pubkey), "oracle only");
+            require(price > 0 and price <= MAX_PRICE, "price out of range");
+            val prev = price_feed.price;
+            val now = op_context.last_block_time;
+            if (prev > 0) {
+                require(price * BPS <= prev * (BPS + MAX_PRICE_MOVE_BPS), "price move exceeds bound");
+                require(price * BPS >= prev * (BPS - MAX_PRICE_MOVE_BPS), "price move exceeds bound");
+                require(now - price_feed.updated_at >= MIN_PRICE_UPDATE_INTERVAL_MS, "price update too soon");
+            }
+            price_feed.price = price;
+            price_feed.updated_at = now;
+        }
+
+        operation register_account() {
+            val account = auth.authenticate();
+            require(token_account @? { .owner == account.id } == null, "account already registered");
+            create token_account(owner = account.id, balance = WELCOME_TOKENS);
+            create stable_account(owner = account.id, balance = 0);
+            collateral_reserve();
+        }
+
+        // Lock collateral: the caller's row is debited and the reserve credited in the same
+        // operation.
+        operation deposit_collateral(amount: integer) {
+            live();
+            val account = auth.authenticate();
+            val me = tokens_of(account.id);
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
+            require(me.balance >= amount, "insufficient tokens");
+            require(system.total_collateral + amount <= MAX_AMOUNT, "system collateral cap reached");
+            val c = cdp_of(account.id);
+            val reserve = collateral_reserve();
+            update me ( .balance -= amount );
+            update reserve ( .balance += amount );
+            update c ( .collateral += amount );
+            system.total_collateral += amount;
+        }
+
+        // Mint the coin against the caller's OWN position, at a FRESH price and against the
+        // WHOLE debt, so slicing the mint gains nothing.
+        operation mint_stable(amount: integer) {
+            live();
+            val account = auth.authenticate();
+            val me = stable_of(account.id);
+            require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
+            require(system.total_debt + amount <= MAX_AMOUNT, "system debt cap reached");
+            val c = cdp_of(account.id);
+            require(c.debt + amount <= MAX_AMOUNT, "position too large");
+            val price = current_price();
+            require(meets_ratio(c.collateral, c.debt + amount, price), "under the collateral ratio");
+            update c ( .debt += amount );
+            system.total_debt += amount;
+            update me ( .balance += amount );
+        }
+
+        // Repay: the coin is destroyed against the position that owes it. THIS is the peg -
+        // a debtor can always retire a unit of debt with a unit of coin, so a coin below par
+        // is a bargain for every debtor, and nobody's coin buys anybody else's collateral.
+        operation burn_stable(amount: integer) {
+            live();
+            val account = auth.authenticate();
+            val me = stable_of(account.id);
+            require(amount > 0, "amount must be positive");
+            val c = cdp_of(account.id);
+            require(c.debt >= amount, "more than this position owes");
+            require(me.balance >= amount, "insufficient stablecoin");
+            update me ( .balance -= amount );
+            update c ( .debt -= amount );
+            system.total_debt -= amount;
+        }
+
+        // Unlock collateral: the ratio is re-checked at a fresh price, exactly as at mint.
+        operation withdraw_collateral(amount: integer) {
+            live();
+            val account = auth.authenticate();
+            val me = tokens_of(account.id);
+            require(amount > 0, "amount must be positive");
+            val c = cdp_of(account.id);
+            require(c.collateral >= amount, "not that much collateral");
+            if (c.debt > 0) {
+                val price = current_price();
+                require(meets_ratio(c.collateral - amount, c.debt, price), "under the collateral ratio");
+            }
+            val reserve = collateral_reserve();
+            require(reserve.balance >= amount, "vault cannot cover the withdrawal");
+            update c ( .collateral -= amount );
+            update reserve ( .balance -= amount );
+            update me ( .balance += amount );
+            system.total_collateral -= amount;
+        }
+
+        // LIQUIDATION. Anyone may repay part of an unhealthy position's debt and take
+        // collateral worth the repayment plus LIQUIDATION_BONUS_BPS at the fresh price -
+        // CAPPED at the position's pro-rata share (collateral * repaid / debt). The cap is
+        // the whole point: when the position is under water every liquidator gets the same
+        // rate whatever order they come in, and liquidation moves a position's ratio UP or
+        // leaves it alone, never down. Nobody is paid par out of somebody else's shortfall.
+        operation liquidate(target: byte_array, stable_in: integer) {
+            live();
+            val account = auth.authenticate();
+            require(target != account.id, "cannot liquidate your own position");
+            val my_stable = stable_of(account.id);
+            val my_tokens = tokens_of(account.id);
+            require(stable_in > 0, "amount must be positive");
+            require(stable_in <= MAX_AMOUNT, "amount too large");
+            val t = require(cdp @? { .owner == target }, "no such position");
+            require(t.debt > 0, "position has no debt");
+            require(stable_in <= t.debt, "more than that position owes");
+            val price = current_price();
+            require(not is_healthy(t, price), "position is healthy");
+            require(my_stable.balance >= stable_in, "insufficient stablecoin");
+            // Order of operations keeps every intermediate under 64 bits: MAX_AMOUNT *
+            // (BPS + bonus) then / BPS then * PRICE_SCALE then / price.
+            val with_bonus = (stable_in * (BPS + LIQUIDATION_BONUS_BPS) / BPS) * PRICE_SCALE / price;
+            val pro_rata = t.collateral * stable_in / t.debt;
+            val seize = min(with_bonus, pro_rata);
+            require(seize > 0, "amount too small");
+            val reserve = collateral_reserve();
+            require(reserve.balance >= seize, "vault cannot cover the liquidation");
+            update my_stable ( .balance -= stable_in );
+            update t ( .debt -= stable_in, .collateral -= seize );
+            update reserve ( .balance -= seize );
+            update my_tokens ( .balance += seize );
+            system.total_debt -= stable_in;
+            system.total_collateral -= seize;
+        }
+
+        // SETTLEMENT. Only when the system as a whole is worth less than its coin at a
+        // fresh price - a solvent system cannot be frozen by anyone. Each position keeps
+        // collateral worth its own debt at the settlement price for the coin holders and
+        // returns the rest to its owner; positions under water give everything they have.
+        // What is left is one pool every coin redeems from at the same rate.
+        operation settle() {
+            live();
+            auth.authenticate();
+            val price = current_price();
+            require(
+                collateral_value(system.total_collateral, price) < system.total_debt,
+                "system is solvent"
+            );
+            val reserve = collateral_reserve();
+            var pool = 0;
+            for (c in cdp @* { .collateral > 0 }) {
+                val owed = min(c.collateral, c.debt * PRICE_SCALE / price);
+                val surplus = c.collateral - owed;
+                if (surplus > 0) {
+                    val owner_tokens = tokens_of(c.owner);
+                    update reserve ( .balance -= surplus );
+                    update owner_tokens ( .balance += surplus );
+                    update c ( .collateral = owed );
+                }
+                pool += owed;
+            }
+            system.total_collateral = pool;
+            settlement.settled = true;
+            settlement.price = price;
+            settlement.pool = pool;
+            settlement.supply = system.total_debt;
+        }
+
+        // After settlement every unit of coin buys the same share of the pool, in any
+        // order: stable_in * pool / supply. The remainder of integer division stays in the
+        // reserve (at most one token per redemption) - it is never anyone's to take.
+        operation redeem_settled(stable_in: integer) {
+            require(settlement.settled, "system is not settled");
+            val account = auth.authenticate();
+            val my_stable = stable_of(account.id);
+            val my_tokens = tokens_of(account.id);
+            require(stable_in > 0, "amount must be positive");
+            require(stable_in <= MAX_AMOUNT, "amount too large");
+            require(my_stable.balance >= stable_in, "insufficient stablecoin");
+            val tokens_out = stable_in * settlement.pool / settlement.supply;
+            val reserve = collateral_reserve();
+            require(reserve.balance >= tokens_out, "vault cannot cover the redemption");
+            update my_stable ( .balance -= stable_in );
+            update reserve ( .balance -= tokens_out );
+            update my_tokens ( .balance += tokens_out );
+            // The positions and the system totals are frozen at settlement; what has
+            // been paid out since lives here.
+            settlement.paid += tokens_out;
+            settlement.redeemed += stable_in;
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_token_price(): integer = price_feed.price;
+
+        query get_price_updated_at(): timestamp = price_feed.updated_at;
+
+        query get_tokens(owner: byte_array): integer {
+            val a = token_account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_stable(owner: byte_array): integer {
+            val a = stable_account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_cdp(owner: byte_array) {
+            val c = cdp @? { .owner == owner };
+            return if (c != null) (collateral = c.collateral, debt = c.debt) else null;
+        }
+
+        query get_system() = (
+            total_collateral = system.total_collateral,
+            total_debt = system.total_debt,
+            reserve = get_tokens(vault_id()),
+            settled = settlement.settled,
+            settlement_pool = settlement.pool,
+            settlement_supply = settlement.supply
+        );
+
+        query account_count(): integer {
+            val v = vault_id();
+            return token_account @* { .owner != v } ( .owner ).size();
+        }
+
+        // INVARIANT: collateral is never created. Every token is on an account or locked
+        // in the reserve. The shipped tests compare this to account_count() * WELCOME_TOKENS
+        // after every step, settlement included.
+        query tokens_in_circulation(): integer {
+            var total = 0;
+            for (b in token_account @* {} ( .balance )) total += b;
+            return total;
+        }
+
+        // INVARIANT: the reserve holds EXACTLY the positions' collateral - and after
+        // settlement, exactly the pool less what holders have redeemed.
+        query collateral_matches_positions(): boolean {
+            var total = 0;
+            for (c in cdp @* {} ( .collateral )) total += c;
+            val reserve = get_tokens(vault_id());
+            if (settlement.settled) {
+                return total == settlement.pool
+                    and system.total_collateral == settlement.pool
+                    and reserve == settlement.pool - settlement.paid;
+            }
+            return total == system.total_collateral and total == reserve;
+        }
+
+        // INVARIANT: every unit of the coin in existence is owed by some position - and
+        // after settlement, is a claim on the pool that has not been redeemed yet.
+        query debt_matches_supply(): boolean {
+            var debt = 0;
+            for (d in cdp @* {} ( .debt )) debt += d;
+            var supply = 0;
+            for (b in stable_account @* {} ( .balance )) supply += b;
+            if (settlement.settled) {
+                return debt == settlement.supply
+                    and system.total_debt == settlement.supply
+                    and supply == settlement.supply - settlement.redeemed;
+            }
+            return debt == system.total_debt and debt == supply;
+        }
+    """.trimIndent() + "\n"
+
+    private fun stablecoinTestRell(): String = """
+        @test module;
+
+        // The stablecoin template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block, which carries the oracle key the
+        // tests sign with) or `chr test`.
+        //
+        // The test_round9_* functions replay adversary round 9's stablecoin drain against
+        // this template. There, two identical positions were both under water after three
+        // honest -20% price posts, and whoever REDEEMED first took collateral at par out
+        // of the other's position: 130 tokens against 70, THIRTY TOKENS moved on order
+        // alone. Here the same setup is run in both orders and both parties end exactly
+        // equal, by liquidation and by settlement, with every conservation invariant
+        // exact after every step.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function oracle(): rell.test.keypair =
+            rell.test.keypair(priv = admin_priv_key(), pub = main.oracle_pubkey());
+
+        function post_price(price: integer) {
+            rell.test.tx().op(main.set_price(price)).nop().sign(oracle()).run();
+        }
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        // Tokens are never created after the welcome grant; the reserve is exactly the
+        // positions' collateral; every unit of coin is somebody's debt (or, after
+        // settlement, an unredeemed claim on the pool).
+        function assert_conserved() {
+            assert_equals(main.tokens_in_circulation(), main.account_count() * main.WELCOME_TOKENS);
+            assert_true(main.collateral_matches_positions());
+            assert_true(main.debt_matches_supply());
+        }
+
+        val HOUR = 60 * 60 * 1000;
+        // 100.00 cash per token at PRICE_SCALE 1000000.
+        val PAR = 100000000;
+        val P1 = 80000000;
+        val P2 = 64000000;
+        // -20% three times, an hour apart: every post is inside MAX_PRICE_MOVE_BPS and
+        // MIN_PRICE_UPDATE_INTERVAL_MS. The oracle is honest throughout.
+        val P3 = 51200000;
+
+        // Round 9's setup, verbatim: two identical users each lock 100 tokens (worth 10000
+        // at par) and mint 6666 - exactly what the 150% ratio allows - then the price falls
+        // 48.8% in three honest posts and both positions are under water: 5120 of
+        // collateral against 6666 of debt each, 10240 against 13332 in all.
+        function crash(honest: rell.test.keypair, attacker: rell.test.keypair) {
+            signed(honest, main.register_account());
+            signed(attacker, main.register_account());
+            post_price(PAR);
+            signed(honest, main.deposit_collateral(100));
+            signed(honest, main.mint_stable(6666));
+            signed(attacker, main.deposit_collateral(100));
+            signed(attacker, main.mint_stable(6666));
+            // Solvent: nobody can freeze a system that is worth more than its coin.
+            signed_must_fail(attacker, main.settle(), "system is solvent");
+            after(HOUR); post_price(P1);
+            after(HOUR); post_price(P2);
+            after(HOUR); post_price(P3);
+            assert_equals(main.get_system().total_debt, 13332);
+            assert_equals(main.get_system().total_collateral, 200);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 9, by liquidation, attacker first. There is no
+        // operation that pays her par out of the honest position; what she CAN do is
+        // liquidate it, and liquidation of an under-water position pays pro rata: 100
+        // tokens for its whole 6666 of debt, 76 for 5120 of it, the same for anyone.
+        // She cannot withdraw her own collateral while under water, and cannot take more
+        // than the position's share.
+        function test_round9_redemption_at_par_out_of_a_shortfall_must_fail() {
+            val honest = register_alice();
+            val attacker = register_trudy();
+            crash(honest.keypair, attacker.keypair);
+
+            signed_must_fail(attacker.keypair, main.withdraw_collateral(1), "under the collateral ratio");
+            signed_must_fail(attacker.keypair, main.liquidate(attacker.account.id, 1), "cannot liquidate your own position");
+            signed_must_fail(attacker.keypair, main.liquidate(honest.account.id, 6667), "more than that position owes");
+
+            // Round 9 paid her 100 tokens for 5120 of coin here. Pro rata pays 76.
+            signed(attacker.keypair, main.liquidate(honest.account.id, 5120));
+            assert_equals(main.get_tokens(attacker.account.id), 76);
+            assert_equals(main.get_cdp(honest.account.id)!!.collateral, 24);
+            assert_equals(main.get_cdp(honest.account.id)!!.debt, 1546);
+            assert_conserved();
+            // The rest of the position at the same rate: 24 for 1546. 100 for 6666 in all.
+            signed(attacker.keypair, main.liquidate(honest.account.id, 1546));
+            assert_equals(main.get_tokens(attacker.account.id), 100);
+            assert_equals(main.get_stable(attacker.account.id), 0);
+            assert_equals(main.get_cdp(honest.account.id)!!.collateral, 0);
+            assert_equals(main.get_cdp(honest.account.id)!!.debt, 0);
+            assert_conserved();
+
+            // The honest holder, second, does the same to the attacker's position and
+            // ends with exactly the same 100 tokens. Nothing moved on order.
+            signed(honest.keypair, main.liquidate(attacker.account.id, 6666));
+            assert_equals(main.get_tokens(honest.account.id), 100);
+            assert_equals(main.get_stable(honest.account.id), 0);
+            assert_equals(main.get_system().total_debt, 0);
+            assert_equals(main.get_system().total_collateral, 0);
+            assert_conserved();
+        }
+
+        // THE CONTROL. The identical chain in the opposite order ends in the identical
+        // place: 100 and 100. Round 9's control ended 70 and 130.
+        function test_round9_control_order_does_not_change_the_outcome() {
+            val honest = register_alice();
+            val attacker = register_trudy();
+            crash(honest.keypair, attacker.keypair);
+
+            signed(honest.keypair, main.liquidate(attacker.account.id, 5120));
+            signed(honest.keypair, main.liquidate(attacker.account.id, 1546));
+            assert_equals(main.get_tokens(honest.account.id), 100);
+            signed(attacker.keypair, main.liquidate(honest.account.id, 6666));
+            assert_equals(main.get_tokens(attacker.account.id), 100);
+            assert_conserved();
+        }
+
+        // SETTLEMENT. The same crash, and instead of liquidating anyone freezes the system:
+        // each position keeps collateral worth its debt at the settlement price (all of
+        // it - both are under water), the pool is 200 against 13332 of coin, and every
+        // coin redeems for the same share whoever goes first. Nothing else runs any more.
+        function test_round9_settlement_shares_the_shortfall_in_any_order() {
+            val honest = register_alice();
+            val attacker = register_trudy();
+            crash(honest.keypair, attacker.keypair);
+
+            signed(attacker.keypair, main.settle());
+            assert_true(main.get_system().settled);
+            assert_equals(main.get_system().settlement_pool, 200);
+            assert_equals(main.get_system().settlement_supply, 13332);
+            assert_conserved();
+            signed_must_fail(attacker.keypair, main.settle(), "system is settled");
+            signed_must_fail(attacker.keypair, main.liquidate(honest.account.id, 1), "system is settled");
+            signed_must_fail(attacker.keypair, main.mint_stable(1), "system is settled");
+            signed_must_fail(attacker.keypair, main.withdraw_collateral(1), "system is settled");
+
+            // 6666 * 200 / 13332 = 100, for whoever asks, in whichever order. (Integer
+            // division: a holder who redeems in two halves gets 49 + 49 and the 2 stay
+            // in the reserve - dust is the price of pro rata, and nobody can take it.)
+            signed(attacker.keypair, main.redeem_settled(6666));
+            assert_equals(main.get_tokens(attacker.account.id), 100);
+            assert_conserved();
+            signed(honest.keypair, main.redeem_settled(6666));
+            assert_equals(main.get_tokens(honest.account.id), 100);
+            assert_equals(main.get_stable(honest.account.id), 0);
+            assert_equals(main.get_system().reserve, 0);
+            assert_conserved();
+        }
+
+        // Settlement returns a healthy position's surplus to its owner before pooling the
+        // rest: only what a position OWES at the settlement price is the holders'.
+        function test_settlement_returns_surplus_to_its_owner() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            post_price(PAR);
+            // Alice: 100 tokens, 6666 of coin - under water after the crash.
+            signed(alice.keypair, main.deposit_collateral(100));
+            signed(alice.keypair, main.mint_stable(6666));
+            // Bob: 100 tokens, 1000 of coin - still worth five times his debt after it.
+            signed(bob.keypair, main.deposit_collateral(100));
+            signed(bob.keypair, main.mint_stable(1000));
+            after(HOUR); post_price(P1);
+            after(HOUR); post_price(P2);
+            after(HOUR); post_price(P3);
+            // 200 tokens worth 10240 against 7666 of coin: solvent, so nobody can settle.
+            signed_must_fail(bob.keypair, main.settle(), "system is solvent");
+            // Bob liquidates 1000 of alice's debt on the way down: 1000 * 105% / 51.2 = 20
+            // with the bonus, 100 * 1000 / 6666 = 15 pro rata; he gets 15.
+            signed(bob.keypair, main.liquidate(alice.account.id, 1000));
+            assert_equals(main.get_tokens(bob.account.id), 15);
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 85);
+            assert_equals(main.get_cdp(alice.account.id)!!.debt, 5666);
+            assert_conserved();
+            // Two more honest posts and the system is worth less than its coin:
+            // 185 tokens * 32.768 = 6062 against 6666.
+            after(HOUR); post_price(40960000);
+            after(HOUR); post_price(32768000);
+            signed(alice.keypair, main.settle());
+            // Bob owes 1000 = 30 tokens at 32.768; his other 70 come straight back.
+            assert_equals(main.get_tokens(bob.account.id), 85);
+            assert_equals(main.get_cdp(bob.account.id)!!.collateral, 30);
+            // Alice owes 5666 = 172 tokens and has 85: all of it is the holders'.
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 85);
+            assert_equals(main.get_system().settlement_pool, 115);
+            assert_equals(main.get_system().settlement_supply, 6666);
+            assert_conserved();
+            // Every coin is worth 115 / 6666 of a token, to alice and bob alike.
+            signed(alice.keypair, main.redeem_settled(6666));
+            assert_equals(main.get_tokens(alice.account.id), 115);
+            assert_equals(main.get_stable(alice.account.id), 0);
+            assert_conserved();
+        }
+
+        // Liquidation is refused while a position is healthy, pays the bonus only out of
+        // the position's surplus, and improves the position it touches.
+        function test_liquidation_is_bounded_and_never_worsens_a_position() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            post_price(PAR);
+            signed(alice.keypair, main.deposit_collateral(100));
+            signed(alice.keypair, main.mint_stable(6000));
+            signed(bob.keypair, main.deposit_collateral(100));
+            signed(bob.keypair, main.mint_stable(3000));
+            // 8000 of collateral against 6000: 133%, above LIQUIDATION_RATIO_BPS.
+            after(HOUR); post_price(P1);
+            signed_must_fail(bob.keypair, main.liquidate(alice.account.id, 1000), "position is healthy");
+            // 6400 against 6000: 106.7%, liquidatable. Bob repays 3000: with the bonus
+            // 3000 * 105% / 64 = 49 tokens, pro rata 100 * 3000 / 6000 = 50; he gets 49.
+            after(HOUR); post_price(P2);
+            signed(bob.keypair, main.liquidate(alice.account.id, 3000));
+            assert_equals(main.get_tokens(bob.account.id), 49);
+            assert_equals(main.get_stable(bob.account.id), 0);
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 51);
+            assert_equals(main.get_cdp(alice.account.id)!!.debt, 3000);
+            // 51 * 64 = 3264 against 3000: 108.8%, up from 106.7%.
+            assert_conserved();
+            // Alice can still repay her own debt at par and take her collateral out.
+            signed(alice.keypair, main.burn_stable(3000));
+            assert_equals(main.get_cdp(alice.account.id)!!.debt, 0);
+            signed(alice.keypair, main.withdraw_collateral(51));
+            assert_equals(main.get_tokens(alice.account.id), 51);
+            assert_equals(main.get_stable(alice.account.id), 3000);
+            assert_conserved();
+        }
+
+        // Mint and withdraw are checked against the ratio at a FRESH price, and a stale or
+        // missing price halts them.
+        function test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            signed(alice.keypair, main.deposit_collateral(100));
+            signed_must_fail(alice.keypair, main.mint_stable(1), "price feed not initialised");
+            post_price(PAR);
+            // 10000 of collateral allows 6666, not 6667.
+            signed_must_fail(alice.keypair, main.mint_stable(6667), "under the collateral ratio");
+            signed(alice.keypair, main.mint_stable(6666));
+            signed_must_fail(alice.keypair, main.withdraw_collateral(1), "under the collateral ratio");
+            signed(alice.keypair, main.burn_stable(3333));
+            // 3333 of debt needs 50 tokens at par; 50 may leave, 51 may not.
+            signed_must_fail(alice.keypair, main.withdraw_collateral(51), "under the collateral ratio");
+            signed(alice.keypair, main.withdraw_collateral(50));
+            assert_equals(main.get_tokens(alice.account.id), 50);
+            assert_conserved();
+            // A day and a second later the price is stale: nothing priced runs.
+            after(main.MAX_PRICE_AGE_MS + 1000);
+            signed_must_fail(alice.keypair, main.mint_stable(1), "price feed is stale");
+            signed_must_fail(alice.keypair, main.withdraw_collateral(1), "price feed is stale");
+            // Burning needs no price: the debtor can always retire debt at par.
+            signed(alice.keypair, main.burn_stable(3333));
+            signed(alice.keypair, main.withdraw_collateral(50));
+            assert_equals(main.get_tokens(alice.account.id), 100);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
 
     private fun vaultChromiaYml(name: String): String = oracleChromiaYml(name, "vault")
 

@@ -24,10 +24,10 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin")
 
     /** The templates whose main module reads an oracle key from configuration. */
-    private val oracleTemplates = setOf("vault", "lending")
+    private val oracleTemplates = setOf("vault", "lending", "stablecoin")
 
     private fun rellOf(template: String): Map<String, String> =
         DappScaffold.files("treasury", template = template)
@@ -86,8 +86,9 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin"), DappScaffold.templates)
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
+        assertEquals("stablecoin", DappScaffold.toJson("peg", template = "stablecoin").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
         assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
         assertEquals("marketplace", DappScaffold.toJson("bazaar", template = "marketplace").getValue("template").toString().trim('"'))
@@ -138,6 +139,16 @@ class DappScaffoldSecureTemplatesTest {
                 notes.contains("until COMMITMENT_MS (a constant, never a parameter) after the row was created."),
             "the notes must name the JIT guard, not just the template"
         )
+        // Round 9 built its stablecoin on the vault's advice BECAUSE these notes sent
+        // "stablecoin" to template=vault. They must now name the class's own template,
+        // the absence that makes the drain unwritable, and the residual the header admits.
+        assertTrue(notes.contains("start from template=stablecoin, NOT template=vault"), "notes must steer stablecoin / CDP builders to their own template")
+        assertTrue(
+            notes.contains("NO operation that pays a coin holder par out of\nsomebody else's position"),
+            "the notes must name the stablecoin guard - it is an ABSENCE, and the corpus pins the drain on its presence"
+        )
+        assertTrue(notes.contains("PRO-RATA share (collateral * repaid / debt, never more, whatever the\norder)"), "the notes must name the liquidation cap that makes order irrelevant")
+        assertTrue(notes.contains("still leaves bad debt"), "the notes must carry the header's residual, not a claim of a peg no template can hold")
     }
 
     /**
@@ -196,6 +207,25 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(
             "amm" in DappScaffold.templates,
             "the class round 8 drained must no longer redirect to vault"
+        )
+        // Round 9's stablecoin was built on the vault's advice because "stablecoin"
+        // sat in the vault's keyword list and the redirect said so. Every name for the
+        // class must reach its own template AHEAD of lending (which claims "debt") and
+        // of vault; `oracle`, `redeem` and `debt_market` must still land where they did.
+        listOf("stable_coin", "cdp", "cdp_vault", "collateralized_debt", "pegged_token", "synthetic_asset").forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("Use `template=stablecoin`"), "$asked must be routed to the stablecoin template: $warning")
+            assertTrue(warning.contains("NO operation that pays a coin"), "$asked must be told what makes the round-9 drain unwritable: $warning")
+        }
+        listOf("oracle", "redeem", "price_feed").forEach { asked ->
+            assertTrue(
+                DappScaffold.toJson("x", template = asked).getValue("warnings").toString().contains("Use `template=vault`"),
+                "$asked must still reach the vault template"
+            )
+        }
+        assertTrue(
+            DappScaffold.toJson("x", template = "debt_market").getValue("warnings").toString().contains("Use `template=lending`"),
+            "a debt market must still reach the lending template"
         )
         assertTrue(
             DappScaffold.toJson("x", template = "zzz_nothing_like_this").getValue("warnings").toString().contains("No shipped template covers that name"),
@@ -1106,6 +1136,80 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the amm source")
     }
 
+    /**
+     * Round 9's drain was an OPERATION - redeem the coin for collateral at par out
+     * of the reserve - so the load-bearing guard is an absence, and this test pins
+     * it: no operation in the template pays a coin holder collateral except the
+     * pro-rata liquidation and the post-settlement redemption, and neither of them
+     * reads par. Everything else is the shape of the two operations that do.
+     */
+    @Test
+    fun stablecoinGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("peg", template = "stablecoin").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // The oracle: configuration, the vault's bounds, never a parameter or a constant.
+        assertTrue(main.contains("struct module_args {\n    oracle_pubkey: pubkey;\n}"), "the oracle key must be the module_args struct's only field")
+        assertTrue(main.contains("require(op_context.is_signer(chain_context.args.oracle_pubkey), \"oracle only\")"))
+        assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the stablecoin source")
+        assertTrue(main.contains("price * BPS <= prev * (BPS + MAX_PRICE_MOVE_BPS)"))
+        assertTrue(main.contains(">= MIN_PRICE_UPDATE_INTERVAL_MS, \"price update too soon\")"))
+        assertTrue(main.contains("<= MAX_PRICE_AGE_MS,\n        \"price feed is stale\""))
+        // NO REDEMPTION AT PAR. The only operations that credit a token_account other
+        // than the caller's own deposit coming back are liquidate (pro rata) and
+        // redeem_settled (pool share); each is priced from the position or the pool,
+        // and no operation converts coin to collateral through the live price.
+        val operations = Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList()
+        assertEquals(
+            listOf("set_price", "register_account", "deposit_collateral", "mint_stable", "burn_stable",
+                "withdraw_collateral", "liquidate", "settle", "redeem_settled"),
+            operations,
+            "the template must ship exactly these operations - a redeem/exchange at par is the round-9 drain"
+        )
+        operations.filter { it !in setOf("liquidate", "redeem_settled", "withdraw_collateral", "settle") }.forEach { op ->
+            assertFalse(opBody(code, op).contains("my_tokens ( .balance +="), "$op must not pay collateral to the caller")
+        }
+        assertFalse(code.contains("* PRICE_SCALE / current_price()"), "no coin-to-collateral conversion at the live price")
+        // The peg is the debtor's OWN debt: burn retires the caller's position only.
+        val burn = opBody(code, "burn_stable")
+        assertTrue(burn.contains("val c = cdp_of(account.id);") && burn.contains("require(c.debt >= amount, \"more than this position owes\");"))
+        assertFalse(Regex("operation\\s+burn_stable\\s*\\([^)]*byte_array").containsMatchIn(code), "burn_stable must not name another position")
+        // Mint and withdraw: the WHOLE debt against a FRESH price, in the same body.
+        val mint = opBody(code, "mint_stable")
+        assertTrue(mint.contains("val price = current_price();"))
+        assertTrue(mint.contains("require(meets_ratio(c.collateral, c.debt + amount, price), \"under the collateral ratio\");"))
+        assertTrue(mint.contains("update c ( .debt += amount );") && mint.contains("update me ( .balance += amount );"), "every minted unit is a unit of the position's debt")
+        val withdraw = opBody(code, "withdraw_collateral")
+        assertTrue(withdraw.contains("require(meets_ratio(c.collateral - amount, c.debt, price), \"under the collateral ratio\");"))
+        // LIQUIDATION: refused while healthy, bonus bounded, and CAPPED AT PRO RATA -
+        // the line that makes transaction order worthless.
+        val liquidate = opBody(code, "liquidate")
+        assertTrue(liquidate.contains("require(not is_healthy(t, price), \"position is healthy\");"))
+        assertTrue(liquidate.contains("val pro_rata = t.collateral * stable_in / t.debt;"))
+        assertTrue(liquidate.contains("val seize = min(with_bonus, pro_rata);"), "a liquidator must never take more than the position's pro-rata share")
+        assertTrue(liquidate.contains("require(target != account.id, \"cannot liquidate your own position\");"))
+        assertTrue(liquidate.contains("update t ( .debt -= stable_in, .collateral -= seize );"))
+        // SETTLEMENT: only an insolvent system, surplus back to owners, one pool, one
+        // rate; and it stops everything else.
+        val settle = opBody(code, "settle")
+        assertTrue(settle.contains("collateral_value(system.total_collateral, price) < system.total_debt,\n        \"system is solvent\""), "a solvent system must not be freezable")
+        assertTrue(settle.contains("val owed = min(c.collateral, c.debt * PRICE_SCALE / price);"))
+        assertTrue(settle.contains("settlement.settled = true;"))
+        listOf("deposit_collateral", "mint_stable", "burn_stable", "withdraw_collateral", "liquidate", "settle", "set_price").forEach { op ->
+            assertTrue(opBody(code, op).contains("live();"), "$op must refuse to run after settlement")
+        }
+        val redeem = opBody(code, "redeem_settled")
+        assertTrue(redeem.contains("require(settlement.settled, \"system is not settled\");"))
+        assertTrue(redeem.contains("val tokens_out = stable_in * settlement.pool / settlement.supply;"), "post-settlement redemption must be the same share for every coin")
+        // The reserve is a row of the users' entity keyed by the chain's own id.
+        assertTrue(main.contains("function vault_id(): byte_array = chain_context.blockchain_rid;"))
+        // Constants, not parameters.
+        listOf("MIN_COLLATERAL_RATIO_BPS", "LIQUIDATION_RATIO_BPS", "LIQUIDATION_BONUS_BPS", "MAX_PRICE_MOVE_BPS", "MAX_AMOUNT").forEach {
+            assertTrue(main.contains("val $it ="), "$it must be a named constant")
+        }
+        // The header admits what the template cannot fix.
+        assertTrue(main.contains("What no template can fix: a price that falls faster than liquidators act still"))
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -1326,6 +1430,19 @@ class DappScaffoldSecureTemplatesTest {
         )
     )
 
+    @Test
+    fun stablecoinShippedTestsRunGreen() = assertShippedGreen(
+        "stablecoin",
+        setOf(
+            "test_round9_redemption_at_par_out_of_a_shortfall_must_fail",
+            "test_round9_control_order_does_not_change_the_outcome",
+            "test_round9_settlement_shares_the_shortfall_in_any_order",
+            "test_settlement_returns_surplus_to_its_owner",
+            "test_liquidation_is_bounded_and_never_worsens_a_position",
+            "test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price"
+        )
+    )
+
     /** What the Rell runner reports when a run_must_fail transaction succeeds - the attack landed. */
     private val attackLanded = "did not fail"
 
@@ -1459,6 +1576,74 @@ class DappScaffoldSecureTemplatesTest {
         "require(proposer.stake > 0, \"only members with stake may propose\");",
         "test_round1_single_account_drain_must_fail",
         "only members with stake may propose"
+    )
+
+    /**
+     * THE ROUND-9 DRAIN, PUT BACK where the template lets it be put back. The
+     * template has no redeem-at-par to delete - the guard is an ABSENCE - so the
+     * mutant re-creates the shape in the one operation that pays coin holders
+     * after a crash: post-settlement redemption at PAR out of the pool, first come
+     * first served, instead of the same share for every coin. The attacker's 6666
+     * then buys 130 tokens of a 200 pool and the honest holder is left 70 - round
+     * 9's exact numbers - and the replay's 100/100 assertion trips.
+     */
+    @Test
+    fun stablecoinRound9ReplayGoesRedWhenSettledCoinRedeemsAtPar() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "val tokens_out = stable_in * settlement.pool / settlement.supply;",
+        "val tokens_out = min(stable_in * PRICE_SCALE / settlement.price, settlement.pool - settlement.paid);",
+        "test_round9_settlement_shares_the_shortfall_in_any_order",
+        "vault cannot cover the redemption",
+        "expected"
+    )
+
+    /**
+     * Drop the pro-rata cap and a liquidator is paid the bonus rate out of a
+     * position that cannot afford it: 105 tokens of the honest position's 100 for
+     * 5120 of coin, where pro rata pays 76 - the order-dependent overpayment round
+     * 9 was built on, and the replay's 76 assertion trips.
+     */
+    @Test
+    fun stablecoinRound9ReplayGoesRedWithoutTheProRataCap() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "val seize = min(with_bonus, pro_rata);",
+        "val seize = with_bonus;",
+        "test_round9_redemption_at_par_out_of_a_shortfall_must_fail",
+        "vault cannot cover the liquidation",
+        "expected"
+    )
+
+    /** Let a SOLVENT system be settled and anyone can freeze every position at a price of their choosing. */
+    @Test
+    fun stablecoinSettlementTestGoesRedWhenASolventSystemCanBeSettled() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "collateral_value(system.total_collateral, price) < system.total_debt,\n        \"system is solvent\"",
+        "collateral_value(system.total_collateral, price) < system.total_debt or true,\n        \"system is solvent\"",
+        "test_round9_settlement_shares_the_shortfall_in_any_order",
+        "price feed is stale",
+        attackLanded
+    )
+
+    /** Without the health check a healthy position can be liquidated for the bonus. */
+    @Test
+    fun stablecoinLiquidationTestGoesRedWithoutTheHealthCheck() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "require(not is_healthy(t, price), \"position is healthy\");",
+        "require(not is_healthy(t, price) or true, \"position is healthy\");",
+        "test_liquidation_is_bounded_and_never_worsens_a_position",
+        "amount too small",
+        attackLanded
+    )
+
+    /** Without the ratio check on mint the coin is minted against nothing - the unbacked mint. */
+    @Test
+    fun stablecoinRatioTestGoesRedWithoutTheMintRatioCheck() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "require(meets_ratio(c.collateral, c.debt + amount, price), \"under the collateral ratio\");",
+        "require(meets_ratio(c.collateral, c.debt + amount, price) or true, \"under the collateral ratio\");",
+        "test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price",
+        "price feed not initialised",
+        attackLanded
     )
 
     @Test

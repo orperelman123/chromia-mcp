@@ -223,6 +223,22 @@ object ChromiaRellPracticesHelp {
         written. Its header states what neither guard stops - price impact you re-quote
         into, and a cheap grief where anyone touching the reserves makes pending swaps
         revert - and ships both as tests rather than as claims.
+        Stablecoin, CDP, synthetic, pegged asset - a coin MINTED AGAINST LOCKED COLLATERAL that
+        a price can put under water: start from template=stablecoin, NOT template=vault. Round 9
+        built one on the vault's advice, followed its reserve discipline to the letter, and was
+        drained by REDEEMING THE COIN FOR COLLATERAL AT PAR out of a reserve that no longer
+        covered it: 13332 of coin against collateral worth 10240 after three honest -20% posts,
+        and whoever redeemed first took 100 cents on the dollar while the last holder kept 3082 of
+        a coin nothing backed - thirty tokens moved on order alone, gate ok:true, zero findings.
+        A CDP's coin is a LIABILITY of a position, not a claim on a pool, and the template has NO
+        operation that pays a coin holder par out of somebody else's position: the peg is the
+        debtor's burn at par against their OWN debt, an under-water position closes by
+        LIQUIDATION capped at the position's PRO-RATA share so every liquidator is paid the same
+        rate in any order, and a system worth less than its coin at a fresh price is SETTLED -
+        surplus back to each owner, the rest one pool every coin redeems the same share of. Mint
+        and withdraw are ratio-checked against the WHOLE debt at a FRESH bounded price. Its
+        header admits the residual: a price that falls faster than liquidators act still leaves
+        bad debt, and the coin is then worth the settlement rate, not par.
         The AUCTION is in the MARKETPLACE template too - a timed ascending auction with NO mutable bid
         field (the standing bid is its own immutable escrow row, raising is delete-and-recreate, settlement
         is permissionless after the deadline), plus require_unencumbered, the one helper every
@@ -332,7 +348,7 @@ object ChromiaRellPracticesHelp {
                 "DAO / treasury: template=governance; oracle-priced reserve or vault, NOT an exchange: template=vault; swap pool / DEX pair / AMM: template=amm; " +
                 "staking / rewards / emissions: template=staking; payroll / subscription / vesting / drip: template=streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
-                "template=lending - " +
+                "template=lending; stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail."
         )
         put("security_keys", buildJsonArray { securityKeys.forEach { add(JsonPrimitive(it)) } })

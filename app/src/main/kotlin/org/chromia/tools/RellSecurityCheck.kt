@@ -2273,10 +2273,41 @@ object RellSecurityCheck {
         val readsPrice = PRICE_STATE_READ_REGEX.containsMatchIn(flat) || calls.any { it in priceReadFunctions }
         val priceSource = priceSourceRegex(priceReadFunctions)
         val priceDerived = derivedNames(bindings, emptySet(), priceSource)
+        // A COLLATERALISED LIABILITY IS THE DEBIT. The CDP mint (stablecoin
+        // template): `update me ( .balance += amount )` next to `update c ( .debt
+        // += amount )`, where debt is a mirrored liability counter (see
+        // mirroredCounterFields), and a require() in the same body relates that
+        // amount to the price - the collateral ratio. The minter gets X of
+        // spendable coin only by owing X more against collateral a fresh price
+        // says covers it. The reserve debit this rule otherwise prescribes does
+        // not exist for a liability, and adversary round 9 was drained by a build
+        // that followed exactly that prescription (the vault's reserve discipline
+        // bolted onto a CDP). The same pair WITHOUT the price-gated require() is
+        // the opposite defect and gets its own finding (1b): before this branch
+        // existed the ratio check's own price arithmetic was what made the rule
+        // fire on the correct template, and deleting the check made it go quiet -
+        // the guard's presence was the finding. The corpus pins both directions.
+        fun liabilityPairedWith(c: AmountWrite): String? {
+            val amount = c.amount.replace(WS_REGEX, "")
+            if (amount.isEmpty() || amount == "0") return null
+            val owes = writes.firstOrNull { w ->
+                w.flow == Flow.CREDIT && !w.create && w.entity != null && w.entity != c.entity &&
+                    (w.entity to w.field) in mirroredCounters && w.amount.replace(WS_REGEX, "") == amount
+            } ?: return null
+            return "${owes.entity}.${owes.field}"
+        }
+        fun priceGatesTheAmount(c: AmountWrite): Boolean {
+            val amountRefs = refsOf(c.amount)
+            return flat.split(';').any { stmt ->
+                REQUIRE_REGEX.containsMatchIn(stmt) &&
+                    refClosure(stmt, bindings).let { refs -> amountRefs.any { it in refs } && refs.any { it in priceDerived } }
+            }
+        }
         if (readsPrice && ARITHMETIC_REGEX.containsMatchIn(flat)) {
             val credit = valueCredits.firstOrNull { c ->
                 c.flow == Flow.CREDIT && c.entity != null &&
-                    !backedByEntity(c) && !backedByAmount(c) && !backedByFlow(c, priceDerived)
+                    !backedByEntity(c) && !backedByAmount(c) && !backedByFlow(c, priceDerived) &&
+                    !(liabilityPairedWith(c) != null && priceGatesTheAmount(c))
             }
             if (credit != null) {
                 return listOf(
@@ -2289,6 +2320,32 @@ object RellSecurityCheck {
                         "Make the conversion conserve value: pay the credit out of a reserve/vault row of the " +
                             "same asset (require(reserve.balance >= out) then update reserve ( .balance -= out )), " +
                             "and bound price updates (max move per update, staleness check). $fixTail"
+                    )
+                )
+            }
+        }
+        // 1b. A LOAN AGAINST COLLATERAL NOBODY MEASURED: the liability pair is
+        // there and a price is read, but no require() relates the minted amount
+        // to that price. Round 9's numbers with the ratio check deleted: 6667, or
+        // 6,666,666, against 100 tokens. Needs the price read - a mint with no
+        // price in the body at all is not a conversion and this rule cannot see
+        // it; the template's mutant test covers that side.
+        if (readsPrice) {
+            val credit = valueCredits.firstOrNull { c ->
+                c.flow == Flow.CREDIT && c.entity != null && !backedByEntity(c) && !backedByAmount(c) &&
+                    liabilityPairedWith(c) != null && !priceGatesTheAmount(c)
+            }
+            if (credit != null) {
+                return listOf(
+                    Finding(
+                        "MEDIUM", "unbacked-conversion-credit", path, op.line,
+                        "operation ${op.name} credits ${where(credit)} and raises the liability " +
+                            "${liabilityPairedWith(credit)} by the same amount while reading a price, but no " +
+                            "require() in the body relates that amount to the price - the coin is minted " +
+                            "against collateral nobody measured, so any amount can be borrowed against any position",
+                        "Gate the mint on the collateral ratio at the fresh price, over the WHOLE debt: " +
+                            "require(debt + amount <= collateral_value(collateral, price) * BPS / MIN_RATIO_BPS) " +
+                            "before the credit (scaffold_dapp template=stablecoin ships this as meets_ratio). $fixTail"
                     )
                 )
             }
