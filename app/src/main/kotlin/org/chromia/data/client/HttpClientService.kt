@@ -56,7 +56,11 @@ class HttpClientService(
         query: GraphQLQuery,
         network: String?
     ): JsonResult = withContext(Dispatchers.IO) {
-        val targetNetwork = network ?: config.defaultNetwork
+        // `Mainnet` is not a different network: fold case/whitespace onto the
+        // canonical name before the typo gate below (DX audit 2026-09-04).
+        val targetNetwork = network?.trim()?.let { asked ->
+            config.predefinedNetworks.keys.firstOrNull { it.equals(asked, ignoreCase = true) } ?: asked
+        } ?: config.defaultNetwork
 
         // The explorer takes a network NAME as a query parameter and is not
         // guaranteed to reject unknown values - a typo ("tesnet") could come

@@ -125,13 +125,19 @@ class PostchainClientService(
      * URL (http/https) for custom nodes - verify_deployment accepts both, and
      * chromia_dapp_query inherits the URL form for free.
      */
-    internal fun resolveUrls(networkName: String): List<String> =
-        config.predefinedNetworks[networkName]
-            ?: if (networkName.startsWith("http://") || networkName.startsWith("https://")) {
-                listOf(networkName.trimEnd('/'))
+    internal fun resolveUrls(networkName: String): List<String> {
+        // `Testnet` / ` testnet ` is not a different network (DX audit
+        // 2026-09-04: the case variant surfaced as a node error inside a
+        // live:false verdict, one hop away from the real cause).
+        val name = networkName.trim()
+        return config.predefinedNetworks[name]
+            ?: config.predefinedNetworks.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+            ?: if (name.startsWith("http://", ignoreCase = true) || name.startsWith("https://", ignoreCase = true)) {
+                listOf(name.trimEnd('/'))
             } else {
                 throw NetworkConfigurationException(networkName, config.predefinedNetworks.keys)
             }
+    }
 
     /**
      * Current block height of [blockchainRid] on [network] (predefined name or

@@ -233,6 +233,22 @@ class HttpClientServiceTest {
     }
 
     @Test
+    fun networkNameCaseIsFoldedOntoTheCanonicalName() = runBlocking {
+        // `Mainnet` used to be refused as a typo (DX audit 2026-09-04).
+        val engine = MockEngine {
+            respond(
+                content = """{"data":{"ok":true}}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val result = service(engine).executeGraphQLQuery(graphqlQuery { query("{ ping }") }, " Mainnet ")
+        assertTrue(result is NetworkResult.Success, result.toString())
+        assertEquals(1, engine.requestHistory.size)
+        assertEquals("mainnet", engine.requestHistory.single().url.parameters["network"], "the explorer must see the canonical name")
+    }
+
+    @Test
     fun nodeUrlAsNetworkGetsExplorerVsNodeDirectHint() = runBlocking {
         val engine = MockEngine {
             respond(

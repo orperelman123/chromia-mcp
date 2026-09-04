@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.chromia.tools.DappScaffold
@@ -88,6 +89,81 @@ class InputAbuseAndLifecycleRegressionTest {
         val help = call("chr_build_help", buildJsonObject { put("topic", "x") })
         assertEquals(true, help.isError, text(help))
         assertTrue(text(help).contains("this tool declares no arguments"), text(help))
+    }
+
+    @Test
+    fun argumentNamesCarriedFromASiblingToolAreMappedToTheDeclaredOne() {
+        // The tools are not uniform: verify_deployment says `brid`, the explorer
+        // tools `rid`, chromia_dapp_query `blockchainRid` + `arguments`. An agent
+        // reusing the previous call's names got the declared list and no hint
+        // (DX audit 2026-09-04, five probes in a row).
+        val q = call(
+            "chromia_dapp_query",
+            buildJsonObject {
+                put("brid", "A".repeat(64)); put("query", "rell.get_app_structure")
+                put("args", buildJsonObject { }); put("url", "https://node0.testnet.chromia.com:7740")
+            }
+        )
+        assertEquals(true, q.isError, text(q))
+        assertTrue(text(q).contains("`brid` (did you mean `blockchainRid`?)"), text(q))
+        assertTrue(text(q).contains("`args` (did you mean `arguments`?)"), text(q))
+        assertTrue(text(q).contains("`url` (did you mean `network`?)"), text(q))
+
+        val v = call("verify_deployment", buildJsonObject { put("blockchainRid", "A".repeat(64)); put("network", "testnet") })
+        assertEquals(true, v.isError, text(v))
+        assertTrue(text(v).contains("`blockchainRid` (did you mean `brid`?)"), text(v))
+
+        val accepted = setOf("blockchainRid", "network", "query", "arguments")
+        assertEquals("blockchainRid", executor.suggestArgument("rid", accepted))
+        assertEquals("blockchainRid", executor.suggestArgument("blockchain_rid", accepted))
+        assertEquals("arguments", executor.suggestArgument("params", accepted))
+        assertEquals("network", executor.suggestArgument("nodeUrl", accepted))
+        assertNull(executor.suggestArgument("signer", accepted), "an unrelated name gets no guess")
+        assertEquals("rell", executor.suggestArgument("source", setOf("yaml", "rell", "files")))
+    }
+
+    @Test
+    fun networkNamesAndGoalsAreCaseInsensitive() {
+        // verify_deployment network="Testnet" answered live:false with the real
+        // cause ("Network 'Testnet' not found") one hop down inside a node error
+        // (DX audit 2026-09-04).
+        val service = org.chromia.data.client.PostchainClientService(org.chromia.data.config.ChromiaConfig())
+        assertEquals(service.resolveUrls("testnet"), service.resolveUrls("Testnet"))
+        assertEquals(service.resolveUrls("mainnet"), service.resolveUrls(" MAINNET "))
+        assertEquals(listOf("https://node.example:7740"), service.resolveUrls("https://node.example:7740/"))
+        val unknown = assertThrows(org.chromia.domain.exceptions.NetworkConfigurationException::class.java) { service.resolveUrls("tesnet") }
+        assertTrue(unknown.message!!.contains("Available networks: mainnet, testnet, devnet1, devnet2"), unknown.message)
+        assertTrue(unknown.message!!.contains("or pass a node URL (https://host:7740)"), unknown.message)
+
+        val plan = call(
+            "onboarding_next_step",
+            buildJsonObject { put("hasProject", true); put("compiles", true); put("securityClean", true); put("testsPass", true); put("goal", "Testnet") }
+        )
+        assertTrue(plan.isError != true, text(plan))
+        assertFalse(text(plan).contains("goal must be one of"), text(plan))
+        val typo = call("onboarding_next_step", buildJsonObject { put("goal", "tesnet") })
+        assertEquals(true, typo.isError, text(typo))
+        assertTrue(text(typo).contains("goal must be one of local|testnet|mainnet (got \"tesnet\")"), text(typo))
+    }
+
+    @Test
+    fun unknownPromptCategoryIsNamedWithTheValidOnes() {
+        val unknown = call("get_prompts", buildJsonObject { put("category", "stablecoins") })
+        assertTrue(unknown.isError != true, text(unknown))
+        val notes = unknown.structuredContent!!.getValue("notes").jsonPrimitive.content
+        assertTrue(notes.startsWith("No prompt category named 'stablecoins'. Valid categories: "), notes)
+        assertTrue(notes.contains("dapp_build") && notes.contains("chromia_stack"), notes)
+        assertTrue(notes.contains("Use `search` to match prompt text across every category."), notes)
+
+        val near = call("get_prompts", buildJsonObject { put("category", "build") })
+        val nearNotes = near.structuredContent!!.getValue("notes").jsonPrimitive.content
+        assertTrue(nearNotes.contains("Did you mean 'dapp_build'?"), nearNotes)
+
+        // Case is not a different category, and a real category carries no note.
+        val cased = call("get_prompts", buildJsonObject { put("category", "Dapp_Build") })
+        assertTrue(cased.isError != true, text(cased))
+        assertNull(cased.structuredContent!!["notes"], text(cased))
+        assertTrue(cased.structuredContent!!.getValue("prompts").jsonObject.containsKey("dapp_build"), text(cased))
     }
 
     @Test

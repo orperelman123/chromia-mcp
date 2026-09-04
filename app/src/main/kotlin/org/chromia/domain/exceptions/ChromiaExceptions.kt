@@ -9,7 +9,8 @@ class NetworkConfigurationException(
     networkName: String,
     availableNetworks: Set<String> = emptySet()
 ) : ChromiaException(
-    "Network '$networkName' not found. Available networks: ${availableNetworks.joinToString(", ")}"
+    "Network '$networkName' not found. Available networks: ${availableNetworks.joinToString(", ")}" +
+        (if (availableNetworks.isEmpty()) "" else " - or pass a node URL (https://host:7740) to query that node directly.")
 )
 
 class HttpRequestException(

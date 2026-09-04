@@ -169,17 +169,41 @@ class ToolExecutor(
         val accepted = acceptedArguments[toolName] ?: return null
         val unknown = argumentNames.filter { it !in accepted }
         if (unknown.isEmpty()) return null
-        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
         val described = unknown.joinToString(", ") { name ->
-            val n = norm(name)
-            val suggestion = accepted.firstOrNull { norm(it) == n }
-                ?: accepted.firstOrNull { n.isNotEmpty() && (norm(it).contains(n) || n.contains(norm(it))) }
+            val suggestion = suggestArgument(name, accepted)
             if (suggestion != null) "`$name` (did you mean `$suggestion`?)" else "`$name`"
         }
         val declared = if (accepted.isEmpty()) "this tool declares no arguments"
         else "declared arguments: ${accepted.sorted().joinToString(", ")}"
         return "Unknown argument(s) for $toolName: $described - $declared. " +
             "Undeclared arguments are never honoured, so the call would have silently ignored them; rename or remove them."
+    }
+
+    /**
+     * Names that mean the same thing across this server's tools. The tools are
+     * not uniform - verify_deployment and the explorer tools say `brid`/`rid`,
+     * chromia_dapp_query says `blockchainRid` and `arguments` - so an agent
+     * carrying a name from the previous call gets no hint from spelling
+     * distance alone (DX audit 2026-09-04: `brid` on chromia_dapp_query got
+     * the declared list and nothing else, five probes in a row).
+     */
+    private val argumentSynonyms: List<Set<String>> = listOf(
+        setOf("brid", "rid", "blockchainrid", "blockchainid", "chainrid", "chainid", "dapprid"),
+        setOf("args", "arguments", "params", "parameters", "queryargs"),
+        setOf("url", "nodeurl", "node", "endpoint", "apiurl", "network"),
+        setOf("source", "code", "rell", "src"),
+        setOf("yaml", "yml", "chromiayml", "config"),
+        setOf("name", "chain", "blockchain", "dappname"),
+    )
+
+    internal fun suggestArgument(name: String, accepted: Set<String>): String? {
+        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+        val n = norm(name)
+        if (n.isEmpty()) return null
+        accepted.firstOrNull { norm(it) == n }?.let { return it }
+        accepted.firstOrNull { norm(it).contains(n) || n.contains(norm(it)) }?.let { return it }
+        val family = argumentSynonyms.firstOrNull { n in it } ?: return null
+        return accepted.firstOrNull { norm(it) in family }
     }
 
     /**
@@ -583,8 +607,13 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
             val tool = extractString(args, "tool")
             val search = extractString(args, "search")
 
-            val allPrompts = if (category != null) {
-                mapOf(category to promptManager.getPromptsForCategory(category))
+            val categories = promptManager.getCategories()
+            // `Dapp_Build` / ` chr ` is not a different category.
+            val resolvedCategory = category?.trim()?.let { asked ->
+                categories.firstOrNull { it.equals(asked, ignoreCase = true) } ?: asked
+            }
+            val allPrompts = if (resolvedCategory != null) {
+                mapOf(resolvedCategory to promptManager.getPromptsForCategory(resolvedCategory))
             } else {
                 promptManager.getCategories().associateWith { cat ->
                     promptManager.getPromptsForCategory(cat)
@@ -638,6 +667,17 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
                         )
                     }
                 )
+                // An unknown category used to answer {"prompts":{}} with the valid
+                // names only inside `statistics` (DX audit 2026-09-04) - say it.
+                if (resolvedCategory != null && resolvedCategory !in categories) {
+                    val near = categories.filter { it.contains(resolvedCategory, ignoreCase = true) || resolvedCategory.contains(it, ignoreCase = true) }
+                    put(
+                        "notes",
+                        "No prompt category named '$resolvedCategory'. Valid categories: ${categories.joinToString(", ")}." +
+                            (if (near.isNotEmpty()) " Did you mean ${near.joinToString(" or ") { "'$it'" }}?" else "") +
+                            " Use `search` to match prompt text across every category."
+                    )
+                }
             }
 
             toolSuccessResult(result)
@@ -1763,8 +1803,10 @@ class OnboardingNextStepStrategy(
             hasTestnetContainer = extractBoolean(args, "hasTestnetContainer") ?: false,
             hasTestnetKey = extractBoolean(args, "hasTestnetKey") ?: false,
             hasDeploymentConfig = extractBoolean(args, "hasDeploymentConfig") ?: false,
-            deployedTo = extractString(args, "deployedTo")?.takeIf { it.isNotBlank() } ?: "none",
-            goal = extractString(args, "goal")?.takeIf { it.isNotBlank() } ?: "testnet"
+            // `Testnet` is not a different goal (DX audit 2026-09-04): fold case and
+            // whitespace here so the plan's own validation only fires on real typos.
+            deployedTo = extractString(args, "deployedTo")?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "none",
+            goal = extractString(args, "goal")?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "testnet"
         )
         return toolSuccessResult(OnboardingNextStep.plan(state, registeredTools()).toJson())
     }
