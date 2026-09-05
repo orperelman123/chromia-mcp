@@ -339,7 +339,13 @@ Every push runs the full pyramid — none of these can be skipped:
    programs fired at the live compiler tools; `.github/workflows/nightly-fuzz.yml` runs 600
    iterations every night and opens an issue with a reproducible seed on any crash, hang, or
    leaked exception.
-6. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
+6. **Hosted check** (`scripts/hosted-check.mjs [--url <base>] [--expect-commit <sha>]`) — asks the
+   hosted server what it actually runs: `/health` version against a commit, and over SSE
+   whether `fetch_docs` reports a fresh index from the GitHub release asset. CI cannot see
+   the hosted box; `.github/workflows/hosted-check.yml` runs this every 6 hours and opens
+   one issue while the hosted server is behind `main` or stale (found this way 2026-09-05:
+   the service was 47 commits behind).
+7. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
    using only tool outputs: discovery → doc search → scaffold → plant a bug → locate it purely
    from compiler diagnostics → repair → security gate → behavior gate → validated deploy config
    → onboarding names the next step → the dapp runs on a live local chain and answers a real
@@ -353,6 +359,9 @@ Every push runs the full pyramid — none of these can be skipped:
   e2e sweep, the stdio smoke, the npm launcher's real release download, and the
   production-shaped boot against the published index (no artifact upload: see the comment in
   the workflow for why)
+- `.github/workflows/hosted-check.yml` — every 6 hours: is the hosted Render service on `main`
+  and answering from a fresh published index (`scripts/hosted-check.mjs`); opens/updates one
+  issue while it is not, closes it when it is
 - `.github/workflows/embeddings-refresh.yml` — weekly RAG embeddings regeneration (Mondays
   04:00 UTC, or manual dispatch). Runs `scripts/rag-eval.mjs` (40 probe questions, segment
   floor) and a size check against the published asset; only a store that passes both is

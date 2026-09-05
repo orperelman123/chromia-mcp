@@ -117,9 +117,10 @@ for the full index.**
 defaults to **SerialGC, which commits the entire ~358 MB heap up front and never
 returns it** — measured side by side: 378 MB working set (SerialGC) vs 234 MB (G1)
 for the same workload, with only ~30 MB of live objects. The Dockerfile now pins
-explicit G1, a 35% heap cap, heap-shrink ratios, and a periodic idle GC; every flag
-is annotated with its measurement in the Dockerfile itself. Expected live effect:
-idle ~47%, worst measured transient ~72% — **starter is comfortable for this surface.**
+explicit G1, a heap cap (35% then; **50% since 2026-09-04** for the full index, see the
+table above), heap-shrink ratios, and a periodic idle GC; every flag is annotated with its
+measurement in the Dockerfile itself. Expected live effect with the current store: ~425 MB
+working set (~83%) after a search burst — starter fits, 1 GB is comfortable.
 
 #### Owner options
 
