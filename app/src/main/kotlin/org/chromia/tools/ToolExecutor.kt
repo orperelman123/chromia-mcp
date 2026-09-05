@@ -1132,6 +1132,9 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
                         put("text", result)
                         put("hits", hitsJson)
                         if (staleNote != null) put("index_note", staleNote)
+                        // Origin/age of the index on every answer, so a deploy can be
+                        // verified over the wire; the text stays lean for the agent.
+                        ragStore.provenance?.let { put("index", it.toJson()) }
                     }
                 )
             }

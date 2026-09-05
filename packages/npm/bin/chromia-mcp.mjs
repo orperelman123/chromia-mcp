@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // npx chromia-mcp -> downloads (once) and runs the Chromia MCP server over stdio.
 // Requires Java 21+. Set CHROMIA_MCP_JAR to use a local jar instead.
-// The jar is fetched from the GitHub release matching this package version.
+// The jar is fetched from the GitHub release matching this package version
+// into CHROMIA_MCP_HOME (default ~/.chromia-mcp), once.
 
 import { spawnSync, spawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, renameSync } from 'node:fs';
@@ -12,7 +13,7 @@ import { createRequire } from 'node:module';
 
 const VERSION = createRequire(import.meta.url)('../package.json').version;
 const RELEASE_URL = `https://github.com/orperelman123/chromia-mcp/releases/download/v${VERSION}/chromia-mcp-server.jar`;
-const DIR = join(homedir(), '.chromia-mcp');
+const DIR = process.env.CHROMIA_MCP_HOME || join(homedir(), '.chromia-mcp');
 const JAR = process.env.CHROMIA_MCP_JAR || join(DIR, `chromia-mcp-server-${VERSION}.jar`);
 
 function fail(msg) { console.error(`[chromia-mcp] ${msg}`); process.exit(1); }
@@ -40,7 +41,7 @@ function download(url, dest, redirects = 0) {
 
 if (!existsSync(JAR)) {
   mkdirSync(DIR, { recursive: true });
-  console.error(`[chromia-mcp] downloading server v${VERSION} (~230MB, one-time) ...`);
+  console.error(`[chromia-mcp] downloading server v${VERSION} (~280MB, one-time) ...`);
   try {
     await download(RELEASE_URL, JAR);
   } catch (e) {

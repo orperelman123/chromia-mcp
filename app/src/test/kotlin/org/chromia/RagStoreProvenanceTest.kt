@@ -8,6 +8,7 @@ import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -169,5 +170,32 @@ class RagStoreProvenanceTest {
         val unknown = answering() // fixture store, no provenance at all
         val unknownText = (fetchDocs(unknown).content.single() as TextContent).text!!
         assertFalse(unknownText.contains("NOTE: documentation index"), unknownText)
+    }
+
+    @Test
+    fun fetchDocsAlwaysNamesTheIndexItAnsweredFromInStructuredOutput() = runBlocking {
+        // The hosted server is a black box over the wire: /health has no store (it loads
+        // lazily) and the text only speaks up when stale. A client verifying a deploy
+        // needs the origin and age of the index on every answer, fresh or not.
+        val generated = Instant.parse("2026-09-04T20:53:39Z")
+        val store = answering().also {
+            it.provenance = RagStore.Provenance("GitHub release asset ${RagStore.GITHUB_RELEASE_URL}", generated, 25823)
+        }
+        val index = fetchDocs(store).structuredContent!!.jsonObject["index"]!!.jsonObject
+        assertEquals("GitHub release asset ${RagStore.GITHUB_RELEASE_URL}", index["origin"]?.jsonPrimitive?.content)
+        assertEquals("2026-09-04T20:53:39Z", index["generated_at"]?.jsonPrimitive?.content)
+        assertEquals(25823, index["segments"]?.jsonPrimitive?.content?.toInt())
+        assertTrue((index["age_days"]?.jsonPrimitive?.content?.toLong() ?: -1) >= 0, index.toString())
+        assertEquals("false", index["stale"]?.jsonPrimitive?.content)
+
+        val text = (fetchDocs(store).content.single() as TextContent).text!!
+        assertFalse(text.contains("GitHub release asset"), "text stays lean - provenance is structured only: $text")
+
+        val unknownAge = answering().also { it.provenance = RagStore.Provenance("injected loader", null, 2) }
+        val unknownIndex = fetchDocs(unknownAge).structuredContent!!.jsonObject["index"]!!.jsonObject
+        assertTrue(unknownIndex["generated_at"] is JsonNull, unknownIndex.toString())
+        assertTrue(unknownIndex["age_days"] is JsonNull, unknownIndex.toString())
+
+        assertNull(fetchDocs(answering()).structuredContent!!.jsonObject["index"], "no provenance, no index object")
     }
 }

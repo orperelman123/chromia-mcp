@@ -23,9 +23,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.core.JsonToken
@@ -69,18 +72,21 @@ open class RagStore(
         const val GITHUB_REPO = "orperelman123/chromia-mcp"
         const val GITHUB_RELEASE_TAG = "embeddings"
         const val GITHUB_RELEASE_URL = "https://github.com/$GITHUB_REPO/releases/download/$GITHUB_RELEASE_TAG/$FILE_NAME"
-        /** Release metadata endpoint; its `assets[].url` is the only download path a private repo allows. */
+        /** Release metadata endpoint; its `assets[].url` is the only download path a private repo allows (unused while the repo is public). */
         const val GITHUB_RELEASE_API_URL = "https://api.github.com/repos/$GITHUB_REPO/releases/tags/$GITHUB_RELEASE_TAG"
         const val EMBEDDINGS_PATH_ENV = "CHROMIA_EMBEDDINGS_PATH"
         /** Optional first remote to try, ahead of the GitHub release and the GitLab package. */
         const val EMBEDDINGS_URL_ENV = "CHROMIA_EMBEDDINGS_URL"
         /**
-         * Token for the GitHub release download. The repository is private (2026-09-04),
-         * so the public `releases/download/...` URL answers 404 to anyone unauthenticated;
-         * with a token the asset is fetched through the releases API instead
-         * (`Accept: application/octet-stream` on `assets[].url`). A fine-grained token with
-         * read access to Contents on the repo is enough. `GITHUB_TOKEN` is honoured as a
-         * fallback so a GitHub Actions job needs nothing extra.
+         * Optional token for the GitHub release download. The repository has been public
+         * since 2026-09-05, so the plain `releases/download/...` URL is 200 with no
+         * credential and this is normally unset. It exists for the private case (the repo
+         * WAS private 2026-09-04 and the asset was 404 to production, which fell through
+         * to the year-old GitLab package without a word): with a token the asset is
+         * fetched through the releases API instead (`Accept: application/octet-stream`
+         * on `assets[].url`). A fine-grained token with read access to Contents on the
+         * repo is enough. `GITHUB_TOKEN` is honoured as a fallback so a GitHub Actions
+         * job needs nothing extra.
          */
         const val EMBEDDINGS_TOKEN_ENV = "CHROMIA_EMBEDDINGS_TOKEN"
         const val GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
@@ -141,10 +147,18 @@ open class RagStore(
          * which would pull in every segment that mentions the file.
          */
         private val IDENTIFIER_TOKEN = Regex("""\b(?:[A-Za-z][A-Za-z0-9]*(?:[_.][A-Za-z0-9]+)+|[a-z][a-z0-9]+[A-Z][A-Za-z0-9]*)\b""")
+        /**
+         * Long CLI flags (`--tests`, `--hide-lib-warnings`) are exact names an agent copies
+         * from a terminal, and the docs spell them the same way; the embedding model does
+         * not (2026-09-05: `chr test --tests` ranked repl.md first). `--` alone and short
+         * flags (`-t`) are not names. Stops at `=`, so the value is not part of the flag.
+         */
+        private val CLI_FLAG_TOKEN = Regex("""(?<![\w-])--[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?![\w-])""")
         private val FILE_EXTENSIONS = setOf("yml", "yaml", "rell", "md", "json", "kt", "kts", "ts", "js", "py", "xml", "html", "txt", "jar", "com", "org", "io", "dev")
 
         internal fun identifierTokens(query: String): List<String> =
-            IDENTIFIER_TOKEN.findAll(query)
+            (IDENTIFIER_TOKEN.findAll(query) + CLI_FLAG_TOKEN.findAll(query))
+                .sortedBy { it.range.first } // first-mentioned first, across both shapes
                 .map { it.value.trim('.', '_') }
                 .filter { it.length >= 5 }
                 .filterNot { token -> token.contains('.') && token.substringAfterLast('.').lowercase() in FILE_EXTENSIONS }
@@ -268,6 +282,19 @@ open class RagStore(
             val date = generatedAt?.let { DateTimeFormatter.ISO_LOCAL_DATE.format(it.atZone(ZoneOffset.UTC)) } ?: "unknown date"
             val age = ageDays(now)?.let { " ($it days old)" } ?: ""
             return "documentation index: $segments segments from $origin, generated $date$age"
+        }
+
+        /**
+         * Structured form for tool output. The hosted server loads the store lazily, so
+         * `/health` cannot say what index it runs on; this is how a client verifies a
+         * deploy actually picked up a published asset (2026-09-04: it had not, twice).
+         */
+        fun toJson(now: Instant = Instant.now()): JsonObject = buildJsonObject {
+            put("origin", origin)
+            put("generated_at", generatedAt?.toString())
+            put("age_days", ageDays(now))
+            put("segments", segments)
+            put("stale", staleWarning(now) != null)
         }
 
         /** A warning naming the fix when the index is older than [staleAfter]; null when fresh or of unknown age. */

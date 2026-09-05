@@ -188,3 +188,21 @@ jobs:
         run: |
           node scripts/stdio-smoke.mjs app/build/libs/chromia-mcp-server.jar
           node scripts/stdio-smoke.mjs --launcher
+
+      # The real first run of `npx chromia-mcp`: empty home, no local jar, so the
+      # launcher must download the LAST RELEASE's jar from the public GitHub
+      # release and run it. Transport-level checks only - that jar is not this
+      # commit. Possible since the repo went public (2026-09-05).
+      - name: npm launcher release download (the end-user install path)
+        run: node scripts/stdio-smoke.mjs --launcher-download
+
+      # Boot the jar the way Render and every fresh clone do - NO local
+      # embeddings.json, NO token - and require that the index it answers from is
+      # the published GitHub release asset, fresh, and passes the RAG probes.
+      # This is the check that was missing on 2026-09-04, twice: a fresh store was
+      # published and production silently kept answering from the 2025-10-21
+      # GitLab package (first the loader could not read it under the JVM caps,
+      # then the private repo answered 404) while every unit test was green.
+      # A red here means the hosted server would be stale after this deploy.
+      - name: Production-shaped boot (no local index, no token -> published asset)
+        run: node scripts/rag-eval.mjs --production-shaped --jar app/build/libs/chromia-mcp-server.jar

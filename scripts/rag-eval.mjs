@@ -8,18 +8,37 @@
 // that shrank below --min-segments (a half-failed ingest), is not published.
 //
 //   node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar \
-//        --embeddings app/build/embeddings.json [--min-pass 15] [--min-segments 20000]
+//        --embeddings app/build/embeddings.json [--min-pass 39] [--min-segments 20000]
+//
+// --production-shaped: boot the way the hosted server and every fresh clone do -
+// NO local embeddings.json (the path points at nothing) and NO token in the
+// environment - so the index must come from the published remote. Then require
+// that the index the server actually answers from is the GitHub release asset
+// (--expect-origin, default /GitHub release asset/) and is not stale. This is
+// the check that was missing on 2026-09-04, twice: a fresh store was published
+// and production silently kept answering from the 2025-10-21 GitLab package -
+// first because the loader could not read it under the JVM caps, then because
+// the repo was private and the asset URL was 404. Every unit test was green
+// both times. The provenance is read from the structured `index` object on the
+// fetch_docs answer (what a client over the wire can see), stderr as fallback.
+//
+//   node scripts/rag-eval.mjs --production-shaped --jar app/build/libs/chromia-mcp-server.jar
 //
 // Exit 0 = publishable, 1 = below the bar, 2 = the server could not be driven.
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => {
   if (a.startsWith('--')) acc.push([a.slice(2), arr[i + 1] && !arr[i + 1].startsWith('--') ? arr[i + 1] : 'true']);
   return acc;
 }, []));
 const jar = args.jar ?? 'app/build/libs/chromia-mcp-server.jar';
-const embeddings = resolve(args.embeddings ?? 'app/build/embeddings.json');
+const productionShaped = args['production-shaped'] === 'true';
+const embeddings = productionShaped
+  ? join(tmpdir(), `chromia-mcp-no-local-index-${process.pid}`, 'embeddings.json') // does not exist, by design
+  : resolve(args.embeddings ?? 'app/build/embeddings.json');
+const expectOrigin = new RegExp(args['expect-origin'] ?? 'GitHub release asset', 'i');
 const minSegments = Number(args['min-segments'] ?? 20000);
 
 // [question, substrings/regexes a correct answer must contain (all of them, case-insensitive)]
@@ -42,12 +61,44 @@ export const PROBES = [
   ['What is the difference between @? and @* at-expressions in Rell?', [/@\?/, /@\*/]],
   ['How do I set up a rate limit for FT4 accounts?', [/rate_limit/i]],
   ['FT4 auth descriptor flags', [/flags/i, /auth.?descriptor/i]],
+  // Round 15 (2026-09-05): 24 more, each verified against the 25823-segment
+  // store before joining. `--tests` was the one miss (repl.md outranked the
+  // page that literally says `chr test --tests my_filter`) and is why long CLI
+  // flags are now lexical identifiers; it stays in as the regression probe.
+  ['How are rowids allocated for Rell entities in PostgreSQL?', [/rowid/i]],
+  ['How do I run only some Rell tests with chr test --tests?', [/--tests/]],
+  ['How do I register an FT4 account with a single-sig auth descriptor?', [/single_sig|auth_descriptor/i]],
+  ['How does ICCF cross-chain proof verification work?', [/iccf/i]],
+  ['How do I transfer FT4 assets between accounts?', [/transfer/i, /asset/i]],
+  ['How do I sort and limit results in a Rell at-expression?', [/sort_desc|sort|limit/i, /@\*/]],
+  ['How do I do a cross-chain transfer in FT4 with init_transfer and apply_transfer?', [/init_transfer|apply_transfer|crosschain/i]],
+  ['How do I start the Rell REPL with chr repl?', [/repl/i]],
+  ['How do I declare blockchain signers in chromia.yml?', [/signers/i]],
+  ['How do I build and sign a GTX transaction with the postchain client in Kotlin?', [/gtx|gtv/i, /sign/i]],
+  ['When should I use a struct instead of an entity in Rell?', [/struct/i, /entity/i]],
+  ['How do I declare key and index on a Rell entity?', [/\bkey\b/i, /\bindex\b/i]],
+  ['How do I mint an FT4 asset with ft4.assets.Unsafe.mint?', [/mint/i]],
+  ['How do I start a local node with chr node start and wipe its database?', [/chr node|--wipe/i]],
+  ['What is a Rell operation versus a query and which can modify state?', [/operation/i, /query/i]],
+  ['How do I read chain_context.args module arguments in Rell?', [/chain_context/i]],
+  ['How do I use op_context.get_signers or is_signer in Rell?', [/op_context|is_signer/i]],
+  ['How do I compute a hash or verify a signature in Rell with crypto?', [/crypto|verify_signature|sha256/i]],
+  ['How do I set up a Directory Chain container and lease for my dapp?', [/container|lease/i]],
+  ['How do I use the EIF bridge to move ERC20 tokens to Chromia?', [/eif|erc20|bridge/i]],
+  ['How do I paginate FT4 queries with page_size and page_cursor?', [/page_size|page_cursor|paginat/i]],
+  ['How do I use a Rell map and list and iterate with for?', [/\bmap\b/i, /\blist\b/i]],
+  ['How do I write a Rell abstract function and override it in another module?', [/abstract/i, /override/i]],
+  ['How do I use rell.test.tx and sign with a keypair in a Rell test?', [/rell\.test|\.tx\(|keypair/i]],
 ];
 const minPass = Number(args['min-pass'] ?? PROBES.length - 1);
 
-const proc = spawn('java', ['-jar', jar, '--stdio'], {
-  env: { ...process.env, CHROMIA_EMBEDDINGS_PATH: embeddings, CHROMIA_MCP_COMPACT_TOOLS: 'true' },
-});
+const env = { ...process.env, CHROMIA_EMBEDDINGS_PATH: embeddings, CHROMIA_MCP_COMPACT_TOOLS: 'true' };
+if (productionShaped) {
+  // The hosted server has none of these; a token here would test a path production does not take.
+  for (const k of ['CHROMIA_EMBEDDINGS_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN', 'CHROMIA_EMBEDDINGS_URL']) delete env[k];
+  console.log(`PRODUCTION-SHAPED: no local index (${embeddings}), no token -> the store must come from the published remote`);
+}
+const proc = spawn('java', ['-jar', jar, '--stdio'], { env });
 let buf = ''; const pending = new Map(); let nextId = 1; let stderr = '';
 proc.stdout.on('data', d => {
   buf += d.toString(); let i;
@@ -74,24 +125,36 @@ try {
   await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'rag-eval', version: '1' } });
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
 
-  let pass = 0; const misses = [];
+  let pass = 0; const misses = []; let index = null;
   for (const [question, must] of PROBES) {
-    const m = await rpc('tools/call', { name: 'fetch_docs', arguments: { query: question } });
+    // The first call also loads the store (a remote download in production-shaped mode).
+    const m = await rpc('tools/call', { name: 'fetch_docs', arguments: { query: question } }, index ? 300_000 : 900_000);
     const hits = m?.result?.structuredContent?.hits ?? [];
+    index ??= m?.result?.structuredContent?.index ?? null;
     const haystack = hits.map(h => `${h.title ?? ''}\n${h.url ?? ''}\n${h.text ?? ''}`).join('\n');
     const ok = !m?.result?.isError && must.every(re => re.test(haystack));
     if (ok) pass++; else misses.push({ question, hits: hits.length, top: hits[0]?.title ?? m?.result?.content?.[0]?.text?.slice(0, 120) });
     console.log(`${ok ? 'PASS' : 'MISS'}  ${question}`);
   }
 
-  const provenance = stderr.split('\n').find(l => l.includes('documentation index:')) ?? '';
-  const segments = Number(/(\d+) segments/.exec(provenance)?.[1] ?? 0);
+  const provenanceLine = stderr.split('\n').find(l => l.includes('documentation index:')) ?? '';
+  const segments = Number(index?.segments ?? /(\d+) segments/.exec(provenanceLine)?.[1] ?? 0);
   console.log(`\n${pass}/${PROBES.length} probes answered (min ${minPass}); ${segments} segments (min ${minSegments})`);
-  console.log(provenance.replace(/^.*App - /, ''));
+  console.log(index ? `index: ${JSON.stringify(index)}` : provenanceLine.replace(/^.*App - /, '') || 'index: provenance not reported');
   for (const miss of misses) console.log(`  miss: ${miss.question} -> hits=${miss.hits} top=${miss.top}`);
 
-  const publishable = pass >= minPass && segments >= minSegments;
-  console.log(publishable ? '\nGATE PASSED: store is publishable' : '\nGATE FAILED: store must not be published');
+  let publishable = pass >= minPass && segments >= minSegments;
+  if (productionShaped) {
+    const origin = index?.origin ?? /from (.*?), generated/.exec(provenanceLine)?.[1] ?? '';
+    const originOk = expectOrigin.test(origin);
+    const fresh = index ? index.stale === false : !/STALE/.test(stderr);
+    console.log(`${originOk ? 'PASS' : 'FAIL'}  index origin matches ${expectOrigin} (${origin || 'none'})`);
+    console.log(`${fresh ? 'PASS' : 'FAIL'}  index is not stale${index?.age_days != null ? ` (${index.age_days} days old)` : ''}`);
+    publishable = publishable && originOk && fresh;
+  }
+  console.log(publishable
+    ? (productionShaped ? '\nGATE PASSED: a production-shaped boot answers from the published index' : '\nGATE PASSED: store is publishable')
+    : (productionShaped ? '\nGATE FAILED: production would not answer from the published index' : '\nGATE FAILED: store must not be published'));
   proc.kill();
   process.exit(publishable ? 0 : 1);
 } catch (e) {

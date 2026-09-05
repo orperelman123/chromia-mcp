@@ -77,6 +77,20 @@ class RagStoreLexicalBoostTest {
     }
 
     @Test
+    fun cliFlagsAreIdentifiersToo() {
+        // 2026-09-05: "How do I run only some Rell tests with chr test --tests?" ranked repl.md
+        // first although the docs page literally says `chr test --tests my_filter`. A long
+        // flag is an exact name an agent copies from a terminal, same as a snake_case one.
+        assertEquals(listOf("--tests"), RagStore.identifierTokens("How do I run only some Rell tests with chr test --tests?"))
+        assertEquals(listOf("--hide-lib-warnings", "--settings"), RagStore.identifierTokens("chr build --hide-lib-warnings --settings chromia-it.yml"))
+        assertEquals(listOf("--wipe"), RagStore.identifierTokens("start the node with --wipe, then -t and -- alone mean nothing"))
+        // Two dashes inside prose (an em-dash stand-in) and short flags are not names.
+        assertEquals(emptyList<String>(), RagStore.identifierTokens("deploy -- then test -v -t quickly"))
+        // The flag stops at `=`; the value is not part of the name.
+        assertEquals(listOf("--tests"), RagStore.identifierTokens("--tests=abc test method pattern"))
+    }
+
+    @Test
     fun theDefinitionOutranksAMentionAndMentionsOutrankSilence() {
         assertTrue(RagStore.lexicalScore(definition.text(), "require_mandatory_flags") > RagStore.lexicalScore(mention.text(), "require_mandatory_flags"))
         assertTrue(RagStore.lexicalScore(mention.text(), "require_mandatory_flags") > 0)

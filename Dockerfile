@@ -37,16 +37,18 @@ RUN VERSION=$(git describe --tags --always 2>/dev/null || echo "${RENDER_GIT_COM
 # GitLab package - DockerfileEmbeddingsBakeTest pins the two together) and the
 # same retry/timeout hardening spirit as the Maven settings above.
 #
-# The repository is private, so the public release URL is 404 without a token.
-# A token is read ONLY from a BuildKit secret (never an ARG: build args linger
-# in image metadata; Render's own docs say the same and mount its Secret Files
-# for exactly this). On Render: add a Secret File named CHROMIA_EMBEDDINGS_TOKEN
-# whose content is a fine-grained GitHub token with read access to this repo's
-# Contents - the build mounts it here and the runtime reads the same file from
-# /etc/secrets/. Without it the bake falls through to the public URL (works the
-# day the repo goes public) and then the GitLab package; runtime downloads at
-# boot with the same precedence, streaming, so a missing bake costs ~12 s of
-# boot, not memory.
+# The repository is PUBLIC (since 2026-09-05), so the plain release URL is 200
+# and no token is needed. The token path stays for the private case (the repo
+# was private on 2026-09-04 and the asset was 404 to this very step, which
+# silently baked the year-old GitLab package): a token is read ONLY from a
+# BuildKit secret (never an ARG: build args linger in image metadata; Render's
+# own docs say the same and mount its Secret Files for exactly this). On
+# Render that would be a Secret File named CHROMIA_EMBEDDINGS_TOKEN holding a
+# fine-grained GitHub token with read access to this repo's Contents - the
+# build mounts it here and the runtime reads the same file from /etc/secrets/.
+# Order: API-with-token (if any), public URL, then the GitLab package; runtime
+# downloads at boot with the same precedence, streaming, so a missing bake
+# costs ~12 s of boot, not memory.
 #
 # MUST NOT fail the image build when every remote is unreachable: the file is
 # downloaded into a directory so the later COPY succeeds even when empty, and

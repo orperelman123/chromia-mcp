@@ -224,9 +224,11 @@ Downloads the latest released `chromia-mcp-server.jar` to `~/.chromia-mcp/` and 
 the `chromia` MCP server in Claude Code (user scope, compact tools). Releases are produced by
 `.github/workflows/release.yml` on any `v*` tag.
 
-An npm launcher lives in `packages/npm` (`npx chromia-mcp` → one-time jar download, then stdio).
-Publishing it needs an npm account: `cd packages/npm && npm publish` (make the repo/release
-public first, or users must set `CHROMIA_MCP_JAR`).
+An npm launcher lives in `packages/npm` (`npx chromia-mcp` → one-time ~280 MB jar download into
+`CHROMIA_MCP_HOME`, default `~/.chromia-mcp/`, then stdio; `CHROMIA_MCP_JAR` points it at a local
+jar instead). The repo and its releases are public (since 2026-09-05), so the download path is
+live and CI exercises it on every push (`stdio-smoke.mjs --launcher-download`). Publishing the
+package needs an npm account: `cd packages/npm && npm publish`.
 
 ## Using from ChatGPT
 
@@ -319,17 +321,25 @@ Every push runs the full pyramid — none of these can be skipped:
    WARN-UPSTREAM instead of paying full 8s retry backoffs (classification and guardrails
    unchanged). Exit codes: 0 pass, 1 real FAIL (CI retries once), 3 guardrail-only failure
    (still red, but deterministic during an outage - CI skips the retry).
-3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher]`) — checks over the transport
-   Claude Code uses. `--launcher` runs the same checks through the real npm launcher
-   (`packages/npm/bin/chromia-mcp.mjs`) pointed at the local shadowJar via `CHROMIA_MCP_JAR`;
-   the launcher's release-download path itself is not testable while the repo is private
-   (it needs a public GitHub release asset), so that mode skips with the reason when no
-   local jar exists instead of faking a download.
-4. **Nightly deep fuzz** (`scripts/fuzz-marathon.mjs <url> [iterations]`) — random-seeded
+3. **Stdio smoke** (`scripts/stdio-smoke.mjs [jar|--launcher|--launcher-download]`) — checks
+   over the transport Claude Code uses. `--launcher` runs the same checks through the real npm
+   launcher (`packages/npm/bin/chromia-mcp.mjs`) pointed at the local shadowJar via
+   `CHROMIA_MCP_JAR`. `--launcher-download` is the real first run of `npx chromia-mcp`: an
+   empty `CHROMIA_MCP_HOME`, no `CHROMIA_MCP_JAR`, so the launcher must download the release
+   jar (`v<package.json version>`, ~280 MB) from the public GitHub release and run it;
+   transport-level checks only, since that jar is the last release, not the working tree.
+4. **Production-shaped boot** (`scripts/rag-eval.mjs --production-shaped --jar <jar>`) — boots
+   the jar the way Render and every fresh clone do (no local `embeddings.json`, no token) and
+   requires that the index it answers from is the published GitHub release asset, is not
+   stale, and passes the RAG probes. Reads the `index` object `fetch_docs` puts in its
+   structured output (`origin`, `generated_at`, `age_days`, `segments`, `stale`), which is also
+   how to verify a hosted deploy over the wire. Added 2026-09-05 after two publishes in a row
+   left production on the year-old store with every unit test green.
+5. **Nightly deep fuzz** (`scripts/fuzz-marathon.mjs <url> [iterations]`) — random-seeded
    programs fired at the live compiler tools; `.github/workflows/nightly-fuzz.yml` runs 600
    iterations every night and opens an issue with a reproducible seed on any crash, hang, or
    leaked exception.
-5. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
+6. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
    using only tool outputs: discovery → doc search → scaffold → plant a bug → locate it purely
    from compiler diagnostics → repair → security gate → behavior gate → validated deploy config
    → onboarding names the next step → the dapp runs on a live local chain and answers a real
@@ -339,10 +349,12 @@ Every push runs the full pyramid — none of these can be skipped:
 
 ## Continuous Integration
 
-- `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21); the jar is
-  attached as a run artifact
+- `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21), then the
+  e2e sweep, the stdio smoke, the npm launcher's real release download, and the
+  production-shaped boot against the published index (no artifact upload: see the comment in
+  the workflow for why)
 - `.github/workflows/embeddings-refresh.yml` — weekly RAG embeddings regeneration (Mondays
-  04:00 UTC, or manual dispatch). Runs `scripts/rag-eval.mjs` (16 probe questions, segment
+  04:00 UTC, or manual dispatch). Runs `scripts/rag-eval.mjs` (40 probe questions, segment
   floor) and a size check against the published asset; only a store that passes both is
   uploaded, with `--clobber`, as `embeddings.json` on the rolling `embeddings` release, next to
   an `embeddings.provenance.json` sidecar (date, commit, segments, probe score). Uses the
@@ -731,6 +743,6 @@ MCP resources are the existing health JSON, `docs-repositories.json`, and `promp
 
 - Stdio mode: `./gradlew :app:run` or `java -jar app/build/libs/chromia-mcp-server.jar --stdio`
 - Fat JAR: `./gradlew :app:shadowJar` (do not run `jib` and `shadowJar` as concurrent Gradle tasks; they both write under `app/build/libs`)
-- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file) and only if the local file is missing downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`; private repo, so through the releases API when `CHROMIA_EMBEDDINGS_TOKEN` / `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` is present, else the public URL), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
-- Index age is not silent: at load the server logs where the index came from (local path + mtime, or the remote URL + its `Last-Modified`) and its segment count. Past 120 days (`RagStore.STALE_AFTER`) it logs a WARN and every `fetch_docs` answer ends with a `NOTE: documentation index is STALE ...` line (also `index_note` in the structured output) naming the generation date and the fix. Found 2026-09-04: the published GitLab package was still the 2025-10-21 build (18.8 MB), so a server without a local file - production included - answered from a year-old store. The fix is the `Embeddings refresh` workflow (Actions tab, "Run workflow"): it regenerates, gates, and publishes the release asset the server and the Docker image download first.
+- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file) and only if the local file is missing downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`; the repo is public since 2026-09-05 so the plain URL works with no credentials - if it is ever made private again, set `CHROMIA_EMBEDDINGS_TOKEN` / `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` and the asset is resolved through the releases API instead), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
+- Index age is not silent: at load the server logs where the index came from (local path + mtime, or the remote URL + its `Last-Modified`) and its segment count. Past 120 days (`RagStore.STALE_AFTER`) it logs a WARN and every `fetch_docs` answer ends with a `NOTE: documentation index is STALE ...` line (also `index_note` in the structured output) naming the generation date and the fix. Fresh or stale, every `fetch_docs` answer carries an `index` object in its structured output (`origin`, `generated_at`, `age_days`, `segments`, `stale`) - the text stays lean, but a client can always tell which index it was answered from. Found 2026-09-04: the published GitLab package was still the 2025-10-21 build (18.8 MB), so a server without a local file - production included - answered from a year-old store. The fix is the `Embeddings refresh` workflow (Actions tab, "Run workflow"): it regenerates, gates, and publishes the release asset the server and the Docker image download first.
 - The store is read as a stream (`EmbeddingStoreJson`, Gson `JsonReader`, 1000-entry batches into `InMemoryEmbeddingStore.addAll`), not with `InMemoryEmbeddingStore.fromFile`. Found 2026-09-04 under the production JVM flags: `fromFile`'s `Files.readAllBytes` on the 150 MB store failed with "Cannot reserve 150059434 bytes of direct buffer memory" (`-XX:MaxDirectMemorySize=64m`) and the server silently fell back to the stale package - a fresh asset alone would have changed nothing in production. Streaming loads the 25 823 segments in ~4.5 s with the file never in memory; the download path (`downloadFile`) streams to a temp file the same way instead of `body<ByteArray>()`. Loading needs a 200-224 MB heap for this store; the image's `-XX:MaxRAMPercentage` went 35 -> 50 accordingly (256 MB on a 512 MB instance, measured working set ~425 MB).

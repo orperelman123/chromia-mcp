@@ -1,36 +1,50 @@
 // Stdio-transport smoke: the surface Claude Code and the npm launcher use.
 //   node scripts/stdio-smoke.mjs <path-to-jar>
-//   node scripts/stdio-smoke.mjs --launcher   (runs packages/npm/bin/chromia-mcp.mjs)
+//   node scripts/stdio-smoke.mjs --launcher            (runs packages/npm/bin/chromia-mcp.mjs on a LOCAL jar)
+//   node scripts/stdio-smoke.mjs --launcher-download   (the real `npx chromia-mcp` first run)
 //
 // Launcher mode runs the real npm launcher end-to-end (arg handling, java
 // spawn, stdio plumbing) against a LOCAL jar: it honors CHROMIA_MCP_JAR, and
-// when that is unset it points the launcher at the freshly built shadowJar.
-// The launcher's DOWNLOAD path (GitHub release asset) is NOT exercised here -
-// it needs a public release and this repo is private; when neither
-// CHROMIA_MCP_JAR nor the local jar exists, the mode SKIPs (exit 0) with the
-// reason rather than faking a result.
+// when that is unset it points the launcher at the freshly built shadowJar;
+// with neither it SKIPs (exit 0) with the reason rather than faking a result.
+//
+// Launcher-download mode is what an end user gets: an empty CHROMIA_MCP_HOME,
+// no CHROMIA_MCP_JAR, so the launcher must fetch the release jar for the
+// npm package's version from the public GitHub release and run it. That jar
+// is the LAST RELEASE, not this tree, so only transport-level checks run
+// (initialize, tools/list, resources/list, help, error shapes) - the domain
+// checks below belong to the jar built from this commit. Possible only since
+// the repo went public (2026-09-05); before that the asset was 404.
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { probeExplorerCanary, upstreamSignature } from './upstream-classifier.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv[2];
-let cmd, cmdArgs;
-if (arg === '--launcher') {
+const transportOnly = arg === '--launcher-download';
+let cmd, cmdArgs, launcherHome;
+if (arg === '--launcher' || transportOnly) {
   cmd = process.execPath;
   cmdArgs = [join(here, '..', 'packages', 'npm', 'bin', 'chromia-mcp.mjs')];
-  if (!process.env.CHROMIA_MCP_JAR) {
+  if (transportOnly) {
+    delete process.env.CHROMIA_MCP_JAR;
+    launcherHome = mkdtempSync(join(tmpdir(), 'chromia-mcp-launcher-'));
+    process.env.CHROMIA_MCP_HOME = launcherHome;
+    const version = createRequire(import.meta.url)(join(here, '..', 'packages', 'npm', 'package.json')).version;
+    console.log(`LAUNCHER-DOWNLOAD: empty CHROMIA_MCP_HOME=${launcherHome}, no CHROMIA_MCP_JAR -> the launcher must download release v${version}`);
+  } else if (!process.env.CHROMIA_MCP_JAR) {
     const localJar = join(here, '..', 'app', 'build', 'libs', 'chromia-mcp-server.jar');
     if (existsSync(localJar)) {
       process.env.CHROMIA_MCP_JAR = localJar;
       console.log(`LAUNCHER: using local jar via CHROMIA_MCP_JAR=${localJar}`);
-      console.log('LAUNCHER: the release-download path is not exercised (needs a public GitHub release; repo is private)');
+      console.log('LAUNCHER: the release-download path is exercised by --launcher-download, not here');
     } else {
       console.log('SKIP launcher mode: CHROMIA_MCP_JAR is unset and no local jar at ' + localJar);
-      console.log('The launcher download needs a public GitHub release asset (repo is private).');
-      console.log('Build the jar first (gradlew.bat shadowJar) or set CHROMIA_MCP_JAR.');
+      console.log('Build the jar first (gradlew.bat shadowJar) or set CHROMIA_MCP_JAR; --launcher-download tests the release path.');
       process.exit(0);
     }
   }
@@ -41,6 +55,8 @@ if (arg === '--launcher') {
 console.log('STDIO TARGET:', cmd, cmdArgs.join(' '));
 
 const proc = spawn(cmd, cmdArgs, { cwd: join(here, '..') });
+let launcherStderr = '';
+proc.on('exit', code => { if (code && !results.length) console.log(`target exited ${code} before answering\n${launcherStderr.slice(-800)}`); });
 let buf = ''; const pending = new Map(); let nextId = 1;
 proc.stdout.on('data', d => {
   buf += d.toString(); let i;
@@ -50,7 +66,7 @@ proc.stdout.on('data', d => {
     try { const m = JSON.parse(line); if (m.id !== undefined && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } catch {}
   }
 });
-proc.stderr.on('data', () => {});
+proc.stderr.on('data', d => { launcherStderr = (launcherStderr + d.toString()).slice(-4000); });
 const rpc = (method, params, t = 240000) => {
   const id = nextId++;
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
@@ -81,9 +97,16 @@ const call = (name, args) => rpc('tools/call', { name, arguments: args });
 const parse = m => { try { return JSON.parse(text(m)); } catch { return {}; } };
 
 try {
-  const init = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'stdio-smoke', version: '1' } });
+  // In download mode the first answer waits behind a ~230 MB fetch.
+  const init = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'stdio-smoke', version: '1' } }, transportOnly ? 900000 : 240000);
   check('initialize', !!init.result?.serverInfo, JSON.stringify(init.result?.serverInfo));
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
+  if (transportOnly) {
+    const jars = readdirSync(launcherHome).filter(f => f.endsWith('.jar'));
+    const size = jars.length ? statSync(join(launcherHome, jars[0])).size : 0;
+    check('launcher downloaded the release jar', jars.length === 1 && size > 50e6, `${jars[0] ?? 'none'} ${(size / 1e6).toFixed(1)} MB`);
+    check('launcher reported the download on stderr', /downloading server v/.test(launcherStderr), launcherStderr.match(/\[chromia-mcp\][^\n]*/)?.[0]);
+  }
 
   const tl = await rpc('tools/list', {});
   const names = (tl.result?.tools || []).map(t => t.name);
@@ -92,7 +115,33 @@ try {
   const rl = await rpc('resources/list', {});
   check('resources/list', (rl.result?.resources || []).length >= 3, `${(rl.result?.resources || []).length} resources`);
 
-  // --- The agent loop over the Claude Code transport ---
+  if (transportOnly) {
+    let t = text(await call('chromia_help', {}));
+    check('chromia_help index', t.includes('chr_deploy_help'), null);
+    t = text(await call('no_such_tool', {}));
+    check('unknown tool errors cleanly', /unknown tool|not found/i.test(t), t.slice(0, 60));
+    t = text(await call('get_blockchain_details', {}));
+    check('missing param message', /rid|missing/i.test(t), t.slice(0, 60));
+  } else {
+    await domainChecks();
+  }
+} catch (e) {
+  check('stdio session', false, e.message);
+} finally {
+  const failed = results.filter(r => !r[1]);
+  console.log(`\n=== STDIO SMOKE: ${results.length - failed.length}/${results.length} PASS ===`);
+  proc.kill();
+  if (launcherHome) {
+    // The 280 MB download is the test, not a cache to keep; the JVM may still hold
+    // the jar for a moment on Windows, so a failed removal is not a verdict.
+    proc.on('exit', () => { try { rmSync(launcherHome, { recursive: true, force: true }); } catch {} });
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  process.exit(failed.length ? 1 : 0);
+}
+
+// --- The agent loop over the Claude Code transport (the jar built from this commit) ---
+async function domainChecks() {
   const ft4 = 'module;\nimport lib.ft4.auth;\nentity note { key id: text; body: text; }\n' +
     'operation add_note(id: text, body: text) {\n  val account = auth.authenticate();\n' +
     '  require(id.size() > 0, "empty id");\n  create note(id, body);\n}\n';
@@ -145,11 +194,4 @@ try {
 
   t = text(await call('get_blockchain_details', {}));
   check('missing param message', /rid|missing/i.test(t), t.slice(0, 60));
-} catch (e) {
-  check('stdio session', false, e.message);
-} finally {
-  const failed = results.filter(r => !r[1]);
-  console.log(`\n=== STDIO SMOKE: ${results.length - failed.length}/${results.length} PASS ===`);
-  proc.kill();
-  process.exit(failed.length ? 1 : 0);
 }
