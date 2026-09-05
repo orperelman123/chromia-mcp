@@ -136,7 +136,7 @@ object DappScaffold {
                 "client/example.ts" to ft4ClientTs(chain)
             )
             "governance" -> linkedMapOf(
-                "chromia.yml" to ft4ChromiaYml(chain),
+                "chromia.yml" to governanceChromiaYml(chain),
                 "src/main.rell" to governanceMainRell(),
                 "src/test/main_test.rell" to governanceTestRell()
             )
@@ -215,7 +215,16 @@ object DappScaffold {
             analysis - only an invariant test you write catches them.
             Building a DAO / treasury: start from template=governance (quorum, a fixed voting
             window, stake-weighted votes and execute-once are structural, and the shipped tests
-            replay the single-account drain and require it to fail). Building a vault or anything
+            replay the single-account drain and require it to fail). Read its first two guards
+            before you change anything: VOTING WEIGHT IS NOT MINTABLE - registration credits
+            nothing, weight comes from one founder-countersigned genesis allocation that shuts at
+            the first stake, because adversary round 11 took a 7000 treasury with FOUR
+            registrations of a permissionless 1000-point welcome grant - and THE BAR A PROPOSAL IS
+            JUDGED AGAINST IS FIXED WHEN IT IS CREATED, along with every voter's weight, because a
+            bar read live at execution is a veto anybody can buy: round 11 killed an approved
+            payout for ever by staking TWO POINTS after voting had closed. A proposal also
+            RESERVES what it may spend at creation, which is how an approval bought while the DAO
+            was small is kept off money that arrived later without reading live stake at all. Building a vault or anything
             priced by an ORACLE FEED: start from template=vault (every credit is paid out of a
             reserve row in the same operation, price moves are bounded and rate-limited, stale
             prices halt trading; the shipped tests replay round 1's unbacked mint and its price
@@ -343,16 +352,30 @@ object DappScaffold {
             somebody else's position: the peg is the debtor's right to burn at par against their
             OWN debt; an under-water position is closed by LIQUIDATION that pays every liquidator
             the position's PRO-RATA share (collateral * repaid / debt, never more, whatever the
-            order) so liquidation never pushes a position's ratio down; and when the whole system
-            is worth less than its coin at a fresh price anyone may SETTLE - each position returns
+            order) so liquidation never pushes a position's ratio down - and, since adversary
+            round 11, ONLY while the SYSTEM as a whole is worth at least its coin at the fresh
+            price, before and after the seizure. That last clause is the round-11 fix and it is not
+            decoration: the per-position cap held and the drain was one level up, because seized
+            collateral leaves the COMMON settlement reserve faster than the coin it retires
+            whenever the target is better backed than the system average. Measured at 98% system
+            backing with an honest oracle, liquidating 3000 and then settling paid the liquidator
+            104 tokens, alice 117 and bob 78, where settling first paid 89, 124 and 86 - FIFTEEN
+            TOKENS, 5% of every token in the system, moved on the order of two operations the
+            liquidator was entitled to perform, and SEVEN of them came from alice, who was party
+            to no liquidation at all. When the whole system is worth less than its coin at a fresh
+            price anyone may SETTLE - each position returns
             its surplus to its owner, the rest is one pool, and every coin redeems for the same
             share of it in any order. Mint and withdraw are ratio-checked against the WHOLE debt at
             a FRESH bounded price, and settlement stops every other value-moving operation. The
-            shipped tests replay round 9 in both orders and require both parties to end exactly
-            equal, by liquidation and by settlement, with conservation exact after every step. Its
+            shipped tests replay round 9 in both orders and round 11 in both orders, and require
+            every party to end on the same numbers whichever order ran first, with conservation
+            exact after every step. Its
             oracle key is a module arg exactly like the vault's - same note as above applies. What
             no template can fix, and its header says so: a price that falls faster than liquidators
-            act still leaves bad debt, and the coin is then worth the settlement rate, not par.
+            act still leaves bad debt, and the coin is then worth the settlement rate, not par -
+            and between the block the system goes under-backed and the block somebody calls
+            settle(), no bad position is closed by anybody, which is what the round-11 guard
+            costs.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -418,12 +441,19 @@ object DappScaffold {
                     "holder par out of somebody else's position. The peg is the debtor's right to burn " +
                     "at par against their OWN debt; an under-water position is closed by LIQUIDATION " +
                     "that pays every liquidator the position's PRO-RATA share (never more, whatever " +
-                    "the order); and when the whole system is worth less than its coin anyone may " +
+                    "the order) and ONLY while the SYSTEM is worth at least its coin at the fresh " +
+                    "price, before and after the seizure - adversary round 11 drained the template " +
+                    "through exactly that gap, with the per-position cap intact: seized collateral " +
+                    "leaves the common settlement reserve faster than the coin it retires, so at 98% " +
+                    "system backing liquidate-then-settle paid the liquidator 104 tokens where " +
+                    "settle-first paid 89, and 7 of the 15 tokens that moved came from a holder who " +
+                    "was party to no liquidation. When the whole system is worth less than its coin " +
+                    "anyone may " +
                     "SETTLE, after which every coin redeems for the same share of one pool. Mint and " +
                     "withdraw are ratio-checked against the WHOLE debt at a FRESH bounded price. The " +
-                    "shipped tests replay round 9 in both orders and require both parties to end " +
-                    "exactly equal, by liquidation and by settlement, with conservation exact after " +
-                    "every step. Its oracle key is a module arg exactly like the vault's."
+                    "shipped tests replay round 9 AND round 11 in both orders and require every " +
+                    "party to end on the same numbers whichever order ran first, with conservation " +
+                    "exact after every step. Its oracle key is a module arg exactly like the vault's."
             has("lend", "borrow", "credit", "loan", "debt", "money_market", "moneymarket", "interest", "yield_farm") ->
                 "Use `template=lending`: it is the template for this class, and this class is what " +
                     "adversary round 6 drained. A hand-built pool accrued interest LAZILY (only " +
@@ -468,7 +498,13 @@ object DappScaffold {
             has("dao", "govern", "vot", "treasury", "proposal", "quorum") ->
                 "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
                     "execute-once are structural there, and it ships the single-account drain as a " +
-                    "must-fail test."
+                    "must-fail test. Two of its guards are the ones a DAO gets wrong: VOTING WEIGHT IS " +
+                    "NOT MINTABLE (registration credits nothing - adversary round 11 took a 7000 " +
+                    "treasury with four registrations of a permissionless 1000-point welcome grant, " +
+                    "4000 yes to 3000 no, every conservation invariant exact) and THE BAR IS FIXED " +
+                    "WHEN A PROPOSAL IS CREATED, weights included, because a bar read live at " +
+                    "execution is a veto anybody can buy - two points of stake, posted after voting " +
+                    "closed, killed an approved payout for ever. Both drains ship as must-fail tests."
             has("amm", "dex", "swap", "liquidity", "constant_product", "constantproduct", "uniswap",
                 "market_maker", "marketmaker", "exchange", "pair") ->
                 "Use `template=amm`: it is the template for this class, and this class is what " +
@@ -1010,6 +1046,44 @@ object DappScaffold {
     // votes weigh stake (no stake, no proposal, no weight), execution needs a quorum
     // snapshotted at proposal time, and the executed flag flips in the paying op.
 
+    /**
+     * Module args for the governance template, whose main module reads the DAO's
+     * FOUNDER key from configuration - the key that countersigns the one-time
+     * genesis allocation of voting weight, and nothing else. FT4's test wiring
+     * plus that key, which is FT4's published TEST admin key, used here only so
+     * the shipped tests can countersign a claim. Mirrors chromia.yml's
+     * test.moduleArgs and, like them, never belongs under blockchains.<name>.
+     */
+    fun governanceTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
+        ft4TestModuleArgs() + mapOf(
+            "main" to mapOf("founder_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY))
+        )
+
+    /**
+     * The governance chromia.yml. Same discipline as the vault's oracle key: the
+     * production block deliberately leaves the founder key UNSET, with
+     * instructions, so the chain cannot be built with a placeholder.
+     */
+    private fun governanceChromiaYml(name: String): String = ft4ChromiaYml(
+        name,
+        productionModuleArgsNote = buildString {
+            append("      # REQUIRED before `chr build` / deploy - the DAO's FOUNDER key. It signs the\n")
+            append("      # one-time genesis allocation of voting weight and nothing else, and that\n")
+            append("      # allocation shuts for good the moment anybody stakes. It is deliberately\n")
+            append("      # NOT set here so the chain cannot be built with a placeholder: put your\n")
+            append("      # 33-byte compressed public key here and nowhere in source. Decide WHO holds\n")
+            append("      # it and HOW the supply is split before you deploy - whoever holds it decides\n")
+            append("      # the whole distribution of votes, and no later guard takes that back.\n")
+            append("      # main:\n")
+            append("      #   founder_pubkey: x\"<your founder public key>\"\n")
+        },
+        extraTestModuleArgs = buildString {
+            append("    # The shipped tests countersign genesis claims with FT4's published test key.\n")
+            append("    main:\n")
+            append("      founder_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
+        }
+    )
+
     private fun governanceMainRell(): String = """
         module;
 
@@ -1017,39 +1091,86 @@ object DappScaffold {
         import lib.ft4.accounts;
 
         // Governance template: a member-funded treasury that pays out only by
-        // stake-weighted vote. Five guards are STRUCTURAL - they live in the
-        // entities and constants, not in a require() a future operation can forget:
-        //   QUORUM        - execute_proposal needs yes_weight + no_weight >= the LARGER of
-        //                   the quorum snapshotted at creation and the quorum of the total
-        //                   stake AT EXECUTION. The snapshot alone was round 10's drain: it
-        //                   is a floor, not a ceiling, and total_stake only grows here, so a
-        //                   proposal created and voted while the DAO was tiny kept its tiny
-        //                   bar forever - 100 proposals of 1000 each at quorum 500, executed
-        //                   months later against a 101,000 treasury by a member holding
-        //                   0.99 percent of live stake. The live term makes the bar move
-        //                   with the money; the snapshot stays for the day unstaking exists.
+        // stake-weighted vote. Seven guards are STRUCTURAL - they live in the entities,
+        // the constants and the configuration, not in a require() a future operation can
+        // forget:
+        //   WEIGHT IS NOT - registration mints NOTHING. Voting weight exists only as a
+        //     MINTABLE      one-time GENESIS ALLOCATION: a member claims at most
+        //                   WELCOME_POINTS, the claim must be countersigned by the
+        //                   configured founder key, the total is capped at GENESIS_POINTS,
+        //                   and the window CLOSES for good the moment the DAO has any
+        //                   stake. Round 11's drain was the permissionless welcome grant
+        //                   this replaces: register_member() minted 1000 points to whoever
+        //                   asked, so FOUR registrations bought 4000 of weight against
+        //                   three honest members' 3000 and voted the whole 7000 treasury to
+        //                   the attacker - 4000 yes to 3000 no over a quorum of 3500, with
+        //                   every conservation invariant exact and the gate reporting zero
+        //                   findings. Free identities plus a free mint beat every voting
+        //                   rule there is, so the only answer is that the mint is not free.
+        //                   On a real chain replace the claim with an FT4 asset transfer
+        //                   and keep the discipline: every credit debited from somewhere.
+        //   BAR AND       - execute_proposal needs yes_weight + no_weight >= the quorum of
+        //     WEIGHTS AT    the stake that existed WHEN THE PROPOSAL WAS CREATED, and a vote
+        //     CREATION      weighs what the voter had staked at that same moment (the
+        //                   proposal_stake rows). Nothing that arrives afterwards - minted,
+        //                   bought, or added by a member who was already here - moves the
+        //                   bar or any weight, and a member who joined later has no row and
+        //                   no vote. Round 10's fix read the quorum LIVE at execution, and
+        //                   round 11 measured what that cost: votes freeze at the deadline
+        //                   but the bar did not, so a stranger who staked TWO POINTS after
+        //                   voting had closed took quorum_for(10000) = 5000 to
+        //                   quorum_for(10002) = 5001 and killed an approved payout for
+        //                   good. 0.02 percent of the stake was a permanent veto, and it
+        //                   was repeatable until the DAO never paid anything again.
+        //   COMMITTED     - a proposal RESERVES its amount from the treasury when it is
+        //     TREASURY      created, and the reservation stands until it executes or
+        //                   expires. This is round 10's parked cheap quorum closed WITHOUT
+        //                   reading live stake: that drain was 100 approvals of 1000 each,
+        //                   bought at a quorum of 500 while the DAO was worth 1000 and
+        //                   executed later against 101,000 - and here the SECOND of those
+        //                   proposals cannot be created at all, because the first has
+        //                   already claimed the only 1000 there was. An approval can never
+        //                   spend money that arrived after it was made.
         //   EXECUTION     - an approved proposal must be executed within EXECUTION_WINDOW_MS
-        //     WINDOW        of its deadline or it expires. An approval cannot be parked
-        //                   until the treasury is worth draining.
+        //     WINDOW        of its deadline or it expires, releasing its reservation. An
+        //                   approval cannot be parked until the treasury is worth draining.
         //   VOTING WINDOW - VOTING_PERIOD_MS is a constant, not a parameter. Nothing a
         //                   proposer sends can close a vote before others can act. If you
         //                   make it configurable, floor it: require(period >= VOTING_PERIOD_MS).
-        //   STAKE WEIGHT  - a vote weighs what the voter has locked in the treasury. A
+        //   STAKE WEIGHT  - a vote weighs what the voter had locked in the treasury. A
         //                   member with nothing at stake cannot propose and weighs zero.
         //   EXECUTED ONCE - `executed` flips in the same operation that pays.
         // The single-account drain (zero-stake proposer pays itself, votes 1-0,
         // executes after a 1 ms window) is refused at every step - it cannot propose,
         // cannot end the window early, and cannot reach quorum alone.
-        // src/test/main_test.rell replays that exact attack and REQUIRES it to fail;
-        // keep that test passing as this file grows.
-        // What no template can fix: a member holding more than QUORUM_BPS of all stake
-        // owns the DAO by construction. That is what stake weighting means - choose
-        // QUORUM_BPS and a member cap for your own economics.
+        // src/test/main_test.rell replays that attack, round 10's parked approval, and
+        // both of round 11's - the sybil takeover and the two-point veto - and REQUIRES
+        // each to fail; keep those tests passing as this file grows.
+        // What no template can fix: a member holding more than QUORUM_BPS of the stake
+        // that existed when a proposal was created owns that proposal by construction.
+        // That is what stake weighting means. It is now a BOUNDED statement rather than
+        // an unbounded one, because the stake it is measured against is finite and was
+        // handed out once - but the founder is the one who hands it out, so a founder who
+        // allocates the whole supply to themselves owns the DAO and no later guard takes
+        // it back. Choose GENESIS_POINTS, QUORUM_BPS and that distribution before the
+        // founder key exists on a live chain. To give somebody weight AFTER genesis, pay
+        // them by proposal - the DAO voting to fund a member is a vote like any other.
+        // Never re-open the mint.
+
+        // The founder key: configuration, exactly like the vault's oracle. It signs the
+        // genesis allocation and nothing else, and the production chromia.yml deliberately
+        // leaves it unset so the chain cannot be built with a placeholder.
+        struct module_args {
+            founder_pubkey: pubkey;
+        }
 
         entity member {
             key owner: byte_array;
             mutable balance: integer = 0;   // spendable points
             mutable stake: integer = 0;     // points locked in the treasury = voting weight
+            // One genesis claim per member, ever. Not a balance test: a member whose
+            // balance is back at zero has still had their allocation.
+            mutable allocated: boolean = false;
         }
 
         // The treasury and the total stake behind it: one row, updated in the same
@@ -1058,6 +1179,9 @@ object DappScaffold {
         object dao {
             mutable treasury_balance: integer = 0;
             mutable total_stake: integer = 0;
+            // Points handed out by the genesis allocation so far - the ONLY place points
+            // are created, so this is the whole supply in existence.
+            mutable allocated: integer = 0;
         }
 
         entity proposal {
@@ -1067,10 +1191,21 @@ object DappScaffold {
             amount: integer;
             created_at: timestamp;
             deadline: timestamp;
-            quorum_weight: integer;         // snapshot: total_stake * QUORUM_BPS / 10000 at creation
+            stake_at_creation: integer;     // dao.total_stake the moment this was created
+            quorum_weight: integer;         // quorum_for(stake_at_creation) - the ONLY bar
             mutable yes_weight: integer = 0;
             mutable no_weight: integer = 0;
             mutable executed: boolean = false;
+        }
+
+        // The per-member stake snapshot, written once, at creation. A vote weighs THIS
+        // row, never the member's live stake, and a member who had nothing staked when
+        // the proposal was created has no row here and no vote on it. Together with
+        // quorum_weight it is why nothing that arrives later can move what this proposal
+        // is judged by - in either direction.
+        entity proposal_stake {
+            key proposal, owner: byte_array;
+            weight: integer;
         }
 
         // One vote per member per proposal: the key aborts a second vote.
@@ -1080,10 +1215,15 @@ object DappScaffold {
             support: boolean;
         }
 
-        // The one-time welcome grant is the ONLY place points are created (a
-        // stand-in for a real deposit - replace with an FT4 asset transfer and
-        // keep the same discipline: every credit is debited from somewhere real).
+        // What one member may claim at genesis, once, countersigned by the founder.
+        // This is the ONLY place points are created (a stand-in for a real deposit -
+        // replace with an FT4 asset transfer and keep the same discipline: every credit
+        // is debited from somewhere real). It is NOT handed out on registration: round 11
+        // took a 7000 treasury with four registrations when it was.
         val WELCOME_POINTS = 1000;
+        // The whole supply of voting weight this DAO will ever have. Nothing mints past
+        // it, the founder included, and the allocation closes at the first stake anyway.
+        val GENESIS_POINTS = 100 * WELCOME_POINTS;
         // Three days. A constant: there is no parameter that shortens it.
         val VOTING_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
         // Seven days after the deadline to execute an approved proposal; after that
@@ -1109,10 +1249,47 @@ object DappScaffold {
         function quorum_for(total_stake: integer): integer =
             max(1, total_stake * QUORUM_BPS / 10000);
 
+        function founder_pubkey(): pubkey = chain_context.args.founder_pubkey;
+
+        // The treasury already claimed by proposals that can still execute. A proposal
+        // reserves its amount at creation and releases it by executing or by expiring, so
+        // two approvals can never be sold the same money and no approval can reach money
+        // that arrived after it. O(proposals) once, at creation - fine for a template;
+        // index it if your DAO gets big.
+        function committed_treasury(now: timestamp): integer {
+            var total = 0;
+            for (p in proposal @* { not .executed }) {
+                if (now < p.deadline + EXECUTION_WINDOW_MS) total += p.amount;
+            }
+            return total;
+        }
+
+        // Membership is open and WORTH NOTHING BY ITSELF: a new member can be paid by the
+        // DAO and can be a proposal's beneficiary, and has no points and no vote until the
+        // genesis allocation gives them some - which, after the DAO has any stake, it
+        // never will. Round 11: this operation used to credit WELCOME_POINTS, and four
+        // calls to it outvoted three honest members and took the whole treasury.
         operation register_member() {
             val account = auth.authenticate();
             require(member @? { .owner == account.id } == null, "already a member");
-            create member(owner = account.id, balance = WELCOME_POINTS);
+            create member(owner = account.id);
+        }
+
+        // THE GENESIS ALLOCATION, and the only mint in this module. The member asks and
+        // the FOUNDER countersigns - the key is configuration, never a parameter, never in
+        // source - the claim is once per member and at most WELCOME_POINTS, the supply is
+        // capped at GENESIS_POINTS, and the whole window shuts the moment anybody stakes.
+        // After that the DAO's voting weight is fixed and a sybil registering costs the
+        // DAO nothing, which is the property round 11 broke.
+        operation claim_allocation() {
+            val account = auth.authenticate();
+            require(op_context.is_signer(chain_context.args.founder_pubkey), "the founder must countersign a genesis claim");
+            require(dao.total_stake == 0, "genesis allocation is closed");
+            val m = member_of(account.id);
+            require(not m.allocated, "already allocated");
+            require(dao.allocated + WELCOME_POINTS <= GENESIS_POINTS, "genesis supply exhausted");
+            update m ( .balance += WELCOME_POINTS, .allocated = true );
+            dao.allocated += WELCOME_POINTS;
         }
 
         // Lock points in the treasury. Stake is voting weight: what you can lose
@@ -1137,19 +1314,34 @@ object DappScaffold {
             require(title.size() > 0 and title.size() <= MAX_TITLE_LENGTH, "invalid title");
             require(member @? { .owner == beneficiary } != null, "beneficiary is not a member");
             require(amount > 0, "amount must be positive");
-            require(amount <= dao.treasury_balance, "amount exceeds treasury");
-            // 4. INVARIANTS - the window and the quorum are fixed HERE, from
-            //    constants and the current total stake; the proposer chooses neither.
             val now = op_context.last_block_time;
-            create proposal(
+            // The treasury a live proposal has already reserved is not available to this
+            // one. Round 10's drain was 100 cheap approvals of 1000 each against a
+            // treasury of 1000; here the second of them does not exist.
+            require(
+                amount <= dao.treasury_balance - committed_treasury(now),
+                "amount exceeds the uncommitted treasury"
+            );
+            // 4. INVARIANTS - the window, the bar and EVERY VOTER'S WEIGHT are fixed
+            //    HERE, from constants and the DAO as it is at this instant; the proposer
+            //    chooses none of them, and nobody can move them afterwards.
+            val p = create proposal(
                 proposer = account.id,
                 title = title,
                 beneficiary = beneficiary,
                 amount = amount,
                 created_at = now,
                 deadline = now + VOTING_PERIOD_MS,
+                stake_at_creation = dao.total_stake,
                 quorum_weight = quorum_for(dao.total_stake)
             );
+            // One row per member who HAS stake right now. This is the whole defence
+            // against round 11's veto: stake posted after this line is worth nothing to
+            // this proposal, so nobody can raise its bar and nobody can buy a weight for
+            // it. O(members), once.
+            for (m in member @* { .stake > 0 }) {
+                create proposal_stake(proposal = p, owner = m.owner, weight = m.stake);
+            }
         }
 
         operation cast_vote(proposal_id: rowid, support: boolean) {
@@ -1158,9 +1350,13 @@ object DappScaffold {
             val p = require(proposal @? { .rowid == proposal_id }, "proposal not found");
             require(not p.executed, "proposal already executed");
             require(op_context.last_block_time < p.deadline, "voting has ended");
-            // A vote weighs the voter's stake. Zero stake is zero weight, and is
-            // refused outright so a spam of empty votes cannot count toward quorum.
-            val weight = voter.stake;
+            // A vote weighs what the voter had staked WHEN THIS PROPOSAL WAS CREATED,
+            // not what they have now. Stake added since - by this member or anyone else -
+            // is worth nothing here, and a member who joined since has no row at all.
+            // Zero weight is refused outright so a spam of empty votes cannot count
+            // toward quorum.
+            val snapshot = proposal_stake @? { .proposal == p, .owner == voter.owner };
+            val weight = if (snapshot != null) snapshot.weight else 0;
             require(weight > 0, "no voting weight: fund the treasury first");
             create vote(proposal = p, voter = account.id, weight = weight, support = support);
             if (support) {
@@ -1177,15 +1373,15 @@ object DappScaffold {
             require(not p.executed, "proposal already executed");
             require(op_context.last_block_time >= p.deadline, "voting is still open");
             require(op_context.last_block_time < p.deadline + EXECUTION_WINDOW_MS, "proposal expired");
-            // The bar is the LARGER of the snapshot and the quorum of today's total
-            // stake. Votes cast while the DAO was small do not carry against the DAO
-            // as it is when the money moves. Do not simplify this to the snapshot
-            // alone: that is the round-10 drain, and test_round10_parked_cheap_quorum_drain_must_fail
-            // goes red the moment you do.
-            require(
-                p.yes_weight + p.no_weight >= max(p.quorum_weight, quorum_for(dao.total_stake)),
-                "quorum not reached"
-            );
+            // The bar is the quorum of the stake that existed when this proposal was
+            // created, and nothing else. Do NOT add a term over dao.total_stake: reading
+            // the quorum live was round 10's fix and round 11's drain - votes freeze at
+            // the deadline and the bar did not, so two points of stake posted afterwards
+            // vetoed an approved payout for ever. test_r11_two_point_stake_cannot_veto_an_approved_proposal
+            // goes red the moment you put that term back. Money arriving after an
+            // approval is dealt with where it belongs, at creation: the proposal reserved
+            // what it may spend and cannot reach a point more.
+            require(p.yes_weight + p.no_weight >= p.quorum_weight, "quorum not reached");
             require(p.yes_weight > p.no_weight, "proposal was not approved");
             require(dao.treasury_balance >= p.amount, "treasury cannot cover the proposal");
             val b = member_of(p.beneficiary);
@@ -1205,9 +1401,12 @@ object DappScaffold {
                 amount = p.amount,
                 deadline = p.deadline,
                 expires_at = p.deadline + EXECUTION_WINDOW_MS,
+                // The bar execute_proposal will apply, fixed when the proposal was
+                // created. There is deliberately no "quorum now": a bar that moves after
+                // the votes are frozen is a veto anybody can buy, which is what round 11
+                // bought for two points.
+                stake_at_creation = p.stake_at_creation,
                 quorum_weight = p.quorum_weight,
-                // The bar execute_proposal will actually apply if called now.
-                quorum_now = max(p.quorum_weight, quorum_for(dao.total_stake)),
                 yes_weight = p.yes_weight,
                 no_weight = p.no_weight,
                 executed = p.executed
@@ -1230,10 +1429,21 @@ object DappScaffold {
 
         query member_count(): integer = member @* {} ( .owner ).size();
 
-        // INVARIANT: every point in circulation came from a welcome grant. Points
-        // are either spendable (member.balance) or in the treasury; funding and
+        // Every point ever created, and the ceiling it can never pass. member_count()
+        // is deliberately NOT part of this: registering is free and mints nothing.
+        query allocated_points(): integer = dao.allocated;
+
+        query genesis_supply(): integer = GENESIS_POINTS;
+
+        query allocation_open(): boolean = dao.total_stake == 0 and dao.allocated < GENESIS_POINTS;
+
+        // What proposals that can still execute have reserved, at a given time.
+        query committed_at(now: timestamp): integer = committed_treasury(now);
+
+        // INVARIANT: every point in circulation came from the genesis allocation.
+        // Points are either spendable (member.balance) or in the treasury; funding and
         // paying out move them, they never create or destroy them. The shipped
-        // conservation test compares this to member_count() * WELCOME_POINTS.
+        // conservation test compares this to allocated_points().
         query points_in_circulation(): integer {
             var total = dao.treasury_balance;
             for (b in member @* {} ( .balance )) total += b;
@@ -1259,10 +1469,15 @@ object DappScaffold {
         // drain step by step against this template and REQUIRES each step to be
         // refused. That test is the proof the bug is unwritable here: it can only
         // pass while the guards stand, so if you ever delete one, this goes red
-        // before an attacker finds out.
+        // before an attacker finds out. test_round10_* and the two test_r11_* tests do
+        // the same for the parked cheap quorum, the free-stake sybil takeover and the
+        // two-point veto.
 
         import main;
-        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, register_account_open, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
 
         function signed(keypair: rell.test.keypair, op: rell.test.op) {
             rell.test.tx()
@@ -1289,13 +1504,56 @@ object DappScaffold {
             rell.test.block().run();
         }
 
+        // Every point that exists came from the genesis allocation, and stays where the
+        // ledger says. Deliberately NOT member_count() * WELCOME_POINTS any more:
+        // registering is free and mints nothing, which is round 11's fix.
         function assert_conserved() {
-            assert_equals(main.points_in_circulation(), main.member_count() * main.WELCOME_POINTS);
+            assert_equals(main.points_in_circulation(), main.allocated_points());
             assert_equals(main.staked_points(), main.total_stake());
+        }
+
+        // The founder's key is FT4's published TEST admin key here, exactly as the vault
+        // and stablecoin templates use it for their oracle - a test convenience, never a
+        // deployment. A genesis claim is the MEMBER's own operation, COUNTERSIGNED by the
+        // founder, so the transaction carries both signatures.
+        function founder(): rell.test.keypair =
+            rell.test.keypair(priv = admin_priv_key(), pub = main.founder_pubkey());
+
+        function claim(keypair: rell.test.keypair) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(main.claim_allocation())
+                .nop()
+                .sign(keypair, founder())
+                .run();
+        }
+
+        function claim_must_fail(keypair: rell.test.keypair, expected: text) {
+            rell.test.tx()
+                .op(ft_auth_operation_for(keypair.pub))
+                .op(main.claim_allocation())
+                .nop()
+                .sign(keypair, founder())
+                .run_must_fail(expected);
+        }
+
+        // Round 11's sybil keys: derived, so a test can register as many accounts as an
+        // attacker would. Registration is the only free thing here.
+        function hexbyte(i: integer): text {
+            val d = "0123456789abcdef";
+            return d.sub(i / 16, i / 16 + 1) + d.sub(i % 16, i % 16 + 1);
+        }
+
+        function sybil_keypair(i: integer): rell.test.keypair {
+            val priv = byte_array.from_hex("11111111111111111111111111111111111111111111111111111111111111" + hexbyte(i + 1));
+            return rell.test.keypair(priv = priv, pub = crypto.privkey_to_pubkey(priv, true));
         }
 
         function proposal_by(proposer: byte_array): rowid =
             (main.proposal @ { .proposer == proposer }).rowid;
+
+        function proposal_titled(title: text): rowid =
+            (main.proposal @ { .title == title }).rowid;
 
         // EXPLOIT MUST FAIL. Round 1: two honest members fund 600 + 400; a third
         // account with nothing at stake proposes paying itself the treasury, casts
@@ -1307,6 +1565,11 @@ object DappScaffold {
             signed(alice.keypair, main.register_member());
             signed(bob.keypair, main.register_member());
             signed(trudy.keypair, main.register_member());
+            // The genesis allocation, while the DAO holds nothing: three members, one
+            // claim each, countersigned. After the first stake below it is shut for good.
+            claim(alice.keypair);
+            claim(bob.keypair);
+            claim(trudy.keypair);
             signed(alice.keypair, main.fund_treasury(600));
             signed(bob.keypair, main.fund_treasury(400));
             assert_equals(main.treasury_balance(), 1000);
@@ -1345,6 +1608,8 @@ object DappScaffold {
             val bob = register_bob();
             signed(alice.keypair, main.register_member());
             signed(bob.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
             signed(alice.keypair, main.fund_treasury(600));
             signed(bob.keypair, main.fund_treasury(400));
 
@@ -1373,8 +1638,10 @@ object DappScaffold {
             assert_conserved();
         }
 
-        // STAKE WEIGHT BEATS HEAD COUNT: two yes votes worth 301 lose to one no
-        // vote worth 600, and a member with no stake has no vote at all.
+        // STAKE WEIGHT BEATS HEAD COUNT: a yes vote worth 300 loses to a no vote worth
+        // 600, a member with no stake has no vote at all, and - since round 11 - stake
+        // bought AFTER the proposal was created is worth nothing to it either, from the
+        // yes side as much as from the no side.
         function test_majority_of_stake_can_reject() {
             val alice = register_alice();
             val bob = register_bob();
@@ -1382,14 +1649,22 @@ object DappScaffold {
             signed(alice.keypair, main.register_member());
             signed(bob.keypair, main.register_member());
             signed(trudy.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            claim(trudy.keypair);
             signed(alice.keypair, main.fund_treasury(600));
             signed(bob.keypair, main.fund_treasury(300));
 
             signed(bob.keypair, main.create_proposal("pay bob", bob.account.id, 500));
             val pid = proposal_by(bob.account.id);
+            assert_equals(main.get_proposal(pid).stake_at_creation, 900);
             signed_must_fail(trudy.keypair, main.cast_vote(pid, true), "no voting weight");
+            // She stakes now - and still has no vote on THIS proposal, because the
+            // weights were written when it was created. Buying weight into a vote that is
+            // already running is the same defect as buying the bar after it closed.
             signed(trudy.keypair, main.fund_treasury(1));
-            signed(trudy.keypair, main.cast_vote(pid, true));
+            assert_equals(main.total_stake(), 901);
+            signed_must_fail(trudy.keypair, main.cast_vote(pid, true), "no voting weight");
             signed(bob.keypair, main.cast_vote(pid, true));
             signed(alice.keypair, main.cast_vote(pid, false));
 
@@ -1399,17 +1674,31 @@ object DappScaffold {
             assert_conserved();
         }
 
-        // EXPLOIT MUST FAIL. Round 10: the parked cheap quorum. Trudy is the DAO's
-        // only member. She stakes everything, proposes paying herself the whole
-        // treasury and votes yes - a real quorum, of a DAO worth 1000. Then alice
-        // and bob join and stake 1000 each. With a snapshot-only quorum her approval
-        // executes against a 3000 treasury on a bar set when it was 1000, and scaled
-        // up (100 proposals of 1000 each, 100 members) that is 100,000 of 101,000
-        // to a member holding 0.99 percent of live stake. Here the live term
-        // refuses it: 1000 of weight against quorum_for(3000) = 1500.
+        // EXPLOIT MUST FAIL. Round 10: the parked cheap quorum. Trudy stakes everything
+        // she has while the DAO is worth 1000, proposes paying herself all of it and
+        // votes yes - a real quorum, of a DAO worth 1000. Then the treasury grows around
+        // her parked approval. Scaled up, the drain was 100 approvals of 1000 each,
+        // bought at a quorum of 500 and executed later against 101,000 by a member
+        // holding 0.99 percent of the stake.
+        //
+        // Round 10 refused it by reading the quorum LIVE at execution, and round 11 broke
+        // that: a bar that moves after the votes are frozen is a veto anybody can buy
+        // (see test_r11_two_point_stake_cannot_veto_an_approved_proposal). It is refused
+        // here instead by the money, not by the bar - a proposal RESERVES what it may
+        // spend when it is created, so the second of those 100 approvals cannot be
+        // created at all, and the first can never reach a point that arrived later. What
+        // she gets is the 1000 she staked; the 2000 that arrived is out of reach, and a
+        // NEW proposal for it is judged against the DAO as it is now.
         function test_round10_parked_cheap_quorum_drain_must_fail() {
             val trudy = register_trudy();
+            val alice = register_alice();
+            val bob = register_bob();
             signed(trudy.keypair, main.register_member());
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            claim(trudy.keypair);
+            claim(alice.keypair);
+            claim(bob.keypair);
             signed(trudy.keypair, main.fund_treasury(1000));
             assert_equals(main.total_stake(), 1000);
             signed(trudy.keypair, main.create_proposal("pay me", trudy.account.id, 1000));
@@ -1417,20 +1706,36 @@ object DappScaffold {
             assert_equals(main.get_proposal(pid).quorum_weight, 500);
             signed(trudy.keypair, main.cast_vote(pid, true));
 
+            // Step 1 - she cannot park a SECOND claim on money the first one already
+            // reserved. That is the 100-approval drain, refused at its second step.
+            signed_must_fail(
+                trudy.keypair,
+                main.create_proposal("pay me twice", trudy.account.id, 1000),
+                "amount exceeds the uncommitted treasury"
+            );
+
             // The DAO grows around the parked approval.
-            val alice = register_alice();
-            val bob = register_bob();
-            signed(alice.keypair, main.register_member());
-            signed(bob.keypair, main.register_member());
             signed(alice.keypair, main.fund_treasury(1000));
             signed(bob.keypair, main.fund_treasury(1000));
             assert_equals(main.treasury_balance(), 3000);
-            assert_equals(main.get_proposal(pid).quorum_now, 1500);
 
             close_voting_window();
-            signed_must_fail(trudy.keypair, main.execute_proposal(pid), "quorum not reached");
-            assert_equals(main.treasury_balance(), 3000);
-            assert_equals(main.get_balance(trudy.account.id), 0);
+            // Step 2 - the approval pays the 1000 it reserved, which is the stake she put
+            // in, and not one point of the 2000 that arrived after it.
+            signed(trudy.keypair, main.execute_proposal(pid));
+            assert_equals(main.get_balance(trudy.account.id), 1000);
+            assert_equals(main.treasury_balance(), 2000);
+
+            // Step 3 - and the money that arrived is judged against the DAO that holds
+            // it: 1000 of her weight against a bar of 1500.
+            signed(trudy.keypair, main.create_proposal("pay me the rest", trudy.account.id, 2000));
+            val pid2 = proposal_titled("pay me the rest");
+            assert_equals(main.get_proposal(pid2).stake_at_creation, 3000);
+            assert_equals(main.get_proposal(pid2).quorum_weight, 1500);
+            signed(trudy.keypair, main.cast_vote(pid2, true));
+            close_voting_window();
+            signed_must_fail(trudy.keypair, main.execute_proposal(pid2), "quorum not reached");
+            assert_equals(main.treasury_balance(), 2000);
             assert_conserved();
         }
 
@@ -1443,6 +1748,8 @@ object DappScaffold {
             val bob = register_bob();
             signed(alice.keypair, main.register_member());
             signed(bob.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
             signed(alice.keypair, main.fund_treasury(600));
             signed(bob.keypair, main.fund_treasury(400));
             signed(alice.keypair, main.create_proposal("pay bob", bob.account.id, 300));
@@ -1457,6 +1764,107 @@ object DappScaffold {
             signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal expired");
             assert_equals(main.treasury_balance(), 1000);
             assert_equals(main.get_proposal(pid).executed, false);
+            // An expired proposal RELEASES what it reserved, or a dead approval would
+            // lock the DAO's money for ever: the whole treasury can be proposed again.
+            signed(alice.keypair, main.create_proposal("pay bob, again", bob.account.id, 1000));
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 11, drain one: the free-minted sybil takeover. Three
+        // honest members stake 1000 each; the attacker registered FOUR accounts, was
+        // minted 1000 points by each registration, staked the 4000 and voted the whole
+        // 7000 treasury to herself over three honest NO votes - 4000 yes to 3000 no
+        // against a quorum of 3500. Nothing was minted that the template did not mint on
+        // purpose, every conservation invariant was exact, and the gate said ok:true with
+        // zero findings: the security parameter WAS the welcome grant. Here registration
+        // mints nothing, the genesis allocation shut at the first stake, and four sybils
+        // are four members with no points, no proposal and no vote.
+        function test_r11_free_stake_sybil_takeover_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            claim(trudy.keypair);
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+            signed(trudy.keypair, main.fund_treasury(1000));
+            assert_equals(main.treasury_balance(), 3000);
+            assert_equals(main.total_stake(), 3000);
+            assert_false(main.allocation_open());
+
+            val sybils = list<rell.test.keypair>();
+            val sybil_ids = list<byte_array>();
+            for (i in range(4)) {
+                val kp = sybil_keypair(i);
+                val ra = register_account_open(kp);
+                signed(kp, main.register_member());
+                // Registering is free and buys NOTHING. This is the whole fix.
+                signed_must_fail(kp, main.fund_treasury(1000), "insufficient balance");
+                assert_equals(main.get_balance(ra.account.id), 0);
+                sybils.add(kp);
+                sybil_ids.add(ra.account.id);
+            }
+            // Nor can the founder mint for them: the window shut at the first stake.
+            claim_must_fail(sybils[0], "genesis allocation is closed");
+            // With no stake a sybil cannot put the treasury to a vote...
+            signed_must_fail(
+                sybils[0],
+                main.create_proposal("pay me", sybil_ids[0], 3000),
+                "only members with stake may propose"
+            );
+            // ...and cannot vote on anybody else's proposal either.
+            signed(alice.keypair, main.create_proposal("pay bob for the audit", bob.account.id, 500));
+            val pid = proposal_by(alice.account.id);
+            signed_must_fail(sybils[0], main.cast_vote(pid, true), "no voting weight");
+
+            assert_equals(main.total_stake(), 3000);
+            assert_equals(main.treasury_balance(), 3000);
+            assert_equals(main.allocated_points(), 3000);
+            assert_equals(main.member_count(), 7);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 11, drain two: the live quorum term is a veto anybody
+        // can buy. QUORUM_BPS is 5000, so a proposal carried by EXACTLY the quorum is the
+        // designed case and not an edge case - alice's 1000 of yes is exactly
+        // quorum_for(2000). Voting closes, so no vote can ever be added; but round 10's
+        // bar was read at EXECUTION, so a stranger staking TWO POINTS took it to
+        // quorum_for(2002) = 1001 and killed the approved payout for ever, for 0.02
+        // percent of the stake, repeatably, until the DAO paid nothing again. Here the
+        // bar was fixed when the proposal was created and her stake is worth nothing to
+        // it: the payout lands.
+        function test_r11_two_point_stake_cannot_veto_an_approved_proposal() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            claim(trudy.keypair);
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+
+            signed(alice.keypair, main.create_proposal("pay bob for the audit", bob.account.id, 500));
+            val pid = proposal_by(alice.account.id);
+            assert_equals(main.get_proposal(pid).quorum_weight, 1000);
+            signed(alice.keypair, main.cast_vote(pid, true));
+            assert_equals(main.get_proposal(pid).yes_weight, 1000);
+
+            close_voting_window();
+            // Every vote is frozen. The stranger's stake arrives now.
+            signed(trudy.keypair, main.fund_treasury(2));
+            assert_equals(main.total_stake(), 2002);
+            // ...and the bar has not moved, because it never reads live stake.
+            assert_equals(main.get_proposal(pid).quorum_weight, 1000);
+            signed(bob.keypair, main.execute_proposal(pid));
+            assert_equals(main.get_balance(bob.account.id), 500);
+            assert_equals(main.treasury_balance(), 1502);
             assert_conserved();
         }
     """.trimIndent() + "\n"
@@ -1510,25 +1918,55 @@ object DappScaffold {
         //                     liquidation can never push a position below the bonus ratio.
         //                     This is the operation round 9's build did not have: nothing
         //                     closed a position whose collateral had fallen under its debt.
+        //   SOLVENT SYSTEM  - and liquidation runs ONLY while the SYSTEM is worth at least
+        //     OR NOTHING      its coin at the fresh price, before AND after the seizure.
+        //                     Round 11's drain was the per-position cap holding while the
+        //                     system did not: the seized collateral leaves the common
+        //                     reserve faster than the coin it retires whenever the target is
+        //                     better backed than the system average, so at 98% backing
+        //                     liquidate-then-settle paid the liquidator 104 tokens, alice
+        //                     117 and bob 78 while settle-first paid 89, 124 and 86 - 15
+        //                     tokens, 5% of every token in the system, moved on transaction
+        //                     order, and 7 of them came from a party to no liquidation at
+        //                     all. Once the system is under-backed there is nothing to
+        //                     liquidate INTO and settle() is the exit. THE TRADE, STATED: a
+        //                     position that goes bad while the system is already under water
+        //                     is closed by nobody; it is settled with the rest. That is the
+        //                     price of an exit no one can race for. The alternative - paying
+        //                     the liquidator only the system's AVERAGE backing - keeps the
+        //                     operation alive, but then every liquidation is priced off
+        //                     positions the liquidator has nothing to do with, and its
+        //                     mutant only moves a number instead of flipping a refusal.
         //   NO REDEMPTION   - there is NO operation that pays a coin holder par out of
         //     AT PAR          somebody else's position. That was round 9's drain: 13332 of
         //                     coin against collateral worth 10240, and whoever redeemed first
         //                     took collateral at 100 cents while the last holder was left
         //                     with 3082 of a coin nothing backed - THIRTY TOKENS moved on
         //                     transaction order alone. Here the peg is held by the debtor's
-        //                     right to burn at par against their OWN debt, by liquidation,
-        //                     and by settlement.
+        //                     right to burn at par against their OWN debt, by liquidation
+        //                     WHILE THE SYSTEM IS SOUND, and by settlement. Round 11
+        //                     falsified this sentence as it used to stand - liquidate() paid
+        //                     105% of par out of the settlement pool - and the guard above
+        //                     is what makes it true again. Do not read this line on its own.
         //   SETTLEMENT      - when the whole system's collateral is worth less than its
         //                     coin at a fresh price, anyone may settle: every position's
         //                     surplus goes back to its owner, the rest of the collateral is
         //                     one pool, and every coin redeems for the SAME pro-rata share of
-        //                     it in any order. A shortfall is shared, never raced for.
+        //                     it in any order. A shortfall is shared, never raced for - and
+        //                     since round 11 that covers the WHOLE shortfall, because the one
+        //                     operation that could take a slice of the pool ahead of
+        //                     settlement is refused for as long as the shortfall exists.
         // The oracle is the ONE key in chain_context.args.oracle_pubkey - configured, never
         // a parameter, never in source.
         // What no template can fix: a price that falls faster than liquidators act still
         // leaves bad debt - the coin is then worth the settlement rate, not par. Size the
         // ratios and the move bound for your collateral's volatility, and keep the
-        // conservation tests green.
+        // conservation tests green. And note what the round-11 guard costs, because it is
+        // a residual and not a fix: between the block the system goes under-backed and the
+        // block somebody calls settle(), NOTHING closes a bad position, and settle()
+        // freezes every position at whatever price is fresh when it is finally called.
+        // Watch the system ratio and settle promptly - that is an operational duty this
+        // template cannot discharge for you.
 
         struct module_args {
             oracle_pubkey: pubkey;
@@ -1777,6 +2215,27 @@ object DappScaffold {
             val pro_rata = t.collateral * stable_in / t.debt;
             val seize = min(with_bonus, pro_rata);
             require(seize > 0, "amount too small");
+            // THE SYSTEM'S OWN BACKING, before and after. Adversary round 11 found the
+            // drain one level up from the per-position cap, which held: the collateral a
+            // liquidator takes comes out of the COMMON reserve every coin holder settles
+            // against, and it leaves faster than the coin it retires whenever the target
+            // is better backed than the system average. Measured at 98% system backing
+            // with an honest oracle (100 -> 80 -> 64 -> 52 -> 45): liquidating 3000 of a
+            // 110%-backed position and then settling paid the liquidator 104 tokens,
+            // alice 117 and bob 78; settling first paid 89, 124 and 86. Fifteen tokens -
+            // 5% of every token in the system - moved on transaction order, and SEVEN of
+            // them came from alice, who was not party to the liquidation at all; the pool
+            // fell 256 to 190 while the supply fell 13756 to 10756. So once the system as
+            // a whole is worth less than its coin at a fresh price, NO liquidation pays
+            // out: settle() is the only exit and it shares the shortfall at one rate in
+            // any order. The second half is the same rule against CREATING the shortfall -
+            // the bonus takes 105% of what it retires, so a liquidation puts a system
+            // under water whenever the system's equity is less than the bonus it pays.
+            require(
+                collateral_value(system.total_collateral, price) >= system.total_debt
+                    and collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in,
+                "system is under-backed - settle instead of liquidating"
+            );
             val reserve = collateral_reserve();
             require(reserve.balance >= seize, "vault cannot cover the liquidation");
             update my_stable ( .balance -= stable_in );
@@ -1930,8 +2389,12 @@ object DappScaffold {
         // honest -20% price posts, and whoever REDEEMED first took collateral at par out
         // of the other's position: 130 tokens against 70, THIRTY TOKENS moved on order
         // alone. Here the same setup is run in both orders and both parties end exactly
-        // equal, by liquidation and by settlement, with every conservation invariant
-        // exact after every step.
+        // equal, with every conservation invariant exact after every step.
+        //
+        // The test_r11_* functions replay adversary round 11, which found the same defect
+        // one level up: the per-position pro-rata cap held, but LIQUIDATION ITSELF paid
+        // 105% of par out of the common settlement pool once the SYSTEM was under-backed.
+        // Both orders are run and the three parties end on the same three numbers.
 
         import main;
         import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
@@ -1976,6 +2439,11 @@ object DappScaffold {
         // -20% three times, an hour apart: every post is inside MAX_PRICE_MOVE_BPS and
         // MIN_PRICE_UPDATE_INTERVAL_MS. The oracle is honest throughout.
         val P3 = 51200000;
+        // Round 11's path leaves P2 instead: 52.00 (-18.75%) then 45.00 (-13.5%), both
+        // inside the same bound, an hour apart, the same honest oracle. It stops with the
+        // system one and a half percent short instead of twenty-three percent short.
+        val P4 = 52000000;
+        val P5 = 45000000;
 
         // Round 9's setup, verbatim: two identical users each lock 100 tokens (worth 10000
         // at par) and mint 6666 - exactly what the 150% ratio allows - then the price falls
@@ -1999,12 +2467,14 @@ object DappScaffold {
             assert_conserved();
         }
 
-        // EXPLOIT MUST FAIL. Round 9, by liquidation, attacker first. There is no
-        // operation that pays her par out of the honest position; what she CAN do is
-        // liquidate it, and liquidation of an under-water position pays pro rata: 100
-        // tokens for its whole 6666 of debt, 76 for 5120 of it, the same for anyone.
-        // She cannot withdraw her own collateral while under water, and cannot take more
-        // than the position's share.
+        // EXPLOIT MUST FAIL. Round 9, attacker first. There is no operation that pays
+        // her par out of the honest position - and since round 11 there is no liquidation
+        // of it either, because the SYSTEM is under water: 200 tokens worth 10240 against
+        // 13332 of coin, 77% backed. Whatever a liquidator takes out of the common
+        // reserve at that point is taken out of what every remaining holder settles
+        // against, so the only exit is settlement, and it pays every coin the same share
+        // whoever asks first. She also cannot withdraw her own collateral while under
+        // water, and cannot repay more than the position owes.
         function test_round9_redemption_at_par_out_of_a_shortfall_must_fail() {
             val honest = register_alice();
             val attacker = register_trudy();
@@ -2014,27 +2484,25 @@ object DappScaffold {
             signed_must_fail(attacker.keypair, main.liquidate(attacker.account.id, 1), "cannot liquidate your own position");
             signed_must_fail(attacker.keypair, main.liquidate(honest.account.id, 6667), "more than that position owes");
 
-            // Round 9 paid her 100 tokens for 5120 of coin here. Pro rata pays 76.
-            signed(attacker.keypair, main.liquidate(honest.account.id, 5120));
-            assert_equals(main.get_tokens(attacker.account.id), 76);
-            assert_equals(main.get_cdp(honest.account.id)!!.collateral, 24);
-            assert_equals(main.get_cdp(honest.account.id)!!.debt, 1546);
-            assert_conserved();
-            // The rest of the position at the same rate: 24 for 1546. 100 for 6666 in all.
-            signed(attacker.keypair, main.liquidate(honest.account.id, 1546));
-            assert_equals(main.get_tokens(attacker.account.id), 100);
-            assert_equals(main.get_stable(attacker.account.id), 0);
-            assert_equals(main.get_cdp(honest.account.id)!!.collateral, 0);
-            assert_equals(main.get_cdp(honest.account.id)!!.debt, 0);
+            // Round 9 paid her 100 tokens for 5120 of coin here; round 10's pro-rata cap
+            // brought that to 76. Round 11 measured that 76 tokens out of a 200-token
+            // pool is still a slice of everybody's settlement, so the operation is gone.
+            signed_must_fail(attacker.keypair, main.liquidate(honest.account.id, 5120),
+                "system is under-backed - settle instead of liquidating");
+            signed_must_fail(attacker.keypair, main.liquidate(honest.account.id, 1546),
+                "system is under-backed - settle instead of liquidating");
+            assert_equals(main.get_tokens(attacker.account.id), 0);
+            assert_equals(main.get_cdp(honest.account.id)!!.collateral, 100);
             assert_conserved();
 
-            // The honest holder, second, does the same to the attacker's position and
-            // ends with exactly the same 100 tokens. Nothing moved on order.
-            signed(honest.keypair, main.liquidate(attacker.account.id, 6666));
+            // The exit, attacker first: 6666 * 200 / 13332 = 100, for her and for the
+            // honest holder alike, and the position she wanted is untouched by her.
+            signed(attacker.keypair, main.settle());
+            signed(attacker.keypair, main.redeem_settled(6666));
+            assert_equals(main.get_tokens(attacker.account.id), 100);
+            signed(honest.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(honest.account.id), 100);
             assert_equals(main.get_stable(honest.account.id), 0);
-            assert_equals(main.get_system().total_debt, 0);
-            assert_equals(main.get_system().total_collateral, 0);
             assert_conserved();
         }
 
@@ -2045,11 +2513,102 @@ object DappScaffold {
             val attacker = register_trudy();
             crash(honest.keypair, attacker.keypair);
 
-            signed(honest.keypair, main.liquidate(attacker.account.id, 5120));
-            signed(honest.keypair, main.liquidate(attacker.account.id, 1546));
+            signed_must_fail(honest.keypair, main.liquidate(attacker.account.id, 5120),
+                "system is under-backed - settle instead of liquidating");
+            signed(honest.keypair, main.settle());
+            signed(honest.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(honest.account.id), 100);
-            signed(attacker.keypair, main.liquidate(honest.account.id, 6666));
+            signed(attacker.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(attacker.account.id), 100);
+            assert_conserved();
+        }
+
+        // Round 11's setup, verbatim: three positions of 100 tokens each, priced down
+        // from par to 45.00 in four honest posts, leaving the SYSTEM one and a half
+        // percent short - 300 tokens worth 13500 against 13756 of coin, 98% backed.
+        // alice owes 6666 (67% backed), bob owes 4090 (110% - unhealthy, and BETTER
+        // backed than the system, which is what made the drain work), and trudy owes
+        // 3000 (150%, healthy) and holds the coin a liquidator needs.
+        function crash_r11(alice: rell.test.keypair, bob: rell.test.keypair, trudy: rell.test.keypair) {
+            signed(alice, main.register_account());
+            signed(bob, main.register_account());
+            signed(trudy, main.register_account());
+            post_price(PAR);
+            signed(alice, main.deposit_collateral(100));
+            signed(alice, main.mint_stable(6666));
+            signed(bob, main.deposit_collateral(100));
+            signed(bob, main.mint_stable(4090));
+            signed(trudy, main.deposit_collateral(100));
+            signed(trudy, main.mint_stable(3000));
+            after(HOUR); post_price(P1);
+            after(HOUR); post_price(P2);
+            after(HOUR); post_price(P4);
+            after(HOUR); post_price(P5);
+            assert_equals(main.get_system().total_collateral, 300);
+            assert_equals(main.get_system().total_debt, 13756);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 11: the liquidation bonus paid out of the settlement
+        // pool. At 98% system backing trudy liquidated 3000 of bob's debt and THEN
+        // settled, and choosing that order was worth 15 tokens to her - 104 against the
+        // 89 settling first pays - with SEVEN of the difference taken from alice, who is
+        // party to no liquidation at all (117 instead of 124) and one from bob (78
+        // instead of 86). The mechanism is arithmetic: the seizure took 70 tokens out of
+        // a settlement pool of 256 while retiring 3000 of a supply of 13756, so the pool
+        // fell to 190 against a supply of 10756 and every remaining holder redeemed at a
+        // worse rate. Nothing was minted; every conservation invariant was exact in both
+        // runs. Here the operation is refused for as long as the shortfall exists.
+        function test_r11_liquidation_out_of_the_settlement_pool_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            crash_r11(alice.keypair, bob.keypair, trudy.keypair);
+
+            // bob is liquidatable on his OWN numbers - 100 tokens worth 4500 against 4090
+            // of debt is 110%, under LIQUIDATION_RATIO_BPS - so nothing but the system's
+            // own backing refuses this, and alice's worse position is refused alike.
+            signed_must_fail(trudy.keypair, main.liquidate(bob.account.id, 3000),
+                "system is under-backed - settle instead of liquidating");
+            signed_must_fail(trudy.keypair, main.liquidate(alice.account.id, 3000),
+                "system is under-backed - settle instead of liquidating");
+            assert_equals(main.get_tokens(trudy.account.id), 0);
+
+            // Settlement is the exit, and it is the settle-first column of round 11's
+            // table: pool 256 against a supply of 13756, and 89 / 124 / 86.
+            signed(trudy.keypair, main.settle());
+            assert_equals(main.get_system().settlement_pool, 256);
+            assert_equals(main.get_system().settlement_supply, 13756);
+            signed(trudy.keypair, main.redeem_settled(3000));
+            signed(alice.keypair, main.redeem_settled(6666));
+            signed(bob.keypair, main.redeem_settled(4090));
+            assert_equals(main.get_tokens(trudy.account.id), 89);
+            assert_equals(main.get_tokens(alice.account.id), 124);
+            assert_equals(main.get_tokens(bob.account.id), 86);
+            assert_conserved();
+        }
+
+        // THE CONTROL for round 11: the same state settled FIRST, and redeemed in the
+        // reverse order. The liquidation trudy was entitled to perform is refused for a
+        // second reason once the system is settled, and all three parties end on exactly
+        // the numbers the sibling test measured - the order is worth nothing.
+        function test_r11_settling_first_pays_the_same_three_numbers() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            crash_r11(alice.keypair, bob.keypair, trudy.keypair);
+
+            signed(alice.keypair, main.settle());
+            signed_must_fail(trudy.keypair, main.liquidate(bob.account.id, 3000), "system is settled");
+            signed(bob.keypair, main.redeem_settled(4090));
+            signed(alice.keypair, main.redeem_settled(6666));
+            signed(trudy.keypair, main.redeem_settled(3000));
+            assert_equals(main.get_tokens(trudy.account.id), 89);
+            assert_equals(main.get_tokens(alice.account.id), 124);
+            assert_equals(main.get_tokens(bob.account.id), 86);
+            // 256 of pool against 255 paid: the one token of integer-division dust stays
+            // in the reserve, where nobody can take it.
+            assert_equals(main.get_system().reserve, 1);
             assert_conserved();
         }
 

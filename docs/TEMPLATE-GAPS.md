@@ -31,8 +31,15 @@ also landed on `vault` - round 9 built it there and drained it by redeeming at
 par out of a shortfall (`r9-stablecoin-redemption-at-par-exit-race`). The
 `stablecoin` template has no redeem-at-par to delete: the peg is the debtor's
 burn against their OWN debt, an under-water position closes by PRO-RATA
-liquidation, and an insolvent system SETTLES into one pool every coin redeems
-the same share of. The round-9 numbers ship as must-fail tests in both orders,
+liquidation *while the system as a whole is still worth its coin*, and an
+insolvent system SETTLES into one pool every coin redeems the same share of.
+That italicised clause is round 11's, and it is there because the per-position
+pro-rata cap - the whole answer this paragraph used to give - held while the
+drain went one level up: seized collateral leaves the common settlement reserve
+faster than the coin it retires, so at 98% system backing the liquidator was
+paid 104 tokens for liquidating-then-settling where settling first paid 89, and
+7 of the 15 tokens that moved came from a holder who was party to no liquidation
+at all. The round-9 and round-11 numbers ship as must-fail tests in both orders,
 and the redirect now names it ahead of `lending` (which claims "debt").
 
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
