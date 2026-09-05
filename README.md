@@ -196,6 +196,18 @@ archive at exit and every later start maps it instead of loading the 280 MB jar'
 class by class - spawn → `initialize` **1.6 s → 0.7 s** measured (2026-09-05; Java 21 only,
 which the server needs anyway). `npx chromia-mcp` and `scripts/install.mjs` add them for you.
 
+Windows PowerShell trap (hit 2026-09-05): npm's `claude.ps1` shim swallows the `--` separator,
+so `claude mcp add ... -- java -XX:...` fails with `unknown option '-XX:'` (PowerShell also splits
+an unquoted `-XX:+Flag` at the colon). Run the same command from `cmd.exe`, or call the exe
+directly from PowerShell with the `-XX` arguments single-quoted:
+
+```powershell
+$claude = Join-Path (Split-Path (Get-Command claude).Source) 'node_modules\@anthropic-ai\claude-code\bin\claude.exe'
+& $claude mcp add chromia --scope user -- java '-XX:+AutoCreateSharedArchive' `
+  '-XX:SharedArchiveFile=C:\Users\Orpe7\.chromia-mcp\chromia-mcp-server.jsa' `
+  -jar C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar --stdio
+```
+
 ### Shape 2: local SSE server (clients that want a URL)
 
 For ChatGPT-style connectors, browser clients, or anything else on this machine or LAN
