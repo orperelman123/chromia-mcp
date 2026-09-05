@@ -57,7 +57,14 @@ if (dbUrl) {
   const hp = dbUrl.match(/\/\/([^:/?]+):(\d+)/);
   if (hp) {
     const [, host, port] = hp;
-    const reachable = await new Promise((resolve) => {
+    // Probe MORE THAN ONCE, a few seconds apart. On 2026-09-05 this failed three
+    // runs in a row while a hand check seconds earlier said OPEN: the WSL VM boots
+    // on every wsl.exe call (postgres auto-starts, the port opens) and shuts down
+    // seconds after that call exits, so a single probe measures the instant, not
+    // the next twenty minutes. Three probes over ~6 s still cannot prove the VM
+    // will stay up, but they do separate a dead database from one that is merely
+    // between heartbeats - and the message names the real fix.
+    const probe = () => new Promise((resolve) => {
       const sock = connect({ host, port: Number(port) });
       const done = (ok) => { sock.destroy(); resolve(ok); };
       sock.setTimeout(4000);
@@ -65,12 +72,22 @@ if (dbUrl) {
       sock.on('timeout', () => done(false));
       sock.on('error', () => done(false));
     });
+    const samples = [];
+    for (let i = 0; i < 3; i++) {
+      samples.push(await probe());
+      if (i < 2) await new Promise((r) => setTimeout(r, 3000));
+    }
+    const reachable = samples.every(Boolean);
     if (!reachable) {
-      fail(`the test database at ${host}:${port} is not accepting connections - this is INFRASTRUCTURE, not your code.
-` +
-        `  Every DB-backed test would fail with "Connection refused" and read as a broken change.
-` +
-        `  Start it, then re-run:  wsl.exe -d Ubuntu -u root -- service postgresql start`);
+      const flapping = samples.some(Boolean);
+      console.error('  Every DB-backed test would fail with "Connection refused" and read as a broken change.');
+      console.error('  If it lives in WSL, the VM idles out seconds after the last wsl.exe command and takes');
+      console.error('  postgres with it. Hold it up with a resident process BEFORE gating, e.g. in the background:');
+      console.error('    wsl.exe -d Ubuntu -u root -- bash -c "service postgresql start; exec sleep infinity"');
+      console.error('  then confirm the port stays open over ~45 s, not just once.');
+      fail(`the test database at ${host}:${port} is not accepting connections` +
+        (flapping ? ' RELIABLY (it answered some probes and not others)' : '') +
+        ' - this is INFRASTRUCTURE, not your code');
     }
     console.log(`gate: database at ${host}:${port} is up`);
   }
