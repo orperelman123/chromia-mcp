@@ -6,21 +6,14 @@ Everything is prepared locally; these are the remaining owner steps, in order.
    ```bash
    git push origin main
    ```
-   This triggers CI and auto-deploys the Render service from the new commit.
+   This triggers CI.
 
-2. **Verify CI + deploy**
-   - GitHub Actions: `CI` workflow green (unit suite + e2e sweep + stdio smoke).
-   - `curl https://chromia-mcp.onrender.com/health` — `version` should now show the
-     new build (git describe of the pushed commit; after step 4's tag it shows `0.5.0`
-     on the next deploy).
+2. **Verify CI**
+   - GitHub Actions: `CI` workflow green (unit suite + e2e sweep + stdio smoke + the
+     launcher's release download + the fresh-install boot against the published index).
 
-3. **Render dashboard** (one-time settings; the Blueprint declares them but existing
-   services don't pick plan changes up automatically)
-   - Upgrade plan **starter → standard** (2GB; the server needs ~1.5GB — starter idles
-     at ~98% memory and OOMs under load).
-   - Set **Health Check Path** to `/health`.
-   - Once on 2GB: clear `CHROMIA_MCP_DISABLE_TOOLS` if you want the full toolset
-     (Rell compiler tools + on-chain queries) hosted.
+3. **Hosted service** — none since 2026-09-05 (the Render service is suspended; the
+   product is the local install). Nothing to do here.
 
 4. **Tag the release**
    ```bash

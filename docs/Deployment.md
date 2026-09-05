@@ -1,9 +1,17 @@
 # Deployment & Hosting
 
-**Local is the primary path.** This server is designed to run on the developer's own
+**Local is the path.** This server is designed to run on the developer's own
 machine — full 70-tool catalog, no memory constraints, `local_chain_up` fully usable, no
-hosting cost. Hosting (Render, Kubernetes) is an *option* for sharing a reduced
-docs/analytics endpoint (see [Hosted (Render)](#hosted-render--the-intended-architecture) below).
+hosting cost. Hosting (Render, Kubernetes) remains an *option* for sharing a reduced
+docs/analytics endpoint; the fork's own Render service was **retired (suspended) on
+2026-09-05** — see [Hosted (Render)](#hosted-render--retired-2026-09-05) below for what it
+was and the measurements that would apply to a redeploy.
+
+The documentation index a local install answers from is cached on disk after the first
+download: `$CHROMIA_MCP_HOME/embeddings.json` (default `~/.chromia-mcp/`), reused while
+younger than 7 days, then refreshed from the weekly release asset — and still served if
+that refresh fails. `CHROMIA_EMBEDDINGS_CACHE=off` disables the cache; `CHROMIA_EMBEDDINGS_PATH`
+bypasses it entirely.
 
 ## Environments
 
@@ -56,10 +64,19 @@ schtasks /Create /TN "chromia-mcp-sse" /SC ONLOGON /RL LIMITED `
   Ctrl+C.
 - The stdio shape needs no auto-start: the MCP client launches the process on demand.
 
-### Hosted (Render) — the intended architecture
+### Hosted (Render) — retired 2026-09-05
 
-The hosted service (`https://chromia-mcp.onrender.com`, Render **starter**, Frankfurt)
-is deliberately a **reduced surface**: docs search (`search`/`fetch_docs`/`fetch`),
+The service (`https://chromia-mcp.onrender.com`, Render **starter**, Frankfurt) ran from
+2026-08-30 to 2026-09-05 and is now **suspended, not deleted**. It stopped picking up
+deploys with `autoDeploy: true` (47 commits behind `main`, answering from the 2025-10-21
+GitLab package while every check in this repo was green), and the product is the local
+install. Everything below is kept as the record of how it was shaped and measured, so a
+redeploy — Render or anything else running the `Dockerfile` — starts from numbers, not
+guesses. The hosted-only monitoring (`scripts/hosted-check.mjs`, `hosted-check.yml`) was
+removed with the service; the fresh-install boot check in CI (`rag-eval.mjs
+--production-shaped`) is what survives of it.
+
+The service was deliberately a **reduced surface**: docs search (`search`/`fetch_docs`/`fetch`),
 network analytics, help/reference (`chromia_help`), scaffolding, validation, preflight,
 onboarding, and error translation — ~35 tools. The heavy tools stay **local by design**:
 

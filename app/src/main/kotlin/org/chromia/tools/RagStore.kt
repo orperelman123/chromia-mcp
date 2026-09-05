@@ -37,7 +37,10 @@ import org.chromia.downloadFile
 import org.chromia.tools.docs.fetcher.DocsFetcher
 import org.chromia.tools.docs.fetcher.IngestPathFilter
 import org.chromia.uploadFile
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
@@ -49,13 +52,16 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
+import kotlin.io.path.writeText
 
 open class RagStore(
     loadFromRegistry: Boolean = true,
     initialStore: InMemoryEmbeddingStore<TextSegment>? = null,
     val localEmbeddingsPath: Path = resolveLocalEmbeddingsPath(),
     registryLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? = null,
-    val embeddingModel: EmbeddingModel? = null
+    val embeddingModel: EmbeddingModel? = null,
+    /** Where a downloaded index is kept between runs; null = download every boot, keep nothing. Unused with [registryLoader]. */
+    val cacheEmbeddingsPath: Path? = resolveCacheEmbeddingsPath()
 ) {
     val ktorClient by lazy { HttpClient() }
 
@@ -77,6 +83,20 @@ open class RagStore(
         const val EMBEDDINGS_PATH_ENV = "CHROMIA_EMBEDDINGS_PATH"
         /** Optional first remote to try, ahead of the GitHub release and the GitLab package. */
         const val EMBEDDINGS_URL_ENV = "CHROMIA_EMBEDDINGS_URL"
+        /**
+         * The launcher's home (`packages/npm/bin/chromia-mcp.mjs` keeps the jar there);
+         * the downloaded index is kept beside it as `embeddings.json` + `embeddings.cache.json`
+         * and reused until it is [CACHE_REFRESH_AFTER] old. Default `~/.chromia-mcp`.
+         */
+        const val HOME_ENV = "CHROMIA_MCP_HOME"
+        /** `CHROMIA_EMBEDDINGS_CACHE=off` downloads every boot and keeps nothing (what CI's production-shaped boot wants). */
+        const val CACHE_ENV = "CHROMIA_EMBEDDINGS_CACHE"
+        /** The `Embeddings refresh` workflow publishes weekly; a cache older than this is refreshed on boot, and still served if the refresh fails. */
+        val CACHE_REFRESH_AFTER: Duration = Duration.ofDays(7)
+
+        /** Sidecar recording which URL the cached body came from, its Last-Modified and when it was fetched. */
+        fun cacheMetaPath(cache: Path): Path =
+            cache.resolveSibling(cache.fileName.toString().removeSuffix(".json") + ".cache.json")
         /**
          * Optional token for the GitHub release download. The repository has been public
          * since 2026-09-05, so the plain `releases/download/...` URL is 200 with no
@@ -182,20 +202,34 @@ open class RagStore(
         internal fun parseLastModified(header: String?): Instant? =
             header?.let { runCatching { Instant.from(DateTimeFormatter.RFC_1123_DATE_TIME.parse(it.trim())) }.getOrNull() }
 
-        /** A remotely fetched store with where it came from and the server's Last-Modified (null when absent). */
-        data class RemoteEmbeddings(val store: InMemoryEmbeddingStore<TextSegment>, val url: String, val lastModified: Instant?)
+        /**
+         * A remotely fetched store with where it came from, the server's Last-Modified
+         * (null when absent) and, when the caller asked to keep it, the temp file the
+         * body was streamed to (the caller owns and must move or delete it).
+         */
+        data class RemoteEmbeddings(
+            val store: InMemoryEmbeddingStore<TextSegment>,
+            val url: String,
+            val lastModified: Instant?,
+            val file: Path? = null
+        )
+
+        /** A store the runtime will answer from, with the provenance to record for it. */
+        data class LoadedEmbeddings(val store: InMemoryEmbeddingStore<TextSegment>, val provenance: Provenance)
 
         /**
          * First remote in [urls] that answers 200 with a parseable store. A 404,
          * an HTTP error, a timeout or a corrupt body moves on to the next URL,
          * so a missing GitHub asset still reaches the GitLab package and vice
          * versa. The body is streamed to a temp file and parsed entry by entry
-         * ([EmbeddingStoreJson]) - never held in memory whole.
+         * ([EmbeddingStoreJson]) - never held in memory whole. With [keepFile]
+         * the temp file is handed back in [RemoteEmbeddings.file] instead of deleted.
          */
         fun downloadRemoteEmbeddings(
             client: HttpClient? = null,
             urls: List<String> = remoteEmbeddingsUrls(),
-            token: String? = embeddingsToken()
+            token: String? = embeddingsToken(),
+            keepFile: Boolean = false
         ): RemoteEmbeddings? {
             val owned = client == null
             val http = client ?: createRegistryDownloadClient()
@@ -209,17 +243,20 @@ open class RagStore(
                             http.downloadFile(downloadUrl, headers) { response ->
                                 lastModified = parseLastModified(response.headers[HttpHeaders.LastModified])
                             }?.let { tempFile ->
+                                var keep = false
                                 try {
-                                    EmbeddingStoreJson.read(tempFile)
+                                    val store = EmbeddingStoreJson.read(tempFile)
+                                    keep = keepFile
+                                    store to tempFile.takeIf { keepFile }
                                 } finally {
-                                    tempFile.deleteIfExists()
+                                    if (!keep) tempFile.deleteIfExists()
                                 }
                             }
                         }
                     }.onFailure { error ->
                         logger.warn("Embeddings download from $url skipped: ${error.message}")
                     }.getOrNull()
-                    if (loaded != null) return RemoteEmbeddings(loaded, url, lastModified)
+                    if (loaded != null) return RemoteEmbeddings(loaded.first, url, lastModified, loaded.second)
                 }
                 return null
             } finally {
@@ -227,6 +264,89 @@ open class RagStore(
                     http.close()
                 }
             }
+        }
+
+        /** What the sidecar next to a cached index records. */
+        private data class CacheMeta(val url: String, val lastModified: Instant?, val downloadedAt: Instant) {
+            fun provenance(segments: Int): Provenance = Provenance(
+                "cached ${describeRemote(url)} (fetched ${DateTimeFormatter.ISO_LOCAL_DATE.format(downloadedAt.atOffset(ZoneOffset.UTC))})",
+                lastModified ?: downloadedAt,
+                segments
+            )
+        }
+
+        private fun readCacheMeta(cache: Path): CacheMeta? {
+            if (!cache.isRegularFile()) return null
+            val meta = runCatching {
+                val json = Json.parseToJsonElement(cacheMetaPath(cache).readText()).jsonObject
+                CacheMeta(
+                    url = json["url"]!!.jsonPrimitive.content,
+                    lastModified = json["last_modified"]?.jsonPrimitive?.takeIf { it.isString }?.content?.let(Instant::parse),
+                    downloadedAt = Instant.parse(json["downloaded_at"]!!.jsonPrimitive.content)
+                )
+            }.getOrNull()
+            // A body without a readable sidecar (hand-copied, or an older layout) is dated by its mtime.
+            return meta ?: CacheMeta(GITHUB_RELEASE_URL, null, cache.getLastModifiedTime().toInstant())
+        }
+
+        private fun keepInCache(remote: RemoteEmbeddings, cache: Path, now: Instant) {
+            val file = remote.file ?: return
+            runCatching {
+                cache.parent?.createDirectories()
+                try {
+                    Files.move(file, cache, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(file, cache, StandardCopyOption.REPLACE_EXISTING)
+                }
+                cacheMetaPath(cache).writeText(
+                    buildJsonObject {
+                        put("url", remote.url)
+                        put("last_modified", remote.lastModified?.toString())
+                        put("downloaded_at", now.toString())
+                    }.toString()
+                )
+                logger.info("Kept the downloaded embeddings at $cache; boots for the next ${CACHE_REFRESH_AFTER.toDays()} days read it back instead of downloading")
+            }.onFailure { error ->
+                logger.warn("Could not keep the downloaded embeddings at $cache: ${error.message}")
+                file.deleteIfExists()
+            }
+        }
+
+        /**
+         * The runtime's remote step, local-first: a cached body younger than
+         * [CACHE_REFRESH_AFTER] at [cachePath] is read back without touching the
+         * network; otherwise [download] runs and its body replaces the cache. A
+         * failed refresh still serves the old cache (offline is not "no index"),
+         * and a body that no longer parses is refreshed rather than served.
+         * [cachePath] null = download every boot, keep nothing.
+         */
+        fun loadCachedOrRemote(
+            cachePath: Path?,
+            now: Instant = Instant.now(),
+            download: () -> RemoteEmbeddings?
+        ): LoadedEmbeddings? {
+            val cached = cachePath?.let(::readCacheMeta)
+            fun serveCache(why: String): LoadedEmbeddings? {
+                if (cached == null) return null
+                val store = loadLocalEmbeddings(cachePath!!) ?: return null
+                logger.info("Serving the cached embeddings from $cachePath ($why)")
+                return LoadedEmbeddings(store, cached.provenance(embeddingStoreSegments(store).size))
+            }
+            if (cached != null && Duration.between(cached.downloadedAt, now) <= CACHE_REFRESH_AFTER) {
+                serveCache("fetched ${cached.downloadedAt}, refresh after ${CACHE_REFRESH_AFTER.toDays()} days")?.let { return it }
+                logger.warn("Cached embeddings at $cachePath could not be read; downloading a fresh copy")
+            }
+            val remote = runCatching(download).onFailure { error ->
+                logger.warn("Embeddings download failed: ${error.message}")
+            }.getOrNull()
+            if (remote != null) {
+                if (cachePath != null) keepInCache(remote, cachePath, now) else remote.file?.deleteIfExists()
+                return LoadedEmbeddings(
+                    remote.store,
+                    Provenance(describeRemote(remote.url), remote.lastModified, embeddingStoreSegments(remote.store).size)
+                )
+            }
+            return serveCache("the refresh failed; this copy is from ${cached?.downloadedAt}")
         }
 
         /**
@@ -346,13 +466,11 @@ open class RagStore(
                     recordProvenance(Provenance("local file $localEmbeddingsPath", mtime, embeddingStoreSegments(store).size))
                 } ?: run {
                     val remote = if (registryLoader != null) {
-                        registryLoader()?.let { RemoteEmbeddings(it, "injected loader", null) }
+                        registryLoader()?.let { LoadedEmbeddings(it, Provenance(describeRemote("injected loader"), null, embeddingStoreSegments(it).size)) }
                     } else {
-                        downloadRemoteEmbeddings()
+                        loadCachedOrRemote(cacheEmbeddingsPath) { downloadRemoteEmbeddings(keepFile = cacheEmbeddingsPath != null) }
                     }
-                    remote?.store?.also {
-                        recordProvenance(Provenance(describeRemote(remote.url), remote.lastModified, embeddingStoreSegments(it).size))
-                    }
+                    remote?.also { recordProvenance(it.provenance) }?.store
                 }
             }
         } else {
@@ -962,6 +1080,22 @@ fun resolveLocalEmbeddingsPath(
         return Path.of("app", "build", RagStore.FILE_NAME)
     }
     return candidates.first()
+}
+
+/**
+ * Where a downloaded index is kept between runs: `$CHROMIA_MCP_HOME/embeddings.json`,
+ * default `~/.chromia-mcp/embeddings.json` - the same home the npm launcher keeps the
+ * jar in, so one directory holds everything a local install downloads. Null when
+ * `CHROMIA_EMBEDDINGS_CACHE=off`.
+ */
+fun resolveCacheEmbeddingsPath(
+    env: Map<String, String> = System.getenv(),
+    userHome: String = System.getProperty("user.home")
+): Path? {
+    if (env[RagStore.CACHE_ENV]?.trim()?.equals("off", ignoreCase = true) == true) return null
+    val home = env[RagStore.HOME_ENV]?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
+        ?: Path.of(userHome, ".chromia-mcp")
+    return home.resolve(RagStore.FILE_NAME)
 }
 
 internal fun loadLocalEmbeddings(path: Path): InMemoryEmbeddingStore<TextSegment>? {

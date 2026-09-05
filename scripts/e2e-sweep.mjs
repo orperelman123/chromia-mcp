@@ -12,10 +12,11 @@
 // signature allowlist, and the guardrails near the summary at the bottom
 // (all-warn is a FAIL; more than SWEEP_MAX_UPSTREAM_WARNS warnings is a FAIL;
 // non-network checks never warn).
-//   node scripts/e2e-sweep.mjs http://127.0.0.1:3001
-//   node scripts/e2e-sweep.mjs https://chromia-mcp.onrender.com
+//   node scripts/e2e-sweep.mjs                          (a local SSE server on 127.0.0.1:3001)
+//   node scripts/e2e-sweep.mjs http://127.0.0.1:3010
+// The hosted Render target this used to default to was retired 2026-09-05.
 import { upstreamSignature, UpstreamError, probeExplorerCanary, registerUpstreamSignature } from './upstream-classifier.mjs';
-const BASE = process.argv[2] || 'https://chromia-mcp.onrender.com';
+const BASE = process.argv[2] || 'http://127.0.0.1:3001';
 console.log('TARGET:', BASE);
 
 // --- Reconnectable MCP-over-SSE session. A dropped stream (server hiccup,

@@ -6,9 +6,17 @@
 # with no memory constraints. The hosted service is deliberately a REDUCED
 # surface: docs/search/analytics/reference (~35 tools), heavy tools disabled.
 #
-# ============================== TRUTH STATUS ==============================
-# The live service (srv-daa797psrm7s73e5qur0, https://chromia-mcp.onrender.com)
-# is NOT Blueprint-managed: it was created standalone in the dashboard on
+# ============================== RETIRED 2026-09-05 ==============================
+# The hosted service is SUSPENDED (not deleted) since 2026-09-05. It had stopped
+# picking up deploys (47 commits behind main, serving a year-old index while
+# every check in this repo was green) and the product is the local install. This
+# file is kept so a redeploy is one Blueprint sync away; nothing below is live.
+# The 6-hourly drift monitor (hosted-check.yml) was removed with the service.
+# ================================================================================
+#
+# ============================== TRUTH STATUS (historical) ==================
+# The service (srv-daa797psrm7s73e5qur0, https://chromia-mcp.onrender.com)
+# was NOT Blueprint-managed: it was created standalone in the dashboard on
 # 2026-08-30, before this file existed, so nothing declared here has ever
 # been applied to it. This file DESCRIBES the intended shape of that service;
 # adopting it (see ADOPTION below) makes Render enforce it. Until adoption,

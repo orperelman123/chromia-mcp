@@ -196,13 +196,13 @@ jobs:
       - name: npm launcher release download (the end-user install path)
         run: node scripts/stdio-smoke.mjs --launcher-download
 
-      # Boot the jar the way Render and every fresh clone do - NO local
-      # embeddings.json, NO token - and require that the index it answers from is
-      # the published GitHub release asset, fresh, and passes the RAG probes.
-      # This is the check that was missing on 2026-09-04, twice: a fresh store was
-      # published and production silently kept answering from the 2025-10-21
-      # GitLab package (first the loader could not read it under the JVM caps,
-      # then the private repo answered 404) while every unit test was green.
-      # A red here means the hosted server would be stale after this deploy.
-      - name: Production-shaped boot (no local index, no token -> published asset)
+      # Boot the jar the way a first `npx chromia-mcp` does - NO local
+      # embeddings.json, cache OFF, NO token - and require that the index it
+      # answers from is the published GitHub release asset, fresh, and passes the
+      # RAG probes. This is the check that was missing on 2026-09-04, twice: a
+      # fresh store was published and the then-hosted server silently kept
+      # answering from the 2025-10-21 GitLab package (first the loader could not
+      # read it under the JVM caps, then the private repo answered 404) while
+      # every unit test was green. A red here means a fresh install would be stale.
+      - name: Fresh-install boot (no local index, no cache, no token -> published asset)
         run: node scripts/rag-eval.mjs --production-shaped --jar app/build/libs/chromia-mcp-server.jar

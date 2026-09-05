@@ -10,9 +10,10 @@
 //   node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar \
 //        --embeddings app/build/embeddings.json [--min-pass 39] [--min-segments 20000]
 //
-// --production-shaped: boot the way the hosted server and every fresh clone do -
-// NO local embeddings.json (the path points at nothing) and NO token in the
-// environment - so the index must come from the published remote. Then require
+// --production-shaped: boot the way every fresh install does - NO local
+// embeddings.json (the path points at nothing), NO cached copy in
+// CHROMIA_MCP_HOME (the cache is turned off) and NO token in the environment -
+// so the index must come from the published remote. Then require
 // that the index the server actually answers from is the GitHub release asset
 // (--expect-origin, default /GitHub release asset/) and is not stale. This is
 // the check that was missing on 2026-09-04, twice: a fresh store was published
@@ -94,9 +95,11 @@ const minPass = Number(args['min-pass'] ?? PROBES.length - 1);
 
 const env = { ...process.env, CHROMIA_EMBEDDINGS_PATH: embeddings, CHROMIA_MCP_COMPACT_TOOLS: 'true' };
 if (productionShaped) {
-  // The hosted server has none of these; a token here would test a path production does not take.
+  // A fresh install has none of these; a token here would test a path it does not take,
+  // and a cached copy in ~/.chromia-mcp would make the "download works" check vacuous.
   for (const k of ['CHROMIA_EMBEDDINGS_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN', 'CHROMIA_EMBEDDINGS_URL']) delete env[k];
-  console.log(`PRODUCTION-SHAPED: no local index (${embeddings}), no token -> the store must come from the published remote`);
+  env.CHROMIA_EMBEDDINGS_CACHE = 'off';
+  console.log(`PRODUCTION-SHAPED: no local index (${embeddings}), no cache, no token -> the store must come from the published remote`);
 }
 const proc = spawn('java', ['-jar', jar, '--stdio'], { env });
 let buf = ''; const pending = new Map(); let nextId = 1; let stderr = '';

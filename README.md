@@ -230,65 +230,55 @@ jar instead). The repo and its releases are public (since 2026-09-05), so the do
 live and CI exercises it on every push (`stdio-smoke.mjs --launcher-download`). Publishing the
 package needs an npm account: `cd packages/npm && npm publish`.
 
-## Using from ChatGPT
+## The documentation index on a local install
 
-The hosted server works as a ChatGPT connector (Settings → Connectors → Add custom connector,
-or Deep Research MCP):
+The RAG index (`embeddings.json`, ~141 MB, 25 588 segments as of the 2026-09-04 release) is
+not in the jar. Where a boot gets it, in order:
 
-- **URL**: `https://chromia-mcp.onrender.com/` (the SSE endpoint is the root path; no authentication)
-- ChatGPT's connector contract requires `search` and `fetch` tools — this server ships both
-  natively: `search` returns `{results: [{id, title, url}]}` over the Chromia docs RAG store and
-  `fetch` returns `{id, title, text, url}` for a result id.
-- In full MCP clients (developer mode), all tools are available — analytics, `chromia_help`,
-  `rell_check`, `rell_security_check`, `run_rell_tests`, `scaffold_dapp`, and the rest.
+1. `CHROMIA_EMBEDDINGS_PATH`, else `build/embeddings.json` or `app/build/embeddings.json`
+   relative to the working directory (what `:app:generateEmbeddingsNoUpload` writes).
+2. **The local cache**: `$CHROMIA_MCP_HOME/embeddings.json`, default `~/.chromia-mcp/embeddings.json`
+   — the same directory the npm launcher keeps the jar in. A copy younger than **7 days** is
+   read back without touching the network (measured 2026-09-05: the first `fetch_docs`
+   answered in 17 s from the cache against 25 s with the download, on a 141 MB / 25 588-segment
+   asset; the parse itself is ~10 s of that). An older one is refreshed from the release
+   asset and replaced; if that refresh fails (offline), the old copy is still served and the
+   answer says so in its `index` provenance (`cached GitHub release asset … (fetched <date>)`).
+3. The published [`embeddings` release asset](https://github.com/orperelman123/chromia-mcp/releases/tag/embeddings)
+   (rebuilt weekly by the `Embeddings refresh` workflow; ~12 s to stream in), which is then
+   kept as the cache. `CHROMIA_EMBEDDINGS_URL` can put another remote first; the year-old
+   GitLab package is the last resort.
 
-## Hosted SSE Deployment
+`CHROMIA_EMBEDDINGS_CACHE=off` downloads every boot and keeps nothing (CI's production-shaped
+boot uses this so "a fresh install works" is never answered from a cache). The repo is public,
+so no token is needed; `CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` are only read if it ever
+goes private again (the asset is then resolved through the releases API).
 
-`Dockerfile` (multi-stage, runs `--sse` on `$PORT`, `/health` endpoint) plus `render.yaml`
-Blueprint for a one-click Render deploy.
-
-**Embeddings are baked into the image at build time:** the Docker build downloads
-`embeddings.json` from the same remotes, in the same order, as the runtime fallback — the
-[`embeddings` release asset](https://github.com/orperelman123/chromia-mcp/releases/tag/embeddings)
-published by the `Embeddings refresh` workflow, then the GitLab package registry
-(`DockerfileEmbeddingsBakeTest` keeps Dockerfile and `RagStore.remoteEmbeddingsUrls` in sync) —
-and sets `CHROMIA_EMBEDDINGS_PATH` so boot loads the index from disk instead of downloading it.
-If both remotes are unreachable during the image build, the build still succeeds with a loud
-warning and the runtime download fallback applies. To pick up refreshed embeddings, redeploy
-(rebuild the image).
-
-**The repository is private, so the release asset needs a token.** Without one the public URL
-answers 404 and both the bake and the runtime fall through to the year-old GitLab package (the
-STALE note then says so). Give the deploy a fine-grained GitHub token with read access to this
-repo's *Contents*: on Render add a **Secret File** named `CHROMIA_EMBEDDINGS_TOKEN` whose content
-is the token — the Docker build mounts it as a BuildKit secret (never an `ARG`, which would
-linger in image metadata) and the runtime reads the same file at `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN`.
-Elsewhere set the `CHROMIA_EMBEDDINGS_TOKEN` env var (`GITHUB_TOKEN` is honoured as a fallback,
-so a GitHub Actions job needs nothing extra). With a token the server resolves the asset through
-the releases API (`Accept: application/octet-stream`), follows the redirect to object storage
-with the credential stripped, and loads the 147 MB store in ~12 s (measured 2026-09-05). Making
-the repository public removes the need for any of this — the plain URL then works everywhere.
-
-**Memory for the full index:** the current store is 150 MB on disk / 25 823 segments and needs
-a heap between 200 and 224 MB to load and answer the first search (measured 2026-09-04; the
-file is streamed in by `EmbeddingStoreJson`, never read whole). The image sets
-`-XX:MaxRAMPercentage=50`, i.e. 256 MB heap on a 512 MB instance and a ~425 MB working set;
-that fits, with the store's growth as the only margin. A 1 GB instance is the comfortable size.
-
-**Skipping RAG entirely (lite config):** when `search`, `fetch_docs`, and `fetch` are ALL in
+**Memory for the full index:** the store needs a heap between 200 and 224 MB to load and
+answer the first search (measured 2026-09-04; the file is streamed in by `EmbeddingStoreJson`,
+never read whole). `serve-local.ps1` gives the JVM 2 GB; for a hand-rolled `java -jar` keep at
+least `-Xmx512m`. When `search`, `fetch_docs` and `fetch` are ALL in
 `CHROMIA_MCP_DISABLE_TOOLS`, startup logs `docs tools disabled - skipping index warmup` and
-never loads the embeddings index, so a small instance pays no RAG memory at all.
+never loads the index.
 
-**Memory sizing (measured 2026-09-02, full breakdown in
-[docs/Deployment.md](docs/Deployment.md)):** with the hosted reduced surface
-(`CHROMIA_MCP_DISABLE_TOOLS=rell_check,rell_security_check,run_rell_tests,chromia_dapp_query,local_chain_up`)
-and the tuned JVM flags in the Dockerfile, the server measures **~240MB steady state,
-~340–370MB transient peak at boot warmup, ~250MB under docs-search load** — comfortable
-on a **512MB instance**. The hosted server is a rock-solid docs/analytics endpoint (ChatGPT
-`search`/`fetch` included); developers run the compiler loop, on-chain queries, and local
-chains through the local jar/stdio install, which has no such limit. The in-process Rell
-compiler tools were measured past 512MB under load — hosting the *full* toolset needs a
-**2GB instance** (and PostgreSQL for entity tests / `local_chain_up`).
+## Hosted SSE deployment (retired 2026-09-05)
+
+This fork was hosted on Render (`chromia-mcp.onrender.com`) as a public docs/analytics
+endpoint and ChatGPT connector from 2026-09-02 to 2026-09-05. It was retired because the
+service stopped picking up deploys (47 commits behind `main`, serving a year-old index while
+every check in this repo was green) and because the product is the **local** install above:
+the compiler loop, on-chain queries and local chains never fit a 512 MB instance anyway. The
+Render service is suspended, not deleted.
+
+What remains, in case anyone redeploys: the `Dockerfile` (multi-stage, runs `--sse` on
+`$PORT`, `/health`; bakes the release asset into the image and sets `CHROMIA_EMBEDDINGS_PATH`;
+`-XX:MaxRAMPercentage=50` = 256 MB heap on 512 MB, measured to fit with the store's growth as
+the only margin) and `render.yaml`. The Dockerfile is still live for the
+`claude-code-chromia/` image. The hosted-only pieces — `scripts/hosted-check.mjs` and the
+6-hourly `hosted-check.yml` drift monitor — were removed with the service. Memory measurements
+for the hosted shape are kept in [docs/Deployment.md](docs/Deployment.md). ChatGPT's `search`
+/ `fetch` contract tools are still in the server; point a connector at a local SSE server
+(Shape 2 above) or at ChromaWay's own `https://mcp.chromia.dev/sse`.
 
 ## Upstreaming
 
@@ -328,24 +318,19 @@ Every push runs the full pyramid — none of these can be skipped:
    empty `CHROMIA_MCP_HOME`, no `CHROMIA_MCP_JAR`, so the launcher must download the release
    jar (`v<package.json version>`, ~280 MB) from the public GitHub release and run it;
    transport-level checks only, since that jar is the last release, not the working tree.
-4. **Production-shaped boot** (`scripts/rag-eval.mjs --production-shaped --jar <jar>`) — boots
-   the jar the way Render and every fresh clone do (no local `embeddings.json`, no token) and
-   requires that the index it answers from is the published GitHub release asset, is not
-   stale, and passes the RAG probes. Reads the `index` object `fetch_docs` puts in its
+4. **Fresh-install boot** (`scripts/rag-eval.mjs --production-shaped --jar <jar>`) — boots
+   the jar the way a first `npx chromia-mcp` does (no local `embeddings.json`, cache off, no
+   token) and requires that the index it answers from is the published GitHub release asset,
+   is not stale, and passes the RAG probes. Reads the `index` object `fetch_docs` puts in its
    structured output (`origin`, `generated_at`, `age_days`, `segments`, `stale`), which is also
-   how to verify a hosted deploy over the wire. Added 2026-09-05 after two publishes in a row
-   left production on the year-old store with every unit test green.
+   how any client can see over the wire which index it is being answered from. Added
+   2026-09-05 after two publishes in a row left the then-hosted server on the year-old store
+   with every unit test green.
 5. **Nightly deep fuzz** (`scripts/fuzz-marathon.mjs <url> [iterations]`) — random-seeded
    programs fired at the live compiler tools; `.github/workflows/nightly-fuzz.yml` runs 600
    iterations every night and opens an issue with a reproducible seed on any crash, hang, or
    leaked exception.
-6. **Hosted check** (`scripts/hosted-check.mjs [--url <base>] [--expect-commit <sha>]`) — asks the
-   hosted server what it actually runs: `/health` version against a commit, and over SSE
-   whether `fetch_docs` reports a fresh index from the GitHub release asset. CI cannot see
-   the hosted box; `.github/workflows/hosted-check.yml` runs this every 6 hours and opens
-   one issue while the hosted server is behind `main` or stale (found this way 2026-09-05:
-   the service was 47 commits behind).
-7. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
+6. **Synthetic agent** (`scripts/synthetic-agent.mjs <url>`) — a scripted agent builds a dapp
    using only tool outputs: discovery → doc search → scaffold → plant a bug → locate it purely
    from compiler diagnostics → repair → security gate → behavior gate → validated deploy config
    → onboarding names the next step → the dapp runs on a live local chain and answers a real
@@ -357,11 +342,8 @@ Every push runs the full pyramid — none of these can be skipped:
 
 - `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21), then the
   e2e sweep, the stdio smoke, the npm launcher's real release download, and the
-  production-shaped boot against the published index (no artifact upload: see the comment in
+  fresh-install boot against the published index (no artifact upload: see the comment in
   the workflow for why)
-- `.github/workflows/hosted-check.yml` — every 6 hours: is the hosted Render service on `main`
-  and answering from a fresh published index (`scripts/hosted-check.mjs`); opens/updates one
-  issue while it is not, closes it when it is
 - `.github/workflows/embeddings-refresh.yml` — weekly RAG embeddings regeneration (Mondays
   04:00 UTC, or manual dispatch). Runs `scripts/rag-eval.mjs` (40 probe questions, segment
   floor) and a size check against the published asset; only a store that passes both is
@@ -752,6 +734,6 @@ MCP resources are the existing health JSON, `docs-repositories.json`, and `promp
 
 - Stdio mode: `./gradlew :app:run` or `java -jar app/build/libs/chromia-mcp-server.jar --stdio`
 - Fat JAR: `./gradlew :app:shadowJar` (do not run `jib` and `shadowJar` as concurrent Gradle tasks; they both write under `app/build/libs`)
-- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file) and only if the local file is missing downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`; the repo is public since 2026-09-05 so the plain URL works with no credentials - if it is ever made private again, set `CHROMIA_EMBEDDINGS_TOKEN` / `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` and the asset is resolved through the releases API instead), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
+- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file), then the cache `$CHROMIA_MCP_HOME/embeddings.json` (default `~/.chromia-mcp/`, reused while younger than 7 days, refreshed after, still served if the refresh fails; `CHROMIA_EMBEDDINGS_CACHE=off` disables it), and only then downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`; the repo is public since 2026-09-05 so the plain URL works with no credentials - if it is ever made private again, set `CHROMIA_EMBEDDINGS_TOKEN` / `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` and the asset is resolved through the releases API instead), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
 - Index age is not silent: at load the server logs where the index came from (local path + mtime, or the remote URL + its `Last-Modified`) and its segment count. Past 120 days (`RagStore.STALE_AFTER`) it logs a WARN and every `fetch_docs` answer ends with a `NOTE: documentation index is STALE ...` line (also `index_note` in the structured output) naming the generation date and the fix. Fresh or stale, every `fetch_docs` answer carries an `index` object in its structured output (`origin`, `generated_at`, `age_days`, `segments`, `stale`) - the text stays lean, but a client can always tell which index it was answered from. Found 2026-09-04: the published GitLab package was still the 2025-10-21 build (18.8 MB), so a server without a local file - production included - answered from a year-old store. The fix is the `Embeddings refresh` workflow (Actions tab, "Run workflow"): it regenerates, gates, and publishes the release asset the server and the Docker image download first.
 - The store is read as a stream (`EmbeddingStoreJson`, Gson `JsonReader`, 1000-entry batches into `InMemoryEmbeddingStore.addAll`), not with `InMemoryEmbeddingStore.fromFile`. Found 2026-09-04 under the production JVM flags: `fromFile`'s `Files.readAllBytes` on the 150 MB store failed with "Cannot reserve 150059434 bytes of direct buffer memory" (`-XX:MaxDirectMemorySize=64m`) and the server silently fell back to the stale package - a fresh asset alone would have changed nothing in production. Streaming loads the 25 823 segments in ~4.5 s with the file never in memory; the download path (`downloadFile`) streams to a temp file the same way instead of `body<ByteArray>()`. Loading needs a 200-224 MB heap for this store; the image's `-XX:MaxRAMPercentage` went 35 -> 50 accordingly (256 MB on a 512 MB instance, measured working set ~425 MB).
