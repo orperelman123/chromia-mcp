@@ -164,7 +164,8 @@ Register the jar directly — this is the exact working registration:
 ```bash
 claude mcp add chromia --scope user \
   --env "CHROMIA_TEST_DATABASE_URL=jdbc:postgresql://localhost:5432/rell_mcp_tests?user=postchain&password=postchain" \
-  -- java -jar "C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar" --stdio
+  -- java -XX:+AutoCreateSharedArchive "-XX:SharedArchiveFile=C:\Users\Orpe7\.chromia-mcp\chromia-mcp-server.jsa" \
+     -jar "C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar" --stdio
 ```
 
 Or as MCP JSON for other stdio clients (Cursor, Claude Desktop, JetBrains):
@@ -174,7 +175,11 @@ Or as MCP JSON for other stdio clients (Cursor, Claude Desktop, JetBrains):
   "mcpServers": {
     "chromia": {
       "command": "java",
-      "args": ["-jar", "C:\\Users\\Orpe7\\chromia-mcp\\app\\build\\libs\\chromia-mcp-server.jar", "--stdio"],
+      "args": [
+        "-XX:+AutoCreateSharedArchive",
+        "-XX:SharedArchiveFile=C:\\Users\\Orpe7\\.chromia-mcp\\chromia-mcp-server.jsa",
+        "-jar", "C:\\Users\\Orpe7\\chromia-mcp\\app\\build\\libs\\chromia-mcp-server.jar", "--stdio"
+      ],
       "env": {
         "CHROMIA_TEST_DATABASE_URL": "jdbc:postgresql://localhost:5432/rell_mcp_tests?user=postchain&password=postchain"
       }
@@ -185,6 +190,11 @@ Or as MCP JSON for other stdio clients (Cursor, Claude Desktop, JetBrains):
 
 (`postchain`/`postchain` is the standard public Chromia dev credential, not a secret.
 Leave the env var out entirely if you have no local PostgreSQL.)
+
+The two `-XX` flags are optional but worth keeping: the first run writes a ~28 MB class-data
+archive at exit and every later start maps it instead of loading the 280 MB jar's classes
+class by class - spawn → `initialize` **1.6 s → 0.7 s** measured (2026-09-05; Java 21 only,
+which the server needs anyway). `npx chromia-mcp` and `scripts/install.mjs` add them for you.
 
 ### Shape 2: local SSE server (clients that want a URL)
 

@@ -128,14 +128,26 @@ try {
 } catch (e) {
   check('stdio session', false, e.message);
 } finally {
+  if (launcherHome) {
+    // End the session the way a client does (stdin EOF), not with a kill: the
+    // launcher runs the JVM with -XX:+AutoCreateSharedArchive, and the archive
+    // that makes the NEXT start ~0.9 s faster is written at a normal exit.
+    const exited = new Promise(r => proc.on('exit', r));
+    const t0 = Date.now();
+    proc.stdin.end();
+    const code = await Promise.race([exited, new Promise(r => setTimeout(() => r('timeout'), 20000))]);
+    check('stdin EOF ends the launcher and its JVM', code !== 'timeout', `exit ${code} in ${Date.now() - t0} ms`);
+    const jsa = readdirSync(launcherHome).filter(f => f.endsWith('.jsa'));
+    const jsaSize = jsa.length ? statSync(join(launcherHome, jsa[0])).size : 0;
+    check('launcher left an AppCDS archive for the next start', jsa.length === 1 && jsaSize > 5e6, `${jsa[0] ?? 'none'} ${(jsaSize / 1e6).toFixed(1)} MB`);
+  }
   const failed = results.filter(r => !r[1]);
   console.log(`\n=== STDIO SMOKE: ${results.length - failed.length}/${results.length} PASS ===`);
   proc.kill();
   if (launcherHome) {
     // The 280 MB download is the test, not a cache to keep; the JVM may still hold
     // the jar for a moment on Windows, so a failed removal is not a verdict.
-    proc.on('exit', () => { try { rmSync(launcherHome, { recursive: true, force: true }); } catch {} });
-    await new Promise(r => setTimeout(r, 1500));
+    try { rmSync(launcherHome, { recursive: true, force: true }); } catch {}
   }
   process.exit(failed.length ? 1 : 0);
 }
