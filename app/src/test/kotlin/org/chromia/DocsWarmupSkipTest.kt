@@ -1,13 +1,20 @@
 package org.chromia
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.chromia.tools.McpTools
 import org.chromia.tools.PromptManager
 import org.chromia.tools.RagStore
 import org.chromia.tools.ToolExecutor
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.ByteArrayInputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -111,5 +118,44 @@ class DocsWarmupSkipTest {
 
         app.warmUpDocs(docsToolsDisabled = false)
         assertTrue(ragStoreTouched.get(), "enabled warmup must still pre-load the RagStore")
+    }
+
+    // --- stdio warms from spawn, and EOF still ends the process ------------
+
+    /**
+     * 2026-09-05: stdio (the Claude Code path) loaded the index lazily on the
+     * first docs call, so that call paid the whole load. It now warms from
+     * spawn like SSE does - detached, so a client that leaves mid-download
+     * gets its EOF honoured immediately instead of after the download.
+     */
+    @Test
+    fun stdioStartsTheDocsWarmupAndStillReturnsOnEofWhileItRuns() = runBlocking {
+        val loadStarted = CountDownLatch(1)
+        val releaseLoad = CountDownLatch(1)
+        val executor = ToolExecutor(
+            RecordingRepository(),
+            PromptManager(),
+            ragStoreFactory = {
+                loadStarted.countDown()
+                releaseLoad.await(30, TimeUnit.SECONDS) // a download that is still in flight
+                RagStore(loadFromRegistry = false)
+            }
+        )
+        val app = App(RecordingRepository(), PromptManager(), executor)
+        val originalIn = System.`in`
+        System.setIn(ByteArrayInputStream(ByteArray(0))) // the client is already gone
+        try {
+            val started = System.nanoTime()
+            val code = withTimeout(20_000) { withContext(Dispatchers.IO) { runMain(arrayOf("--stdio")) { app } } }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertEquals(0, code)
+            assertTrue(loadStarted.await(5, TimeUnit.SECONDS), "--stdio must start the docs warmup at spawn")
+            assertTrue(elapsedMs < 10_000, "EOF must end the stdio run while the warmup is still blocked (took $elapsedMs ms)")
+            assertFalse(app.docsWarmup!!.isCompleted, "the warmup was still in flight when the server returned")
+        } finally {
+            System.setIn(originalIn)
+            releaseLoad.countDown()
+        }
+        withTimeout(10_000) { app.docsWarmup!!.join() }
     }
 }

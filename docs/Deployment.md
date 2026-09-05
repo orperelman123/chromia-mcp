@@ -11,7 +11,8 @@ The documentation index a local install answers from is cached on disk after the
 download: `$CHROMIA_MCP_HOME/embeddings.bin` + `embeddings.cache.json` (default
 `~/.chromia-mcp/`; the downloaded JSON is re-encoded once into a flat binary that reads in
 0.65 s instead of the 5-11 s JSON parse, taking initialize → first answer from 16.9 s to
-3.7 s), reused while younger than 7 days, then refreshed from the weekly release asset — and
+3.7 s; the stdio server additionally starts the load at spawn, so a docs call a few seconds
+after `initialize` answers in ~0.14 s), reused while younger than 7 days, then refreshed from the weekly release asset — and
 still served if that refresh fails. `CHROMIA_EMBEDDINGS_CACHE=off` disables the cache; `CHROMIA_EMBEDDINGS_PATH`
 bypasses it entirely.
 

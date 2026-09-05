@@ -242,8 +242,12 @@ not in the jar. Where a boot gets it, in order:
    JSON is re-encoded once into a flat binary layout (`EmbeddingStoreBinary`, 61 MB for the
    25 588-segment store) because parsing the JSON *was* the boot: measured 2026-09-05 on the
    real jar, initialize → first `fetch_docs` answer went from **16.9 s** (JSON cache) to
-   **3.7 s** (binary cache; the store reads in 0.65 s and the ONNX embedding model, 2.8 s,
-   now loads on its own thread alongside it). A copy younger than **7 days** is read back
+   **3.7 s** (binary cache; the store reads in 0.4-0.65 s and the ONNX embedding model, 2.8 s,
+   now loads on its own thread alongside it). The stdio server also starts that load at
+   spawn instead of on the first docs call, so what an agent actually sees on a warm cache
+   is **1.4 s** for a `fetch_docs` fired the instant `initialize` returns and **0.14 s** for
+   one fired 6 s later (measured 2026-09-05); stdin EOF still ends the process within
+   ~0.1-0.6 s even while that load or a download is in flight. A copy younger than **7 days** is read back
    without touching the network. An older one is refreshed from the release asset and
    replaced; if that refresh fails (offline), the old copy is still served and the answer
    says so in its `index` provenance (`cached GitHub release asset … (fetched <date>)`). A

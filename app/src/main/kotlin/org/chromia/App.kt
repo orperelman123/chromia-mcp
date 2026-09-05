@@ -14,7 +14,10 @@ import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.*
 import io.ktor.server.request.path
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.Sink
@@ -270,6 +273,26 @@ class App(
         toolExecutor.warmUpDocs()
     }
 
+    /** The most recent [warmDocsInBackground] job, for tests and diagnostics. */
+    @Volatile
+    var docsWarmup: Job? = null
+        private set
+
+    /**
+     * [warmUpDocs] on a scope of its own, detached from the caller's
+     * `runBlocking`: the stdio server returns on stdin EOF and `main` must exit
+     * right then, not after a download that a client which already left will
+     * never read. The IO thread dies with the process (`exitProcess`).
+     *
+     * Why stdio warms at all (2026-09-05): Claude Code starts this process at
+     * session start and the first `fetch_docs` comes seconds to minutes later.
+     * Loading lazily on that call made the agent wait for the whole index load
+     * (3.7 s from the binary cache, ~15 s with the download); loading from
+     * spawn makes the same call answer from a loaded index.
+     */
+    fun warmDocsInBackground(docsToolsDisabled: Boolean = McpTools.docsToolsDisabled()): Job =
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch { warmUpDocs(docsToolsDisabled) }.also { docsWarmup = it }
+
     fun runSseMcpServer(
         host: String,
         port: Int,
@@ -442,6 +465,9 @@ internal fun runMain(args: Array<String>, appFactory: () -> App = { App() }): In
             }
         }
         "--stdio" -> {
+            // Detached on purpose: this runBlocking must return on stdin EOF even
+            // mid-download (see App.warmDocsInBackground).
+            app.warmDocsInBackground()
             app.runStdioMcpServer()
             0
         }
