@@ -29,6 +29,9 @@ fi
 echo "collation: \$(sudo -u postgres psql -p 5433 -d $db -tAc "SELECT 'A'<'a' and 'Ї'<'ї' and upper('ї')='Ї' and lower('Ї')='ї'")"
 INNER
 
-sed "s|/chromia_mcp_test[a-z_]*?|/$db?|" "$main/local-test-env.properties" > "$wt/local-test-env.properties"
+# [a-z0-9_]: a lane named round9 or round11 has digits in its database name, and
+# the digit-less class truncated both the substitution and the confirming echo
+# ("...adversary_round" for a database actually called ...adversary_round11).
+sed "s|/chromia_mcp_test[a-z0-9_]*?|/$db?|" "$main/local-test-env.properties" > "$wt/local-test-env.properties"
 echo "lane ready: $wt (branch $branch, db $db)"
-grep -o '5433/[a-z_]*' "$wt/local-test-env.properties" | head -1
+grep -o '5433/[a-z0-9_]*' "$wt/local-test-env.properties" | head -1
