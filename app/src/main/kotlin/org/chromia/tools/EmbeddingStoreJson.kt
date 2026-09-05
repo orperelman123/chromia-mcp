@@ -34,19 +34,14 @@ internal object EmbeddingStoreJson {
         Files.newInputStream(path).buffered().use { read(it) }
 
     fun read(input: InputStream): InMemoryEmbeddingStore<TextSegment> {
-        val store = InMemoryEmbeddingStore<TextSegment>()
-        val ids = ArrayList<String>(BATCH_SIZE)
-        val embeddings = ArrayList<Embedding>(BATCH_SIZE)
-        val segments = ArrayList<TextSegment>(BATCH_SIZE)
+        val batch = StoreBatcher()
+        readEntries(input) { id, embedding, segment -> batch.add(id, embedding, segment) }
+        return batch.finish()
+    }
+
+    /** Streams every entry of the store JSON on [input] to [sink] without building a store. */
+    fun readEntries(input: InputStream, sink: (id: String, embedding: Embedding, segment: TextSegment) -> Unit) {
         val intern = Interner()
-        var entries = 0
-
-        fun flush() {
-            if (ids.isEmpty()) return
-            store.addAll(ArrayList(ids), ArrayList(embeddings), ArrayList(segments))
-            ids.clear(); embeddings.clear(); segments.clear()
-        }
-
         JsonReader(InputStreamReader(input, Charsets.UTF_8)).use { reader ->
             reader.beginObject()
             var sawEntries = false
@@ -57,9 +52,7 @@ internal object EmbeddingStoreJson {
                         reader.beginArray()
                         while (reader.hasNext()) {
                             val (id, embedding, segment) = readEntry(reader, intern)
-                            ids += id; embeddings += embedding; segments += segment
-                            entries++
-                            if (ids.size >= BATCH_SIZE) flush()
+                            sink(id, embedding, segment)
                         }
                         reader.endArray()
                     }
@@ -69,8 +62,30 @@ internal object EmbeddingStoreJson {
             reader.endObject()
             require(sawEntries) { "embedding store JSON has no \"entries\" array" }
         }
-        flush()
-        return store
+    }
+
+    /** Hands entries to an [InMemoryEmbeddingStore] in batches of [BATCH_SIZE], bounding the staging lists. */
+    class StoreBatcher {
+        private val store = InMemoryEmbeddingStore<TextSegment>()
+        private val ids = ArrayList<String>(BATCH_SIZE)
+        private val embeddings = ArrayList<Embedding>(BATCH_SIZE)
+        private val segments = ArrayList<TextSegment>(BATCH_SIZE)
+
+        fun add(id: String, embedding: Embedding, segment: TextSegment) {
+            ids += id; embeddings += embedding; segments += segment
+            if (ids.size >= BATCH_SIZE) flush()
+        }
+
+        private fun flush() {
+            if (ids.isEmpty()) return
+            store.addAll(ArrayList(ids), ArrayList(embeddings), ArrayList(segments))
+            ids.clear(); embeddings.clear(); segments.clear()
+        }
+
+        fun finish(): InMemoryEmbeddingStore<TextSegment> {
+            flush()
+            return store
+        }
     }
 
     private data class Entry(val id: String, val embedding: Embedding, val segment: TextSegment)

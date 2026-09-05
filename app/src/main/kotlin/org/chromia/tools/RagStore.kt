@@ -85,8 +85,9 @@ open class RagStore(
         const val EMBEDDINGS_URL_ENV = "CHROMIA_EMBEDDINGS_URL"
         /**
          * The launcher's home (`packages/npm/bin/chromia-mcp.mjs` keeps the jar there);
-         * the downloaded index is kept beside it as `embeddings.json` + `embeddings.cache.json`
-         * and reused until it is [CACHE_REFRESH_AFTER] old. Default `~/.chromia-mcp`.
+         * the downloaded index is kept beside it as `embeddings.bin` ([EmbeddingStoreBinary])
+         * + `embeddings.cache.json` and reused until it is [CACHE_REFRESH_AFTER] old.
+         * Default `~/.chromia-mcp`.
          */
         const val HOME_ENV = "CHROMIA_MCP_HOME"
         /** `CHROMIA_EMBEDDINGS_CACHE=off` downloads every boot and keeps nothing (what CI's production-shaped boot wants). */
@@ -97,6 +98,10 @@ open class RagStore(
         /** Sidecar recording which URL the cached body came from, its Last-Modified and when it was fetched. */
         fun cacheMetaPath(cache: Path): Path =
             cache.resolveSibling(cache.fileName.toString().removeSuffix(".json") + ".cache.json")
+
+        /** The binary body the cache actually keeps ([EmbeddingStoreBinary]); [cache] itself is the JSON name it replaces. */
+        fun cacheBinaryPath(cache: Path): Path =
+            cache.resolveSibling(cache.fileName.toString().removeSuffix(".json") + ".bin")
         /**
          * Optional token for the GitHub release download. The repository has been public
          * since 2026-09-05, so the plain `releases/download/...` URL is 200 with no
@@ -275,8 +280,12 @@ open class RagStore(
             )
         }
 
+        /** The cached body that will be read: the binary form when present, else the JSON body ([cache] itself). */
+        private fun cacheBody(cache: Path): Path? =
+            cacheBinaryPath(cache).takeIf { it.isRegularFile() } ?: cache.takeIf { it.isRegularFile() }
+
         private fun readCacheMeta(cache: Path): CacheMeta? {
-            if (!cache.isRegularFile()) return null
+            val body = cacheBody(cache) ?: return null
             val meta = runCatching {
                 val json = Json.parseToJsonElement(cacheMetaPath(cache).readText()).jsonObject
                 CacheMeta(
@@ -286,30 +295,64 @@ open class RagStore(
                 )
             }.getOrNull()
             // A body without a readable sidecar (hand-copied, or an older layout) is dated by its mtime.
-            return meta ?: CacheMeta(GITHUB_RELEASE_URL, null, cache.getLastModifiedTime().toInstant())
+            return meta ?: CacheMeta(GITHUB_RELEASE_URL, null, body.getLastModifiedTime().toInstant())
         }
 
+        /** Reads whichever cached body is present; null when neither parses. */
+        private fun loadCacheBody(cache: Path): InMemoryEmbeddingStore<TextSegment>? {
+            val binary = cacheBinaryPath(cache)
+            if (binary.isRegularFile()) {
+                val started = System.nanoTime()
+                runCatching { EmbeddingStoreBinary.read(binary) }
+                    .onSuccess { logger.info("Loaded the cached embeddings from $binary in ${(System.nanoTime() - started) / 1_000_000} ms") }
+                    .onFailure { error -> logger.warn("Cached embeddings at $binary unreadable (${error.message}); trying the JSON body") }
+                    .getOrNull()?.let { return it }
+            }
+            return loadLocalEmbeddings(cache)
+        }
+
+        /**
+         * Keeps a downloaded index for the next boots. The body is re-encoded
+         * from the already-parsed store into [EmbeddingStoreBinary] (the JSON
+         * parse is the boot's whole cost; see that class) and the downloaded
+         * JSON is dropped. If the encode fails the JSON body is kept instead,
+         * so a cache always exists after a successful download.
+         */
         private fun keepInCache(remote: RemoteEmbeddings, cache: Path, now: Instant) {
             val file = remote.file ?: return
-            runCatching {
+            val binary = cacheBinaryPath(cache)
+            val kept = runCatching {
                 cache.parent?.createDirectories()
+                val started = System.nanoTime()
+                EmbeddingStoreBinary.write(remote.store, binary)
+                cache.deleteIfExists() // a JSON body from an earlier layout would only be dead weight now
+                file.deleteIfExists()
+                logger.info("Encoded the downloaded embeddings to $binary in ${(System.nanoTime() - started) / 1_000_000} ms")
+                binary
+            }.recoverCatching { encodeError ->
+                logger.warn("Could not encode the downloaded embeddings to $binary (${encodeError.message}); keeping the JSON body")
+                binary.deleteIfExists()
                 try {
                     Files.move(file, cache, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
                 } catch (_: AtomicMoveNotSupportedException) {
                     Files.move(file, cache, StandardCopyOption.REPLACE_EXISTING)
                 }
+                cache
+            }.onFailure { error ->
+                logger.warn("Could not keep the downloaded embeddings at $cache: ${error.message}")
+                file.deleteIfExists()
+            }.getOrNull() ?: return
+            runCatching {
                 cacheMetaPath(cache).writeText(
                     buildJsonObject {
                         put("url", remote.url)
                         put("last_modified", remote.lastModified?.toString())
                         put("downloaded_at", now.toString())
+                        put("body", kept.fileName.toString())
                     }.toString()
                 )
-                logger.info("Kept the downloaded embeddings at $cache; boots for the next ${CACHE_REFRESH_AFTER.toDays()} days read it back instead of downloading")
-            }.onFailure { error ->
-                logger.warn("Could not keep the downloaded embeddings at $cache: ${error.message}")
-                file.deleteIfExists()
-            }
+            }.onFailure { error -> logger.warn("Could not write ${cacheMetaPath(cache)}: ${error.message}") }
+            logger.info("Kept the downloaded embeddings at $kept; boots for the next ${CACHE_REFRESH_AFTER.toDays()} days read it back instead of downloading")
         }
 
         /**
@@ -328,8 +371,8 @@ open class RagStore(
             val cached = cachePath?.let(::readCacheMeta)
             fun serveCache(why: String): LoadedEmbeddings? {
                 if (cached == null) return null
-                val store = loadLocalEmbeddings(cachePath!!) ?: return null
-                logger.info("Serving the cached embeddings from $cachePath ($why)")
+                val store = loadCacheBody(cachePath!!) ?: return null
+                logger.info("Serving the cached embeddings from ${cacheBody(cachePath)} ($why)")
                 return LoadedEmbeddings(store, cached.provenance(embeddingStoreSegments(store).size))
             }
             if (cached != null && Duration.between(cached.downloadedAt, now) <= CACHE_REFRESH_AFTER) {
@@ -513,10 +556,6 @@ open class RagStore(
         return loaded
     }
 
-    init {
-        embeddingStore = initialStore ?: tryLoadStore()
-    }
-
     /**
      * Constructor-injected model wins (tests); otherwise the same SPI factory
      * the [EmbeddingStoreIngestor] uses at ingest time (easy-rag BGE-small
@@ -537,6 +576,24 @@ open class RagStore(
 
     private val resolvedEmbeddingModel: EmbeddingModel? by lazy {
         embeddingModel ?: embeddingModelSpiLoader()
+    }
+
+    /** True while the background model warm-up of [init] is running or done; a test seam, not a contract. */
+    internal var modelWarmupStarted: Boolean = false
+        private set
+
+    init {
+        // The store load (cache read or download) and the ONNX model load (2.8 s
+        // measured 2026-09-05) are independent; on the real load path start the
+        // model on its own thread so the first query pays for the longer of the
+        // two, not the sum. `by lazy` is synchronized, so a query arriving first
+        // simply waits for this thread. Fixture stores and injected loaders (tests)
+        // keep the old order: nothing loads that the test did not ask for.
+        if (initialStore == null && storeLoader != null && registryLoader == null && embeddingModel == null) {
+            modelWarmupStarted = true
+            Thread({ runCatching { resolvedEmbeddingModel } }, "rag-embedding-model-warmup").apply { isDaemon = true }.start()
+        }
+        embeddingStore = initialStore ?: tryLoadStore()
     }
 
     open fun query(query: String): List<TextSegment>? {

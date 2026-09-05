@@ -60,8 +60,10 @@ class RagStoreCacheTest {
         assertEquals("FIRST", markerOf(first!!.store))
         assertEquals("GitHub release asset ${RagStore.GITHUB_RELEASE_URL}", first.provenance.origin)
         assertEquals(published, first.provenance.generatedAt)
-        assertTrue(Files.isRegularFile(cache), "the body is kept at $cache")
+        assertTrue(Files.isRegularFile(RagStore.cacheBinaryPath(cache)), "the body is kept, re-encoded, at ${RagStore.cacheBinaryPath(cache)}")
+        assertFalse(Files.exists(cache), "the downloaded JSON is not kept: parsing it is the boot's whole cost")
         assertTrue(Files.isRegularFile(RagStore.cacheMetaPath(cache)), "with a sidecar naming url, Last-Modified and fetch time")
+        assertEquals(0, Files.list(tempDir).filter { it.fileName.toString().startsWith("dl") }.count(), "the temp body is gone")
 
         val second = RagStore.loadCachedOrRemote(cache, now.plus(Duration.ofDays(1)), downloader("SECOND", calls))
         assertEquals(1, calls.get(), "a day-old cache is served without touching the network")
@@ -112,6 +114,31 @@ class RagStoreCacheTest {
         assertEquals("FRESH", markerOf(result!!.store))
         assertEquals("FRESH", markerOf(RagStore.loadCachedOrRemote(cache, now, downloader("X", calls))!!.store))
         assertEquals(1, calls.get())
+    }
+
+    @Test
+    fun aHandCopiedJsonBodyWithoutSidecarIsServedAndDatedByItsMtime() {
+        val cache = tempDir.resolve("embeddings.json")
+        fixtureStore("COPIED").serializeToFile(cache)
+        val calls = AtomicInteger()
+        val result = RagStore.loadCachedOrRemote(cache, Instant.now(), downloader("NET", calls))
+        assertEquals(0, calls.get(), "a fresh JSON body in the home is a cache too")
+        assertEquals("COPIED", markerOf(result!!.store))
+        assertTrue(result.provenance.origin.startsWith("cached GitHub release asset"), result.provenance.origin)
+        assertNotNull(result.provenance.generatedAt, "dated by the file, absent a sidecar")
+    }
+
+    @Test
+    fun aCorruptBinaryBodyIsRefreshedNotServed() {
+        val cache = tempDir.resolve("embeddings.json")
+        val calls = AtomicInteger()
+        RagStore.loadCachedOrRemote(cache, now, downloader("GOOD", calls))
+        Files.write(RagStore.cacheBinaryPath(cache), ByteArray(4096) { 7 })
+        val result = RagStore.loadCachedOrRemote(cache, now, downloader("REFRESHED", calls))
+        assertEquals(2, calls.get())
+        assertEquals("REFRESHED", markerOf(result!!.store))
+        assertEquals("REFRESHED", markerOf(RagStore.loadCachedOrRemote(cache, now, downloader("X", calls))!!.store))
+        assertEquals(2, calls.get())
     }
 
     @Test

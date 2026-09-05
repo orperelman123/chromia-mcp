@@ -8,9 +8,11 @@ docs/analytics endpoint; the fork's own Render service was **retired (suspended)
 was and the measurements that would apply to a redeploy.
 
 The documentation index a local install answers from is cached on disk after the first
-download: `$CHROMIA_MCP_HOME/embeddings.json` (default `~/.chromia-mcp/`), reused while
-younger than 7 days, then refreshed from the weekly release asset — and still served if
-that refresh fails. `CHROMIA_EMBEDDINGS_CACHE=off` disables the cache; `CHROMIA_EMBEDDINGS_PATH`
+download: `$CHROMIA_MCP_HOME/embeddings.bin` + `embeddings.cache.json` (default
+`~/.chromia-mcp/`; the downloaded JSON is re-encoded once into a flat binary that reads in
+0.65 s instead of the 5-11 s JSON parse, taking initialize → first answer from 16.9 s to
+3.7 s), reused while younger than 7 days, then refreshed from the weekly release asset — and
+still served if that refresh fails. `CHROMIA_EMBEDDINGS_CACHE=off` disables the cache; `CHROMIA_EMBEDDINGS_PATH`
 bypasses it entirely.
 
 ## Environments
