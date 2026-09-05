@@ -103,6 +103,7 @@ class ToolExecutor(
         "rell_check" to RellCheckStrategy(),
         "rell_security_check" to RellSecurityCheckStrategy(),
         "run_rell_tests" to RunRellTestsStrategy(),
+        "verify_guards" to VerifyGuardsStrategy(),
         "local_chain_up" to LocalChainStrategy(),
         "translate_error" to TranslateErrorStrategy(),
         "onboarding_next_step" to OnboardingNextStepStrategy(),
@@ -1497,6 +1498,251 @@ class RunRellTestsStrategy : BaseToolStrategy() {
         }.getOrElse { e ->
             toolErrorResult("run_rell_tests failed: ${e.message}")
         }
+    }
+}
+
+/**
+ * verify_guards: the mutant discipline this repository holds its own templates
+ * to, exported to the agent's dapp.
+ *
+ * Every shipped template guard has a test that proves it is LOAD-BEARING: the
+ * must-fail test passes with the guard present, and once the guard is removed
+ * it fails BECAUSE THE ATTACK LANDED - not because the mutant stopped
+ * compiling, not because module_args went missing, not because some other
+ * guard still refused the transaction. Agents copy the templates' must-fail
+ * tests and write their own, and nothing checked that a copied test would go
+ * red if its guard vanished. A test that passes in both states is a fake green
+ * with a security label on it; one was written here, by the maintainers, and
+ * only a mutant caught it.
+ *
+ * So the tool runs exactly that check. For each {guard, test}: the test must
+ * pass on the submitted files (else `baseline_red` - it proves nothing in
+ * either state); the guard must exist verbatim (else `guard_not_found`); the
+ * guard is replaced (default: deleted) and ONLY that test is run. Verdicts:
+ *   load_bearing          the test failed because the attack landed
+ *   vacuous               the test stayed green with the guard gone
+ *   still_refused         another guard refused it - name it in alsoRemove
+ *   environmental         the mutant is not a running dapp (compile, module_args)
+ *   red_for_another_reason red, but not the attack - read the error
+ * `ok` is true only when every guard is load_bearing.
+ */
+class VerifyGuardsStrategy : BaseToolStrategy() {
+    private val environmentalFragments = listOf("Unable to create GTX module", "do not compile", "Missing metadata")
+
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.arguments as Map<String, Any>
+        val (files, invalidKeys) = extractRellFilesMap(args["files"])
+        if (invalidKeys.isNotEmpty()) {
+            return toolErrorResult(
+                "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
+            )
+        }
+        if (files.isEmpty()) {
+            return toolErrorResult(
+                "verify_guards needs a `files` map with the production module AND the `@test module;` file that holds the must-fail test"
+            )
+        }
+        val moduleArgs: Map<String, Map<String, JsonElement>> = when (val m = args["moduleArgs"]) {
+            null -> emptyMap()
+            is JsonObject -> {
+                val bad = m.filterValues { it !is JsonObject }.keys
+                if (bad.isNotEmpty()) {
+                    return toolErrorResult("moduleArgs value for module(s) ${bad.joinToString(", ")} must be an args object")
+                }
+                m.mapValues { (_, v) -> (v as JsonObject).toMap() }
+            }
+            else -> return toolErrorResult("moduleArgs must be an object mapping module name -> args object")
+        }
+        val guardsArg = args["guards"] as? JsonArray
+            ?: return toolErrorResult(
+                "verify_guards needs `guards`: an array of {guard: <the guard line, verbatim>, test: <the must-fail test that " +
+                    "depends on it>, replacement?: <text to put in its place, default: delete it>, alsoRemove?: [<other guards " +
+                    "that would still refuse the attack>], stillRefused?: <error fragment meaning the attack was refused>, " +
+                    "attackLanded?: <error fragment proving the attack succeeded, default \"did not fail\">}"
+            )
+        if (guardsArg.isEmpty()) {
+            return toolErrorResult("`guards` is empty - name at least one guard line and the must-fail test that depends on it")
+        }
+
+        return runCatching {
+            val verdicts = mutableListOf<JsonObject>()
+            for ((idx, g) in guardsArg.withIndex()) {
+                val obj = g as? JsonObject ?: return toolErrorResult("guards[$idx] must be an object")
+                val guard = (obj["guard"] as? JsonPrimitive)?.content
+                    ?: return toolErrorResult("guards[$idx].guard is required: the guard line, verbatim")
+                val test = (obj["test"] as? JsonPrimitive)?.content
+                    ?: return toolErrorResult("guards[$idx].test is required: the must-fail test that depends on this guard")
+                val replacement = (obj["replacement"] as? JsonPrimitive)?.content ?: ""
+                val alsoRemove = (obj["alsoRemove"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content } ?: emptyList()
+                val stillRefused = (obj["stillRefused"] as? JsonPrimitive)?.content
+                val attackLanded = (obj["attackLanded"] as? JsonPrimitive)?.content ?: "did not fail"
+                verdicts += verifyOne(files, moduleArgs, guard, replacement, alsoRemove, test, stillRefused, attackLanded)
+            }
+            val proven = verdicts.count { (it["loadBearing"] as? JsonPrimitive)?.content == "true" }
+            toolSuccessResult(
+                buildJsonObject {
+                    put("ok", proven == verdicts.size)
+                    put("guards", verdicts.size)
+                    put("loadBearing", proven)
+                    put("results", JsonArray(verdicts))
+                    put(
+                        "notes",
+                        "ok=true means EVERY named guard is load-bearing: its must-fail test passes with the guard present and " +
+                            "fails WITHOUT it because the attack landed. Any other verdict - vacuous, baseline_red, " +
+                            "environmental, still_refused, red_for_another_reason, guard_not_found - means the test proves " +
+                            "nothing about that guard yet. This is the standard the shipped templates are held to (every " +
+                            "guard has a mutant that reddens a must-fail test because the attack lands). It does not " +
+                            "replace an audit, and it says nothing about guards you did not name."
+                    )
+                }
+            )
+        }.getOrElse { e -> toolErrorResult("verify_guards failed: ${e.message}") }
+    }
+
+    private suspend fun verifyOne(
+        files: Map<String, String>,
+        moduleArgs: Map<String, Map<String, JsonElement>>,
+        guard: String,
+        replacement: String,
+        alsoRemove: List<String>,
+        test: String,
+        stillRefused: String?,
+        attackLanded: String
+    ): JsonObject = withContext(Dispatchers.IO) {
+        fun verdict(v: String, evidence: String, loadBearing: Boolean = false) = buildJsonObject {
+            put("guard", guard)
+            put("test", test)
+            put("verdict", v)
+            put("loadBearing", loadBearing)
+            put("evidence", evidence)
+        }
+        // THE MUTATION IS CONFINED TO PRODUCTION CODE. A guard string can also
+        // appear in the test module - quoted in a comment, or as the very message
+        // the test asserts on - and mutating THAT would delete the assertion instead
+        // of the guard and report whatever happened next as a verdict about the
+        // guard. So only non-test files are candidates, and a guard that matches
+        // more than one of them is refused rather than guessed: the caller names
+        // the line, the tool does not pick one.
+        // Same rule the security gate uses for test surface: a @test module, or a
+        // file under a test/ or tests/ directory (paths normalised the way the
+        // runner normalises them - a leading ./ or src/ dropped).
+        fun underTestDir(path: String): Boolean {
+            val n = path.replace('\\', '/').removePrefix("./").removePrefix("src/")
+            return n.startsWith("test/") || n.startsWith("tests/") || n.contains("/test/") || n.contains("/tests/")
+        }
+        val isTest = files.mapValues { (path, src) -> RunRellTests.isTestModuleSource(src) || underTestDir(path) }
+        val productionHits = files.entries.filter { !isTest.getValue(it.key) && it.value.contains(guard) }.map { it.key }
+        val testHits = files.entries.filter { isTest.getValue(it.key) && it.value.contains(guard) }.map { it.key }
+        if (productionHits.isEmpty()) {
+            return@withContext verdict(
+                "guard_not_found",
+                if (testHits.isEmpty()) "no submitted file contains the guard verbatim - the check proves nothing until the exact line is named"
+                else "the guard appears only in test code (${testHits.joinToString()}), not in a production module - name the production line"
+            )
+        }
+        if (productionHits.size > 1) {
+            return@withContext verdict(
+                "guard_ambiguous",
+                "the guard appears in ${productionHits.size} production files (${productionHits.joinToString()}) - include enough of the line to make it unique"
+            )
+        }
+        val path = productionHits.single()
+        for (r in alsoRemove) {
+            if (files.entries.none { !isTest.getValue(it.key) && it.value.contains(r) }) {
+                return@withContext verdict("guard_not_found", "alsoRemove entry not found verbatim in a production module: $r")
+            }
+        }
+
+        // 1. BASELINE. The test must PASS with the guard present, or it proves
+        //    nothing in either state.
+        // The runner THROWS on sources that do not compile rather than returning a
+        // case, so a compile failure has to be classified here, not from a case.
+        val baseline = runCatching { RunRellTests.run(files, moduleArgs = moduleArgs, tests = listOf(test)) }
+            .getOrElse {
+                val m = it.message.orEmpty()
+                return@withContext if (environmentalFragments.any { f -> m.contains(f) }) {
+                    verdict("baseline_red", "the submitted files do not run as they are ($m) - fix that before verifying any guard")
+                } else {
+                    verdict("runner_error", "baseline run failed: $m")
+                }
+            }
+        val baseCase = baseline.cases.singleOrNull { it.name.endsWith(test) }
+            ?: return@withContext verdict(
+                "test_not_found",
+                "the baseline run returned ${baseline.cases.size} case(s) [${baseline.cases.joinToString { it.name }}] and none is " +
+                    "$test - check the name; notes: ${baseline.notes}"
+            )
+        if (!baseCase.ok) {
+            return@withContext verdict(
+                "baseline_red",
+                "the test FAILS with the guard present (${baseCase.error}) - it proves nothing about the guard in either state. " +
+                    "Fix the test until it passes on the real code, then verify the guard."
+            )
+        }
+
+        // 2. MUTATE. Delete or replace the guard, strip any defence-in-depth the
+        //    caller named, and run ONLY the exploit case.
+        val mutated = LinkedHashMap(files)
+        mutated[path] = mutated.getValue(path).replace(guard, replacement)
+        for (r in alsoRemove) {
+            for ((k, v) in mutated) if (!isTest.getValue(k) && v.contains(r)) mutated[k] = v.replace(r, "")
+        }
+        val mutant = runCatching { RunRellTests.run(mutated, moduleArgs = moduleArgs, tests = listOf(test)) }
+            .getOrElse {
+                val m = it.message.orEmpty()
+                return@withContext if (environmentalFragments.any { f -> m.contains(f) }) {
+                    verdict(
+                        "environmental",
+                        "the mutant is not a running dapp ($m) - a failure for that reason proves nothing about the guard. " +
+                            "Usually the replacement broke compilation, or module_args are missing."
+                    )
+                } else {
+                    verdict("runner_error", "mutant run failed: $m")
+                }
+            }
+
+        // 3. VERDICT, in the order that keeps a wrong reason from reading as a right one.
+        val env = mutant.cases.firstOrNull { c -> environmentalFragments.any { f -> c.error.orEmpty().contains(f) } }
+        if (env != null) {
+            return@withContext verdict(
+                "environmental",
+                "the mutant is not a running dapp (${env.error}) - a failure for that reason proves nothing about the guard. " +
+                    "Usually the replacement broke compilation, or module_args are missing."
+            )
+        }
+        val case = mutant.cases.singleOrNull { it.name.endsWith(test) }
+            ?: return@withContext verdict(
+                "runner_did_not_finish",
+                "the mutant run returned ${mutant.cases.size} case(s) [${mutant.cases.joinToString { it.name }}] and none is $test; " +
+                    "notes: ${mutant.notes}"
+            )
+        if (case.ok) {
+            return@withContext verdict(
+                "vacuous",
+                "the test stays GREEN with the guard removed - it does not exercise this guard and proves nothing about it. " +
+                    "A test that passes in both states is a fake green. Make the test drive the attack the guard refuses."
+            )
+        }
+        val error = case.error.orEmpty()
+        if (stillRefused != null && error.contains(stillRefused)) {
+            return@withContext verdict(
+                "still_refused",
+                "the attack was still refused, by something other than this guard: $error. If that is defence in depth, " +
+                    "name it in alsoRemove; otherwise the test is measuring a different guard."
+            )
+        }
+        if (error.contains(attackLanded, ignoreCase = true)) {
+            return@withContext verdict(
+                "load_bearing",
+                "with the guard removed the test fails because the attack LANDED: $error",
+                loadBearing = true
+            )
+        }
+        verdict(
+            "red_for_another_reason",
+            "the test went red without the guard, but not because the attack landed ('$attackLanded' absent): $error. " +
+                "Read it before counting this guard as proven."
+        )
     }
 }
 

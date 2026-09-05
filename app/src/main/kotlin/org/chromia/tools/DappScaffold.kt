@@ -3151,7 +3151,7 @@ object DappScaffold {
         import lib.ft4.accounts;
 
         // Marketplace template: list an NFT, buy it at the price you were shown, or
-        // bid with escrowed points. Four guards are STRUCTURAL - they live in the
+        // bid with escrowed points. Six guards are STRUCTURAL - they live in the
         // entity declarations and the single settlement helper, not in a require()
         // a future operation can forget:
         //   EXACT PRICE       - buy_nft names the price it agreed to and aborts unless
@@ -4243,8 +4243,15 @@ object DappScaffold {
         //                     repay at most CLOSE_FACTOR_BPS of the debt and seize
         //                     collateral worth that plus LIQUIDATION_BONUS_BPS, priced at
         //                     the same fresh price the health check used. The bonus comes
-        //                     out of the liquidated position's own collateral, so a pair
-        //                     of accounts under one hand nets exactly zero.
+        //                     out of the liquidated position's own collateral. That nets a
+        //                     pair of accounts under one hand to zero ONLY while the
+        //                     position is solvent: this debt is non-recourse, so once
+        //                     backing is below face, the debt the pair "repays" was never
+        //                     going to be paid, and a bonus on it is 9.09% of the
+        //                     collateral taken from the lenders, round after round, until
+        //                     it is gone. So the bonus exists only on a SOLVENT position;
+        //                     under water the liquidator is paid value for value at the
+        //                     fresh price and nothing more.
         //   FIRST DEPOSIT   - the ERC-4626 first-depositor inflation steal starts by
         //                     seeding the pool with one unit. A first deposit must be at
         //                     least MIN_INITIAL_DEPOSIT, and any deposit that would mint
@@ -4341,8 +4348,13 @@ object DappScaffold {
         //      chromia_rell_practices_help names.
         //      WHAT IS STILL A STEP HERE, stated rather than implied: while
         //      recoverable_debt()'s cap is ACTIVE ON A POSITION - only where that
-        //      position's own debt already exceeds its own collateral - a price post and
-        //      an add_collateral/liquidate ON THAT POSITION move `value` in a jump. The
+        //      position's own debt already exceeds its own collateral - a price post, an
+        //      add_collateral/liquidate ON THAT POSITION, and a REPAY on it move `value`
+        //      in a jump. Repay is the one an earlier version of this list omitted, and
+        //      it is the largest: a capped position contributes its BACKING, a repayment
+        //      does not touch the collateral, so the whole payment lands in
+        //      cash_available at once (measured: 10000 in, 10261 out across a 500 repay,
+        //      +261 taken from the other lenders by a share held for one block). The
         //      bound is per position, so a debt-free stranger cannot reach it; closing
         //      what is left would mean valuing collateral continuously, which no oracle
         //      can do.
@@ -4408,9 +4420,20 @@ object DappScaffold {
         //     min(), so an outsider's collateral moves the share price by exactly nothing.
         //     WHAT REMAINS: while the cap is ACTIVE on some position - only in a pool whose
         //     debt already exceeds ITS OWN collateral - a price post and an
-        //     add_collateral/liquidate on THAT position still move `value` in a jump. That
-        //     window exists only against an already-insolvent position, and closing it
-        //     would mean valuing collateral continuously, which no oracle can do.
+        //     add_collateral/liquidate/repay on THAT position still move `value` in a
+        //     jump. An earlier version said that window "exists only against an
+        //     already-insolvent position". It does not, and the arithmetic is short: a
+        //     liquidation seizes 110% of what it repays, so backing after is
+        //     (B - 1.1r) / (D - r), which is BELOW the ratio it found whenever backing
+        //     was under 110%. A liquidation did not find insolvency there, it
+        //     manufactured it - round 9 took a position from 6060 against 6000 (solvent)
+        //     to 2787 against 3001 (insolvent) in one max-close at an unchanged price,
+        //     and 107 cash moved from the honest lender to the liquidator for ordering
+        //     two operations she was entitled to perform. liquidate() now REFUSES to
+        //     leave a solvent position insolvent, and pays an under-water position out
+        //     VALUE FOR VALUE at the fresh price with no bonus, so the window is
+        //     against a position that was insolvent BEFORE anyone touched it, and only
+        //     there.
         //   - The interest RATE is your economics, and so is PROTOCOL_FEE_BPS (0 turns
         //     the fee off entirely; only WHEN it is taken is structural). So are
         //     MAX_LTV_BPS, the threshold, the
@@ -5055,12 +5078,42 @@ object DappScaffold {
             // largest allowed borrow, so this product leaves 64 bits. An aborting
             // arithmetic here would make a position un-liquidatable, which is worse
             // than a seizure the collateral check refuses on the next line.
-            val seize_value = p.cash.to_big_integer() * (BPS + LIQUIDATION_BONUS_BPS).to_big_integer() / BPS.to_big_integer();
-            val seize_big = seize_value * PRICE_SCALE.to_big_integer() / price.to_big_integer();
+            // THE BONUS EXISTS ONLY ON A SOLVENT POSITION. A liquidation seizes 110% of
+            // what it repays, so it lowers the backing ratio of any position under 110%
+            // - it does not find insolvency there, it manufactures it (round 9: 6060
+            // against 6000 became 2787 against 3001 in one max-close at an unchanged
+            // price, and 107 cash moved from the honest lender to the liquidator). And
+            // once a position is under water the debt is non-recourse - what the
+            // liquidator "repays" was never going to be paid - so a bonus on it is
+            // simply collateral taken from the lenders, 9.09% per round until gone.
+            // Two guards, each replayed and each with a mutant:
+            //   * solvent before  -> must still be solvent after, or the close is refused;
+            //   * insolvent before -> paid VALUE FOR VALUE at the fresh price, no bonus.
+            //                        Not pro-rata of face: a position a thousand years under
+            //                        water owes 306000 against 7000 of backing, and pro-rata
+            //                        would hand a 1000 repayment 0 tokens - liquidation would
+            //                        stop, which is worse than the harvest it prevents. The
+            //                        stablecoin template can afford pro-rata because deep
+            //                        shortfall is SETTLED there; this pool has no settle, so
+            //                        the liquidator gets what they paid and not one unit more.
+            val debt_before = debt_of(l, st);
+            val backing_before = l.collateral.to_big_integer() * price.to_big_integer() / PRICE_SCALE.to_big_integer();
+            val solvent_before = backing_before >= debt_before.to_big_integer();
+            val seize_big = if (solvent_before) {
+                val seize_value = p.cash.to_big_integer() * (BPS + LIQUIDATION_BONUS_BPS).to_big_integer() / BPS.to_big_integer();
+                seize_value * PRICE_SCALE.to_big_integer() / price.to_big_integer()
+            } else {
+                p.cash.to_big_integer() * PRICE_SCALE.to_big_integer() / price.to_big_integer()
+            };
             val seize_cap = MAX_AMOUNT.to_big_integer();
             val seize = (if (seize_big > seize_cap) seize_cap else seize_big).to_integer();
             require(seize > 0, "nothing to seize");
             require(seize <= l.collateral, "not enough collateral to cover the bonus");
+            if (solvent_before) {
+                val backing_after = (l.collateral - seize).to_big_integer() * price.to_big_integer() / PRICE_SCALE.to_big_integer();
+                val debt_after = (debt_before - p.cash).to_big_integer();
+                require(backing_after >= debt_after, "liquidation would leave the position insolvent - close less");
+            }
             // Cash goes to the pool, collateral to the liquidator; the debt and the
             // pool's record of it fall by the same amount, all in this operation.
             update liquidator ( .cash -= p.cash, .tokens += seize );
@@ -5431,6 +5484,97 @@ object DappScaffold {
         // controls: an absurd repay amount, a zero, a negative, a position with no debt,
         // the caller's own position, and one that a bounded price post has merely moved
         // close to the line.
+        // EXPLOIT MUST FAIL. Round 9: a liquidation seizes 110% of what it repays, so
+        // on any position backed under 110% it LOWERS the backing ratio - a max-close
+        // at an unchanged price took 6060-against-6000 (solvent) to 2787-against-3001
+        // (insolvent) and 107 cash moved from the honest lender to the liquidator for
+        // ordering two operations she was entitled to perform. The residual list said
+        // that window "exists only against an already-insolvent position"; the
+        // arithmetic says otherwise in one line, and this replay measures it.
+        function test_round9_liquidation_may_not_manufacture_insolvency_must_fail() {
+            val lender = register_alice();
+            val victim = register_bob();
+            val attacker = register_trudy();
+            signed(lender.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(victim.keypair, main.add_collateral(100));
+            signed(victim.keypair, main.borrow(6000));
+            assert_conserved();
+
+            // Three honest posts, each inside the 20% bound, an hour apart: 100 -> 80
+            // -> 64 -> 60.606. Backing is 6060 against a debt of 6000: SOLVENT, and
+            // liquidatable (the threshold is 75%).
+            after(HOUR);
+            post_price(80 * main.PRICE_SCALE);
+            after(HOUR);
+            post_price(64 * main.PRICE_SCALE);
+            after(HOUR);
+            post_price(60606060);
+            val collateral_before = main.get_loan(victim.account.id)!!.collateral;
+
+            // THE ATTACK: the max close. It used to seize 54 tokens and leave 46 worth
+            // 2787 against 3001 of debt - insolvent, at an unchanged price. Refused.
+            signed_must_fail(attacker.keypair, main.liquidate(victim.account.id, 3000),
+                "liquidation would leave the position insolvent");
+            assert_equals(main.get_loan(victim.account.id)!!.collateral, collateral_before);
+            assert_conserved();
+
+            // A close that keeps the position solvent is still allowed - liquidation
+            // is not disabled, it is bounded.
+            signed(attacker.keypair, main.liquidate(victim.account.id, 400));
+            val after_close = main.get_loan(victim.account.id)!!.collateral;
+            assert_equals(collateral_before - after_close <= 8, true);
+            assert_conserved();
+        }
+
+        // UNDER WATER THERE IS NO BONUS. Once backing is below face the debt is
+        // non-recourse: what a liquidator "repays" was never going to be paid, so a
+        // 10% bonus on it is collateral taken from the lenders, round after round
+        // (9.09% of the position per unwind). The liquidator is paid value for value
+        // at the fresh price - the VALUE they receive never exceeds the cash they
+        // brought - and liquidation stays viable, which pro-rata of a deeply
+        // under-water face would not be.
+        function test_underwater_liquidation_is_value_for_value_with_no_bonus() {
+            val lender = register_alice();
+            val victim = register_bob();
+            val attacker = register_trudy();
+            signed(lender.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+            signed(attacker.keypair, main.register_account());
+            post_price(100 * main.PRICE_SCALE);
+            signed(lender.keypair, main.deposit_cash(10000));
+            signed(victim.keypair, main.add_collateral(100));
+            signed(victim.keypair, main.borrow(6000));
+
+            // 100 -> 80 -> 64 -> 51.2, each post inside the bound, an hour apart.
+            // Backing 5120 against 6000: under water before anyone touches it.
+            after(HOUR);
+            post_price(80 * main.PRICE_SCALE);
+            after(HOUR);
+            post_price(64 * main.PRICE_SCALE);
+            after(HOUR);
+            val price = 51200000;
+            post_price(price);
+
+            val tokens_before = main.get_account(attacker.account.id)!!.tokens;
+            val collateral_before = main.get_loan(victim.account.id)!!.collateral;
+            signed(attacker.keypair, main.liquidate(victim.account.id, 3000));
+            val seized = main.get_account(attacker.account.id)!!.tokens - tokens_before;
+            assert_equals(collateral_before - main.get_loan(victim.account.id)!!.collateral, seized);
+
+            // Value for value: 3000 of cash at 51.2 is 58 tokens, worth 2969 - never
+            // more than the 3000 that went in. With the bonus it would be 64 tokens
+            // worth 3276: more value out than in, the harvest. And never so little
+            // that nobody would liquidate: at least 2900 comes back.
+            val value_received = seized * price / main.PRICE_SCALE;
+            assert_equals(value_received <= 3000, true);
+            assert_equals(value_received >= 2900, true);
+            assert_conserved();
+        }
+
         function test_healthy_position_cannot_be_liquidated() {
             val lender = register_alice();
             val victim = register_bob();
@@ -6779,9 +6923,15 @@ object DappScaffold {
         //     an honest trade, a deposit, a withdrawal, or a hostile dust swap - makes
         //     this swap revert and the caller must re-quote. AND IF THE CALLER
         //     RE-QUOTES AT THE MOVED PRICE AND SIGNS, THEY HAVE CONSENTED TO THE IMPACT
-        //     AND THE ATTACKER'S UNWIND PROFITS FROM IT - by more than 1500 on these very
-        //     numbers, against round 8's measured 1698, and the shipped test asserts that
-        //     bound so this sentence cannot rot. What is gone is the SILENT version, the one
+        //     AND THE ATTACKER'S UNWIND PROFITS FROM IT. The shipped test asserts a FLOOR
+        //     on that profit - more than 1500 on round 8's numbers, which measured 1698 -
+        //     and there is NO CEILING. Round 9 read the floor as a bound and measured the
+        //     truth: round 8's front-runner was capped near 5500 because he had to keep
+        //     the victim inside a 2% tolerance, and with no tolerance field there is no
+        //     cap but his balance - at a 50000 front-run the re-quoting victim is short
+        //     13353 and he takes 18301. The equality removed the silent loss and the
+        //     attacker's budget cap in the same stroke; only WAITING removes the loss.
+        //     What is gone is the SILENT version, the one
         //     where the victim signed for 83124, was paid 81920, and their own guard
         //     stayed quiet. The counter-play the guard buys is real and it is WAITING:
         //     the front-runner must unwind, unwinding restores the price, and a caller
@@ -6843,9 +6993,15 @@ object DappScaffold {
         //                     ERC-4626 / Uniswap first-depositor inflation steal, and it
         //                     is the same guard, for the same reason, as the lending
         //                     template's minimum first deposit.
-        //   BALANCED DEPOSITS - a later deposit must match the pool's current ratio, so
-        //                     the min() in shares_for is never a silent haircut and
-        //                     nobody donates to the existing LPs by mistyping.
+        //   BALANCED DEPOSITS - a later deposit must match the pool's current ratio AND
+        //                     be redeemable for what it deposited at that instant. The
+        //                     ratio alone is NOT enough: on a pool swapped down to dust
+        //                     the min() in shares_for WAS a silent haircut - a 1000 A +
+        //                     1 B deposit matched the ratio, minted one share, and
+        //                     redeemed ~501 A and 0 B (round 9's prose audit). The
+        //                     redeemability guard refuses that deposit outright, so
+        //                     nobody donates to the existing LPs by mistyping or by
+        //                     arriving after a swap.
         //
         // EXTENDING THIS TEMPLATE - the seams a static rule cannot see:
         //   1. NEVER ADD A SLIPPAGE TOLERANCE, however reasonable the number looks, and
@@ -6887,10 +7043,19 @@ object DappScaffold {
         //      an "emergency exit", a "convert my position to token A", a transfer of a
         //      position to another account - and any of them without
         //      `require(op_context.last_block_time >= p.unlocks_at)` is JIT again under
-        //      a different name. A POSITION TRANSFER IS THE SUBTLE ONE: selling a fresh
-        //      position to a confederate who exits it is the same round trip in two
-        //      halves, so a transfer must carry `unlocks_at` unchanged, never restart it
-        //      and never drop it.
+        //      a different name. A POSITION TRANSFER IS THE SUBTLE ONE, and an earlier
+        //      version of this seam got it wrong: it said a transfer must carry
+        //      `unlocks_at` unchanged because a confederate "who exits it" would be
+        //      completing the round trip. The confederate never has to exit - only to
+        //      PAY. The term binds the ROW, not the seller's CAPITAL, and the fee share
+        //      is realised at the sale, to an honest buyer as readily as to a confederate
+        //      (round 9 measured 80 A taken from the standing LP by capital present for
+        //      two blocks, and a buyer who never deposited taking 100201 A + 100000 B out
+        //      the block after receiving a matured row). So the rule is stricter than
+        //      carrying the term: A POSITION IS NOT TRANSFERABLE BEFORE IT MATURES. A
+        //      transfer before `unlocks_at` IS the exit, whoever holds the row afterwards.
+        //      This template ships no transfer at all; if you add one, it takes the term
+        //      exactly as remove_liquidity does, and it never restarts it.
         //   3. EVERY NEW PATH THAT MOVES THE RESERVES GOES THROUGH execute_swap OR
         //      CARRIES ITS OWN k CHECK. A fee change, a rebalance, a donation, a
         //      flash-loan-like borrow: if it can leave the reserves at a smaller product
@@ -7113,6 +7278,18 @@ object DappScaffold {
             // REFUSED, never swallowed: the first-depositor inflation steal starts by
             // making a later deposit round to zero shares.
             require(minted > 0, "deposit too small to mint a share");
+            // AND NEVER HAIRCUT. Matching the ratio is not enough on a pool that has
+            // been swapped down to dust: with 3 B in reserve a 1000 A + 1 B deposit floors
+            // by_a to 1 share while by_b is 333, so the min() in shares_for mints one
+            // share worth ~501 A and 0 B for 1000 A and a third of the B reserve (round
+            // 9's prose audit, recomputed from this file). The property that closes it
+            // needs no model of the pool: what a deposit could redeem THIS INSTANT must
+            // be what it put in, to a unit of rounding. Otherwise the deposit is refused.
+            val back_a = minted.to_big_integer() * (pool.reserve_a + amount_a).to_big_integer()
+                / (pool.total_shares + minted).to_big_integer();
+            val back_b = minted.to_big_integer() * (pool.reserve_b + amount_b).to_big_integer()
+                / (pool.total_shares + minted).to_big_integer();
+            require(back_a >= (amount_a - 1).to_big_integer() and back_b >= (amount_b - 1).to_big_integer(), "deposit would be rounded away against the pool");
             update me ( .token_a -= amount_a, .token_b -= amount_b );
             pool.reserve_a += amount_a;
             pool.reserve_b += amount_b;
@@ -7567,6 +7744,30 @@ object DappScaffold {
         // The ERC-4626 / Uniswap first-depositor inflation steal, refused at both ends:
         // a seed too small to price against is refused outright, and a later deposit
         // that would round to zero shares is REFUSED rather than swallowed.
+        // EXPLOIT MUST FAIL. Round 9's prose audit: the header said a later deposit
+        // "is never a silent haircut" because it must match the pool ratio. On a pool
+        // swapped down to 3 B, a 1000 A + 1 B deposit matches the ratio (1 B is the
+        // ceiling of 1000 * 3 / 501000), floors by_a to ONE share while by_b is 333,
+        // and that one share redeems ~501 A and 0 B. The depositor loses half their A
+        // and a third of the entire B reserve to the incumbent - the ERC-4626 steal
+        // the header called closed. A deposit must be redeemable for what it put in.
+        function test_round9_dust_pool_deposit_is_refused_not_haircut() {
+            val incumbent = register_alice();
+            val victim = register_bob();
+            signed(incumbent.keypair, main.register_account());
+            signed(victim.keypair, main.register_account());
+            signed(incumbent.keypair, main.add_liquidity(1000, 1000));
+            swap_a_at_quote(incumbent.keypair, 500000);
+            assert_equals(main.get_pool().reserve_b < 10, true);
+            assert_conserved();
+
+            // Matches the ratio, mints one share, and would have handed the incumbent
+            // ~499 A and the whole 1 B. Refused instead.
+            signed_must_fail(victim.keypair, main.add_liquidity(1000, 1), "deposit would be rounded away against the pool");
+            assert_equals(main.positions_of(victim.account.id).size(), 0);
+            assert_conserved();
+        }
+
         function test_first_depositor_inflation_refuses_instead_of_swallowing() {
             val attacker = register_alice();
             val victim = register_bob();

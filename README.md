@@ -62,11 +62,32 @@ Executes `@test module;` Rell tests in-process with the embedded runner (the sam
 1. `rell_check` — it compiles
 2. `rell_security_check` — it's secure
 3. `run_rell_tests` — it behaves correctly
+4. `verify_guards` — the guards those tests claim to prove are **load-bearing**
 
 `tests` selects cases the way `chr test --tests` does — globs matched against the whole
 function name, `module:function`, or the module (`["test_first_deposit*"]`, or one
 comma-separated string). A filter that matches nothing is `ok=false` and the notes list the
 test functions it could have matched, so a typo never reads as a green run.
+
+## Guard Verification (`verify_guards`)
+
+A must-fail test is only evidence if it goes red when the guard it depends on is removed —
+and goes red *because the attack landed*. A test that passes with the guard and still passes
+without it is a fake green with a security label on it; one was written in this repository by
+its maintainers, and only a mutant caught it. Every shipped template guard is held to that
+standard, and `verify_guards` runs the same check on **your** dapp: name a guard line and the
+must-fail test that depends on it, and the tool checks the test passes as-is, deletes (or
+weakens, via `replacement`) the guard, reruns only that test, and reads *why* it failed:
+
+- `load_bearing` — failed because the attack landed (`run_must_fail` reports "did not fail")
+- `vacuous` — stayed green without the guard; the test does not exercise it
+- `still_refused` — something else refused the attack (name it in `alsoRemove`)
+- `environmental` — the mutant did not compile or lacked `moduleArgs`; proves nothing
+- `baseline_red` / `guard_not_found` / `test_not_found` — the inputs cannot be verified yet
+
+`ok` is true only when every named guard is `load_bearing`. It says nothing about guards you
+did not name, and it does not replace an audit — it turns the guards you did name from a
+claim into evidence.
 
 Pure-logic tests run with no setup. Tests that touch entities/database need PostgreSQL —
 set `CHROMIA_TEST_DATABASE_URL` (jdbc url) on the server. Database-backed runs share one
@@ -218,8 +239,9 @@ that connects by URL:
 ```
 
 It finds the jar, auto-picks a free port (from 3001), applies the DB URL from your
-environment (or the standard dev default), forces the **full 70-tool catalog** (no compact
-mode, no disabled tools), gives the JVM a fixed 2 GB heap (locally there is no container
+environment (or the standard dev default), forces the **full tool catalog** (no compact
+mode, no disabled tools - `tools/list` is the authoritative count; a number written here
+would rot), gives the JVM a fixed 2 GB heap (locally there is no container
 limit; measured steady state is ~1.5 GB), waits for `/health`, and prints the URL:
 
 ```

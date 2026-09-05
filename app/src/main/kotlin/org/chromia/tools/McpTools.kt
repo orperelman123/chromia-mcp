@@ -1759,10 +1759,14 @@ object McpTools {
         description = """
             Execute Rell tests in-process with the embedded Rell test runner (same engine the
             Chromia CLI wraps) and return per-case pass/fail results - no chr installation needed.
-            This completes the agent verification loop:
+            This is step 3 of the agent verification loop:
             1. rell_check - the code compiles
             2. rell_security_check - the code is secure
             3. run_rell_tests - the code behaves correctly
+            4. verify_guards - every guard you rely on is LOAD-BEARING: its must-fail test
+               goes red without it, because the attack lands. A must-fail test that passes
+               with the guard and still passes without it is a fake green; step 4 is what
+               catches that, and it is what this server's own templates are held to.
             Pass `files` including at least one file starting with `@test module;` whose test
             functions are named test_*. Tests that touch entities/database need PostgreSQL via the
             CHROMIA_TEST_DATABASE_URL env var on the server; pure-logic tests run without it.
@@ -1837,7 +1841,8 @@ object McpTools {
             GET /brid/iid_0, GET+POST /query/{brid}, POST /query_gtv/{brid}, POST /tx/{brid}, and
             GET /tx/{brid}/{txRid}/status - block and confirmation-proof endpoints are NOT served.
             This is the last step of the agent loop: rell_check (compiles) -> rell_security_check
-            (secure) -> run_rell_tests (tests pass) -> local_chain_up (runs against a live chain).
+            (secure) -> run_rell_tests (tests pass) -> verify_guards (the guards those tests
+            claim to prove are load-bearing) -> local_chain_up (runs against a live chain).
             Returns the BRID and apiUrl; then query with
             POST {apiUrl}/query/{brid} {"type":"<query>", ...args} (start with type=rell.get_app_structure),
             and submit transactions with any postchain client against apiUrl + BRID, signed with the
@@ -1916,6 +1921,93 @@ object McpTools {
                 )
             ),
             required = listOf("ok", "status", "notes")
+        )
+    )
+
+    fun verifyGuardsTool() = Tool(
+        name = "verify_guards",
+        description = """
+            Prove that a guard in YOUR dapp is load-bearing - the discipline every shipped template
+            is held to, run on your own code. A must-fail test is only evidence if it goes red when
+            the guard it depends on is removed, and goes red BECAUSE THE ATTACK LANDED. A test that
+            passes with the guard and still passes without it is a fake green with a security label
+            on it - one was written by this server's own maintainers and only a mutant caught it.
+            For each {guard, test} you name: (1) the test must PASS on your files as submitted
+            (otherwise `baseline_red`: it proves nothing in either state); (2) the guard line is
+            replaced (default: deleted) and ONLY that test is run; (3) the verdict is read from WHY
+            it failed. Verdicts per guard:
+              load_bearing           - the test failed because the attack landed (run_must_fail
+                                       reports the transaction "did not fail", or the test's own
+                                       conservation / payout assertion tripped)
+              vacuous                - the test stayed green with the guard gone: it does not
+                                       exercise the guard. Make the test drive the attack.
+              still_refused          - something else refused the attack (another require, a
+                                       second guard). Name it in alsoRemove if it is defence in
+                                       depth, else the test measures a different guard.
+              environmental          - the mutant is not a running dapp (compile error, missing
+                                       module_args). A failure for that reason proves nothing.
+              red_for_another_reason - red, but not the attack; read the error before counting it.
+              baseline_red / guard_not_found / test_not_found - the inputs cannot be verified yet.
+            ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass
+            to run_rell_tests. Nothing is deployed; sources run in a temp directory and are
+            deleted afterwards. This does not replace an audit and says nothing about guards you
+            did not name - it makes the guards you DID name real evidence instead of a claim.
+        """.trimIndent(),
+        inputSchema = Tool.Input(
+            properties = JsonObject(
+                mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Map of relative .rell paths to contents: the production module(s) AND the @test module holding the must-fail test, exactly as you would pass them to run_rell_tests.")
+                        )
+                    ),
+                    "guards" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("array"),
+                            "items" to JsonObject(
+                                mapOf(
+                                    "type" to JsonPrimitive("object"),
+                                    "properties" to JsonObject(
+                                        mapOf(
+                                            "guard" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("The guard line, VERBATIM as it appears in your source, e.g. require(p.balance >= amount, \"insufficient\");"))),
+                                            "test" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("The must-fail test function that depends on this guard, e.g. test_overdraft_must_fail. Only this test is run against the mutant."))),
+                                            "replacement" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional text to put in the guard's place. Default deletes the line. Use it to WEAKEN a guard (e.g. turn an equality into a 2% band) rather than remove it."))),
+                                            "alsoRemove" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))), "description" to JsonPrimitive("Optional further guard lines (verbatim) to strip in the same mutant - defence in depth that would otherwise still refuse the attack."))),
+                                            "stillRefused" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional error fragment that means the attack was STILL refused (e.g. the message of another require). Its presence yields still_refused instead of load_bearing."))),
+                                            "attackLanded" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional error fragment that proves the attack SUCCEEDED. Default \"did not fail\" - what run_must_fail reports when the transaction it expected to fail went through. Use e.g. \"expected\" when the test's own assert_equals is what should trip.")))
+                                        )
+                                    ),
+                                    "required" to JsonArray(listOf(JsonPrimitive("guard"), JsonPrimitive("test")))
+                                )
+                            ),
+                            "description" to JsonPrimitive("One entry per guard to prove. Each names the guard line and the must-fail test that depends on it.")
+                        )
+                    ),
+                    "moduleArgs" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("Optional module_args by module name, exactly as for run_rell_tests (moduleArgs merged with test.moduleArgs, keyed by module). Required for FT4 dapps or every mutant fails with 'Unable to create GTX module' and the verdict is environmental.")
+                        )
+                    )
+                )
+            ),
+            required = listOf("files", "guards")
+        ),
+        title = "Verify guards are load-bearing",
+        annotations = null,
+        outputSchema = Tool.Output(
+            properties = JsonObject(
+                mapOf(
+                    "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("true only when every named guard is load_bearing"))),
+                    "guards" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "loadBearing" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "results" to JsonObject(mapOf("type" to JsonPrimitive("array"), "description" to JsonPrimitive("Per guard: {guard, test, verdict, loadBearing, evidence}"))),
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                )
+            ),
+            required = listOf("ok", "guards", "loadBearing", "results", "notes")
         )
     )
 
@@ -3820,6 +3912,9 @@ object McpTools {
         "rell_check" to CHECK_DAPP_PROJECT_ALTERNATIVE,
         "rell_security_check" to CHECK_DAPP_PROJECT_ALTERNATIVE,
         "run_rell_tests" to CHECK_DAPP_PROJECT_ALTERNATIVE,
+        "verify_guards" to "no equivalent tool: run_rell_tests can run the exploit case but cannot prove the guard is " +
+            "load-bearing. Do it by hand - remove the guard, rerun ONLY that test, and require it to fail because " +
+            "the attack landed (run_must_fail reports 'did not fail'), not for any other reason",
         "local_chain_up" to "verify behavior with run_rell_tests if available, or compile-check with check_dapp_project",
         "chromia_dapp_query" to "use the explorer analytics tools on this server " +
             "(filter_blockchains, get_blockchain_details, get_all_transactions, ...) for on-chain data"
@@ -3879,6 +3974,7 @@ object McpTools {
         rellCheckTool(),
         rellSecurityCheckTool(),
         runRellTestsTool(),
+        verifyGuardsTool(),
         localChainUpTool(),
         translateErrorTool(),
         onboardingNextStepTool(),

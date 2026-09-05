@@ -1,11 +1,12 @@
 # Deployment & Hosting
 
-**Local is the path.** This server is designed to run on the developer's own
-machine — full 70-tool catalog, no memory constraints, `local_chain_up` fully usable, no
-hosting cost. Hosting (Render, Kubernetes) remains an *option* for sharing a reduced
-docs/analytics endpoint; the fork's own Render service was **retired (suspended) on
-2026-09-05** — see [Hosted (Render)](#hosted-render--retired-2026-09-05) below for what it
-was and the measurements that would apply to a redeploy.
+**Local is the product.** This server runs on the developer's own machine — the full
+tool catalog (`tools/list` is the authoritative count), no memory constraints,
+`local_chain_up` fully usable, no hosting cost. Hosting is **not maintained**: the fork's
+Render service was **retired (suspended) on 2026-09-05** and the decision is local-only —
+do not add hosted plumbing or point docs at a hosted URL. The
+[Hosted (Render)](#hosted-render--retired-2026-09-05) section below is kept as a record of
+what it was and what it measured, not as an option.
 
 The documentation index a local install answers from is cached on disk after the first
 download: `$CHROMIA_MCP_HOME/embeddings.bin` + `embeddings.cache.json` (default

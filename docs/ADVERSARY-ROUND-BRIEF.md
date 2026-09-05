@@ -42,6 +42,14 @@ Not "fewer than last round". Coverage moving is not a pass.
    what the header said.
 2. **Attack.** Measure. A drain is numbers - what went in, what came out, whose
    balance moved - not an argument that something looks unsafe.
+   **A tool is attacked the round it ships.** `verify_guards` tells an agent
+   whether a guard is load-bearing; an agent will trust that verdict the way
+   it trusts `ok:true`. So a FALSE verdict - `load_bearing` for a guard that
+   is not, or `vacuous` for one that is - is a finding of the same rank as a
+   drain, and the round's builds should try to produce one: a guard string
+   that also appears in the test module, an `attackLanded` fragment that
+   matches an unrelated error, a test that fails for a second reason once the
+   guard is gone, module_args that make every mutant fail alike.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /

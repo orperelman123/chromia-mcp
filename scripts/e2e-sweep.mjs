@@ -530,6 +530,15 @@ const KNOWN_ARGS = {
   rell_check: { source: 'module;\nquery ok() = 1;' },
   rell_security_check: { source: 'module;\nquery ok() = 1;' },
   run_rell_tests: { files: { 't.rell': '@test module;\nfunction test_x() { assert_equals(1, 1); }' } },
+  // A guard that IS load-bearing: strip the balance check and take(11) on a pot
+  // of 10 goes through, so run_must_fail reports the attack landed.
+  verify_guards: {
+    files: {
+      'main.rell': 'module;\nentity pot { key id: integer; mutable balance: integer = 0; }\noperation seed(amount: integer) { require(amount > 0, "amount must be positive"); create pot(id = 1, balance = amount); }\noperation take(amount: integer) {\n    require(amount > 0, "amount must be positive");\n    val p = pot @ { .id == 1 };\n    require(p.balance >= amount, "insufficient");\n    update p ( .balance -= amount );\n}',
+      'main_test.rell': '@test module;\nimport main;\nfunction test_overdraft_must_fail() {\n    rell.test.tx().op(main.seed(10)).run();\n    rell.test.tx().op(main.take(11)).run_must_fail("insufficient");\n}',
+    },
+    guards: [{ guard: 'require(p.balance >= amount, "insufficient");', test: 'test_overdraft_must_fail' }],
+  },
   chromia_dapp_query: { blockchainRid: 'F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2', query: 'rell.get_app_structure' },
 };
 // Snapshot BEFORE the check so a session-reconnect retry re-verifies the same

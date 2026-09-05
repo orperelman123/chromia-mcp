@@ -349,7 +349,11 @@ object ChromiaRellPracticesHelp {
                 "staking / rewards / emissions: template=staking; payroll / subscription / vesting / drip: template=streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
                 "template=lending; stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
-                "their guards are structural and their shipped tests replay the real drain as must-fail."
+                "their guards are structural and their shipped tests replay the real drain as must-fail. " +
+                "Then PROVE your own guards the same way the templates are proven: verify_guards removes a guard " +
+                "you name, reruns only its must-fail test, and reports load_bearing only if that test failed " +
+                "because the attack landed - a test that stays green without its guard is a fake green, and " +
+                "one was written by this server's own maintainers before a mutant caught it."
         )
         put("security_keys", buildJsonArray { securityKeys.forEach { add(JsonPrimitive(it)) } })
         put("skipped", buildJsonArray { skipped.forEach { add(JsonPrimitive(it)) } })

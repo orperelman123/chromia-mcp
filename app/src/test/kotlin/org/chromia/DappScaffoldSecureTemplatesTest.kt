@@ -1438,7 +1438,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_first_depositor_inflation_refuses_instead_of_swallowing",
             "test_borrow_limit_cannot_be_sliced",
             "test_stale_or_missing_price_halts_lending",
-            "test_interest_moves_only_from_borrower_to_lender"
+            "test_interest_moves_only_from_borrower_to_lender",
+            "test_round9_liquidation_may_not_manufacture_insolvency_must_fail",
+            "test_underwater_liquidation_is_value_for_value_with_no_bonus"
         )
     )
 
@@ -1465,6 +1467,7 @@ class DappScaffoldSecureTemplatesTest {
             "test_liquidity_returns_to_its_provider_after_its_term",
             "test_k_never_falls_under_grinding",
             "test_first_depositor_inflation_refuses_instead_of_swallowing",
+            "test_round9_dust_pool_deposit_is_refused_not_haircut",
             "test_bounds_and_ownership"
         )
     )
@@ -2476,7 +2479,15 @@ class DappScaffoldSecureTemplatesTest {
         "require(amount_b.to_big_integer() >= need / big_integer(2), \"deposit must match the pool ratio\");",
         "test_bounds_and_ownership",
         "amount must be positive",
-        attackLanded
+        attackLanded,
+        // Defence in depth, found when the redeemability guard landed: with the
+        // ratio check weakened, the unbalanced deposit is refused by the
+        // redeemability guard instead ("deposit would be rounded away against the
+        // pool") - the right outcome for the pool, the wrong reason for THIS mutant,
+        // which exists to prove the ratio check. Both must go for the attack to land.
+        alsoRemove = listOf(
+            "require(back_a >= (amount_a - 1).to_big_integer() and back_b >= (amount_b - 1).to_big_integer(), \"deposit would be rounded away against the pool\");"
+        )
     )
 
     /**
@@ -2664,4 +2675,62 @@ class DappScaffoldSecureTemplatesTest {
         )
     }
 
+
+    /**
+     * ROUND 9: A LIQUIDATION MUST NOT MANUFACTURE THE INSOLVENCY IT IS FOR. A
+     * seizure of 110% of the repayment lowers the backing ratio of any position
+     * under 110%, so a max-close at an unchanged price took 6060-against-6000 to
+     * 2787-against-3001 and moved 107 cash from the honest lender to the
+     * liquidator. The residual list said the window existed "only against an
+     * already-insolvent position", which the arithmetic disproves in one line.
+     * Removing the solvent-after guard lets round 9's close through: the replay
+     * goes red because the transaction it says must fail "did not fail".
+     */
+    @Test
+    fun lendingRound9ReplayGoesRedWithoutTheSolventAfterGuard() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "require(backing_after >= debt_after, \"liquidation would leave the position insolvent - close less\");",
+        "",
+        "test_round9_liquidation_may_not_manufacture_insolvency_must_fail",
+        "position is healthy",
+        attackLanded
+    )
+
+    /**
+     * UNDER WATER THERE IS NO BONUS. The debt is non-recourse, so what a
+     * liquidator "repays" on an insolvent position was never going to be paid,
+     * and a 10% bonus on it is collateral taken from the lenders, round after
+     * round. Putting the bonus formula back on the insolvent branch pays the
+     * liquidator more value than the cash they brought, and the value-for-value
+     * assertion trips. (Not pro-rata of face: a thousand-year-old debt would then
+     * hand a liquidator zero tokens and liquidation would simply stop.)
+     */
+    @Test
+    fun lendingUnderwaterTestGoesRedWhenTheBonusIsPaidUnderWater() = assertGuardMutationRedensExploitTest(
+        "lending",
+        "p.cash.to_big_integer() * PRICE_SCALE.to_big_integer() / price.to_big_integer()",
+        "p.cash.to_big_integer() * (BPS + LIQUIDATION_BONUS_BPS).to_big_integer() / BPS.to_big_integer() * PRICE_SCALE.to_big_integer() / price.to_big_integer()",
+        "test_underwater_liquidation_is_value_for_value_with_no_bonus",
+        "position is healthy",
+        "expected"
+    )
+
+    /**
+     * THE AMM'S min() WAS A SILENT HAIRCUT. The header said a later deposit "is
+     * never a silent haircut" because it must match the pool ratio. On a pool
+     * swapped down to 3 B, a 1000 A + 1 B deposit floors by_a to 1 share while
+     * by_b is 333: the depositor gets ~501 A and 0 B back for 1000 A and a third
+     * of the B reserve. A deposit must be redeemable for what it deposited at the
+     * moment it is made. Removing that guard admits the deposit and the replay
+     * goes red because the deposit it says must fail "did not fail".
+     */
+    @Test
+    fun ammDustPoolDepositGoesRedWithoutTheRedeemabilityGuard() = assertGuardMutationRedensExploitTest(
+        "amm",
+        "require(back_a >= (amount_a - 1).to_big_integer() and back_b >= (amount_b - 1).to_big_integer(), \"deposit would be rounded away against the pool\");",
+        "",
+        "test_round9_dust_pool_deposit_is_refused_not_haircut",
+        "deposit must match the pool ratio",
+        attackLanded
+    )
 }
