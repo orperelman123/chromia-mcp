@@ -1,0 +1,284 @@
+package org.chromia
+
+import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.TextContent
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import org.chromia.tools.RunRellTests
+import org.chromia.tools.VerifyGuardsStrategy
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * THE VERIFY_GUARDS SCOREBOARD. Round 11 attacked the tool the round it shipped
+ * and got six wrong answers - four of them ok:true - each from one omission
+ * (raw-text search that saw comments; replace-all within a file; a narrower
+ * notion of "test file" than the runner's; alsoRemove crediting a vacuous guard
+ * with a real one's red; a caller-supplied fragment outranking the guard's own
+ * refusal). The probes live as fixtures under
+ * exploit-corpus/realworld/adversary-round11/vg/ with their raw verdicts; this
+ * class is the same probes as tests, each pinned to the TRUE verdict, so a
+ * regression in the tool goes red here the way a regression in a rule goes red
+ * in ExploitCorpusScoreboardTest. A verification tool that can be fooled is a
+ * finding of the same rank as a drain, because an agent trusts it exactly as it
+ * trusts ok:true.
+ */
+class VerifyGuardsProbeTest {
+
+    private val repo = RecordingRepository()
+
+    private val tests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run_must_fail("insufficient");
+        }
+        function test_seed_negative_must_fail() {
+            rell.test.tx().op(main.seed(-5)).run_must_fail("amount must be positive");
+        }
+        function test_small_take_succeeds() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(5)).run();
+        }
+    """.trimIndent()
+
+    private val bal = "require(p.balance >= amount, \"insufficient\");"
+    private val pos = "require(amount > 0, \"amount must be positive\");"
+
+    private fun run(files: Map<String, String>, guard: JsonObject): JsonObject {
+        assertNotNull(System.getenv(RunRellTests.DATABASE_URL_ENV), "verify_guards runs real tests and needs CHROMIA_TEST_DATABASE_URL")
+        val result = runBlocking {
+            VerifyGuardsStrategy().execute(
+                CallToolRequest(
+                    name = "verify_guards",
+                    arguments = buildJsonObject {
+                        put("files", buildJsonObject { files.forEach { (k, v) -> put(k, v) } })
+                        put("guards", buildJsonArray { add(guard) })
+                    }
+                ),
+                repo
+            )
+        }
+        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+        return result.structuredContent!!.jsonObject["results"]!!.jsonArray.single().jsonObject
+    }
+
+    private fun guard(guard: String, test: String, replacement: String? = null, alsoRemove: List<String> = emptyList(), attackLanded: String? = null) =
+        buildJsonObject {
+            put("guard", guard)
+            put("test", test)
+            if (replacement != null) put("replacement", replacement)
+            if (alsoRemove.isNotEmpty()) put("alsoRemove", buildJsonArray { alsoRemove.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
+            if (attackLanded != null) put("attackLanded", attackLanded)
+        }
+
+    private fun verdict(r: JsonObject) = r["verdict"]!!.jsonPrimitive.content
+    private fun evidence(r: JsonObject) = r["evidence"]!!.jsonPrimitive.content
+
+    // ---- P1: a comment quoting the check the other way round ----------------
+    private val p1Main = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            // INVARIANT: require(p.balance >= amount) - you cannot take what is not there.
+            require(amount <= p.balance, "insufficient");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    /** Round 11 answered `vacuous` for a real guard. A comment is not a guard. */
+    @Test
+    fun p1CommentOnlyMatchIsNotFoundNotVacuous() {
+        val r = run(mapOf("main.rell" to p1Main, "main_test.rell" to tests), guard("require(p.balance >= amount)", "test_overdraft_must_fail"))
+        assertEquals("guard_not_found", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("COMMENT"), "the evidence must say it was found in prose: $r")
+    }
+
+    @Test
+    fun p1ControlTheRealGuardIsLoadBearing() {
+        val r = run(mapOf("main.rell" to p1Main, "main_test.rell" to tests), guard("require(amount <= p.balance, \"insufficient\");", "test_overdraft_must_fail"))
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    // ---- P2: the tail of a block comment ------------------------------------
+    private val p2Main = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            /* SECURITY NOTE: the line below is what stops an overdraft. */
+            require(p.balance >= amount, "insufficient");
+            /* Everything above is the withdrawal path. */
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    /** Round 11 answered `load_bearing` (ok:true): deleting the block-comment terminator commented out the real guard. */
+    @Test
+    fun p2BlockCommentTerminatorIsNotAGuard() {
+        val r = run(mapOf("main.rell" to p2Main, "main_test.rell" to tests), guard("the line below is what stops an overdraft. */", "test_overdraft_must_fail"))
+        assertEquals("guard_not_found", verdict(r), r.toString())
+    }
+
+    // ---- P3: the same line twice in one file, the named copy dead -----------
+    private val p3Main = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            require(amount > 0, "amount must be positive");
+            create pot(id = 1, balance = amount);
+        }
+        operation ping(amount: integer) {
+            require(amount > 0, "amount must be positive");
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= amount, "insufficient");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    /** Round 11 replaced BOTH copies and certified the dead one. */
+    @Test
+    fun p3DuplicateWithinOneFileIsAmbiguous() {
+        val r = run(mapOf("main.rell" to p3Main, "main_test.rell" to tests), guard(pos, "test_seed_negative_must_fail"))
+        assertEquals("guard_ambiguous", verdict(r), r.toString())
+    }
+
+    @Test
+    fun p3bDuplicateAcrossFilesIsAmbiguous() {
+        val helper = "module;\nfunction ping(amount: integer): integer {\n    require(amount > 0, \"amount must be positive\");\n    return amount;\n}"
+        val main = p3Main.replace("operation ping(amount: integer) {\n    require(amount > 0, \"amount must be positive\");\n}\n", "")
+        val r = run(mapOf("main.rell" to main, "helper.rell" to helper, "main_test.rell" to tests), guard(pos, "test_seed_negative_must_fail"))
+        assertEquals("guard_ambiguous", verdict(r), r.toString())
+    }
+
+    /** Disambiguated by its trailing comment, the dead copy alone is vacuous - and a trailing comment must still match. */
+    @Test
+    fun p3cTheNamedCopyAloneIsVacuous() {
+        val main = p3Main.replace(
+            "operation ping(amount: integer) {\n    require(amount > 0, \"amount must be positive\");",
+            "operation ping(amount: integer) {\n    require(amount > 0, \"amount must be positive\"); // ping"
+        )
+        val r = run(mapOf("main.rell" to main, "main_test.rell" to tests), guard("$pos // ping", "test_seed_negative_must_fail"))
+        assertEquals("vacuous", verdict(r), r.toString())
+    }
+
+    // ---- P4: a header-less sibling of a @test module is TEST code -----------
+    private val p4Main = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= amount, "insufficient");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    /** Round 11 mutated the test helper's assertion and certified it ok:true. */
+    @Test
+    fun p4HeaderlessTestSiblingIsTestCode() {
+        val suite = "@test module;\nimport main;\nfunction test_overdraft_must_fail() {\n    rell.test.tx().op(main.seed(10)).run();\n    overdraft_is_refused();\n}\n"
+        val attacks = "function overdraft_is_refused() {\n    rell.test.tx().op(main.take(11)).run_must_fail(\"insufficient\");\n}\n"
+        val r = run(
+            mapOf("main.rell" to p4Main, "suite/module.rell" to suite, "suite/attacks.rell" to attacks),
+            guard("run_must_fail(\"insufficient\")", "test_overdraft_must_fail", replacement = "run()", attackLanded = "insufficient")
+        )
+        assertEquals("guard_not_found", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("test code"), r.toString())
+    }
+
+    /** Same, with test SETUP as the "guard" and the default fragment: round 11 certified it ok:true. */
+    @Test
+    fun p4bHeaderlessTestSetupIsTestCode() {
+        val suite = "@test module;\nimport main;\nfunction test_overdraft_must_fail() {\n    fixture();\n    rell.test.tx().op(main.take(1)).run_must_fail(\"insufficient\");\n}\n"
+        val attacks = "function fixture() {\n    rell.test.tx().op(main.seed(10)).run();\n    rell.test.tx().op(main.take(10)).run();\n}\n"
+        val r = run(
+            mapOf("main.rell" to p4Main, "suite/module.rell" to suite, "suite/attacks.rell" to attacks),
+            guard("rell.test.tx().op(main.take(10)).run();", "test_overdraft_must_fail")
+        )
+        assertEquals("guard_not_found", verdict(r), r.toString())
+    }
+
+    // ---- P5: alsoRemove carrying a vacuous guard on a real one's back -------
+    private val p5Main = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation ping(amount: integer) {
+            require(amount > 0, "ping needs a positive amount");
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= amount, "insufficient");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+    private val p5Tests = "@test module;\nimport main;\nfunction test_overdraft_must_fail() {\n    rell.test.tx().op(main.seed(10)).run();\n    rell.test.tx().op(main.take(11)).run_must_fail(\"insufficient\");\n}\n"
+
+    /** Round 11 certified ping's guard because the REAL guard was listed in alsoRemove. */
+    @Test
+    fun p5AlsoRemoveCannotCarryAVacuousGuard() {
+        val r = run(mapOf("main.rell" to p5Main, "main_test.rell" to p5Tests), guard("require(amount > 0, \"ping needs a positive amount\");", "test_overdraft_must_fail", alsoRemove = listOf(bal)))
+        assertEquals("vacuous", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("alsoRemove"), "the evidence must name what actually carried the red: $r")
+    }
+
+    @Test
+    fun p5bTheSameGuardWithoutAlsoRemoveIsVacuous() {
+        val r = run(mapOf("main.rell" to p5Main, "main_test.rell" to p5Tests), guard("require(amount > 0, \"ping needs a positive amount\");", "test_overdraft_must_fail"))
+        assertEquals("vacuous", verdict(r), r.toString())
+    }
+
+    // ---- P6: the guard text lives only inside a string literal --------------
+    @Test
+    fun p6GuardInsideAStringLiteralIsNotAGuard() {
+        val main = p4Main.replace(
+            "operation take(amount: integer) {",
+            "function messages(): list<text> = [\"require(p.balance >= amount, \\\"insufficient\\\");\"];\noperation take(amount: integer) {"
+        ).replace("require(p.balance >= amount, \"insufficient\");\n    update", "require(amount <= p.balance, \"insufficient\");\n    update")
+        val r = run(mapOf("main.rell" to main, "main_test.rell" to tests), guard("require(p.balance >= amount, \\\"insufficient\\\");", "test_overdraft_must_fail"))
+        assertEquals("guard_not_found", verdict(r), r.toString())
+    }
+
+    // ---- the guard's own message outranks any caller-supplied fragment ------
+    /**
+     * A replacement that TIGHTENS the guard so a legitimate take is refused, with
+     * attackLanded chosen to match the refusal message. The test goes red under
+     * the mutant - with the guard's own message in the error - and a free-form
+     * fragment must not turn that refusal into "the attack landed".
+     * (A first version of this case used a semantically identical replacement;
+     * the mutant still refused the overdraft, the must-fail test stayed green,
+     * and the tool correctly said vacuous - the test was wrong, not the tool.)
+     */
+    @Test
+    fun theGuardsOwnMessageInTheErrorIsARefusalWhateverFragmentIsSupplied() {
+        val r = run(
+            mapOf("main.rell" to p4Main, "main_test.rell" to tests),
+            guard(bal, "test_small_take_succeeds", replacement = "require(p.balance >= amount * 10, \"insufficient\");", attackLanded = "insufficient")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content)
+    }
+}

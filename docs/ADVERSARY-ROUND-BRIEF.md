@@ -55,6 +55,15 @@ Not "fewer than last round". Coverage moving is not a pass.
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
    `FALSE_POSITIVE`). Coverage is then measured on every build instead of
    claimed in a report.
+   **A tool-verdict finding is pinned as a test, not a corpus row.** The
+   scoreboard's rows are "what `analyze` should say about a sample"; a wrong
+   answer from `verify_guards` has no row shape there, which round 11 found
+   when it had six of them and nowhere to put them. Its probes live under
+   `realworld/adversary-round11/vg/` with their raw verdicts, and
+   `VerifyGuardsProbeTest` runs the same probes pinned to the TRUE verdict, so
+   a regression in the tool goes red the way a regression in a rule does. A
+   new verification tool ships with its own `*ProbeTest`, and the round that
+   attacks it adds to that class.
 4. **Answer.** Choose deliberately, and say which you chose:
    - a **rule**, only if it can be keyed on type and use rather than names, and
      survives you attacking it yourself;

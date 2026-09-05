@@ -7016,7 +7016,7 @@ object DappScaffold {
         //      "any width admits it". A band is a monotone CAP: the attacker picks the
         //      largest front-run that still clears it, so profit rises almost linearly
         //      with the width - 25 bps caps him near 535, 50 near 1067, 100 near 2115,
-        //      200 near 4160. A 50 bps band would have REFUSED round 9's 4000 front-run
+        //      200 near 4160. A 50 bps band would have REFUSED round 8's 4000 front-run
         //      outright, because 79 > 50. (An earlier version of this seam said 0.5%
         //      "would admit it too". That was simply wrong, and it was written while
         //      correcting a different wrong number in the same paragraph.)
@@ -7279,10 +7279,12 @@ object DappScaffold {
             // making a later deposit round to zero shares.
             require(minted > 0, "deposit too small to mint a share");
             // AND NEVER HAIRCUT. Matching the ratio is not enough on a pool that has
-            // been swapped down to dust: with 3 B in reserve a 1000 A + 1 B deposit floors
-            // by_a to 1 share while by_b is 333, so the min() in shares_for mints one
-            // share worth ~501 A and 0 B for 1000 A and a third of the B reserve (round
-            // 9's prose audit, recomputed from this file). The property that closes it
+            // been swapped down to dust: after the shipped test's 500000 swap the pool
+            // is 501000 A / 3 B, and a 1000 A + 1 B deposit floors by_a to 1 share while
+            // by_b is 333, so the min() in shares_for mints one share worth ~501 A and
+            // 0 B for 1000 A and a third of the B reserve (a smaller skewing swap gives
+            // more shares and a smaller haircut - 334334 A / 3 B yields 2 shares and
+            // ~669 A back - the direction is the same). The property that closes it
             // needs no model of the pool: what a deposit could redeem THIS INSTANT must
             // be what it put in, to a unit of rounding. Otherwise the deposit is refused.
             val back_a = minted.to_big_integer() * (pool.reserve_a + amount_a).to_big_integer()
