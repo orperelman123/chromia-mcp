@@ -188,7 +188,12 @@ object ChromiaRellPracticesHelp {
         ships runnable examples of all three; run them via run_rell_tests.
         Governance (DAO, treasury, voting): start from scaffold_dapp template=governance - quorum,
         a fixed voting window, stake-weighted votes and execute-once are structural there, not a
-        require() to remember. Oracle-priced value (vault, redemption, a bounded price FEED - NOT an "exchange", which is how
+        require() to remember. Two more since adversary round 11, and they are the ones a DAO gets
+        wrong: VOTING WEIGHT IS NOT MINTABLE (registration credits nothing - a permissionless
+        1000-point welcome grant let four registrations outvote three honest members and take a
+        7000 treasury) and THE BAR A PROPOSAL IS JUDGED AGAINST IS FIXED WHEN IT IS CREATED,
+        weights included - a bar read live at execution is a veto anybody can buy, and two points
+        of stake posted after voting closed killed an approved payout for ever. Oracle-priced value (vault, redemption, a bounded price FEED - NOT an "exchange", which is how
         adversary round 8 came to build a drainable AMM here; a vault covers a reserve and a feed,
         never a CURVE, so a swap pool is template=amm and an order book has no template at all):
         start from
@@ -234,11 +239,19 @@ object ChromiaRellPracticesHelp {
         operation that pays a coin holder par out of somebody else's position: the peg is the
         debtor's burn at par against their OWN debt, an under-water position closes by
         LIQUIDATION capped at the position's PRO-RATA share so every liquidator is paid the same
-        rate in any order, and a system worth less than its coin at a fresh price is SETTLED -
-        surplus back to each owner, the rest one pool every coin redeems the same share of. Mint
+        rate in any order AND ONLY WHILE THE SYSTEM ITSELF IS WORTH AT LEAST ITS COIN, and a
+        system worth less than its coin at a fresh price is SETTLED - surplus back to each owner,
+        the rest one pool every coin redeems the same share of. That system condition is round
+        11's fix: the per-position cap held and the drain was one level up, because seized
+        collateral leaves the COMMON settlement reserve faster than the coin it retires whenever
+        the target is better backed than the system average - at 98% backing, liquidate-then-
+        settle paid the liquidator 104 tokens against the 89 settle-first pays, and 7 of the 15
+        tokens that moved came from a holder who was party to no liquidation at all. Mint
         and withdraw are ratio-checked against the WHOLE debt at a FRESH bounded price. Its
         header admits the residual: a price that falls faster than liquidators act still leaves
-        bad debt, and the coin is then worth the settlement rate, not par.
+        bad debt, the coin is then worth the settlement rate, not par, and between the block the
+        system goes under-backed and the block somebody calls settle() no bad position is closed
+        by anyone.
         The AUCTION is in the MARKETPLACE template too - a timed ascending auction with NO mutable bid
         field (the standing bid is its own immutable escrow row, raising is delete-and-recreate, settlement
         is permissionless after the deadline), plus require_unencumbered, the one helper every

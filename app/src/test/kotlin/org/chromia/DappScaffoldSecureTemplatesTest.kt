@@ -44,6 +44,10 @@ class DappScaffoldSecureTemplatesTest {
     private fun moduleArgsOf(template: String) = when {
         // lending reads TWO configured keys: the oracle and the protocol fee key.
         template == "lending" -> DappScaffold.lendingTestModuleArgs()
+        // governance reads the FOUNDER key that countersigns a genesis claim. Without
+        // it every governance case dies with "Unable to create GTX module" - the
+        // vacuous-mutant failure mode this map exists to prevent.
+        template == "governance" -> DappScaffold.governanceTestModuleArgs()
         template in oracleTemplates -> DappScaffold.oracleTestModuleArgs()
         else -> DappScaffold.ft4TestModuleArgs()
     }
@@ -275,17 +279,56 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("val VOTING_PERIOD_MS ="), "voting window must be a named constant")
         assertFalse(Regex("operation\\s+create_proposal\\s*\\([^)]*period").containsMatchIn(main), "create_proposal must not take a period parameter")
         assertTrue(main.contains("deadline = now + VOTING_PERIOD_MS"), "the deadline must come from the constant")
-        // Quorum is snapshotted at creation and, at execution, the bar is the LARGER
-        // of that snapshot and the quorum of the stake as it is THEN. Round 10: the
-        // snapshot alone is a floor that stays put while the treasury grows.
+        // The quorum is snapshotted at creation, and since round 11 that snapshot is
+        // the WHOLE bar: round 10's live term at execution turned out to be a veto
+        // anybody could buy for two points, and round 10's own drain is closed at the
+        // money instead (a proposal reserves what it may spend when it is created).
         assertTrue(main.contains("quorum_weight = quorum_for(dao.total_stake)"), "quorum must be snapshotted from total stake at creation")
-        assertTrue(main.contains(GOVERNANCE_LIVE_QUORUM_GUARD), "execute_proposal must apply max(snapshot, live quorum)")
-        assertFalse(main.contains("require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\")"), "snapshot-only quorum is the round-10 drain")
+        // ROUND 11, THE BAR. It is the quorum of the stake that existed AT CREATION and
+        // nothing else, and every voter's weight is frozen the same way. Round 10 read
+        // the quorum live at execution; votes freeze at the deadline and that bar did
+        // not, so two points of stake staked afterwards vetoed an approved payout for
+        // ever - 0.02% of the stake, repeatable, at no cost.
+        val code = withoutComments(main)
+        assertTrue(main.contains("stake_at_creation = dao.total_stake,"), "the stake at creation must be recorded on the proposal")
+        assertTrue(main.contains(GOVERNANCE_CREATION_QUORUM_GUARD), "execute_proposal must apply the bar fixed at creation")
+        assertFalse(code.contains("max(p.quorum_weight, quorum_for(dao.total_stake))"), "round 10's live term is round 11's two-point veto")
+        assertFalse(opBody(code, "execute_proposal").contains("dao.total_stake"), "the bar must read no stake that arrived after the proposal")
+        assertTrue(
+            main.contains("create proposal_stake(proposal = p, owner = m.owner, weight = m.stake);"),
+            "every voter's weight must be frozen at creation - stake bought into a running vote is the same defect as a bar bought after it"
+        )
+        assertTrue(
+            main.contains("val snapshot = proposal_stake @? { .proposal == p, .owner == voter.owner };"),
+            "a vote must weigh its snapshot row, never the member's live stake"
+        )
+        // ROUND 11, THE MINT. Registration credits nothing: four registrations minting
+        // 1000 points each outvoted three honest members and took a 7000 treasury, and
+        // no voting rule survives free identities plus a free mint. The only mint left
+        // is the genesis claim - founder-countersigned, once per member, capped at
+        // GENESIS_POINTS, and shut for good at the first stake.
+        assertFalse(
+            main.contains("create member(owner = account.id, balance = WELCOME_POINTS)"),
+            "round 11: a permissionless welcome grant IS the security parameter"
+        )
+        assertTrue(main.contains("create member(owner = account.id);"), "registration must create a member with nothing")
+        assertTrue(main.contains("struct module_args {\n    founder_pubkey: pubkey;\n}"), "the founder key must be configuration, not a parameter")
+        assertFalse(Regex("[0-9A-Fa-f]{64,}").containsMatchIn(main), "no key-like hex in the governance source")
+        assertTrue(main.contains("val GENESIS_POINTS ="), "the whole supply of voting weight must be a named constant")
+        val claim = opBody(code, "claim_allocation")
+        assertTrue(claim.contains("require(op_context.is_signer(chain_context.args.founder_pubkey), \"the founder must countersign a genesis claim\");"))
+        assertTrue(claim.contains("require(dao.total_stake == 0, \"genesis allocation is closed\");"), "the mint must shut once there is stake to protect")
+        assertTrue(claim.contains("require(not m.allocated, \"already allocated\");"), "one claim per member, ever")
+        assertTrue(claim.contains("require(dao.allocated + WELCOME_POINTS <= GENESIS_POINTS, \"genesis supply exhausted\");"))
+        // ROUND 10, closed without reading live stake: a proposal reserves what it may
+        // spend when it is created, so 100 approvals of 1000 each against a treasury of
+        // 1000 cannot exist, and no approval reaches money that arrived after it.
+        assertTrue(main.contains(GOVERNANCE_COMMITTED_TREASURY_GUARD), "a proposal must reserve its amount from the uncommitted treasury")
+        assertFalse(code.contains("require(amount <= dao.treasury_balance, \"amount exceeds treasury\")"), "the raw treasury check is round 10's parked approval")
         // An approval cannot be parked: it expires EXECUTION_WINDOW_MS after the deadline.
         assertTrue(main.contains("val EXECUTION_WINDOW_MS ="), "execution window must be a named constant")
         assertTrue(main.contains("require(op_context.last_block_time < p.deadline + EXECUTION_WINDOW_MS, \"proposal expired\")"))
         // Votes weigh stake, and zero stake cannot propose or vote.
-        assertTrue(main.contains("val weight = voter.stake;"), "a vote must weigh the voter's stake")
         assertTrue(main.contains("require(weight > 0, \"no voting weight"), "zero stake must not be able to vote")
         assertTrue(main.contains("require(proposer.stake > 0, \"only members with stake may propose\")"))
         // Executed exactly once, flipped in the paying operation.
@@ -294,7 +337,11 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(execute.contains("update p ( .executed = true );"))
         assertTrue(execute.contains("dao.treasury_balance -= p.amount;"))
         // Every entity/constant the guards need exists as declared state.
-        listOf("quorum_weight: integer", "mutable yes_weight", "mutable no_weight", "mutable executed", "key proposal, voter").forEach {
+        listOf(
+            "quorum_weight: integer", "stake_at_creation: integer", "mutable yes_weight", "mutable no_weight",
+            "mutable executed", "key proposal, voter", "key proposal, owner", "mutable allocated: boolean",
+            "mutable allocated: integer"
+        ).forEach {
             assertTrue(main.contains(it), "governance entities must declare $it")
         }
     }
@@ -1220,6 +1267,22 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(liquidate.contains("require(not is_healthy(t, price), \"position is healthy\");"))
         assertTrue(liquidate.contains("val pro_rata = t.collateral * stable_in / t.debt;"))
         assertTrue(liquidate.contains("val seize = min(with_bonus, pro_rata);"), "a liquidator must never take more than the position's pro-rata share")
+        // ...and the SYSTEM's own backing gates the operation at all, before AND after
+        // the seizure. Round 11: the per-position cap held while the system did not, so
+        // the bonus came out of the settlement pool every coin holder shares - 15 tokens
+        // moved on transaction order, 7 of them from a party to no liquidation.
+        assertTrue(
+            liquidate.contains("collateral_value(system.total_collateral, price) >= system.total_debt"),
+            "liquidation must be refused while the system as a whole is under-backed"
+        )
+        assertTrue(
+            liquidate.contains("collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in"),
+            "liquidation must also be refused when it would PUT the system under water - the bonus is 105% of what it retires"
+        )
+        assertTrue(
+            liquidate.contains("\"system is under-backed - settle instead of liquidating\""),
+            "the refusal must name settle() as the exit - it is the only one left"
+        )
         assertTrue(liquidate.contains("require(target != account.id, \"cannot liquidate your own position\");"))
         assertTrue(liquidate.contains("update t ( .debt -= stable_in, .collateral -= seize );"))
         // SETTLEMENT: only an insolvent system, surplus back to owners, one pool, one
@@ -1341,6 +1404,22 @@ class DappScaffoldSecureTemplatesTest {
                 }
             } else {
                 assertFalse(yml.contains("oracle_pubkey"), "$template yml carries no oracle key")
+                if (template == "governance") {
+                    // The DAO's founder key is configured exactly the way the oracle is:
+                    // unset in production so the chain cannot build with a placeholder,
+                    // FT4's published test key under test: so the shipped tests can
+                    // countersign a genesis claim.
+                    val uncommentedFounder = production.lineSequence().filter { !it.trimStart().startsWith("#") }
+                        .any { it.contains("founder_pubkey") }
+                    assertFalse(uncommentedFounder, "governance production yml must not set a placeholder founder key")
+                    assertTrue(production.contains("#   founder_pubkey: x\"<your founder public key>\""), "governance yml must tell the deployer where the founder key goes")
+                    assertTrue(testBlock.contains("    main:\n      founder_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\""), "governance test.moduleArgs must wire the founder test key")
+                    assertEquals(
+                        DappScaffold.TEST_ADMIN_PUBKEY,
+                        DappScaffold.governanceTestModuleArgs().getValue("main").getValue("founder_pubkey").toString().trim('"'),
+                        "governanceTestModuleArgs must mirror the yml"
+                    )
+                }
             }
             val ymlCheck = org.chromia.tools.ChromiaYmlValidator.validate(yml)
             assertTrue(ymlCheck.errors.isEmpty(), "$template yml must validate: ${ymlCheck.errors}")
@@ -1386,7 +1465,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_stake_weighted_proposal_pays_once_and_conserves_points",
             "test_majority_of_stake_can_reject",
             "test_round10_parked_cheap_quorum_drain_must_fail",
-            "test_approved_proposal_expires_unexecuted"
+            "test_approved_proposal_expires_unexecuted",
+            "test_r11_free_stake_sybil_takeover_must_fail",
+            "test_r11_two_point_stake_cannot_veto_an_approved_proposal"
         )
     )
 
@@ -1481,7 +1562,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_round9_settlement_shares_the_shortfall_in_any_order",
             "test_settlement_returns_surplus_to_its_owner",
             "test_liquidation_is_bounded_and_never_worsens_a_position",
-            "test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price"
+            "test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price",
+            "test_r11_liquidation_out_of_the_settlement_pool_must_fail",
+            "test_r11_settling_first_pays_the_same_three_numbers"
         )
     )
 
@@ -1489,17 +1572,27 @@ class DappScaffoldSecureTemplatesTest {
     private val attackLanded = "did not fail"
 
     /**
-     * The governance quorum guard as shipped since round 10, verbatim (the
-     * template is trimIndent-ed, so the operation body sits at four spaces).
-     * The bar is max(snapshot, live): removing it or reducing it to the
-     * snapshot alone are the two mutants below.
+     * The governance bar as shipped since round 11: the quorum of the stake that
+     * existed WHEN THE PROPOSAL WAS CREATED, and nothing else. Removing it, and
+     * putting round 10's live term back, are two of the four mutants below.
      */
-    private val GOVERNANCE_LIVE_QUORUM_GUARD = listOf(
+    private val GOVERNANCE_CREATION_QUORUM_GUARD =
+        "require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\");"
+
+    /**
+     * Round 10's parked cheap quorum, closed at the money instead of at the bar:
+     * a proposal reserves what it may spend when it is created. (The template is
+     * trimIndent-ed, so the operation body sits at four spaces.)
+     */
+    private val GOVERNANCE_COMMITTED_TREASURY_GUARD = listOf(
         "    require(",
-        "        p.yes_weight + p.no_weight >= max(p.quorum_weight, quorum_for(dao.total_stake)),",
-        "        \"quorum not reached\"",
+        "        amount <= dao.treasury_balance - committed_treasury(now),",
+        "        \"amount exceeds the uncommitted treasury\"",
         "    );"
     ).joinToString("\n")
+
+    /** Registration as round 11 found it: a permissionless mint of voting weight. */
+    private val GOVERNANCE_FREE_GRANT_MUTANT = "create member(owner = account.id, balance = WELCOME_POINTS);"
 
     /**
      * The proof the exploit is unwritable: mutate ONE guard in the template and
@@ -1593,24 +1686,57 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun governanceExploitTestGoesRedWithoutTheQuorumGuard() = assertGuardRemovalRedensExploitTest(
         "governance",
-        GOVERNANCE_LIVE_QUORUM_GUARD,
+        GOVERNANCE_CREATION_QUORUM_GUARD,
         "test_round1_single_account_drain_must_fail",
         "quorum not reached"
     )
 
     /**
-     * Round 10: put the snapshot-only quorum BACK (the exact line the template
-     * shipped with through round 9) and the parked-cheap-quorum replay must go
-     * red because the drain lands. This is the mutant that proves the live term
-     * is what refuses it, not the snapshot the old prose credited.
+     * Round 11's veto: put round 10's LIVE term back and the approved payout the
+     * replay executes is refused for ever by two points of stake posted after
+     * voting closed. The replay goes red on "quorum not reached" - which here IS
+     * the attack landing, because the attack is a refusal that should not happen.
+     * Nothing else in the replay moves: the proposal's own quorum_weight is still
+     * 1000 under the mutant, so only the bar read at execution can be what changed.
      */
     @Test
-    fun governanceRound10ReplayGoesRedWithSnapshotOnlyQuorum() = assertGuardMutationRedensExploitTest(
+    fun governanceVetoReplayGoesRedWithRound10sLiveQuorumTerm() = assertGuardMutationRedensExploitTest(
         "governance",
-        GOVERNANCE_LIVE_QUORUM_GUARD,
-        "require(p.yes_weight + p.no_weight >= p.quorum_weight, \"quorum not reached\");",
+        GOVERNANCE_CREATION_QUORUM_GUARD,
+        "require(p.yes_weight + p.no_weight >= max(p.quorum_weight, quorum_for(dao.total_stake)), \"quorum not reached\");",
+        "test_r11_two_point_stake_cannot_veto_an_approved_proposal",
+        "proposal expired",
+        "quorum not reached"
+    )
+
+    /**
+     * Round 10, at the money instead of the bar: drop the reservation and the
+     * second cheap approval can be created against a treasury the first has
+     * already claimed - 100 of them against a treasury of 1000, which is the
+     * drain. The replay's must-fail stops failing.
+     */
+    @Test
+    fun governanceRound10ReplayGoesRedWithoutTheCommittedTreasuryGuard() = assertGuardRemovalRedensExploitTest(
+        "governance",
+        GOVERNANCE_COMMITTED_TREASURY_GUARD,
         "test_round10_parked_cheap_quorum_drain_must_fail",
-        "quorum not reached",
+        "only members with stake may propose"
+    )
+
+    /**
+     * Round 11's sybil takeover: put the free welcome grant back - the exact line
+     * the template shipped through round 10 - and registration mints voting weight
+     * again, so the sybil's fund_treasury stops being refused. Nothing else is
+     * touched: the founder-countersigned claim, its cap and its closing condition
+     * all still stand, so the mint is the only thing that can have changed.
+     */
+    @Test
+    fun governanceSybilReplayGoesRedWhenRegistrationMintsPoints() = assertGuardMutationRedensExploitTest(
+        "governance",
+        "create member(owner = account.id);",
+        GOVERNANCE_FREE_GRANT_MUTANT,
+        "test_r11_free_stake_sybil_takeover_must_fail",
+        "only members with stake may propose",
         attackLanded
     )
 
@@ -1652,16 +1778,20 @@ class DappScaffoldSecureTemplatesTest {
 
     /**
      * Drop the pro-rata cap and a liquidator is paid the bonus rate out of a
-     * position that cannot afford it: 105 tokens of the honest position's 100 for
-     * 5120 of coin, where pro rata pays 76 - the order-dependent overpayment round
-     * 9 was built on, and the replay's 76 assertion trips.
+     * position that cannot afford it - the order-dependent overpayment round 9 was
+     * built on. The replay this reddens moved with round 11: the round-9 setup no
+     * longer liquidates at all (its system is 77% backed, so the operation is
+     * refused), and the cap is now exercised where the SYSTEM is sound and the
+     * position is not - bob takes 15 tokens of alice's collateral for 1000 of coin,
+     * where the bonus alone would pay 20. Without the cap he takes 20 and the 15
+     * assertion trips.
      */
     @Test
     fun stablecoinRound9ReplayGoesRedWithoutTheProRataCap() = assertGuardMutationRedensExploitTest(
         "stablecoin",
         "val seize = min(with_bonus, pro_rata);",
         "val seize = with_bonus;",
-        "test_round9_redemption_at_par_out_of_a_shortfall_must_fail",
+        "test_settlement_returns_surplus_to_its_owner",
         "vault cannot cover the liquidation",
         "expected"
     )
@@ -1697,6 +1827,35 @@ class DappScaffoldSecureTemplatesTest {
         "test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price",
         "price feed not initialised",
         attackLanded
+    )
+
+    /**
+     * The round-11 guard as shipped, verbatim (the template is trimIndent-ed, so
+     * the operation body sits at four spaces). Removing it is the mutant below.
+     */
+    private val STABLECOIN_SYSTEM_BACKING_GUARD = listOf(
+        "    require(",
+        "        collateral_value(system.total_collateral, price) >= system.total_debt",
+        "            and collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in,",
+        "        \"system is under-backed - settle instead of liquidating\"",
+        "    );"
+    ).joinToString("\n")
+
+    /**
+     * Round 11: take the system-backing guard out and the liquidation the replay
+     * requires to be refused lands again - trudy repays 3000 of bob's debt and
+     * takes 70 tokens out of a 256-token settlement pool while retiring 3000 of a
+     * 13756 supply, which is worth 15 tokens to her for choosing the order of two
+     * operations she is entitled to perform. The replay's first must-fail stops
+     * failing, which is exactly the attack landing; the pro-rata cap and the
+     * health check are both still in place, so neither can be what went red.
+     */
+    @Test
+    fun stablecoinRound11ReplayGoesRedWithoutTheSystemBackingGuard() = assertGuardRemovalRedensExploitTest(
+        "stablecoin",
+        STABLECOIN_SYSTEM_BACKING_GUARD,
+        "test_r11_liquidation_out_of_the_settlement_pool_must_fail",
+        "position is healthy"
     )
 
     @Test
