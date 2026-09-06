@@ -10,6 +10,13 @@
   own docs speaks; SSE keeps working unchanged, so no client has to move.
   `scripts/e2e-sweep.mjs --transport http|sse` runs the whole sweep over either, and
   CI runs both against one server.
+- **The Streamable HTTP session table is bounded**: unlike an SSE session, a
+  Streamable HTTP session is not pinned to an open socket - it survives between
+  requests by design and holds a whole `Server` with the full tool registry. On a
+  no-auth connector URL that makes `initialize` an unauthenticated allocation, so
+  minting a session first reclaims anything idle past
+  `CHROMIA_MCP_HTTP_SESSION_IDLE_MS` (30 min) and a mint that would exceed
+  `CHROMIA_MCP_HTTP_MAX_SESSIONS` (256) is refused with 503.
 - **`public` tool profile**: `CHROMIA_MCP_PROFILE=public` / `--profile public`
   disables exactly the tools that act on the machine or use a key (`local_chain_up`,
   `provision_testnet_container`, `claim_testnet_tchr`, `deploy_testnet_chain`) and

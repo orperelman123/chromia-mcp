@@ -118,6 +118,21 @@ class App(
         /** Comma-separated extra `Host` values accepted by the MCP endpoints. */
         const val ALLOWED_HOSTS_ENV = "CHROMIA_MCP_ALLOWED_HOSTS"
 
+        /** Idle time after which a Streamable HTTP session is reclaimed. */
+        const val HTTP_SESSION_IDLE_MS_ENV = "CHROMIA_MCP_HTTP_SESSION_IDLE_MS"
+
+        /** Ceiling on concurrent Streamable HTTP sessions. */
+        const val HTTP_MAX_SESSIONS_ENV = "CHROMIA_MCP_HTTP_MAX_SESSIONS"
+
+        const val DEFAULT_HTTP_SESSION_IDLE_MS: Long = 30 * 60 * 1000
+        const val DEFAULT_HTTP_MAX_SESSIONS: Int = 256
+
+        fun httpSessionIdleMillis(env: Map<String, String> = System.getenv()): Long =
+            env[HTTP_SESSION_IDLE_MS_ENV]?.toLongOrNull()?.takeIf { it > 0 } ?: DEFAULT_HTTP_SESSION_IDLE_MS
+
+        fun httpMaxSessions(env: Map<String, String> = System.getenv()): Int =
+            env[HTTP_MAX_SESSIONS_ENV]?.toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_HTTP_MAX_SESSIONS
+
         /**
          * `Host` values always accepted: loopback, plus a Cloudflare quick tunnel.
          *
@@ -539,9 +554,11 @@ class App(
         compact: Boolean,
         disabled: Set<String>,
         path: String = STREAMABLE_HTTP_PATH,
-        transports: java.util.concurrent.ConcurrentHashMap<String, StreamableHttpServerTransport> =
+        sessions: java.util.concurrent.ConcurrentHashMap<String, StreamableSession> =
             java.util.concurrent.ConcurrentHashMap(),
-        heartbeatMillis: Long = 15_000
+        heartbeatMillis: Long = 15_000,
+        idleMillis: Long = httpSessionIdleMillis(),
+        maxSessions: Int = httpMaxSessions()
     ) {
         installSseOnce()
         installMcpJson()
@@ -555,7 +572,7 @@ class App(
                 intercept(ApplicationCallPipeline.Plugins) {
                     if (call.request.httpMethod == HttpMethod.Get) {
                         val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
-                        val known = sessionId?.let { transports[it] } != null
+                        val known = sessionId?.let { sessions[it] } != null
                         if (!known) {
                             call.respondText(
                                 text = """{"error":"no such MCP session","header":"$MCP_SESSION_ID_HEADER"}""",
@@ -569,33 +586,78 @@ class App(
                     }
                 }
                 post {
-                    val transport = streamableTransport(transports, compact, disabled) ?: return@post
-                    transport.handleRequest(null, call)
+                    val session = streamableSession(sessions, compact, disabled, idleMillis, maxSessions)
+                        ?: return@post
+                    session.touch()
+                    session.transport.handleRequest(null, call)
                 }
                 sse {
                     // The interceptor above guarantees a live session here.
                     val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
                         ?: error("the interceptor above rejects a GET without a session id")
-                    val transport = transports[sessionId]
+                    val session = sessions[sessionId]
                         ?: error("the interceptor above rejects a GET whose session is unknown")
                     heartbeat {
                         period = heartbeatMillis.milliseconds
                         event = io.ktor.sse.ServerSentEvent(comments = "keepalive")
                     }
-                    transport.handleRequest(this, call)
+                    // An open stream is in use for as long as it stays open.
+                    session.touch()
+                    session.transport.handleRequest(this, call)
                 }
                 delete {
                     val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
-                    val transport = sessionId?.let { transports[it] }
-                    if (transport == null) {
+                    val session = sessionId?.let { sessions[it] }
+                    if (session == null) {
                         call.respond(HttpStatusCode.NotFound, "Session not found")
                         return@delete
                     }
-                    transport.handleRequest(null, call)
-                    transports.remove(sessionId)
+                    session.transport.handleRequest(null, call)
+                    sessions.remove(sessionId)
                 }
             }
         }
+    }
+
+    /**
+     * One live Streamable HTTP session: the SDK transport plus when it was last
+     * spoken to. Unlike an SSE session, this one is not pinned to an open socket -
+     * it survives between requests by design - so something has to say when it is
+     * over. [reapIdleStreamableSessions] does, using [lastSeenMs].
+     */
+    internal class StreamableSession(val transport: StreamableHttpServerTransport) {
+        @Volatile
+        var lastSeenMs: Long = System.currentTimeMillis()
+            private set
+
+        fun touch() {
+            lastSeenMs = System.currentTimeMillis()
+        }
+    }
+
+    /**
+     * Closes and drops every session untouched for [idleMillis], and returns how
+     * many went. Called before minting a new session rather than from a timer: it
+     * runs exactly when growth happens, needs no coroutine to own and stop, and
+     * the table is bounded either way because a mint that would exceed
+     * [httpMaxSessions] is refused.
+     */
+    internal suspend fun reapIdleStreamableSessions(
+        sessions: java.util.concurrent.ConcurrentHashMap<String, StreamableSession>,
+        idleMillis: Long,
+        nowMs: Long = System.currentTimeMillis()
+    ): Int {
+        var reaped = 0
+        sessions.entries.toList().forEach { (id, session) ->
+            if (nowMs - session.lastSeenMs >= idleMillis && sessions.remove(id, session)) {
+                reaped++
+                // Ends an open GET stream too; a failure here must not stop the sweep.
+                runCatching { session.transport.close() }
+                    .onFailure { logger.debug("closing idle MCP session $id: ${it.message}") }
+            }
+        }
+        if (reaped > 0) logger.info("reclaimed {} idle Streamable HTTP session(s)", reaped)
+        return reaped
     }
 
     /**
@@ -605,27 +667,44 @@ class App(
      * call and returns null when the header names a session this process does not
      * have - the client must start a new one.
      */
-    private suspend fun io.ktor.server.routing.RoutingContext.streamableTransport(
-        transports: java.util.concurrent.ConcurrentHashMap<String, StreamableHttpServerTransport>,
+    private suspend fun io.ktor.server.routing.RoutingContext.streamableSession(
+        sessions: java.util.concurrent.ConcurrentHashMap<String, StreamableSession>,
         compact: Boolean,
-        disabled: Set<String>
-    ): StreamableHttpServerTransport? {
+        disabled: Set<String>,
+        idleMillis: Long,
+        maxSessions: Int
+    ): StreamableSession? {
         val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
         if (sessionId != null) {
-            return transports[sessionId] ?: run {
+            return sessions[sessionId] ?: run {
                 call.respond(HttpStatusCode.NotFound, "Session not found")
                 null
             }
         }
+        // Minting is the only thing that grows the table, so it is where the table
+        // is pruned and capped. Each session holds a whole Server with the full tool
+        // registry; unbounded, an unauthenticated caller could mint them until the
+        // JVM died.
+        reapIdleStreamableSessions(sessions, idleMillis)
+        if (sessions.size >= maxSessions) {
+            logger.warn("refusing a new Streamable HTTP session: {} already live (cap {})", sessions.size, maxSessions)
+            call.respondText(
+                text = """{"error":"too many MCP sessions","limit":$maxSessions}""",
+                contentType = ContentType.Application.Json,
+                status = HttpStatusCode.ServiceUnavailable
+            )
+            return null
+        }
         val transport = StreamableHttpServerTransport(
             StreamableHttpServerTransport.Configuration(enableJsonResponse = true)
         )
-        transport.setOnSessionInitialized { id -> transports[id] = transport }
-        transport.setOnSessionClosed { id -> transports.remove(id) }
+        val session = StreamableSession(transport)
+        transport.setOnSessionInitialized { id -> sessions[id] = session }
+        transport.setOnSessionClosed { id -> sessions.remove(id) }
         val server = createMcpServer(compact, disabled)
-        server.onClose { transport.sessionId?.let { transports.remove(it) } }
+        server.onClose { transport.sessionId?.let { sessions.remove(it) } }
         createGatedSession(server, transport, disabled)
-        return transport
+        return session
     }
 
     /**

@@ -184,6 +184,13 @@ tunnel or load balancer does not cut a quiet session.
   CORS (e.g. `https://app.example.com,http://localhost:5173`). Unset or `*` allows any origin;
   credentials are never allowed cross-origin. The `Mcp-Session-Id` header is allowed on
   requests and exposed on responses, so a browser client can hold a Streamable HTTP session.
+- `CHROMIA_MCP_HTTP_MAX_SESSIONS=<n>` (default 256) and
+  `CHROMIA_MCP_HTTP_SESSION_IDLE_MS=<ms>` (default 1800000) — bounds on the Streamable
+  HTTP session table. A session outlives the request that made it and holds a whole
+  tool registry, so on a no-auth URL `initialize` is an unauthenticated allocation:
+  minting one first reclaims anything idle past the timeout, and a mint that would
+  exceed the cap is refused with 503 instead of served. `DELETE /mcp` is still the
+  explicit way to end a session.
 - `CHROMIA_MCP_TEST_TIMEOUT_SECONDS=<1..90>` — tighten-only override of the per-call
   `run_rell_tests` execution timeout (default 90s). Useful on small instances where a runaway
   test pins a core; values outside 1..90 or non-numeric fall back to the default.
