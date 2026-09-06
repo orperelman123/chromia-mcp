@@ -544,9 +544,26 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(retire.contains("owed[owner] = exact / backing;"), "every share must be FLOORED first")
         assertTrue(retire.contains("remainder[owner] = exact % backing;"), "and its fractional remainder kept, because that is what decides the odd point")
         assertTrue(retire.contains("var leftover = amount - floored;"), "the points the floors leave over are what is distributed")
+        // ROUND 15 moved this pin: plain largest remainder empties the small staker at
+        // its own boundary (stakes of 1000 and 1 against a backing of 1001, a payout of
+        // 501: the one-point staker holds the LARGEST remainder and the odd point takes
+        // 100% of them), so the point goes to the largest remainder AMONG THE STAKERS IT
+        // DOES NOT EMPTY. The survival term is the guard and is pinned verbatim.
         assertTrue(
-            retire.contains("if (remainder[owner] > best) {"),
-            "the leftover points go to the LARGEST remainders, ties to the first owner in the canonical order"
+            retire.contains("if (r > best and owed[owner] + 1 < m.stake) {"),
+            "the leftover point goes to the largest remainder among the stakers it does not EMPTY - round 15"
+        )
+        assertTrue(
+            retire.contains("if (r > fallback_best) {"),
+            "and the plain largest remainder is kept as the FALLBACK, for the payout that empties everybody"
+        )
+        assertTrue(
+            retire.contains("val chosen = require(pick ?: fallback, \"stake retirement did not balance\");"),
+            "a survivor is preferred and the fallback is taken only when there is none - ties to the first owner in the canonical order"
+        )
+        assertTrue(
+            retire.contains("remainder[chosen] = 0;"),
+            "nobody takes a second leftover point, and a staker with no remainder is never charged one"
         )
         assertEquals(
             1,
@@ -1929,6 +1946,18 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(code.contains("val ATTESTATION_WINDOW_MS ="), "the attestation round must have a named window")
         assertTrue(opBody(code, "reopen_burn_attestation").contains("update burn ( .round += 1, .round_opened_at = op_context.last_block_time );"))
         assertTrue(opBody(code, "reopen_burn_attestation").contains("require(burn.paid_amount == 0"), "a paid burn is never reopened")
+        // ...and the account that reopens is BOUND TO THE BURN IT MOVES. Enrolment says
+        // who is calling; it does not say the caller may walk THIS burn's round. The
+        // security pass reads exactly this shape - the mutated rows selected by a
+        // caller-supplied chain_rid/tx_rid, related in one statement to the
+        // authenticated account - and without it reopen_burn_attestation is
+        // authorization-not-bound-to-caller at HIGH on the shipped template.
+        assertTrue(
+            opBody(code, "reopen_burn_attestation").contains(
+                "attestation @? { .burn == burn, .witness.account_id == account.id } != null,"
+            ),
+            "only a relayer with a voice in this burn may reopen its round"
+        )
         // NO SINGLE KEY OWNS THE RELAYER SET: the operator enrols the GENESIS set and
         // closes it, and every later change needs the threshold of the EXISTING
         // relayers. The operator's remaining powers can only STOP the bridge.
@@ -2062,8 +2091,13 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(code.contains("delete swap"), "an escrow row is never deleted: it is the record of what happened")
         // NO OPERATION WRITES A TIMESTAMP: opened_at and deadline are written by
         // open_swap and by nothing else, and neither field is mutable.
-        assertEquals(1, Regex("deadline = ").findAll(code).count(), "the deadline is written in exactly one place")
-        assertEquals(1, Regex("opened_at = ").findAll(code).count(), "the clock is written in exactly one place")
+        // ...counting WRITES. `deadline = s.deadline` in get_swap's return tuple is a
+        // READ under the same spelling, and counting the whole module read the template
+        // as writing the clock twice (round 15). Operations come before the queries, and
+        // the mutable-field pin above is what rules out a write hiding in one.
+        val writes = code.substringBefore("query ")
+        assertEquals(1, Regex("deadline = ").findAll(writes).count(), "the deadline is written in exactly one place")
+        assertEquals(1, Regex("opened_at = ").findAll(writes).count(), "the clock is written in exactly one place")
         assertTrue(opBody(code, "open_swap").contains("deadline = op_context.last_block_time + SWAP_WINDOW_MS"))
         assertFalse(Regex("mutable \\w+: timestamp").containsMatchIn(code), "no timestamp on this row is mutable")
         // THE OFFER IS REVOCABLE IN ANY BLOCK - round 15's second drain. cancel_swap
@@ -2475,8 +2509,8 @@ class DappScaffoldSecureTemplatesTest {
     fun escrowShippedTestsRunGreen() = assertShippedGreen(
         "escrow",
         setOf(
-            "test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
-            "test_r15_otc2_the_window_is_not_a_free_option_must_fail",
+            "test_round15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
+            "test_round15_otc2_the_window_is_not_a_free_option_must_fail",
             "test_a_swap_settles_both_legs_or_neither_and_conserves",
             "test_only_the_named_counterparty_settles_and_only_before_the_deadline_must_fail",
             "test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail"
@@ -3398,7 +3432,10 @@ class DappScaffoldSecureTemplatesTest {
             "        );"
         ).joinToString("\n"),
         "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
-        "insufficient units"
+        // Wrong reason: an escrow refusal. Twenty sells spend the whole unit grant, so
+        // the twenty-first order is a bid - "insufficient points" would mean the replay
+        // is mis-sized, "insufficient units" that the twenty rows themselves overran.
+        "insufficient"
     )
 
     @Test
@@ -4503,7 +4540,7 @@ class DappScaffoldSecureTemplatesTest {
             "        );\n" +
             "        book.next_id += 1;\n" +
             "    }",
-        "test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
+        "test_round15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
         "a swap settles in full or not at all",
         attackLanded
     )
@@ -4525,7 +4562,7 @@ class DappScaffoldSecureTemplatesTest {
             "    require(s.status == STATUS_OPEN, \"this swap is no longer open\");\n" +
             "    require(op_context.last_block_time >= s.deadline, \"the swap has not expired yet\");\n" +
             "    val me = trader_of(account.id);",
-        "test_r15_otc2_the_window_is_not_a_free_option_must_fail",
+        "test_round15_otc2_the_window_is_not_a_free_option_must_fail",
         // Wrong reason: the taker's late settle still refused, which would mean the
         // maker got out and the option never existed.
         "this swap is no longer open",

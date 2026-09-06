@@ -855,6 +855,18 @@ object DappScaffold {
                 },
                 "no such burn"
             );
+            // AUTHORIZE AGAINST THE ROW THIS MOVES, not against the relayer set alone.
+            // Being enrolled says WHO is calling; it does not say the caller may walk
+            // THIS burn. The caller must already hold a voice in it - an attestation of
+            // its own - so the account that reopens a round is bound to the burn whose
+            // round it reopens, and an enrolled key that never witnessed the burn cannot
+            // walk it round after round. Nothing is stuck by this: a round only stalls
+            // once relayers have DISAGREED in it, and those relayers are exactly the ones
+            // this admits; a round nobody has voted in is still open to everybody.
+            require(
+                attestation @? { .burn == burn, .witness.account_id == account.id } != null,
+                "only a relayer that attested this burn may reopen its round"
+            );
             require(burn.paid_amount == 0, "this burn has already been paid");
             require(
                 op_context.last_block_time - burn.round_opened_at >= ATTESTATION_WINDOW_MS,
@@ -7563,9 +7575,17 @@ object DappScaffold {
                 signed(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS));
                 i += 1;
             }
-            // THE BOUND. Round 13's version would have paid for 10000 rows, and the
-            // quote-floor-only version for a hundred at this price.
-            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS), "too many resting orders");
+            // THE BOUND, measured on the side her grant has NOT spent. Twenty sells at
+            // MIN_ORDER_UNITS are her whole unit grant - round 15 sized the two constants
+            // together, WELCOME_UNITS / MIN_ORDER_UNITS is exactly MAX_RESTING_ORDERS - so
+            // a twenty-first SELL would be refused for want of units whether or not the
+            // cap is there, and would measure nothing. She still holds every point, so the
+            // twenty-first order is a BID worth exactly MIN_NOTIONAL: it clears both
+            // floors, its escrow is 1000 of her 10000 points, and the CAP is the only
+            // thing left that can refuse it. Round 13's version would have paid for 10000
+            // rows, and the quote-floor-only version for a hundred at this price.
+            signed_must_fail(trudy.keypair, main.place_order(true, 10, 100), "too many resting orders");
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS);
             assert_equals(
                 main.get_units(trudy.account.id),
                 main.WELCOME_UNITS - main.MAX_RESTING_ORDERS * main.MIN_ORDER_UNITS
@@ -7883,8 +7903,15 @@ object DappScaffold {
             signed(bob.keypair, main.register_trader());
             signed(trudy.keypair, main.register_trader());
 
-            // ROUND 14'S ROW: one unit at the market price of 20.
-            signed_must_fail(trudy.keypair, main.place_order(false, 20, 1), "order notional too small");
+            // ROUND 14'S ROW, at the smallest size that still MEASURES this floor.
+            // Round 14's literal row was ONE unit at the market price of 20; round 15
+            // added a base-side floor in front of this one, so a one-unit row is now
+            // refused by MIN_ORDER_UNITS before the notional is ever computed and cannot
+            // say anything about MIN_NOTIONAL. MIN_ORDER_UNITS units at a market of 20
+            // clears the base floor exactly and is worth 100 points of notional against a
+            // floor of 1000 - so this row, and every row below, is refused by the
+            // NOTIONAL floor and by nothing else.
+            signed_must_fail(trudy.keypair, main.place_order(false, 20, main.MIN_ORDER_UNITS), "order notional too small");
             // ...and the bound is on the NOTIONAL, so it cannot be sliced.
             signed_must_fail(trudy.keypair, main.place_order(false, 20, 49), "order notional too small");
 
@@ -8211,7 +8238,7 @@ object DappScaffold {
         // operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's moduleArgs
         // PLUS its test.moduleArgs block) or `chr test`.
         //
-        // The two test_r15_otc* functions replay adversary round 15's two drains on the
+        // The two test_round15_otc* functions replay adversary round 15's two drains on the
         // build this server's own redirect produced for this ask - `template=amm`, a
         // constant-product pool - and REQUIRE them to fail. There, a partial fill deleted
         // the offer row and re-created the remainder, so a one-unit buy every 59 minutes
@@ -8257,7 +8284,7 @@ object DappScaffold {
         // Here a swap settles in FULL or not at all, so there is no remainder to re-create
         // and no clock to restart: the one-unit fill is refused, the deadline is the one
         // written when the swap was opened, and the maker's leg comes home on time.
-        function test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail() {
+        function test_round15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
             signed(alice.keypair, main.register_trader());
@@ -8299,7 +8326,7 @@ object DappScaffold {
         // Here the offer is revocable in any block, so the option is worth ONE BLOCK: the
         // maker takes it off the table half an hour in and there is nothing left to
         // decide about at the end of the hour.
-        function test_r15_otc2_the_window_is_not_a_free_option_must_fail() {
+        function test_round15_otc2_the_window_is_not_a_free_option_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
             signed(alice.keypair, main.register_trader());
