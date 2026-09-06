@@ -78,18 +78,27 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(
+
+                    "brid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
                         )
                     ),
+
                     "blockchainRid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("The Blockchain RID of the dApp")
                         )
                     ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+
                     "query" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -98,6 +107,7 @@ object McpTools {
                             )
                         )
                     ),
+
                     "arguments" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
@@ -110,7 +120,7 @@ object McpTools {
                     )
                 ),
             ),
-            required = listOf("blockchainRid")
+            required = listOf("brid")
         ),
         title = "Execute dApp Query",
         annotations = null,
@@ -480,12 +490,20 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
+                    "brid" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
+                        )
+                    ),
+
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("The blockchain's RID")
                         )
                     ),
+
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -494,7 +512,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rid")
+            required = listOf("brid")
         ),
         title = "Get Blockchain Details",
         annotations = null,
@@ -533,66 +551,83 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(
+
+                    "brid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
                         )
                     ),
-                    "name" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Optional blockchain name to filter by (primary use case - e.g., 'auro', 'MarbleRumble')")
-                        )
-                    ),
+
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional blockchain RID to filter by specific blockchain")
                         )
                     ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+
+                    "name" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional blockchain name to filter by (primary use case - e.g., 'auro', 'MarbleRumble')")
+                        )
+                    ),
+
                     "cluster" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional cluster name to filter by (e.g., 'pink', 'system')")
                         )
                     ),
+
                     "container" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional container ID to filter by")
                         )
                     ),
+
                     "state" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED')")
                         )
                     ),
+
                     "system" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
                             "description" to JsonPrimitive("Optional filter for system chains (true) vs user applications (false)")
                         )
                     ),
+
                     "limit" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional limit for number of blockchains to return (default: 10)")
                         )
                     ),
+
                     "offset" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional offset for pagination (default: 0)")
                         )
                     ),
+
                     "sortBy" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional field to sort by (e.g., 'name', 'cluster', 'state')")
                         )
                     ),
+
                     "sortDirection" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -641,24 +676,34 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(
+
+                    "brid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
                         )
                     ),
+
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional specific transaction RID to query")
                         )
                     ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+
                     "blockId" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional block ID to filter transactions")
                         )
                     ),
+
                     "blockchainIds" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -670,6 +715,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of blockchain IDs to include")
                         )
                     ),
+
                     "notInBlockchains" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -681,18 +727,21 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of blockchain IDs to exclude")
                         )
                     ),
+
                     "timestampFrom" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional start timestamp for filtering (ISO format)")
                         )
                     ),
+
                     "timestampTo" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional end timestamp for filtering (ISO format)")
                         )
                     ),
+
                     "operations" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -704,6 +753,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of operation types to include")
                         )
                     ),
+
                     "notInOperations" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -715,6 +765,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of operation types to exclude")
                         )
                     ),
+
                     "signers" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -726,6 +777,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of signer IDs to include")
                         )
                     ),
+
                     "excludedSigners" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -737,6 +789,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of signer IDs to exclude")
                         )
                     ),
+
                     "accounts" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -748,6 +801,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of account IDs to include")
                         )
                     ),
+
                     "excludedAccounts" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -759,6 +813,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of account IDs to exclude")
                         )
                     ),
+
                     "assets" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -770,24 +825,28 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of asset IDs to filter by")
                         )
                     ),
+
                     "limit" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional limit for number of transactions to return (default: 50)")
                         )
                     ),
+
                     "offset" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional offset for pagination (default: 0)")
                         )
                     ),
+
                     "sortBy" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional field to sort by (e.g., 'timestamp', 'blockHeight')")
                         )
                     ),
+
                     "sortDirection" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -1628,12 +1687,6 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "yaml" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Full chromia.yml text to validate")
-                        )
-                    ),
                     "files" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
@@ -1651,6 +1704,12 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("A single Rell source, when there is only one file.")
+                        )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Full chromia.yml text to validate")
                         )
                     ),
                     "strict" to JsonObject(
@@ -1797,17 +1856,17 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "source" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Rell source for a single-file check; compiled as main.rell. Ignored when `files` is given.")
-                        )
-                    ),
                     "files" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects, e.g. {\"main.rell\": \"module; ...\"}. Paths are relative to the Rell source root - drop the project's src/ prefix (a leading ./ or src/ is normalized away automatically).")
+                        )
+                    ),
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Rell source for a single-file check; compiled as main.rell. Ignored when `files` is given.")
                         )
                     ),
                     "modules" to JsonObject(
@@ -2179,17 +2238,17 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "source" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Rell source for a single-file review; analyzed as main.rell. Ignored when `files` is given.")
-                        )
-                    ),
                     "files" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects.")
+                        )
+                    ),
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Rell source for a single-file review; analyzed as main.rell. Ignored when `files` is given.")
                         )
                     ),
                     "allowAdminModules" to JsonObject(
@@ -3224,12 +3283,11 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
-                    "yaml" to JsonObject(
+                    "files" to JsonObject(
                         mapOf(
-                            "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive(
-                                "Full chromia.yml contents as a string. Optional: when omitted, a minimal default " +
-                                    "chromia.yml at the current pins (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted."
+                                "Alias for `rell` (same shape) - accepted because rell_check and " +
+                                    "run_rell_tests name this parameter `files`. When both are present, `rell` wins."
                             )
                         )
                     ),
@@ -3240,11 +3298,12 @@ object McpTools {
                             )
                         )
                     ),
-                    "files" to JsonObject(
+                    "yaml" to JsonObject(
                         mapOf(
+                            "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive(
-                                "Alias for `rell` (same shape) - accepted because rell_check and " +
-                                    "run_rell_tests name this parameter `files`. When both are present, `rell` wins."
+                                "Full chromia.yml contents as a string. Optional: when omitted, a minimal default " +
+                                    "chromia.yml at the current pins (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted."
                             )
                         )
                     ),
@@ -3260,7 +3319,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rell")
+            required = listOf("files")
         ),
         title = "Check dapp project",
         annotations = null,
@@ -3304,6 +3363,14 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Rell sources as a map of relative path -> source, e.g. {\\"src/main.rell\\": \\"module; ...\\"}. This is the canonical name for Rell sources on every code-taking tool here; `rell` and `source` are accepted as aliases with no warning. A single source string is accepted too (filed as main.rell).")
+                        )
+                    ),
+
                     "rell" to JsonObject(
                         mapOf(
                             "description" to JsonPrimitive(
@@ -3311,6 +3378,7 @@ object McpTools {
                             )
                         )
                     ),
+
                     "allowAdminModules" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
@@ -3323,7 +3391,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rell")
+            required = listOf("files")
         ),
         title = "Check FT4 imports",
         annotations = null,
@@ -3620,6 +3688,7 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
+
                     "yaml" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -3628,31 +3697,39 @@ object McpTools {
                             )
                         )
                     ),
+
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Deployment target - a key under deployments in the yaml, e.g. \"testnet\" or \"mainnet\". Named `network` because that is what 22 other tools on this server call it; `target` is accepted as an alias with no warning.")
+                        )
+                    ),
+
                     "target" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive(
-                                "Deployment target name - a key under deployments in the yaml, e.g. \"testnet\" or \"mainnet\""
-                            )
-                        )
-                    ),
-                    "rell" to JsonObject(
-                        mapOf(
-                            "description" to JsonPrimitive(
-                                "Optional Rell sources for the compile + security gate: one source string " +
-                                    "(checked as main.rell) or an object of path -> source. Omitting it skips " +
-                                    "the source gate (noted; a mainnet target then stays blocked)."
-                            )
+                            "description" to JsonPrimitive("Alias for `network`.")
                         )
                     ),
                     "files" to JsonObject(
                         mapOf(
                             "description" to JsonPrimitive(
-                                "Alias for `rell` (same shape) - matches rell_check / run_rell_tests. " +
-                                    "`rell` wins when both are present; using the alias is noted."
+                                "Optional Rell sources for the compile + security gate: a map of " +
+                                    "path -> source, or one source string (checked as main.rell). Omitting " +
+                                    "them skips the source gate (noted; a mainnet target then stays " +
+                                    "blocked). `rell` and `source` are accepted as aliases, with no " +
+                                    "warning and no preference - `files` is the name every other " +
+                                    "code-taking tool here uses."
                             )
                         )
                     ),
+
+                    "rell" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive("Alias for `files`, same shape.")
+                        )
+                    ),
+
                     "strict" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
@@ -3664,7 +3741,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("yaml", "target")
+            required = listOf("yaml", "network")
         ),
         title = "Deployment preflight",
         annotations = null,
@@ -3922,17 +3999,17 @@ object McpTools {
         inputSchema = Tool.Input(
             properties = JsonObject(
                 mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive("Alias for `rell` (same shape).")
+                        )
+                    ),
                     "rell" to JsonObject(
                         mapOf(
                             "description" to JsonPrimitive(
                                 "The dapp sources: one source string (treated as main.rell) or an object of " +
                                     "path -> source. Required - the gates cannot vouch for unseen code."
                             )
-                        )
-                    ),
-                    "files" to JsonObject(
-                        mapOf(
-                            "description" to JsonPrimitive("Alias for `rell` (same shape).")
                         )
                     ),
                     "blockchain" to JsonObject(
@@ -3948,6 +4025,12 @@ object McpTools {
                                 "Container lease name from provision_testnet_container (required unless " +
                                     "chromiaYml already carries deployments.testnet.container)"
                             )
+                        )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Your project's chromia.yml. `yaml` is the canonical name for it on this server; `chromiaYml` is accepted as an alias with no warning. Without one a MINIMAL config is generated from the default scaffold - it carries no moduleArgs, no test.moduleArgs and no extra libs, so an FT4 project must pass its own.")
                         )
                     ),
                     "chromiaYml" to JsonObject(
@@ -3982,7 +4065,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rell")
+            required = listOf("files")
         ),
         title = "Deploy testnet chain",
         annotations = null,
@@ -4051,8 +4134,8 @@ object McpTools {
     // 2026-09-02) - the refusal must hand over a working call, not just a name.
     private const val CHECK_DAPP_PROJECT_ALTERNATIVE =
         "use check_dapp_project on this server instead - it performs compilation and security scanning " +
-            "(pass your sources as `rell`, a map of path -> source or a single source string; " +
-            "a `files` map is accepted as an alias)"
+            "(pass your sources as `files`, a map of path -> source or a single source string; " +
+            "`rell` and `source` are accepted as aliases)"
 
     /** Working alternatives on the same deployment for commonly disabled tools. */
     private val DISABLED_TOOL_ALTERNATIVES: Map<String, String> = mapOf(

@@ -20,9 +20,18 @@ import org.junit.jupiter.api.Test
  * Live-probe friction fix (2026-09-02): an agent porting a rell_check call to
  * check_dapp_project sent {files:{...}} - rell_check's parameter name - and
  * hit "Missing required parameter: rell". The two fixes under test:
- * (1) check_dapp_project accepts `files` as an alias for `rell` (noted),
+ * (1) check_dapp_project accepts `files` (noted),
  * (2) the disabled-tool refusal that points at check_dapp_project states the
  *     parameter shape, not just the tool name.
+ *
+ * AUDIT F10 (2026-09-06) settled which way round that is. `files` is the name
+ * eight tools already used, so it is the CANONICAL one everywhere code is
+ * taken; `rell` and `source` are accepted with no warning and no preference.
+ * The note this used to append - "`files` was accepted as an alias for the
+ * `rell` parameter - prefer `rell` in future calls" - was the one message in
+ * the server that actively pushed an agent AWAY from the majority spelling,
+ * and it is gone. What is pinned below is the new contract: both spellings
+ * work, neither is nagged about, and `files` wins when both are sent.
  */
 class CheckDappProjectFilesAliasTest {
 
@@ -36,7 +45,7 @@ class CheckDappProjectFilesAliasTest {
     }
 
     @Test
-    fun filesMapIsAcceptedAsAliasForRellWithANote() {
+    fun filesMapIsAcceptedWithNoNagAboutIt() {
         val result = call(
             buildJsonObject {
                 put("yaml", yaml)
@@ -47,45 +56,49 @@ class CheckDappProjectFilesAliasTest {
         val structured = result.structuredContent!!
         assertTrue(structured["ok"]!!.jsonPrimitive.content.toBoolean(), structured.toString())
         val notes = structured["notes"]!!.jsonPrimitive.content
-        assertTrue(notes.contains("`files` was accepted as an alias"), notes)
-        assertTrue(notes.contains("prefer `rell`"), notes)
+        assertFalse(notes.contains("prefer `rell`"), "the canonical name must not be nagged about: $notes")
+        assertFalse(notes.contains("accepted as an alias"), notes)
     }
 
     @Test
-    fun rellWinsWhenBothParametersArePresent() {
+    fun theCanonicalNameWinsWhenBothParametersArePresent() {
         val broken = main + "\nquery broken() = no_such_symbol;\n"
         val result = call(
             buildJsonObject {
                 put("yaml", yaml)
-                put("rell", buildJsonObject { put("src/main.rell", main) })
-                put("files", buildJsonObject { put("src/main.rell", broken) })
+                put("files", buildJsonObject { put("src/main.rell", main) })
+                put("rell", buildJsonObject { put("src/main.rell", broken) })
             }
         )
         assertTrue(result.isError != true)
         val structured = result.structuredContent!!
-        // The valid `rell` content was checked, not the broken `files` content.
+        // The valid `files` content was checked, not the broken `rell` content:
+        // one canonical name, and it is the one that decides.
         assertTrue(structured["ok"]!!.jsonPrimitive.content.toBoolean(), structured.toString())
         val notes = structured["notes"]!!.jsonPrimitive.content
         assertFalse(notes.contains("alias"), notes)
     }
 
     @Test
-    fun missingBothParametersNamesTheAliasInTheError() {
+    fun missingBothParametersNamesTheCanonicalNameAndItsAliases() {
         val result = call(buildJsonObject { put("yaml", yaml) })
         assertEquals(true, result.isError)
         val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.contains("Missing required parameter: rell"), text)
-        assertTrue(text.contains("`files` is accepted as an alias"), text)
+        assertTrue(text.contains("Missing required parameter: files"), text)
+        assertTrue(text.contains("`rell` and `source` are accepted as aliases"), text)
         assertTrue(text.contains("path -> source"), text)
     }
 
     @Test
-    fun filesAliasIsDeclaredInTheSchema() {
+    fun theCanonicalNameIsDeclaredFirstAndIsTheRequiredOne() {
         val tool = McpTools.checkDappProjectTool()
-        val files = tool.inputSchema.properties["files"]
-        assertNotNull(files, "schema must declare the `files` alias")
-        // `rell` stays the required parameter; the alias is optional.
-        assertEquals(listOf("rell"), tool.inputSchema.required)
+        assertNotNull(tool.inputSchema.properties["files"], "schema must declare `files`")
+        assertNotNull(tool.inputSchema.properties["rell"], "and keep `rell` as an accepted alias")
+        // AUDIT F10: canonical first, so an agent skimming the schema meets the
+        // one name that works everywhere before any alias.
+        val order = tool.inputSchema.properties.keys.toList()
+        assertTrue(order.indexOf("files") < order.indexOf("rell"), order.toString())
+        assertEquals(listOf("files"), tool.inputSchema.required)
     }
 
     @Test
@@ -94,9 +107,9 @@ class CheckDappProjectFilesAliasTest {
         disabled.forEach { name ->
             val message = McpTools.disabledToolRefusal(name, disabled)!!
             assertTrue(message.contains("check_dapp_project"), message)
-            assertTrue(message.contains("pass your sources as `rell`"), message)
+            assertTrue(message.contains("pass your sources as `files`"), message)
             assertTrue(message.contains("map of path -> source or a single source string"), message)
-            assertTrue(message.contains("`files` map is accepted as an alias"), message)
+            assertTrue(message.contains("`rell` and `source` are accepted as aliases"), message)
         }
     }
 }

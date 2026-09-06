@@ -147,7 +147,21 @@ class ToolExecutor(
      */
     private val undeclaredArgumentAliases: Map<String, Set<String>> = mapOf(
         "write_deployment_config" to setOf("chain", "chromiaYml"),
-        "scaffold_dapp" to setOf("notes_for")
+        "scaffold_dapp" to setOf("notes_for"),
+        // AUDIT F10: one canonical name per concept, every older spelling still
+        // read. These are the ones the schema does not repeat - declaring four
+        // synonyms per tool would cost every agent context for nothing.
+        "check_dapp_project" to setOf("source"),
+        "check_ft4_imports" to setOf("source"),
+        "deployment_preflight" to setOf("source"),
+        "deploy_testnet_chain" to setOf("source"),
+        "run_rell_tests" to setOf("rell", "source"),
+        "verify_guards" to setOf("rell", "source"),
+        "rell_check" to setOf("rell"),
+        "rell_security_check" to setOf("rell"),
+        "local_chain_up" to setOf("rell", "source"),
+        "get_blockchain_details" to setOf("rid"),
+        "chromia_dapp_query" to setOf("blockchainRid")
     )
 
     /** Declared input-schema property names per tool (every tool, disabled ones included). */
@@ -290,6 +304,20 @@ internal const val MAX_PAGINATION_LIMIT = 1000
  * silently dropped - dropping them made the tool analyze a partial project
  * without notice (audit 2026-09-01).
  */
+/**
+ * The Rell sources of a call, under any of this server's spellings.
+ *
+ * AUDIT F10 (2026-09-06): `source` (rell_check, rell_security_check), `rell`
+ * (check_dapp_project, check_ft4_imports, deployment_preflight,
+ * deploy_testnet_chain) and `files` (8 tools) all meant the same thing, so an
+ * agent carrying a name from its previous call paid a wasted round trip per
+ * tool. `files` is canonical - it had the majority - and the rest are accepted
+ * with no warning and no preference. A single source STRING under any of them
+ * is filed the way [placeSingleSource] files it.
+ */
+internal fun extractRellSourcesArg(args: Map<String, Any>): Any? =
+    args["files"] ?: args["rell"] ?: args["source"] ?: args["src"] ?: args["code"]
+
 internal fun extractRellFilesMap(filesArg: Any?): Pair<LinkedHashMap<String, String>, List<String>> {
     val files = linkedMapOf<String, String>()
     val invalid = mutableListOf<String>()
@@ -821,7 +849,11 @@ class BlockchainAnalyticsStrategy : BaseToolStrategy() {
 class BlockchainDetailsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val rid = requireParameter(args, "rid")
+        // AUDIT F10: `brid` is the canonical chain id on this server (the name
+        // verify_deployment and chromia.yml both use); `rid` still works.
+        val rid = extractString(args, "brid")
+            ?: extractString(args, "rid")
+            ?: requireParameter(args, "brid")
         val network = extractString(args, "network")
 
         val result = repository.getBlockchainDetails(rid, network)
@@ -1059,7 +1091,10 @@ class DappInteractionStrategy(
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val network = extractString(args, "network")
-        val blockchainRid = requireParameter(args, "blockchainRid")
+        // AUDIT F10: `brid` is the canonical chain id; `blockchainRid` still works.
+        val blockchainRid = extractString(args, "brid")
+            ?: extractString(args, "blockchainRid")
+            ?: requireParameter(args, "brid")
         val queryName = extractString(args, "query")
         val arguments = extractArgumentsMap(args, "arguments")
 
@@ -1391,7 +1426,7 @@ class RellCheckStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val source = extractString(args, "source")
-        val filesArg = args["files"]
+        val filesArg = args["files"] ?: args["rell"]
         val modules = extractStringList(args, "modules")
 
         val (files, invalidKeys) = extractRellFilesMap(filesArg)
@@ -1424,7 +1459,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val source = extractString(args, "source")
-        val filesArg = args["files"]
+        val filesArg = args["files"] ?: args["rell"]
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
 
         val (files, invalidKeys) = extractRellFilesMap(filesArg)
@@ -1472,7 +1507,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
 class RunRellTestsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val filesArg = args["files"]
+        val filesArg = extractRellSourcesArg(args)
         val (submitted, invalidKeys) = extractRellFilesMap(filesArg)
         if (invalidKeys.isNotEmpty()) {
             return toolErrorResult(
@@ -1617,7 +1652,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val (files, invalidKeys) = extractRellFilesMap(args["files"])
+        val (files, invalidKeys) = extractRellFilesMap(extractRellSourcesArg(args))
         if (invalidKeys.isNotEmpty()) {
             return toolErrorResult(
                 "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
@@ -1966,7 +2001,7 @@ class LocalChainStrategy : BaseToolStrategy() {
     }
 
     private suspend fun executeUp(args: Map<String, Any>): CallToolResult {
-        val (files, invalidKeys) = extractRellFilesMap(args["files"])
+        val (files, invalidKeys) = extractRellFilesMap(extractRellSourcesArg(args))
         if (invalidKeys.isNotEmpty()) {
             return toolErrorResult(
                 "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
@@ -2186,17 +2221,19 @@ class CheckDappProjectStrategy : BaseToolStrategy() {
         // missing yaml falls back to a minimal default at the current pins and the
         // result says so, instead of a "Missing required parameter" dead end.
         val yaml = extractString(args, "yaml")?.takeIf { it.isNotBlank() }
-        // `files` is accepted as an alias for `rell`: rell_check and
-        // run_rell_tests take `files`, so agents porting a call kept sending it
-        // here and hit "Missing required parameter: rell" (live probe
-        // 2026-09-02). `rell` wins when both are present; the alias is noted.
-        val rellParam = extractStringMap(args, "rell")
-        val filesAlias = if (rellParam == null) extractStringMap(args, "files") else null
-        val rellFiles = rellParam ?: filesAlias
+        // AUDIT F10: `files` is the CANONICAL name for Rell sources on every
+        // code-taking tool here (8 already used it), and `rell` / `source` are
+        // accepted with no warning and no preference. The note this used to
+        // append - "prefer `rell` in future calls" - actively pushed an agent
+        // away from the spelling the rest of the server uses.
+        val rellFiles = extractStringMap(args, "files")
+            ?: extractStringMap(args, "rell")
+            ?: extractStringMap(args, "source")
             ?: throw IllegalArgumentException(
-                "Missing required parameter: rell - a map of path -> source " +
+                "Missing required parameter: files - the dapp sources, a map of path -> source " +
                     "(e.g. {\"src/main.rell\": \"module; ...\"}) or a single source string " +
-                    "(`files` is accepted as an alias)"
+                    "(`rell` and `source` are accepted as aliases). The gates cannot vouch for " +
+                    "code they never saw."
             )
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
         // Swapped arguments (yaml = Rell source, rell = the chromia.yml) produced
@@ -2218,12 +2255,6 @@ class CheckDappProjectStrategy : BaseToolStrategy() {
             allowAdminModules = allowAdminModules,
             usedDefaultYaml = yaml == null
         )
-        if (filesAlias != null) {
-            result = result.copy(
-                notes = result.notes +
-                    "`files` was accepted as an alias for the `rell` parameter - prefer `rell` in future calls."
-            )
-        }
         return toolSuccessResult(result.toJson())
     }
 }
@@ -2231,8 +2262,14 @@ class CheckDappProjectStrategy : BaseToolStrategy() {
 class CheckFt4ImportsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
-        val rellFiles = extractStringMap(args, "rell")
-            ?: throw IllegalArgumentException("Missing required parameter: rell")
+        val rellFiles = extractStringMap(args, "files")
+            ?: extractStringMap(args, "rell")
+            ?: extractStringMap(args, "source")
+            ?: throw IllegalArgumentException(
+                "Missing required parameter: files - the Rell sources to scan, a map of " +
+                    "path -> source (e.g. {\"src/main.rell\": \"module; ...\"}) or a single source " +
+                    "string (`rell` and `source` are accepted as aliases)."
+            )
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
         // ok:true on an all-blank submission certified nothing (QA input-abuse lens).
         RellCheck.requireSomeSourceContent(rellFiles)
@@ -2519,7 +2556,13 @@ class DeploymentPreflightStrategy(
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
-        val target = requireParameter(args, "target")
+        // AUDIT F10: `network` is what 22 other tools on this server call this;
+        // `target` is the alias, accepted with no warning. The output keeps both
+        // - `target` echoes what was asked for, `network` is the mainnet/testnet/
+        // custom classification derived from it.
+        val target = extractString(args, "network")
+            ?: extractString(args, "target")
+            ?: requireParameter(args, "network")
         // Same shape as check_dapp_project's `rell`: one source string
         // (checked as main.rell) or a map of path -> source. `files` is
         // accepted as an alias (same pattern as CheckDappProjectStrategy):
@@ -2527,9 +2570,9 @@ class DeploymentPreflightStrategy(
         // `files` here would skip the source gate and still report ready:true
         // on a testnet target. `rell` wins when both are present; the alias
         // is noted.
-        val rellParam = extractStringMap(args, "rell")
-        val filesAlias = if (rellParam == null) extractStringMap(args, "files") else null
-        val rell = rellParam ?: filesAlias
+        val rell = extractStringMap(args, "files")
+            ?: extractStringMap(args, "rell")
+            ?: extractStringMap(args, "source")
         val strict = extractBoolean(args, "strict")
         return runCatching {
             // Compile + security run blocking compiler work; the reachability
@@ -2540,7 +2583,7 @@ class DeploymentPreflightStrategy(
             // whole budget leaves the rest nothing - they answer instantly
             // with the deadline message instead of starting fresh crawls.
             var probeStartNanos = -1L
-            var result = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 DeploymentPreflight.run(yaml, target, rell, strict) { network, bridHex ->
                     if (probeStartNanos < 0) probeStartNanos = System.nanoTime()
                     val remainingMs =
@@ -2551,12 +2594,6 @@ class DeploymentPreflightStrategy(
                         ProbeBudget.preflightProbeTimeoutMessage(probeDeadlineMs)
                     )
                 }
-            }
-            if (filesAlias != null) {
-                result = result.copy(
-                    notes = result.notes +
-                        "`files` was accepted as an alias for the `rell` parameter - prefer `rell` in future calls."
-                )
             }
             toolSuccessResult(result.toJson())
         }.getOrElse { e ->
