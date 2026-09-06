@@ -146,7 +146,8 @@ class ToolExecutor(
      * strategy reads it.
      */
     private val undeclaredArgumentAliases: Map<String, Set<String>> = mapOf(
-        "write_deployment_config" to setOf("chain")
+        "write_deployment_config" to setOf("chain", "chromiaYml"),
+        "scaffold_dapp" to setOf("notes_for")
     )
 
     /** Declared input-schema property names per tool (every tool, disabled ones included). */
@@ -1300,7 +1301,8 @@ class ScaffoldDappStrategy : BaseToolStrategy() {
         val args = request.arguments as Map<String, Any>
         val name = extractString(args, "name")
         val template = extractString(args, "template") ?: "hello"
-        val payload = DappScaffold.toJson(name, template)
+        val notesFor = extractString(args, "notesFor") ?: extractString(args, "notes_for")
+        val payload = DappScaffold.toJson(name, template, notesFor)
         // AUDIT F6: an unknown template with no close shipped match scaffolds
         // NOTHING, and says so the way every other tool here says it - ok:false
         // AND isError, so an agent that checks either one stops.

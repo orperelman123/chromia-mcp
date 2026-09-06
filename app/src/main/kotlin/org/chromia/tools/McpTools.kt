@@ -1548,6 +1548,12 @@ object McpTools {
                             )
                         )
                     ),
+                    "notesFor" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Which per-class guidance to include in `notes`. Default: the template actually returned, plus a one-line pointer to the rest. \"all\" returns the whole catalogue (~22 KB / ~5,530 tokens - it used to be attached to EVERY response, 89% of a `hello` scaffold); a template name returns just that one's. `notes_for` is accepted as an alias.")
+                        )
+                    ),
                     "template" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),

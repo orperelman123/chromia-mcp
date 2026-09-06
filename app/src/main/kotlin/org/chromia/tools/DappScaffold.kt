@@ -1016,7 +1016,73 @@ object DappScaffold {
         }
     """.trimIndent() + "\n"
 
-    fun notes(name: String): String {
+    /**
+     * AUDIT F5 (2026-09-06): this returned the WHOLE catalogue with every
+     * template - measured 22,120-22,129 bytes (~5,530 tokens), byte-for-byte
+     * identical across all thirteen templates plus the fallback. An agent that
+     * scaffolded `hello` to try the server paid ~5,530 tokens of essay about
+     * stablecoin liquidation and order-book cancel clocks for 2,204 bytes of
+     * Rell: notes were 89% of that response. So agents skimmed - and the one
+     * paragraph that mattered, the moduleArgs merge of F4, was in there.
+     *
+     * @param template the template actually returned; only ITS paragraphs are
+     * included, plus a one-line pointer to the rest. Null (the default) returns
+     * the whole catalogue, which is what `notesFor:"all"` asks for.
+     */
+    fun notes(name: String, template: String? = null): String {
+        val full = notesCatalogue(name)
+        if (template == null) return full
+        return scopeNotes(full, template)
+    }
+
+    /** Where the per-class catalogue starts and ends inside [notesCatalogue]. */
+    private const val CATALOGUE_START = "Building "
+    private const val CATALOGUE_END = "NEVER import "
+
+    /**
+     * Header + the requested template's own paragraphs + a pointer + trailer.
+     * The catalogue is split at runtime rather than rewritten: the prose is
+     * load-bearing security guidance and moving it by hand is how a paragraph
+     * gets lost.
+     */
+    internal fun scopeNotes(full: String, template: String): String {
+        val lines = full.lines()
+        val firstBlock = lines.indexOfFirst { it.startsWith(CATALOGUE_START) }
+        val trailerAt = lines.indexOfFirst { it.startsWith(CATALOGUE_END) }
+        if (firstBlock < 0 || trailerAt < 0 || trailerAt < firstBlock) return full
+        val header = lines.subList(0, firstBlock)
+        val trailer = lines.subList(trailerAt, lines.size)
+        val blocks = mutableListOf<MutableList<String>>()
+        lines.subList(firstBlock, trailerAt).forEach { line ->
+            if (line.startsWith(CATALOGUE_START) || blocks.isEmpty()) blocks.add(mutableListOf())
+            blocks.last().add(line)
+        }
+        val target = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) }
+        val mine = blocks.filter { block -> blockTemplate(block) == target }
+        val others = blocks.size - mine.size
+        val pointer = if (target == null) {
+            ""
+        } else if (mine.isEmpty()) {
+            "The `$target` template has no per-class paragraph here. The guidance for the other " +
+                "$others classes - what each template makes UNWRITABLE, and which adversary round " +
+                "drained the build that went without it - is one call away: scaffold_dapp with " +
+                "notesFor=\"all\", or chromia_rell_practices_help."
+        } else {
+            "Building something else? The per-class guidance for the other $others classes - what " +
+                "each template makes UNWRITABLE, and which adversary round drained the build that " +
+                "went without it - is one call away: scaffold_dapp with notesFor=\"all\" (or " +
+                "notesFor=\"<template>\" for one), or chromia_rell_practices_help."
+        }
+        return (header + mine.flatten() + listOfNotNull(pointer.takeIf { it.isNotEmpty() }) + trailer)
+            .joinToString("\n")
+    }
+
+    /** The template a catalogue paragraph is about: the first `template=x` it names. */
+    private fun blockTemplate(block: List<String>): String? =
+        Regex("""template=([a-z0-9_]+)""").find(block.joinToString(" "))?.groupValues?.get(1)
+            ?.takeIf { it in templates }
+
+    private fun notesCatalogue(name: String): String {
         val chain = normalizeName(name)
         return """
             New Chromia dapp skeleton for `$chain`.
@@ -1638,7 +1704,12 @@ object DappScaffold {
         }
     }
 
-    fun toJson(name: String?, template: String = "hello"): JsonObject {
+    /**
+     * @param notesFor scopes the `notes` field (audit F5): null - the default -
+     * gives the returned template's own paragraphs plus a pointer; "all" gives
+     * the whole catalogue; a template name gives that one's.
+     */
+    fun toJson(name: String?, template: String = "hello", notesFor: String? = null): JsonObject {
         val chain = normalizeName(name)
         // `Stablecoin`, ` amm ` - case and whitespace are not a different ask
         // (DX audit 2026-09-04: a capitalised template name fell back to hello).
@@ -1726,7 +1797,16 @@ object DappScaffold {
                         "yours, not the one whose name reads closest."
                 )
             }
-            put("notes", notes(chain))
+            // AUDIT F5: the paragraphs for THIS template, not the 22 KB catalogue
+            // that was byte-identical in every response.
+            put(
+                "notes",
+                when {
+                    notesFor == null -> notes(chain, effectiveTemplate ?: "hello")
+                    notesFor.trim().equals("all", ignoreCase = true) -> notes(chain)
+                    else -> notes(chain, notesFor)
+                }
+            )
         }
     }
 
