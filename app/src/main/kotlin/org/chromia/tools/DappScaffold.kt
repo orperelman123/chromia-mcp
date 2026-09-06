@@ -453,16 +453,6 @@ object DappScaffold {
         function holding_of(owner: byte_array): holding =
             require(holding @? { .owner == owner }, "register an account first");
 
-        // Which ENROLLED relayer signed this transaction. The key is read from a row,
-        // never from an argument, so nobody can present their own.
-        function signing_relayer(): relayer {
-            var found: relayer? = null;
-            for (r in relayer @* {}) {
-                if (op_context.is_signer(r.relayer_pubkey)) found = r;
-            }
-            return require(found, "a burn attestation must be signed by an enrolled relayer");
-        }
-
         // The caps, applied to the one place units are created.
         function mint_against(burn: processed_burn) {
             if (op_context.last_block_time - bridge_state.period_started_at >= MINT_PERIOD_MS) {
@@ -528,7 +518,14 @@ object DappScaffold {
             // 1. AUTHORIZE - an enrolled relayer, out of a set that can no longer
             //    change. There is no FT4 account here: a relayer is a key.
             require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
-            val witness = signing_relayer();
+            // WHICH enrolled relayer signed this transaction. The set is small and
+            // bounded by MAX_RELAYERS, and the key is read from a ROW - never from an
+            // argument - so nobody can present their own (audit probe N5).
+            var found: relayer? = null;
+            for (r in relayer @* {}) {
+                if (op_context.is_signer(r.relayer_pubkey)) found = r;
+            }
+            val witness = require(found, "a burn attestation must be signed by an enrolled relayer");
             // 2. VALIDATE - each input separately, and bounded before it is added to
             //    anything.
             require(chain_rid.size() == 32, "source chain rid must be 32 bytes");
