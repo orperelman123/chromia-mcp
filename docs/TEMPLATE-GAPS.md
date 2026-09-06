@@ -1,6 +1,6 @@
 # Which classes have no template, and why that is the queue
 
-Twelve adversary rounds. **Every un-templated class attacked has drained.** That
+Fourteen adversary rounds. **Every un-templated class attacked has drained.** That
 is the whole basis for this file: the next drain is predictable from the
 redirect map, not from the last report.
 
@@ -114,15 +114,15 @@ That is not a claim that no class is missing. It is a claim that no class we hav
 NAMED is missing, and naming is the part that has always lagged: every drain in
 this project landed in a class this file had either not thought of or had ranked
 below the one that got built - and the bridge row is the sharpest case, because it
-sat at the top for four rounds carrying a reason for its own deprioritisation that
-was not true. So the next drain is still predictable from the redirect map rather
-than from this table. When you find a class with no template, put it here FIRST,
+carried a reason for its own deprioritisation that was not true until round 14
+tested the claim and drained the build. So the next drain is still predictable
+from the redirect map rather than from this table. When you find a class with no template, put it here FIRST,
 before you build anything.
 
 ## How to use this
 
 Take the top row that is not in flight. Build the template the way the other
-twelve are built - the exploit made **unwritable**, not merely detected
+thirteen are built - the exploit made **unwritable**, not merely detected
 (GOAL.md principle 4), every guard carrying a mutant that reddens a shipped
 must-fail test *because the attack landed*, and the shape SHIPPED rather than
 described.
