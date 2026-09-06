@@ -581,6 +581,11 @@ object RellSecurityCheck {
         val identityFieldNames = entityFields(fullyMasked)
             .filter { it.type.trimEnd('?') == "byte_array" }
             .mapTo(mutableSetOf()) { it.name }
+        // Declared-timestamp attributes: times, never quantities (see the
+        // unbacked-conversion-credit rule).
+        val timestampTypedFields = entityFields(fullyMasked)
+            .filter { it.type.trimEnd('?') == "timestamp" }
+            .mapTo(mutableSetOf()) { it.name }
         // Entity declarations of the APP's own files: what a query can return is
         // decided by the attributes and their declared TYPES, not by the words
         // around the query (round 14).
@@ -664,7 +669,7 @@ object RellSecurityCheck {
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
-                    inlinable, escrowedCaps, mirroredCounters
+                    inlinable, escrowedCaps, mirroredCounters, storedClockFields + timestampTypedFields
                 )
                 findings += blockClockRandomnessFindings(
                     path, op, allEntityNames, entityHelperReturns, inlinable, identityFieldNames,
@@ -2271,7 +2276,8 @@ object RellSecurityCheck {
         priceDerivedFields: Set<String>,
         helpers: Map<String, List<FunctionDef>>,
         escrowedCaps: Set<Pair<String, String>>,
-        mirroredCounters: Set<Pair<String?, String>>
+        mirroredCounters: Set<Pair<String?, String>>,
+        clockFields: Set<String> = emptySet()
     ): List<Finding> {
         val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
         val bindings = bindingsOf(flat)
@@ -2283,9 +2289,15 @@ object RellSecurityCheck {
         // A liability counter is not a payout: raising `pool.total_debt` (which
         // moves in lockstep with `loan.principal`) makes the borrower owe more,
         // and there is nothing to fund or cap. See [mirroredCounterFields].
+        // A field that stores a CLOCK value - declared `timestamp`, or written
+        // from the block clock anywhere in the app - is a time, not a quantity:
+        // `funded_until = last_block_time + ms_bought(...)` (subscription) buys
+        // time, and crediting time mints nothing. Round 14 read it as a balance
+        // because its NAME matched; the type and the data flow say otherwise.
         val valueCredits = writes.filter { w ->
             w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
-                (w.entity to w.field) !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0"
+                (w.entity to w.field) !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0" &&
+                w.field !in clockFields
         }
         fun backedByEntity(c: AmountWrite) = c.entity != null && c.entity in debitedEntities
         fun backedByAmount(c: AmountWrite) = c.amount.replace(WS_REGEX, "") in debitAmounts

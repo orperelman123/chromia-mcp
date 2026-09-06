@@ -6056,15 +6056,17 @@ object DappScaffold {
 
             signed(alice.keypair, main.cancel_subscription(1));
             val alice_kept = main.get_balance(alice.account.id);
-            // What ONE BLOCK of this fee is worth, read off the sibling subscription in
-            // the same block rather than assumed: the two are identical.
-            val one_block = main.outstanding(2);
             signed(bob.keypair, main.cancel_subscription(2));
             val bob_kept = main.get_balance(bob.account.id);
 
             val step = alice_kept - bob_kept;
             assert_equals(step, 10000 - alice_kept);
-            assert_equals(step, one_block);
+            // What ONE BLOCK of this fee is worth BY DEFINITION - fee * block_ms /
+            // period_ms on this runner's ten-second blocks - not read off a query
+            // between blocks: outstanding() reads latest_block_time(), and between two
+            // cancels this runner reports it one block ahead of the charge the
+            // operations made (the mutant below reddens on the charges, not on a read).
+            assert_equals(step, fee * 10000 / main.MIN_PERIOD_MS);
             // TEN UNITS - one per second of this runner's ten-second blocks - where round
             // 14 measured 2778 on the configuration refused above.
             assert_equals(step, 10);

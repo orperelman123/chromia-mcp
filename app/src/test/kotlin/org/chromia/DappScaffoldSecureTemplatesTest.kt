@@ -371,8 +371,14 @@ class DappScaffoldSecureTemplatesTest {
         // cross-chain token bridge" was answered "Use `template=ft4`: it ships the
         // conservation ... invariant tests" with no warning at all - and the build
         // that followed that answer lost ten times its backing.
+        // "bridge" itself is the thirteenth template now: it is scaffolded, not redirected.
+        run {
+            val out = DappScaffold.toJson("x", template = "bridge")
+            assertEquals("bridge", out.getValue("template").toString().trim('"'), "template=bridge must resolve to the bridge template")
+            assertEquals("[]", out.getValue("warnings").toString(), "a valid template name is not an unknown template")
+        }
         listOf(
-            "bridge", "a cross-chain token bridge", "crosschain", "wrapped asset",
+            "a cross-chain token bridge", "crosschain", "wrapped asset",
             "relayer attestation receiver", "mint on proof of a burn on another chain"
         ).forEach { asked ->
             val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
@@ -1898,7 +1904,8 @@ class DappScaffoldSecureTemplatesTest {
         // THE THRESHOLD IS CROSSED ONCE: equality against a counter that rises by
         // one per distinct relayer. No minted flag to test and none to forget.
         assertTrue(code.contains("if (voices == relayer_threshold()) {"), "the threshold must be crossed by equality, once")
-        assertFalse(code.contains("mutable minted"), "a minted flag is a check; the counter is the guard")
+        assertFalse(Regex("mutable minted\\s*:\\s*boolean").containsMatchIn(code), "a minted flag is a check; the counter is the guard")
+        assertFalse(code.contains("minted = true"), "a minted flag is a check; the counter is the guard")
         // THE RELAYER SET IS CONFIGURATION: enrolled by the configured operator key,
         // shut before anything is attested, and no operation names its own signer.
         assertEquals(
@@ -4217,12 +4224,11 @@ class DappScaffoldSecureTemplatesTest {
      * 5000 and 250000 against one burn.
      */
     @Test
-    fun bridgeR14ReplayGoesRedWhenTheKeyCarriesWhatTheBurnPays() = assertGuardMutationRedensExploitTest(
+    fun bridgeR14ReplayGoesRedWhenAnAttestationIsNotHeldToTheBurnItOpened() = assertGuardMutationRedensExploitTest(
         "bridge",
-        "    key source_chain: byte_array, source_tx: byte_array, log_index: integer;\n" +
-            "    recipient: byte_array;\n" +
-            "    amount: integer;",
-        "    key source_chain: byte_array, source_tx: byte_array, log_index: integer, recipient: byte_array, amount: integer;",
+        "                require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
+            "                require(opened.amount == amount, \"this burn was opened for a different amount\");",
+        "",
         "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
         "this burn was opened for a different recipient",
         attackLanded
