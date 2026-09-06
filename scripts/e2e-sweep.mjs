@@ -73,12 +73,28 @@ async function httpSend(s, body, t = 90000) {
     accept: 'application/json, text/event-stream',
   };
   if (s.sessionId) headers['mcp-session-id'] = s.sessionId;
+  // One immediate retry on a CONNECTION-level failure, and only that.
+  //
+  // SSE keeps one long-lived connection, so the rest of the sweep only meets
+  // this on a genuine drop and check() reconnects. Streamable HTTP makes a
+  // request per call, so it also meets the ordinary keep-alive race: the pool
+  // hands out a socket the server has already closed and the send fails before
+  // it is written. That is not the server answering wrongly - nothing was
+  // answered - and it hit the coverage gate, which (unlike every other check)
+  // treats a thrown error as an immediate FAIL with no retry (2026-09-06: 15
+  // help tools in a row, while the server log showed the first of them served
+  // ok=true). A second attempt opens a fresh socket. An HTTP status, a
+  // JSON-RPC error and a timeout are all untouched and still propagate.
   let res;
-  try {
-    res = await fetch(MCP_URL, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(t) });
-  } catch (e) {
-    // Match the SSE path's retryable vocabulary so check() reconnects and retries.
-    throw new Error(e.name === 'TimeoutError' ? 'timeout' : `fetch failed: ${e.message}`);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(MCP_URL, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(t) });
+      break;
+    } catch (e) {
+      if (e.name === 'TimeoutError') throw new Error('timeout');
+      // Match the SSE path's retryable vocabulary so check() reconnects and retries.
+      if (attempt >= 1) throw new Error(`fetch failed: ${e.message}`);
+    }
   }
   const minted = res.headers.get('mcp-session-id');
   if (minted) s.sessionId = minted;
