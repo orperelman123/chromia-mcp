@@ -126,9 +126,14 @@ class DappScaffoldSecureTemplatesTest {
         assertEquals("staking", DappScaffold.toJson("yield", template = "staking").getValue("template").toString().trim('"'))
         assertEquals("marketplace", DappScaffold.toJson("bazaar", template = "marketplace").getValue("template").toString().trim('"'))
         assertEquals("lending", DappScaffold.toJson("pool", template = "lending").getValue("template").toString().trim('"'))
+        // AUDIT F6 (2026-09-06): an unknown name no longer gets `hello` code for
+        // somebody else's problem - it scaffolds the CLOSEST shipped template,
+        // the one this very warning names. 18 of 18 guessed names used to come
+        // back as "template":"hello" with the query-only skeleton attached.
         val unknown = DappScaffold.toJson("x", template = "dao")
-        assertEquals("hello", unknown.getValue("template").toString().trim('"'))
+        assertEquals("governance", unknown.getValue("template").toString().trim('"'))
         assertTrue(unknown.getValue("warnings").toString().contains("governance, vault, staking"), "unknown-template warning must list the new templates")
+        assertTrue(unknown.getValue("warnings").toString().contains("CLOSEST shipped template"), unknown.getValue("warnings").toString())
         // The notes steer staking / rewards / vesting builders to the template and
         // say in one place how module_args are passed (the round-4 stall).
         val notes = DappScaffold.notes("yield")

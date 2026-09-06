@@ -68,7 +68,7 @@ open class RagStore(
      */
     val localEmbeddingsPath: Path =
         if (loadFromRegistry) resolveRuntimeEmbeddingsPath() else resolveLocalEmbeddingsPath(),
-    registryLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? = null,
+    private val registryLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? = null,
     val embeddingModel: EmbeddingModel? = null,
     /** Where a downloaded index is kept between runs; null = download every boot, keep nothing. Unused with [registryLoader]. */
     val cacheEmbeddingsPath: Path? = resolveCacheEmbeddingsPath()
@@ -570,8 +570,9 @@ open class RagStore(
             Duration.between(localGeneratedAt, Instant.now()) <= STALE_AFTER
         if (localIsFresh) loadLocal()?.let { return it }
 
-        val remote = if (registryLoader != null) {
-            registryLoader()?.let {
+        val loader = registryLoader
+        val remote = if (loader != null) {
+            loader()?.let {
                 LoadedEmbeddings(it, Provenance(describeRemote("injected loader"), null, embeddingStoreSegments(it).size))
             }
         } else {
