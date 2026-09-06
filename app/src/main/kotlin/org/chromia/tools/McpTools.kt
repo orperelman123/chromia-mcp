@@ -2105,38 +2105,11 @@ object McpTools {
               still_refused          - something else refused the attack (another require, a
                                        second guard, a module_args bound). Name it in alsoRemove
                                        if it is defence in depth, else the test measures a
-                                       different guard. A refusal is the GUARD'S OWN when the
-                                       runner's frame - [module:declaration(file:line)] - names
-                                       the declaration the guard sits in, MODULE INCLUDED, or
-                                       (guard in a function) any operation or query that reaches
-                                       it through your own call graph; and when it came from the
-                                       FIRST statement of the test that invokes that declaration.
-                                       A refusal by any other declaration, by the same one in a
-                                       LATER statement, or a test-side failure, is the damage
-                                       being noticed and counts as load_bearing.
-                                       An error with NO frame is never an operation (a refusing
-                                       operation always carries one): it is the test module or a
-                                       QUERY, and which one is read off the string literals each
-                                       owns - so a query whose own second guard refuses is
-                                       still_refused, while a rell.test assert_* or a test-side
-                                       require is the damage being measured.
-                                       When the frame names the guard's declaration and the test
-                                       invokes it more than once, the tool CUTS the test after
-                                       the first such statement and runs the mutant again
-                                       (DIFFERENTIAL TRUNCATION): still refused there means the
-                                       attack was refused; passing there means it landed.
-              ambiguous_refusal      - the mutant went red and the tool CANNOT SAY which of the
-                                       two it is: a frame-less error whose words BOTH the test
-                                       module and a production query the test invokes can
-                                       produce (or that neither can), or a repeated invocation
-                                       whose first call cannot be located exactly - a loop, or a
-                                       helper with several call sites - so the truncated re-run
-                                       would not measure the attack. Never proven, and never a
-                                       reason to weaken the test - the evidence text says what
-                                       to add (an assertion on the state the attack changes, a
-                                       run_must_fail on the attack, distinct wording for the two
-                                       messages, or one call to the declaration instead of
-                                       several).
+                                       different guard.
+              ambiguous_refusal      - the mutant went red and the tool WILL NOT GUESS whether
+                                       that red is the attack being refused or the damage being
+                                       noticed. Never proven, and never a reason to weaken the
+                                       test: the evidence names the shape to write.
               environmental          - the mutant is not a running dapp (compile error, missing
                                        module_args). A failure for that reason proves nothing.
               red_for_another_reason - red, but not the attack; read the error before counting it.
@@ -2148,6 +2121,21 @@ object McpTools {
               also_remove_overlaps_guard - an alsoRemove entry contains (or is contained by) the
                                        guard; the two must be disjoint or the control run strips
                                        the guard itself.
+            WRITE THE TEST IN ONE OF TWO SHAPES - these are what the tool can prove, and both
+            require the test to invoke the guard's declaration (the declaration it sits in, or,
+            for a guard in a function, any operation or query that reaches it through your call
+            graph including @extend) in EXACTLY ONE top-level statement, directly or through one
+            test-module helper. SHAPE A, the must-fail test: that statement is a single-operation
+            rell.test.tx().op(<that declaration>(...)).run_must_fail(...), and the guard is proven
+            only when removing it makes the transaction SUCCEED ("did not fail") - any other red
+            is the attack still being refused. SHAPE B, the must-hold test: that statement expects
+            the call to SUCCEED (a single-operation .run(), or a direct call to the query) and the
+            damage is measured AFTER it - a rell.test assert_* failure, or a later transaction
+            refusing, is the guard being load-bearing, while a refusal from the guard's own
+            declaration is the attack being refused. Anything else - a loop or a table, several
+            invoking statements, a transaction carrying more than that one operation, a helper
+            with several call sites - is `ambiguous_refusal`, because "which invocation refused"
+            is then a question nothing in the run answers.
             A replacement's own require() messages count as refusals exactly like the guard's.
             ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass
             to run_rell_tests. Nothing is deployed; sources run in a temp directory and are
