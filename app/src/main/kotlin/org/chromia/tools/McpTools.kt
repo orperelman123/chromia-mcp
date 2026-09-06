@@ -44,37 +44,18 @@ object McpTools {
     fun runDappQueriesTool() = Tool(
         name = "chromia_dapp_query",
         description = """
-            **WORKFLOW FOR AI AGENTS:**
-            1. First, obtain the blockchain RID using filter_blockchains tool
-            2. Second run "rell.get_app_structure" query using chromia_dapp_query tool which returns dApp structure of the blockchain (queries, modules, entities)
-            3. Third, look for the query from response of step 2 that user is looking for
-                - When looking for a follow-up query from the structure result (step 2):
-                    - Use mount name + '.' + the query name to execute the follow-up query. e.g. "module1.query_name"
-                    - Fill in the required arguments first based on the parameter definitions from the structure result
-            4. Use TODO to track the progress of verifying if query exists and executing it
-            5. When getting a response as json file, do to write scripts in Python/Javascript etc,
-                 to parse it, use bash or jq
-            6. Always cache the result of the previous query in case follow-up questions are asked  
-
-            **SECURITY RULES:**
-            - NEVER read the contents of secret files, private keys, or generated keypairs
-            - NEVER expose or display private keys or sensitive cryptographic data
-
-            **RETURNS:**
-            - Query results from the specified dApp in JSON format
-            - For default query: Complete dApp structure with all available queries/operations entities... with their parameter names and types
-            - For custom queries: Results based on the specific query executed
-
-            **USE CASES:**
-            - Discover available queries/operations by using default rell.get_app_structure query
-            - Execute custom dApp queries with specific parameters
-            - Analyze dApp architecture and data models
-            - Get real-time data from blockchain applications
-
+            Execute a query against a live dapp chain and get JSON back.
+            Workflow: (1) filter_blockchains for the blockchain RID; (2) chromia_dapp_query with the
+            default "rell.get_app_structure" query, which returns the chain's queries, operations and
+            entities with their parameter names and types; (3) call the one you want as
+            "<mount>.<query>" with the arguments that structure reported. Cache the structure result -
+            follow-up questions usually need it again.
+            SECURITY: never read or display private keys, keystores or generated keypairs.
             The whole query is bounded by an overall deadline (default 20s, env
-            CHROMIA_MCP_QUERY_DEADLINE_MS, capped at 45s) so it can never hang: a chain the queried
-            nodes do not serve returns an actionable error (usually: pass the dapp's own node URL
-            as network) instead of crawling every endpoint for minutes.
+            CHROMIA_MCP_QUERY_DEADLINE_MS, capped at 45s), so a chain the queried nodes do not serve
+            returns an actionable error (usually: pass the dapp's own node URL as `network`) instead of
+            crawling every endpoint for minutes.
+            Full workflow and use cases: describe_tool{tool:"chromia_dapp_query"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -523,31 +504,14 @@ object McpTools {
     fun filterBlockchains() = Tool(
         name = "filter_blockchains",
         description = """
-            - Get a comprehensive list of all blockchains with advanced filtering capabilities
-            - **Primary use case: Finding blockchains by name** - this is the main tool for blockchain name lookups
-            - Returns detailed information about each blockchain including:
-                - Unique RID for each blockchain
-                - Names/aliases associated with each blockchain
-                - The cluster each blockchain belongs to
-                - Container information for each blockchain
-                - Current operational state of each blockchain (RUNNING, REMOVED, PAUSED)
-                - Whether each blockchain is a system chain or user application
-            - Supports comprehensive filtering options:
-                - **Filter by name**: Find blockchains by exact or partial name match (main feature)
-                - Filter by RID: Find specific blockchain by its RID
-                - Filter by cluster: Find blockchains in specific clusters (e.g., 'pink', 'system')
-                - Filter by container: Find blockchains in specific containers
-                - Filter by state: Find blockchains by operational state (RUNNING, REMOVED, PAUSED)
-                - Filter by system status: Find system chains vs user applications
-                - Pagination support: limit and offset for large result sets
-                - Sorting options: sortBy and sortDirection for ordered results
-            - This tool is essential for:
-                - **Finding blockchains by name** (primary use case)
-                - Getting an overview of all blockchains in the system
-                - Comparing deployment environments across blockchains
-                - Identifying system chains vs user applications
-                - Checking the operational status of blockchains
-                - Discovering blockchains in specific clusters or containers
+            The primary tool for blockchain NAME lookups: list blockchains with filtering by name (exact
+            or partial), RID, cluster, container, operational state (RUNNING, REMOVED, PAUSED) and
+            system-chain vs user-application, with limit/offset paging and sortBy/sortDirection.
+            Each row carries the blockchain's RID, its names/aliases, its cluster, its container, its
+            state and whether it is a system chain.
+            Use it to get the RID before chromia_dapp_query, to survey deployment environments, or to
+            check a chain's operational status.
+            Full field and filter list: describe_tool{tool:"filter_blockchains"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -987,27 +951,14 @@ object McpTools {
     fun getChrAggregatesTool() = Tool(
         name = "get_chr_aggregates",
         description = """
-            - Get CHR token deposit and withdrawal aggregates with detailed breakdown
-            - Returns comprehensive CHR token flow information including:
-                - Grouped deposits by address and network ID with totals
-                - Grouped withdrawals by address and network ID with totals
-                - Overall totals for deposits and withdrawals
-            - RESPONSE SIZE: by default the response is summarized - the grouped
-              deposit/withdrawal arrays are capped at the first 50 entries each, with a
-              `note` field saying how many entries were omitted. Pass full:true for the
-              complete, uncapped response (can be hundreds of KB).
-            - Supports flexible data inclusion options:
-                - Include/exclude total summaries (depositsTotal, withdrawalsTotal)
-                - Include/exclude grouped deposit details by address and network
-                - Include/exclude grouped withdrawal details by address and network
-            - This tool is useful for:
-                - Analyzing CHR token flow patterns across networks
-                - Monitoring deposit and withdrawal activities
-                - Understanding CHR distribution across different addresses
-                - Tracking cross-network CHR movements
-                - Financial analysis and reporting of CHR token usage
-                - Identifying major CHR holders and their activity patterns
-                - Compliance and auditing of CHR token movements
+            CHR token deposit and withdrawal aggregates: deposits and withdrawals grouped by address and
+            network id with per-group totals, plus overall depositsTotal / withdrawalsTotal - each part
+            can be included or excluded.
+            RESPONSE SIZE: by default the grouped arrays are capped at the first 50 entries each, with a
+            `note` field saying how many entries were omitted. Pass full:true for the complete,
+            uncapped response (can be hundreds of KB).
+            Useful for CHR flow analysis, cross-network movement, major-holder activity and auditing.
+            Full option list: describe_tool{tool:"get_chr_aggregates"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -1548,52 +1499,13 @@ object McpTools {
         description = """
             Return a production-correct new Chromia dapp skeleton (chromia.yml, src/main.rell, test).
             Pins: Rell ${DappScaffold.RELL_VERSION}, merkle_hash_version 2, FT4 v1.1.0r API 1, Chromia CLI 0.33.x.
-            Templates: 'hello' (default, query-only quickstart) or 'ft4' - the golden FT4 template:
-            accounts + auth handlers, operations showing the full authenticate -> authorize ->
-            validate -> check-invariants pattern (including an explicit ownership check and a
-            Transfer-flag-scoped value move), plus RUNNABLE invariant tests (conservation,
-            no-negative-balance, non-owner-must-fail) that execute via run_rell_tests - copy
-            them for the app's own invariants. Also module_args, libs block, and a TypeScript
-            client example. FT4 imports compile after `chr install`.
-            Building a DAO / treasury: use 'governance' - quorum, a fixed voting window,
-            stake-weighted votes and execute-once are structural, and its shipped tests replay
-            the single-account treasury drain and require it to fail. Building an exchange,
-            vault or anything priced by an oracle: use 'vault' - every credit is a reserve
-            debit in the same operation, price posts are bounded and rate-limited, a stale
-            price halts trading, and its tests replay the 100 -> 200,000,000 mint and require
-            it to fail (its oracle key is a module arg: see the notes). Building staking, yield,
-            rewards or farming emissions - a share of a REWARD POOL that many stakers split: use
-            'staking' - rewards come only from a sponsor-funded pool, the clock releases at most
-            what the pool holds, every credit is a pool debit in the same operation, unstaking has
-            a cooldown, and its tests replay the round-4 stake-times-elapsed mint from an empty
-            pool and require it to fail.
-            Building an NFT marketplace, a listing board or anything with a buy button and creator
-            royalties: use 'marketplace' - a buy names the EXACT price it agreed to and the listing
-            row is immutable (so the round-5 max_price sandwich cannot be written), offers escrow the
-            bidder's points and settle atomically, and the royalty's off-market bypass is DOCUMENTED
-            in the template header with a shipped test asserting it still works.
-            Building a lending pool, a credit line or a money market - anything where depositors hold
-            a SHARE of a pool whose value moves: use 'lending' - it stores NO cash-denominated debt
-            anywhere (positions and the pool carry scaled_debt in index units, the cash figures exist
-            only inside a pool_state, pool_now() is the only function that makes one, and every
-            pricing helper takes one), so the round-6 just-in-time interest capture - deposit at a
-            share price stale between a borrower's touches, exit one block later, 10000 in and 11500
-            out with nothing minted - cannot be written. It keeps the vault's bounded oracle (its
-            key is a module arg: see the notes), over-collateralisation, a liquidation threshold with
-            a close factor and bonus, and the minimum-first-deposit guard that kills ERC-4626 share
-            inflation, and its tests replay the round-6 drain and require it to be refused.
-            Building a payment stream, payroll, a subscription, a vesting grant or a drip - any
-            payout METERED BY THE CLOCK to one named beneficiary: use 'streaming' - NO OPERATION IN
-            IT WRITES A TIMESTAMP, so the round-7 grief cannot be written: started_at is written
-            once by the create and is not mutable, the entitlement is a pure function of that
-            immutable start and an immutable rate less a MONOTONE released total, and every other
-            term is immutable too, so a stranger settling faster than one whole unit of entitlement
-            (which released ZERO and still advanced the anchor in round 7, grinding the payee's
-            income to nothing while the payer kept 100% of the escrow) is now a no-op. The stream
-            is PREPAID, cancellation pays the payee everything accrued BEFORE refunding the payer
-            the unearned remainder, and `cancellable` is fixed at creation so a vesting grant
-            cannot be clawed back. Its tests replay the round-7 grind and require the payee to be
-            paid what the clock says anyway.
+            Pick the template by the EXPLOIT CLASS of what you are building - the `template` enum lists
+            every one. 'hello' is the query-only quickstart; 'ft4' is the golden accounts template with
+            the full authenticate -> authorize -> validate -> check-invariants pattern and runnable
+            conservation / overdraft / non-owner-must-fail tests. Every other template is hardened
+            against one named drain and ships the must-fail test that replays it.
+            Which template refuses which attack, and what each one leaves as a module arg:
+            describe_tool{tool:"scaffold_dapp"} or chromia_help{topic:"scaffold_dapp"}.
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
@@ -1670,20 +1582,17 @@ object McpTools {
     fun validateChromiaYmlTool() = Tool(
         name = "validate_chromia_yml",
         description = """
-            Validate a chromia.yml string against production pins.
-            Checks compile.rellVersion (semver N.N.N), blockchains.*.module (module name, not a file path),
-            merkle_hash_version == 2, blockchain key webStatic is accepted, and forbids FT4 admin / ras_open modules
-            in libs and code; moduleArgs KEYS naming admin modules (e.g. lib.ft4.core.admin for admin_pubkey) are
-            legitimate configuration and are NOT flagged.
-            MISSING production pins (compile.rellVersion, merkle_hash_version) are warnings by default - chr builds
-            official configs that omit them; pass strict:true to make missing pins errors. A rellVersion newer than
-            the CLI-bundled compiler or a present-but-wrong merkle value is always an error.
-            Deployments: reserved names mainnet / testnet auto-fill Directory brid + url; custom names require both;
-            a Directory Chain BRID that is not 64 hex is an error; official reserved BRIDs must match.
-            require_mandatory_flags as a YAML / moduleArgs key is an error (main auth descriptor only).
-            Warns if a chain config lacks merkle_hash_version while others set it, deployments.*.container is missing,
-            or libs.*.insecure is true (skips RID check; not for production).
+            Validate a chromia.yml string against production pins. Checks compile.rellVersion (semver
+            N.N.N), blockchains.*.module (a module name, not a file path), merkle_hash_version == 2, the
+            accepted webStatic key, and forbids FT4 admin / ras_open modules in libs and code.
+            MISSING pins are warnings by default - chr builds official configs that omit them; pass
+            strict:true to make them errors. A rellVersion newer than the CLI-bundled compiler, or a
+            present-but-wrong merkle value, is always an error.
+            Deployments: reserved names mainnet / testnet auto-fill the Directory brid + url; custom
+            names require both, and a Directory Chain BRID that is not 64 hex is an error.
             Returns structured {ok, errors[], warnings[]}. Does not run chr or send signed transactions.
+            Every rule and warning, including moduleArgs key handling:
+            describe_tool{tool:"validate_chromia_yml"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -1810,6 +1719,12 @@ object McpTools {
         "chr_library_help", "chr_create_rell_dapp_help"
     )
 
+    /**
+     * Topics the chromia_help gateway answers: the static help tools plus the
+     * long-form tool guidance F9 moved out of `tools/list` ([ToolDocs.TOPICS]).
+     */
+    val HELP_TOPIC_NAMES: Set<String> get() = HELP_TOOL_NAMES + ToolDocs.TOPICS
+
     fun chromiaHelpTool() = Tool(
         name = "chromia_help",
         description = """
@@ -1817,9 +1732,13 @@ object McpTools {
             query, repl, keys, library, completion, seeder, eif, multisig, client generation,
             create-rell-dapp), chromia.yml definitions and docs config, project structure, vault
             leases, the Rell language (types, expressions, statements, database ops, system library,
-            best practices), FT4 queries, integrations, vector search, and the cookbook.
-            Call with no arguments to list all topics; call with a topic to get that payload.
-            The same content as the individual *_help tools, through one schema.
+            best practices), FT4 queries, integrations, vector search, and the cookbook - plus the
+            long-form guidance of the security tools (scaffold_dapp, verify_guards,
+            rell_security_check, ...) as a topic under the tool's own name.
+            No arguments lists the topics. A topic returns that topic's TABLE OF CONTENTS - the
+            section names with their byte cost - because one help payload can cost more context
+            than the whole tool catalog. Add `section` for that section, or section:"all" for the
+            entire payload (the same bytes the individual *_help tool returns).
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -1827,8 +1746,14 @@ object McpTools {
                     "topic" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Help topic, e.g. 'chr_deploy_help' (or 'chr_deploy'). Aliases: 'security', 'best_practices' and 'best-practices' map to chromia_rell_practices_help. Omit to get the full topic list."),
-                            "enum" to kotlinx.serialization.json.JsonArray(HELP_TOOL_NAMES.sorted().map { JsonPrimitive(it) })
+                            "description" to JsonPrimitive("Help topic, e.g. 'chr_deploy_help' (or 'chr_deploy'), or a tool name such as 'verify_guards' for that tool's full description. Aliases: 'security', 'best_practices' and 'best-practices' map to chromia_rell_practices_help. Omit to get the full topic list."),
+                            "enum" to kotlinx.serialization.json.JsonArray(HELP_TOPIC_NAMES.sorted().map { JsonPrimitive(it) })
+                        )
+                    ),
+                    "section" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("One section name from the topic's table of contents (dotted for a nested one, e.g. 'commands.deployment'), or \"all\" for the whole payload. Omit to get the table of contents with each section's byte cost.")
                         )
                     )
                 )
@@ -1836,6 +1761,41 @@ object McpTools {
             required = listOf()
         ),
         title = "Chromia help catalog",
+        annotations = null,
+        outputSchema = null
+    )
+
+    fun describeToolTool() = Tool(
+        name = "describe_tool",
+        description = """
+            The FULL description and input schema of any tool on this server, by name.
+            `tools/list` advertises a short form so the catalog fits an agent's context (audit F9:
+            the full catalog cost ~29k tokens before the first useful call), and compact mode
+            (CHROMIA_MCP_COMPACT_TOOLS=true) advertises headlines only. Nothing was deleted - the
+            long form of scaffold_dapp, verify_guards, rell_security_check, deploy_testnet_chain
+            and the rest is returned here verbatim, and also as chromia_help{topic:"<tool>"}.
+            Call it with no arguments for the list of tool names.
+        """.trimIndent(),
+        inputSchema = ToolSchema(
+            properties = JsonObject(
+                mapOf(
+                    "tool" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Tool name, e.g. 'scaffold_dapp'. Omit to list every tool name this deployment implements.")
+                        )
+                    ),
+                    "includeSchema" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive("Include the full inputSchema and outputSchema (default true). Pass false for the prose only.")
+                        )
+                    )
+                )
+            ),
+            required = listOf()
+        ),
+        title = "Describe a tool",
         annotations = null,
         outputSchema = null
     )
@@ -1900,29 +1860,20 @@ object McpTools {
     fun runRellTestsTool() = Tool(
         name = "run_rell_tests",
         description = """
-            Execute Rell tests in-process with the embedded Rell test runner (same engine the
-            Chromia CLI wraps) and return per-case pass/fail results - no chr installation needed.
-            This is step 3 of the agent verification loop:
-            1. rell_check - the code compiles
-            2. rell_security_check - the code is secure
-            3. run_rell_tests - the code behaves correctly
-            4. verify_guards - every guard you rely on is LOAD-BEARING: its must-fail test
-               goes red without it, because the attack lands. A must-fail test that passes
-               with the guard and still passes without it is a fake green; step 4 is what
-               catches that, and it is what this server's own templates are held to.
-            Pass `files` including at least one file starting with `@test module;` whose test
-            functions are named test_*. Tests that touch entities/database need PostgreSQL via the
-            CHROMIA_TEST_DATABASE_URL env var on the server; pure-logic tests run without it.
-            Happy-path tests are not enough: for any dapp that holds value, also ship INVARIANT
-            tests - conservation (a transfer never changes the total), no-negative-balance
-            (overdraft must abort), and authorization (a NON-owner's attempt must fail via
-            rell.test.tx()...run_must_fail("message")). scaffold_dapp template=ft4 ships runnable
-            examples of all three to copy; template=governance and template=vault ship the
-            adversary's DAO drain and oracle mint as must-fail tests - copy those for your own
-            exploit-must-fail cases.
-            Chasing one red case? Pass `tests` (same as `chr test --tests`) to run only the
-            matching functions instead of the whole suite.
-            Nothing is deployed; sources run in a temp directory and are deleted afterwards.
+            Execute Rell tests in-process with the embedded Rell test runner (same engine the Chromia
+            CLI wraps) and return per-case pass/fail results - no chr installation needed.
+            Step 3 of the agent verification loop: rell_check (it compiles) -> rell_security_check (it
+            is secure) -> run_rell_tests (it behaves) -> verify_guards (every guard you rely on is
+            LOAD-BEARING, i.e. its must-fail test goes red without it because the attack lands).
+            Pass `files` including at least one file starting with `@test module;` whose test functions
+            are named test_*. Tests that touch entities/database need PostgreSQL via
+            CHROMIA_TEST_DATABASE_URL on the server; pure-logic tests run without it.
+            Happy-path tests are not enough: for any dapp that holds value also ship INVARIANT tests -
+            conservation, no-negative-balance, and authorization via
+            rell.test.tx()...run_must_fail("message"). scaffold_dapp ships runnable examples to copy.
+            Chasing one red case? Pass `tests` (same as `chr test --tests`) to run only the matching
+            functions. Nothing is deployed; sources run in a temp directory and are deleted afterwards.
+            Full guidance: describe_tool{tool:"run_rell_tests"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -1995,26 +1946,20 @@ object McpTools {
     fun localChainUpTool() = Tool(
         name = "local_chain_up",
         description = """
-            Stand up a REAL local Chromia chain from Rell sources - in-process, zero keys, zero
-            funds, zero human steps. Compiles the sources into a blockchain configuration and runs
-            it on the embedded Postchain engine (the same engine `chr node start` wraps) against
-            the server's PostgreSQL, then serves a subset of the Postchain REST API on 127.0.0.1:
-            GET /brid/iid_0, GET+POST /query/{brid}, POST /query_gtv/{brid}, POST /tx/{brid}, and
-            GET /tx/{brid}/{txRid}/status - block and confirmation-proof endpoints are NOT served.
-            This is the last step of the agent loop: rell_check (compiles) -> rell_security_check
-            (secure) -> run_rell_tests (tests pass) -> verify_guards (the guards those tests
-            claim to prove are load-bearing) -> local_chain_up (runs against a live chain).
-            Returns the BRID and apiUrl; then query with
-            POST {apiUrl}/query/{brid} {"type":"<query>", ...args} (start with type=rell.get_app_structure),
-            and submit transactions with any postchain client against apiUrl + BRID, signed with the
-            public Chromia CLI dev key (privkey 42 repeated 32 times - local only, never a secret).
-            actions: "up" (default; requires `files`), "status", "down".
-            Bounded by design: one chain at a time, auto-stops after ttlSeconds (default 1800, max
-            7200), runs in a dedicated PostgreSQL schema that is wiped on every start. Calling up
-            again with identical inputs returns the running chain (TTL refreshed); a change to the
-            sources, moduleArgs, or databaseUrl restarts it. Needs PostgreSQL via
-            CHROMIA_TEST_DATABASE_URL on the server (or
-            `databaseUrl`); @test modules are excluded from the chain like `chr build`.
+            Stand up a REAL local Chromia chain from Rell sources - in-process, zero keys, zero funds,
+            zero human steps. Compiles the sources into a blockchain configuration, runs it on the
+            embedded Postchain engine against the server's PostgreSQL, and then
+            serves a subset of the Postchain REST API on 127.0.0.1:
+            GET /brid/iid_0, GET+POST /query/{brid}, POST /query_gtv/{brid}, POST /tx/{brid},
+            and GET /tx/{brid}/{txRid}/status - block and confirmation-proof endpoints are NOT served.
+            Last step of the agent loop: rell_check -> rell_security_check -> run_rell_tests ->
+            verify_guards -> local_chain_up. Returns the BRID and apiUrl.
+            actions: "up" (default; requires `files`), "status", "down". One chain at a time, auto-stops
+            after ttlSeconds, in a dedicated PostgreSQL schema wiped on every start; calling up again
+            with identical inputs returns the running chain, and a change to the sources,
+            moduleArgs, or databaseUrl restarts it.
+            Needs PostgreSQL via CHROMIA_TEST_DATABASE_URL (or `databaseUrl`).
+            How to query it and submit transactions: describe_tool{tool:"local_chain_up"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -2088,59 +2033,21 @@ object McpTools {
     fun verifyGuardsTool() = Tool(
         name = "verify_guards",
         description = """
-            Prove that a guard in YOUR dapp is load-bearing - the discipline every shipped template
-            is held to, run on your own code. A must-fail test is only evidence if it goes red when
-            the guard it depends on is removed, and goes red BECAUSE THE ATTACK LANDED. A test that
-            passes with the guard and still passes without it is a fake green with a security label
-            on it - one was written by this server's own maintainers and only a mutant caught it.
-            For each {guard, test} you name: (1) the test must PASS on your files as submitted
-            (otherwise `baseline_red`: it proves nothing in either state); (2) the guard line is
-            replaced (default: deleted) and ONLY that test is run; (3) the verdict is read from WHY
-            it failed. Verdicts per guard:
-              load_bearing           - the test failed because the attack landed (run_must_fail
-                                       reports the transaction "did not fail", or the test's own
-                                       conservation / payout assertion tripped)
-              vacuous                - the test stayed green with the guard gone: it does not
-                                       exercise the guard. Make the test drive the attack.
-              still_refused          - something else refused the attack (another require, a
-                                       second guard, a module_args bound). Name it in alsoRemove
-                                       if it is defence in depth, else the test measures a
-                                       different guard.
-              ambiguous_refusal      - the mutant went red and the tool WILL NOT GUESS whether
-                                       that red is the attack being refused or the damage being
-                                       noticed. Never proven, and never a reason to weaken the
-                                       test: the evidence names the shape to write.
-              environmental          - the mutant is not a running dapp (compile error, missing
-                                       module_args). A failure for that reason proves nothing.
-              red_for_another_reason - red, but not the attack; read the error before counting it.
-              baseline_red / guard_not_found / guard_ambiguous / test_not_found - the inputs
-                                       cannot be verified yet.
-              replacement_rejected   - the replacement would change code OUTSIDE the guard's span
-                                       (it opens or closes a comment or a string). A mutation may
-                                       alter only the line it names.
-              also_remove_overlaps_guard - an alsoRemove entry contains (or is contained by) the
-                                       guard; the two must be disjoint or the control run strips
-                                       the guard itself.
-            WRITE THE TEST IN ONE OF TWO SHAPES - these are what the tool can prove, and both
-            require the test to invoke the guard's declaration (the declaration it sits in, or,
-            for a guard in a function, any operation or query that reaches it through your call
-            graph including @extend) in EXACTLY ONE top-level statement, directly or through one
-            test-module helper. SHAPE A, the must-fail test: that statement is a single-operation
-            rell.test.tx().op(<that declaration>(...)).run_must_fail(...), and the guard is proven
-            only when removing it makes the transaction SUCCEED ("did not fail") - any other red
-            is the attack still being refused. SHAPE B, the must-hold test: that statement expects
-            the call to SUCCEED (a single-operation .run(), or a direct call to the query) and the
-            damage is measured AFTER it - a rell.test assert_* failure, or a later transaction
-            refusing, is the guard being load-bearing, while a refusal from the guard's own
-            declaration is the attack being refused. Anything else - a loop or a table, several
-            invoking statements, a transaction carrying more than that one operation, a helper
-            with several call sites - is `ambiguous_refusal`, because "which invocation refused"
-            is then a question nothing in the run answers.
-            A replacement's own require() messages count as refusals exactly like the guard's.
-            ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass
-            to run_rell_tests. Nothing is deployed; sources run in a temp directory and are
-            deleted afterwards. This does not replace an audit and says nothing about guards you
-            did not name - it makes the guards you DID name real evidence instead of a claim.
+            Prove that a guard in YOUR dapp is load-bearing - the discipline every shipped template is
+            held to, run on your own code. A must-fail test is only evidence if it goes red when the
+            guard it depends on is removed, and goes red BECAUSE THE ATTACK LANDED. A test that passes
+            with the guard and still passes without it is a fake green with a security label on it.
+            For each {guard, test} you name: (1) the test must PASS on your files as submitted; (2) the
+            guard line is replaced (default: deleted) and ONLY that test is run; (3) the verdict is read
+            from WHY it failed. Verdicts: load_bearing, vacuous, still_refused, ambiguous_refusal,
+            environmental, red_for_another_reason, baseline_red, guard_not_found, guard_ambiguous,
+            test_not_found, replacement_rejected, also_remove_overlaps_guard.
+            ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass to
+            run_rell_tests. Nothing is deployed and it says nothing about guards you did not name.
+            The tool proves exactly TWO test shapes - one must-fail statement on the guard's
+            declaration, or one must-hold statement plus an assertion - and answers
+            ambiguous_refusal for any other shape. What each verdict means and the two shapes in
+            full: describe_tool{tool:"verify_guards"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -2203,52 +2110,20 @@ object McpTools {
     fun rellSecurityCheckTool() = Tool(
         name = "rell_security_check",
         description = """
-            Static security review of Rell code, run after a successful compile (compiles first via
-            the embedded Rell compiler; uncompilable code returns the compile errors instead).
-            Checks the production security rules for Chromia dApps:
-            - CRITICAL: banned admin modules (lib.ft4.admin, admin.crosschain) and open
-              registration/transfer strategies (ras_open, ras_transfer_open)
-            - HIGH: operations that create/update/delete state without any auth check
-              (ft4 auth.authenticate, op_context.is_signer, signer require)
-            - HIGH: authenticated operations that debit/delete rows selected by a caller-supplied
-              account parameter never bound to the authenticated identity (confused deputy:
-              anyone drains anyone)
-            - HIGH: is_signer(<param>) gates where the caller supplies the very key being checked
-              and the parameter is used nowhere else (a phantom admin gate)
-            - HIGH: update/delete @* {} with an empty where-clause (hits every row)
-            - HIGH: hardcoded 64+ char hex literals that look like key material
-            - MEDIUM: value-moving operations when every registered auth handler has flags = []
-              (FT4 contains_all([]) is always true, so limited session keys can spend)
-            - MEDIUM: hardcoded 64-hex constants named like BRIDs/hashes (public identifiers)
-            - MEDIUM: operations with parameters but no require(...) input validation
-              (validation inside called helper functions counts)
-            HIGH findings in test-only code (@test modules, files under test/ or tests/, and
-            modules imported only from @test modules) are reported as MEDIUM with a
-            "-test-surface" rule suffix. @test modules are fully exempt from the banned-module/
-            open-strategy rules (test code legitimately exercises admin modules and registration
-            strategies); in non-test code CRITICAL findings never downgrade. Submitted lib/** files
-            are library code: vendored-identical lib/ft4 and lib/iccf files are exempt, differing
-            ones are scanned and noted, and other lib/* trees are skipped as third-party code.
-            allowAdminModules:true (default false) downgrades banned-module findings from
-            CRITICAL to MEDIUM - for admin/ops tooling only, never for production dApps.
-            Returns line-anchored findings with a concrete fix per finding. ok=true means no
-            CRITICAL/HIGH findings. Heuristic static analysis - it does not replace an audit.
-            ok=true is NOT economic soundness. Static rules structurally cannot see: missing
-            AUTHORIZATION (an authenticated caller touching a row it does not own - key writes
-            off the authenticated id, or require(row.owner == account.id)); unbacked minting
-            (crediting value no reserve covers); missing quorum/stake/timelock in governance;
-            funds with no withdrawal or timeout path; i64 overflow aborting large legitimate
-            amounts; whether an outcome meant to be UNPREDICTABLE actually is (only the
-            block-clock-as-selector shape is caught - no chain value is secret, so a hash, a
-            counter or a seed mixed from on-chain state is still public before the transaction
-            is signed, and a clean report is not proof of fair randomness); or TRANSACTION
-            ORDERING / MEV (front-running, sandwiching, a price or listing that can change
-            under a pending transaction - the order operations land in a block is invisible
-            to every static rule). Prove those with invariant tests via run_rell_tests - scaffold_dapp
-            template=ft4 ships runnable conservation/overdraft/non-owner-must-fail examples,
-            and for a DAO or an oracle-priced vault start from template=governance / template=vault,
-            where quorum, voting window, reserve-backing and price bounds are structural.
-            Use with rell_check as the loop: compile clean, then security clean, then present.
+            Static security review of Rell code, run after a successful compile (compiles first via the
+            embedded Rell compiler; uncompilable code returns the compile errors instead). Rules:
+            banned admin modules and open registration/transfer strategies (CRITICAL); unauthenticated
+            state writes, the confused deputy, phantom is_signer gates, empty-where update/delete and
+            key-shaped hex literals (HIGH); empty auth flags, public 64-hex constants and unvalidated
+            parameters (MEDIUM). Findings are line-anchored with a concrete fix; ok=true means no
+            CRITICAL/HIGH.
+            ok=true is NOT economic soundness. Static rules structurally cannot see missing
+            AUTHORIZATION, unbacked minting, missing quorum/stake/timelock, funds with no withdrawal or
+            timeout path, i64 overflow, whether an outcome meant to be unpredictable actually is, or
+            TRANSACTION ORDERING / MEV. Prove those with invariant tests via run_rell_tests, then
+            verify_guards.
+            The full rule list, the test-surface downgrade, lib/** handling and allowAdminModules:
+            describe_tool{tool:"rell_security_check"} or chromia_help{topic:"rell_security_check"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -2409,14 +2284,15 @@ object McpTools {
     fun chrDeployHelpTool() = Tool(
         name = "chr_deploy_help",
         description = """
-            Official Chromia CLI 0.33.x chr deployment flag help: create / update / inspect plus
-            read-only info / proposal list|info / voterset info|list (no key-pair flags).
-            Includes -y, --key-id (reference only; does not generate a key), schema-compare DROP warning,
-            and that create writes deployments.<net>.chains back. Optional container: field after a
-            Vault/PMC lease — does not invent a lease id or BRID.
-            Also returns official chromia.yml database / test section snippets (Java 21+, Postgres 16+). Official BUILD vault-listing read-only find_dapp_details query (skip chr tx writes and sample 64-hex). Official BUILD testnet list-dapp-vault (200) checkmark / setUpMocks.ts / hardcoded vs db names. Official intro/installation/postchain-clients is 404; /build/clients/overview wins. Official BUILD testnet deploy-dapp / getting-started (200): create write-back wins; getting-started mainnet wording on TESTNET page is stale. Official BUILD get-tchr-binance (200) BSC vs Chromia tCHR differences; deploy-dapp explorer verify explorer.chromia.com. Official BUILD connect-client started (mainnet creatClient typo). Official BUILD deploy-frontend-dapp webStatic (200).
-            Does not shell out to chr and does not send signed transactions.
-            Skips vote/propose/pause/resume/remove and hidden lease-info / remove-container.
+            Official Chromia CLI 0.33.x `chr deployment` flag help: create / update / inspect plus
+            read-only info / proposal list|info / voterset info|list (no key-pair flags). Includes -y,
+            --key-id (reference only), the schema-compare DROP warning, and that create writes
+            deployments.<net>.chains back. Also returns the official chromia.yml database / test
+            snippets (Java 21+, Postgres 16+) and the official BUILD deployment pages' values -
+            testnet/mainnet getting-started and deploy-dapp, Vault listing, testnet tCHR, frontend.
+            Does not shell out to chr, generate a key, or send signed transactions. Skips
+            vote/propose/pause/resume/remove and the hidden lease-info / remove-container commands.
+            Page-by-page provenance notes: describe_tool{tool:"chr_deploy_help"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
@@ -2901,20 +2777,13 @@ object McpTools {
     fun chromiaCookbookHelpTool() = Tool(
         name = "chromia_cookbook_help",
         description = """
-            Official Chromia BUILD cookbook help for building a dapp: queries, client reads, and tests.
-            Official pages only, including /rell/tests builders, asserts, and @disabled.
-            Official cookbook run-queries is HELP ONLY (skip sample BRID hex).
-            Official cookbook run-tests is HELP ONLY (skip sample BRID hex; chr test --sql-log removed).
-            Official cookbook create-rell-dapp is HELP ONLY (skip sample BRID hex; --local skipped).
-            Official cookbook overview is HELP ONLY (Welcome to the Chromia Cookbook; skip sample BRID hex).
-            Official cookbook CLI is HELP ONLY (CLI; skip sample BRID hex; run-operations this signs).
-            Official cookbook query-creation is HELP ONLY (Create queries; skip sample BRID hex; get-account-balance EVM key pair).
-            Official cookbook get-account-balance is HELP ONLY (How to get account balance; EVM key pair).
-            Official cookbook account-creation is HELP ONLY (Account creation; this signs).
-            Official cookbook transaction-creation is HELP ONLY (Create & manage transactions; this signs).
-            Official cookbook run-operations is HELP ONLY (How to run operations; this signs).
-            Skips recipes that sign a live tx, cookbook-only flags, non-schema keys, and printed sample keys.
+            Official Chromia BUILD cookbook help for building a dapp: queries and query creation, client
+            reads, account balance, account and transaction creation, running operations, the CLI
+            recipe, and the /rell/tests builders, asserts and @disabled.
+            Official pages only. Recipes that sign a live transaction, cookbook-only flags, non-schema
+            keys and printed sample keys are skipped.
             Does not run chr, generate a key, or send signed transactions.
+            Per-recipe provenance: describe_tool{tool:"chromia_cookbook_help"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
@@ -3276,24 +3145,18 @@ object McpTools {
     fun checkDappProjectTool() = Tool(
         name = "check_dapp_project",
         description = """
-            One-call project gate. Takes a chromia.yml string plus one or more .rell file contents and runs
-            the FULL check: validate_chromia_yml + check_ft4_imports + rell_check (real compilation, FT4
-            imports included) + rell_security_check when it compiles. Returns combined {ok, errors, warnings, notes};
-            ok=true means the project parses, compiles, and has no CRITICAL/HIGH security findings.
+            One-call project gate. Takes a chromia.yml string plus one or more .rell file contents and
+            runs the FULL check: validate_chromia_yml + check_ft4_imports + rell_check (real
+            compilation, FT4 imports included) + rell_security_check when it compiles. Returns combined
+            {ok, errors, warnings, notes}; ok=true means the project parses, compiles, and has no
+            CRITICAL/HIGH security findings.
             `yaml` is optional: when omitted, a minimal default chromia.yml at the current pins
             (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted in the output.
             allowAdminModules:true (default false) downgrades banned admin-module findings from errors
             to warnings - for admin/ops tooling only, never for production dApps.
-            When the yaml declares multiple blockchains whose modules match submitted files, each chain's
-            module set is compiled separately (like chr build) so per-chain alternative modules do not
-            false-red with mount-name conflicts; notes says so.
-            Submitted lib/ft4/ or lib/iccf/ files identical to the vendored sources compile but are exempt
-            from the import/security scanners (FT4's own sources legitimately contain e.g. ras_open); a
-            file differing from the vendored copy is scanned like app code and noted. Other lib/** files
-            (lib/ft3, lib/icmf, ...) are skipped as third-party library code and noted. @test modules are
-            exempt from the forbidden-module scan (test code legitimately exercises admin modules).
             Use this as the single pre-deploy gate instead of calling the four tools separately.
             Read-only: does not write files, run chr, generate keys, or send signed transactions.
+            Per-chain compilation and lib/** handling: describe_tool{tool:"check_dapp_project"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -3681,24 +3544,21 @@ object McpTools {
     fun deploymentPreflightTool() = Tool(
         name = "deployment_preflight",
         description = """
-            Catch every deployment problem BEFORE a human burns a lease step or signs anything.
-            Given chromia.yml text and a deployment target name (e.g. "testnet" / "mainnet"), checks:
-            (1) the deployments.<target> block - brid present/well-formed, url valid, container a real
-            lease id (not a placeholder), chains matching declared blockchains; (2) reachability - a
-            read-only height probe of the block's Directory Chain BRID against its own URL(s), with
-            classified failure hints, bounded by one overall deadline shared by all probed URLs
-            (default 20s, env CHROMIA_MCP_PREFLIGHT_PROBE_DEADLINE_MS, capped at 45s) so an
-            unserved chain can never hang the tool; (3) network sanity - a testnet/mainnet target whose brid or url
-            points at the OTHER network is a HIGH blocker (wrong-network deploys are unrecoverable);
-            (4) the source gate when `rell` is supplied - code must compile, and for MAINNET targets
-            CRITICAL/HIGH security findings are blockers (warnings for testnet); (5) production pins
-            (rellVersion the CLI accepts, merkle_hash_version) - blockers for mainnet, warnings otherwise
-            (`strict` overrides). Returns {ready, target, network, findings, blockers, nextAction, notes};
-            ready=true only with zero blockers - a MAINNET target without `rell` stays blocked until the
-            source gate runs, while other targets can be ready with the skipped source gate explicitly
-            called out in notes (nothing skipped is silently vouched for). When ready, nextAction is the
-            exact `chr deployment create|update --settings chromia.yml --network <target> --blockchain
-            <name>` command. Read-only: no keys, no signing, no network writes.
+            Catch every deployment problem BEFORE a human burns a lease step or signs anything. Given
+            chromia.yml text and a deployment target name (e.g. "testnet" / "mainnet") it checks:
+            (1) the deployments.<target> block - brid, url, a real lease container, matching chains;
+            (2) reachability - a bounded read-only height probe of the Directory Chain BRID;
+            (3) network sanity - a target whose brid or url points at the OTHER network is a HIGH
+            blocker, because wrong-network deploys are unrecoverable;
+            (4) the source gate when `rell` is supplied - it must compile, and for MAINNET targets
+            CRITICAL/HIGH security findings are blockers (warnings for testnet);
+            (5) the production pins (rellVersion, merkle_hash_version).
+            Returns {ready, target, network, findings, blockers, nextAction, notes}; ready=true only with
+            zero blockers - a MAINNET target without `rell` stays blocked until the source gate runs,
+            while other targets can be ready with the skipped source gate explicitly called out in notes.
+            When ready, nextAction is the exact chr deployment command.
+            Read-only: no keys, no signing, no network writes.
+            Per-check detail: describe_tool{tool:"deployment_preflight"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -3991,25 +3851,19 @@ object McpTools {
         name = "deploy_testnet_chain",
         description = """
             Deploy dapp sources to a leased TESTNET container with no human involved. Order is fixed and
-            gated: (1) the security gate (rell_security_check) - CRITICAL/HIGH findings refuse the deploy
-            even on testnet; (2) the compile + config gate (deployment_preflight with the sources) - any
-            blocker refuses, including a module whose `struct module_args` has no default and no entry
-            under blockchains.<name>.moduleArgs (the oracle/vault/lending/stablecoin templates leave
-            main.oracle_pubkey deliberately unset - set it before deploying); (3) only then `chr install` (when chromia.yml declares libs - a fresh project
-            has no src/lib and the build fails without it) followed by `chr deployment create|update
-            --settings chromia.yml --network testnet --blockchain <name>` run headlessly, signed via POSTCHAIN_CLIENT_PRIVKEY from the
-            server-held deploy key for the container (stored by provision_testnet_container, or env
-            CHROMIA_TESTNET_DEPLOY_PRIVKEY); (4) the new chain BRID is read back and a live height probe
-            verifies it (a fresh chain can take minutes to start - that is reported honestly, with
-            verify_deployment as the follow-up). Provide chromiaYml or let the tool generate one from the
-            scaffold pins plus the container name; a generated config probes `chr --version` and pins
-            compile.rellVersion to the Rell the INSTALLED CLI actually bundles (falling back to the
-            scaffold default when chr cannot be probed - the choice and its source are reported), and
-            omits deployments.testnet.chains, which a first create must not carry. dryRun defaults to
-            TRUE: gates run, nothing deploys. chr is resolved via CHROMIA_CHR_BIN, then a PATH search
-            honoring PATHEXT on Windows (.cmd/.bat shims run via `cmd /c`); the resolution used is
-            reported. If chr is missing or no deploy key is held, the tool names the exact blocked step
-            instead of pretending. Key material never appears in any output.
+            gated: (1) rell_security_check - CRITICAL/HIGH findings refuse the deploy even on testnet;
+            (2) deployment_preflight with the sources - any blocker refuses, including a module whose
+            `struct module_args` has no default and no entry under blockchains.<name>.moduleArgs (the
+            oracle/vault/lending/stablecoin templates leave main.oracle_pubkey deliberately unset);
+            (3) only then `chr install` (when chromia.yml declares libs) followed by
+            `chr deployment create|update --settings chromia.yml --network testnet --blockchain <name>`
+            run headlessly and signed from the server-held deploy key; (4) the new chain BRID is read
+            back and a live height probe verifies it - a fresh chain can take minutes to start, which is
+            reported honestly with verify_deployment as the follow-up.
+            dryRun defaults to TRUE: gates run, nothing deploys. If chr is missing or no deploy key is
+            held, the tool names the exact blocked step instead of pretending. Key material never
+            appears in any output.
+            Generated-config rules and chr resolution: describe_tool{tool:"deploy_testnet_chain"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -4203,14 +4057,132 @@ object McpTools {
     fun docsToolsDisabled(disabled: Set<String> = disabledTools()): Boolean =
         disabled.containsAll(DOCS_TOOL_NAMES)
 
+    /**
+     * Byte bound on an advertised `tools/list` description (audit F9). The long
+     * form of anything that used to exceed it lives in [ToolDocs] and comes back
+     * verbatim from describe_tool / chromia_help.
+     */
+    const val MAX_DESCRIPTION_BYTES = 1200
+
+    /** Byte bound on a compact-mode headline. */
+    const val COMPACT_HEADLINE_BYTES = 280
+
+    /**
+     * Byte bound on the whole compact `tools/list` payload. Compact mode used to
+     * drop only the 31 *_help schemas - 22% - while the 15 largest schemas, which
+     * are most of the cost, were identical in both modes (audit section 1).
+     */
+    const val COMPACT_TOOLS_BYTES = 26_000
+
+    /** Byte bound on the whole full-mode `tools/list` payload. */
+    const val FULL_TOOLS_BYTES = 115_000
+
+    /**
+     * First whole lines of [description] that fit in [COMPACT_HEADLINE_BYTES],
+     * never cutting a line in half; a first line that is itself too long is cut
+     * at the last sentence or word boundary that fits.
+     */
+    internal fun headline(description: String?): String {
+        val text = description?.trim().orEmpty()
+        if (text.toByteArray().size <= COMPACT_HEADLINE_BYTES) return text
+        val kept = StringBuilder()
+        for (line in text.lines()) {
+            val candidate = if (kept.isEmpty()) line else kept.toString() + "\n" + line
+            if (candidate.toByteArray().size > COMPACT_HEADLINE_BYTES) break
+            kept.setLength(0)
+            kept.append(candidate)
+        }
+        if (kept.isNotEmpty()) return kept.toString()
+        // A single over-long first line: cut it at a boundary that fits.
+        var cut = text
+        while (cut.toByteArray().size > COMPACT_HEADLINE_BYTES) cut = cut.dropLast(1)
+        val boundary = maxOf(cut.lastIndexOf(". "), cut.lastIndexOf(' '))
+        return (if (boundary > 40) cut.substring(0, boundary) else cut).trimEnd() + " ..."
+    }
+
+    /** [schema] with every `description` stripped, at any depth. Types, enums and required stay. */
+    internal fun withoutDescriptions(schema: ToolSchema): ToolSchema =
+        schema.properties?.let { schema.copy(properties = stripDescriptions(it) as JsonObject) } ?: schema
+
+    private fun stripDescriptions(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(
+            element.filterKeys { it != "description" }.mapValues { stripDescriptions(it.value) }
+        )
+        is kotlinx.serialization.json.JsonArray -> kotlinx.serialization.json.JsonArray(element.map { stripDescriptions(it) })
+        else -> element
+    }
+
+    /**
+     * The compact-mode form of [tool]: a headline instead of the description, no
+     * schema prose, and no outputSchema. Everything removed here is one
+     * describe_tool call away, and ToolDescriptionBudgetTest pins that.
+     */
+    internal fun compactTool(tool: Tool): Tool = tool.copy(
+        description = headline(tool.description),
+        inputSchema = withoutDescriptions(tool.inputSchema),
+        outputSchema = null
+    )
+
     fun allTools(compact: Boolean = false, disabled: Set<String> = emptySet()): List<Tool> {
         val all = fullToolList()
-        val afterCompact = if (compact) all.filter { it.name !in HELP_TOOL_NAMES } else all
+        val afterCompact =
+            if (compact) all.filter { it.name !in HELP_TOOL_NAMES }.map(::compactTool) else all
         return if (disabled.isEmpty()) afterCompact else afterCompact.filter { it.name !in disabled }
+    }
+
+    /** The advertised (full-mode) description of [name], or null for an unknown tool. */
+    fun advertisedDescription(name: String): String? =
+        fullToolList().firstOrNull { it.name == name }?.description
+
+    /**
+     * The long-form guidance for [name]: what [ToolDocs] holds when F9 moved it
+     * out of the schema, else the advertised description (already the full text).
+     */
+    fun fullDescription(name: String): String? = ToolDocs.full(name, advertisedDescription(name))
+
+    /** `describe_tool` payload: the full prose plus, by default, the untrimmed schemas. */
+    fun describeToolJson(
+        name: String?,
+        includeSchema: Boolean = true,
+        disabled: Set<String> = emptySet()
+    ): JsonObject {
+        val tool = name?.trim()?.let { requested -> fullToolList().firstOrNull { it.name == requested } }
+        if (tool == null) {
+            return buildJsonObject {
+                put("tools", kotlinx.serialization.json.JsonArray(
+                    fullToolList().map { JsonPrimitive(it.name) }
+                ))
+                put(
+                    "notes",
+                    (if (name.isNullOrBlank()) "" else "Unknown tool '${name.trim()}'. ") +
+                        "Pass one of these names as `tool` for its full description and input schema."
+                )
+            }
+        }
+        return buildJsonObject {
+            put("tool", JsonPrimitive(tool.name))
+            tool.title?.let { put("title", JsonPrimitive(it)) }
+            put("description", JsonPrimitive(fullDescription(tool.name).orEmpty()))
+            put("movedFromToolsList", JsonPrimitive(tool.name in ToolDocs.LONG))
+            put("enabled", JsonPrimitive(tool.name !in disabled))
+            if (includeSchema) {
+                put("inputSchema", schemaJson(tool.inputSchema))
+                tool.outputSchema?.let { put("outputSchema", schemaJson(it)) }
+            }
+        }
+    }
+
+    internal fun schemaJson(schema: ToolSchema): JsonObject = buildJsonObject {
+        put("type", JsonPrimitive("object"))
+        schema.properties?.let { put("properties", it) }
+        schema.required?.let { required ->
+            put("required", kotlinx.serialization.json.JsonArray(required.map { JsonPrimitive(it) }))
+        }
     }
 
     private fun fullToolList() = listOf(
         chromiaHelpTool(),
+        describeToolTool(),
         getPromptsTool(),
         scaffoldDappTool(),
         validateChromiaYmlTool(),

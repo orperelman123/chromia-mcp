@@ -136,7 +136,7 @@ curl http://127.0.0.1:3001/health
 
 `version` is Gradle `project.version`, generated into `BuildInfo` at compile time (`app/build.gradle.kts` `generateBuildInfo`). `gradle.properties` holds this fork's release version (`0.5.0`) as the local-build fallback; CI builds stamp `git describe` and tagged release builds stamp the tag. It is not a hardcoded `0.0.1`.
 
-The same JSON is also the MCP resource `chromia://server/health`. The server additionally exposes classpath `docs-repositories.json` (`chromia://config/docs-repositories`) and `prompt_templates.json` (`chromia://config/prompt-catalog`). It does not advertise MCP `prompts` (use the `get_prompts` tool). Tools and resources are static (`listChanged=false`; resources also `subscribe=false`). There is no OpenAPI spec and no `execute_transaction` tool.
+The same JSON is also the MCP resource `chromia://server/health`. The server additionally exposes classpath `docs-repositories.json` (`chromia://config/docs-repositories`) and `prompt_templates.json` (`chromia://config/prompt-catalog`). It advertises MCP `prompts` and serves the same catalogue over `prompts/list` / `prompts/get` as the `get_prompts` tool. Tools and resources are static (`listChanged=false`; resources also `subscribe=false`). There is no OpenAPI spec and no `execute_transaction` tool.
 
 #### Stdio Mode (Subprocess)
 

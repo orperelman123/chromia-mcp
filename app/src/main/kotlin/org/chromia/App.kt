@@ -43,6 +43,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import org.chromia.App.Companion.logger
 import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.domain.ChromiaRepository
+import org.chromia.tools.McpPrompts
 import org.chromia.tools.McpResources
 import org.chromia.tools.McpTools
 import org.chromia.tools.PromptManager
@@ -193,16 +194,36 @@ class App(
          * Advertise only capabilities this server actually implements.
          * Tools are registered and static (no listChanged notifications).
          * Resources are the three static snapshots below
-         * (no subscribe / listChanged notifications). Prompts are not advertised:
-         * the catalog is the get_prompts tool plus chromia://config/prompt-catalog.
+         * (no subscribe / listChanged notifications). Prompts are the
+         * prompt_templates.json catalogue, served natively since audit F8 found
+         * prompts/list answering -32601 - a client that speaks only the prompts
+         * protocol saw none of them. get_prompts and
+         * chromia://config/prompt-catalog still serve the same catalogue.
          */
         val SERVER_CAPABILITIES = ServerCapabilities(
             tools = ServerCapabilities.Tools(listChanged = false),
+            prompts = ServerCapabilities.Prompts(listChanged = false),
             resources = ServerCapabilities.Resources(
                 subscribe = false,
                 listChanged = false
             )
         )
+
+        /**
+         * Compact-mode prompt description: the first sentence, capped. prompts/list
+         * is part of an agent's first contact now, so it is measured together with
+         * tools/list against the F9 budget in ContextBudgetTest.
+         */
+        const val COMPACT_PROMPT_DESCRIPTION_BYTES = 160
+
+        internal fun compactPromptDescription(description: String): String {
+            if (description.toByteArray().size <= COMPACT_PROMPT_DESCRIPTION_BYTES) return description
+            val firstSentence = description.substringBefore(". ")
+            if (firstSentence.toByteArray().size <= COMPACT_PROMPT_DESCRIPTION_BYTES) return "$firstSentence."
+            var cut = firstSentence
+            while (cut.toByteArray().size > COMPACT_PROMPT_DESCRIPTION_BYTES) cut = cut.dropLast(1)
+            return cut.substringBeforeLast(' ').trimEnd() + " ..."
+        }
 
         fun healthJson(profileName: String = profile): String = """
                     {
@@ -225,7 +246,23 @@ class App(
             )
         ).apply {
             registerTools(compact, disabled)
+            registerPrompts(compact)
             registerResources()
+        }
+    }
+
+    /**
+     * Serves the prompt catalogue over `prompts/list` + `prompts/get` (audit F8).
+     * The flagship "Secure dapp workflow" prompt is registered first so it is the
+     * first thing a client sees. In compact mode the descriptions are trimmed to
+     * one sentence - the full text arrives with the prompt itself.
+     */
+    private fun Server.registerPrompts(compact: Boolean) {
+        McpPrompts.catalogue(promptManager).forEach { entry ->
+            val prompt = entry.toPrompt().let { p ->
+                if (compact) p.copy(description = App.compactPromptDescription(p.description.orEmpty())) else p
+            }
+            addPrompt(prompt) { request -> entry.toResult(request.arguments) }
         }
     }
 

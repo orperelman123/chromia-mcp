@@ -2,7 +2,7 @@
 
 ## High-Level Features
 
-Chromia MCP Server provides three primary feature sets through MCP protocol tools, plus three static MCP resources (`chromia://server/health`, `chromia://config/docs-repositories`, `chromia://config/prompt-catalog`) that expose data already in the server. MCP `prompts` is not advertised (use the `get_prompts` tool). There is no OpenAPI spec and no signed-transaction / `execute_transaction` tool. Server version comes from Gradle `project.version` (gradle.properties fallback `0.5.0`; CI/release builds stamp the git tag or commit).
+Chromia MCP Server provides three primary feature sets through MCP protocol tools, plus three static MCP resources (`chromia://server/health`, `chromia://config/docs-repositories`, `chromia://config/prompt-catalog`) that expose data already in the server. MCP `prompts` is advertised and served from the same `prompt_templates.json` catalogue as the `get_prompts` tool (`prompts/list`, `prompts/get`; the "Secure dapp workflow" prompt is listed first). There is no OpenAPI spec and no signed-transaction / `execute_transaction` tool. Server version comes from Gradle `project.version` (gradle.properties fallback `0.5.0`; CI/release builds stamp the git tag or commit).
 
 ### 1. Blockchain Data Querying
 

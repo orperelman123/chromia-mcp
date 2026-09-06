@@ -30,20 +30,25 @@ class ChromiaHelpGatewayTest {
         val result = call(buildJsonObject {})
         assertTrue(result.isError != true)
         val topics = result.structuredContent!!.getValue("topics").jsonArray.map { it.jsonPrimitive.content }
-        assertEquals(McpTools.HELP_TOOL_NAMES, topics.toSet())
+        // F9 added the moved tool descriptions as topics beside the *_help ones.
+        assertEquals(McpTools.HELP_TOPIC_NAMES, topics.toSet())
+        assertTrue(McpTools.HELP_TOOL_NAMES.all { it in topics })
     }
 
     @Test
     fun topicDelegatesToUnderlyingHelpTool() {
-        val result = call(buildJsonObject { put("topic", "chr_build_help") })
+        // F9: a topic answers with its table of contents; section:"all" is the payload.
+        val result = call(buildJsonObject { put("topic", "chr_build_help"); put("section", "all") })
         assertTrue(result.isError != true)
         assertEquals(ChrBuildHelp.toJson(), result.structuredContent)
     }
 
     @Test
     fun shortTopicSpellingIsAccepted() {
-        val result = call(buildJsonObject { put("topic", "chr_build") })
+        val result = call(buildJsonObject { put("topic", "chr_build"); put("section", "all") })
         assertEquals(ChrBuildHelp.toJson(), result.structuredContent)
+        val toc = call(buildJsonObject { put("topic", "chr_build") })
+        assertEquals("chr_build_help", toc.structuredContent!!.getValue("topic").jsonPrimitive.content)
     }
 
     @Test
@@ -61,6 +66,7 @@ class ChromiaHelpGatewayTest {
         assertTrue("chromia_help" in compact)
         assertTrue(McpTools.HELP_TOOL_NAMES.none { it in compact })
         assertEquals(full - McpTools.HELP_TOOL_NAMES, compact)
+        assertTrue("describe_tool" in compact)
         assertTrue(McpTools.HELP_TOOL_NAMES.all { it in full })
     }
 

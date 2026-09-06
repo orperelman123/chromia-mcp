@@ -167,6 +167,8 @@ open class RagStore(
         const val MAX_HITS = 15
         /** Exact-identifier hits kept per identifier token in the query. */
         const val LEXICAL_HITS_PER_TOKEN = 3
+        /** [segmentTier] of a host-language source (kt, ts, js, py, java). */
+        const val HOST_SOURCE_TIER = 4
         /**
          * Identifier tokens scanned per query, first-mentioned first. Each token
          * is one pass over every segment; a pasted stack trace carried 40+ names
@@ -207,9 +209,14 @@ open class RagStore(
             private val definition = Regex("""(?im)^\s*(?:$DEFINITION_KEYWORDS)\s+${Regex.escape(token)}\b""")
             private val mention = Regex(Regex.escape(token), RegexOption.IGNORE_CASE)
 
+            /** True when [text] DEFINES the token, not merely mentions it. */
+            fun definesIn(text: String): Boolean = definition.containsMatchIn(text)
+
+            /** How often [text] names the token. */
+            fun mentions(text: String): Int = mention.findAll(text).count()
+
             /** Definition sites outrank mentions; more mentions outrank fewer. */
-            fun score(text: String): Int =
-                (if (definition.containsMatchIn(text)) 1000 else 0) + mention.findAll(text).count()
+            fun score(text: String): Int = (if (definesIn(text)) 1000 else 0) + mentions(text)
         }
 
         internal fun lexicalScore(text: String, token: String): Int = TokenMatcher(token).score(text)
@@ -738,18 +745,51 @@ open class RagStore(
             val matcher = TokenMatcher(token)
             index.asSequence()
                 .filter { it.lowerText.contains(matcher.lower) }
-                .map { it.segment to matcher.score(it.segment.text()) }
-                .sortedByDescending { it.second }
+                .map { entry ->
+                    val text = entry.segment.text()
+                    // A "definition" in a HOST-LANGUAGE source is usually a
+                    // coincidence of casing: `val BIG_INTEGER: Rt_ValueClass<*>`
+                    // in the compiler's rt_primitive_types.kt matched the
+                    // case-insensitive definition regex for `big_integer` and
+                    // outranked the page that explains Rell big_integer
+                    // arithmetic (audit F15, question 5). Only a docs page, a
+                    // release note, a Rell file or a config file can DEFINE a
+                    // name for the purposes of this boost.
+                    val defines = matcher.definesIn(text) && segmentTier(entry.segment) < HOST_SOURCE_TIER
+                    Triple(entry.segment, defines, matcher.mentions(text))
+                }
+                // A DEFINITION site first - round 10, the reason this hybrid
+                // exists. Among the rest, the kind of file decides before the
+                // mention count: audit F15 found `big_integer` answered from the
+                // compiler's own Kotlin source because it says the name more
+                // often than the page that explains it.
+                .sortedWith(
+                    compareByDescending<Triple<TextSegment, Boolean, Int>> { it.second }
+                        .thenBy { segmentTier(it.first) }
+                        .thenByDescending { it.third }
+                )
                 .take(LEXICAL_HITS_PER_TOKEN)
                 .map { it.first }
                 .toList()
         }
     }
 
-    /** Lexical hits first (the name the agent asked about), then semantic, deduplicated, capped at [MAX_HITS]. */
+    /**
+     * Lexical hits first (the name the agent asked about), then semantic,
+     * deduplicated, capped at [MAX_HITS] - and inside each of those two blocks,
+     * DOCS FIRST ([segmentTier]). Audit F15 (2026-09-06) graded ten basic Rell
+     * questions and the refreshed index answered two of them out of a Kotlin unit
+     * test of the compiler; the exact-name boost that round 10 added is still
+     * ahead of the semantic tail, but a prose page now outranks a source file at
+     * the same relevance.
+     */
     internal fun mergeHits(lexical: List<TextSegment>, semantic: List<TextSegment>): List<TextSegment> {
         val seen = HashSet<String>()
-        return (lexical + semantic).filter { seen.add(segmentId(it)) }.take(MAX_HITS)
+        // The lexical block keeps its own order (definition site first); the
+        // semantic tail is re-ordered docs-first, which is where F15's wrong
+        // answers came from.
+        val ordered = lexical + semantic.sortedBy { segmentTier(it) }
+        return ordered.filter { seen.add(segmentId(it)) }.take(MAX_HITS)
     }
 
     internal fun rememberQueryHits(segments: List<TextSegment>) {
@@ -849,6 +889,30 @@ open class RagStore(
         }
     }
 }
+
+/**
+ * Retrieval tier of a segment, by the kind of file it came from. Lower wins.
+ * Audit F15: the corpus mixes prose documentation with the compiler's own
+ * sources, and dense retrieval has no idea which one an agent asking "how do I
+ * declare module_args?" wants. It wants the page.
+ *
+ *   0  prose documentation - md, mdx, rst, adoc
+ *   1  plain text - release notes, changelogs: right content, wrong shape
+ *   2  Rell - the language being asked about; a definition is an answer
+ *   3  configuration - yml, json, xml, html, properties
+ *   4  host-language sources - kt, ts, js, py, java (TEST files are not indexed)
+ */
+internal fun segmentTier(segment: TextSegment): Int =
+    when (segmentMetadataValue(segment, "file_name")?.lowercase()?.substringAfterLast('.', "")) {
+        "md", "mdx", "rst", "adoc" -> 0
+        "txt" -> 1
+        "rell" -> 2
+        "yml", "yaml", "json", "xml", "html", "properties" -> 3
+        else -> 4
+    }
+
+/** True when [segment] came from a prose documentation page (tier 0). */
+internal fun isDocsSegment(segment: TextSegment): Boolean = segmentTier(segment) == 0
 
 internal fun segmentTitle(segment: TextSegment): String {
     return segmentMetadataValue(segment, "file_name")

@@ -35,6 +35,29 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 The server includes **RAG-powered (Retrieval-Augmented Generation) semantic documentation search** that uses vector embeddings to find relevant documentation based on meaning, not just keywords.
 The AI assistant will automatically use semantic search to find and return the most relevant documentation sections.
 
+**Documentation outranks the compiler's own sources.** The corpus mixes the docs site with the
+Rell and Postchain repositories, and dense retrieval cannot tell which one an agent asking "how
+do I declare `module_args`?" wants. The agent-experience audit graded ten realistic Rell
+questions and two of them answered out of the Rell compiler's Kotlin *unit tests*. So:
+host-language TEST sources are no longer indexed (19,281 segments, down from 25,823), and a hit
+is ranked by the kind of file it came from — prose docs, release notes, Rell, config,
+host-language source — inside the exact-name block and inside the semantic block. An exact
+DEFINITION still wins, except in a host-language source, where `val BIG_INTEGER` in the
+compiler's `rt_primitive_types.kt` was beating the page that explains `big_integer` arithmetic.
+
+Re-asked with `node scripts/rag-audit-ten.mjs --jar <jar> --embeddings <index>`
+(top hit per question, graded the way the audit graded them):
+
+| | before | after |
+|---|---|---|
+| correct / partly / wrong | 3 / 5 / 2 | **6 / 3 / 1** |
+| top hit is a documentation page | 4 / 10 | **10 / 10** |
+| top hit is a host-language source | 3 / 10 (two of them compiler unit tests) | **0 / 10** |
+
+Still wrong after the change: *"at-expression syntax: filter, sort and limit"* answers from
+`rell-architecture.md` (how at-expressions COMPILE, not how to write one) — the corpus has no
+good page for it.
+
 ## Rell Compile Check (`rell_check`)
 
 Agents build reliable Rell by iterating **write → compile → fix**. The `rell_check` tool embeds the
@@ -232,12 +255,43 @@ tunnel or load balancer does not cut a quiet session.
 - `/health` and the MCP serverInfo report the real build version (git tag/commit), stamped by the
   Docker, CI, and release builds.
 
-## Compact Tool Mode & `chromia_help`
+## Context economics: compact mode, `describe_tool` and a sectioned `chromia_help`
 
-61+ tool schemas cost an agent a lot of context before any work starts. Set
-`CHROMIA_MCP_COMPACT_TOOLS=true` and the server advertises one `chromia_help(topic)` gateway
-instead of the ~31 individual `*_help` tools (same content, one schema — call it with no topic
-for the topic index). Default is the full catalog for backward compatibility.
+The tool catalog is what an agent pays before it does anything. Measured on the wire with
+`node scripts/first-contact-bytes.mjs --jar app/build/libs/chromia-mcp-server.jar`, on the
+commit this work started from and on this one (bytes of the `tools/list`, `prompts/list` and
+`resources/list` payloads; ~tokens at 4 bytes/token):
+
+| | before (b982fbb) | now |
+|---|---|---|
+| tools advertised, full / compact | 74 / 43 | 75 / 44 |
+| `tools/list`, full | 126,463 B | **111,270 B** |
+| `tools/list`, compact | 101,208 B | **24,044 B** |
+| `prompts/list` | JSON-RPC error −32601 | 90 prompts, 24,920 B (19,575 B compact) |
+| `resources/list` | 579 B | 579 B |
+| **first contact, compact** | **101,787 B (~25.4k tok)** | **44,198 B (~11.0k tok)** |
+
+Three changes, each pinned by a test that measures bytes and fails above the bound
+(`ContextBudgetTest`, `ToolDescriptionBudgetTest`, `ChromiaHelpSectionTest`):
+
+- **No advertised description over 1,200 B.** The long form of the 14 that were —
+  `scaffold_dapp` was 4.1 KB, `verify_guards` 5.2 KB, `rell_security_check` 3.6 KB — was
+  **moved, not deleted**: `describe_tool{tool:"scaffold_dapp"}` returns it verbatim with the
+  untrimmed input schema, and `chromia_help{topic:"verify_guards"}` returns the same prose.
+  The test requires every sentence of the old descriptions to still be reachable by name.
+- **`CHROMIA_MCP_COMPACT_TOOLS=true` now saves 76%**, not 22%. It drops the ~31 `*_help`
+  schemas (the `chromia_help` gateway covers them), replaces each description with a headline
+  that is a literal prefix of it, strips prose from the schemas (types, enums and `required`
+  stay) and drops output schemas. `describe_tool` is always advertised — it is the way back
+  to the full text.
+- **`chromia_help{topic}` returns a table of contents**, not the payload: section names with
+  the bytes each costs. One topic used to cost 27,288 tokens in a single call and all 31
+  together 196,422. `chromia_help{topic, section}` returns one section (nothing this server
+  offers is over ~6 KB — a big value is listed by its own sub-keys, array chunks or
+  paragraphs, with a preview), and `section:"all"` is still the whole payload, byte-identical
+  to calling the individual `*_help` tool.
+
+Default is still the full catalog for backward compatibility.
 
 ## Run it locally (the primary path)
 
@@ -971,7 +1025,7 @@ Specify the network parameter in your queries to target the appropriate environm
 
 This server is primarily a **query / documentation expert**. The only tools that sign and send transactions are the three [testnet provisioning](#testnet-provisioning-agent-headless) tools — TESTNET only, dryRun by default, funded by a server-held key that never reaches any output. Nothing here touches mainnet funds, acts as a general wallet, or executes arbitrary transactions: `chromia_dapp_query` stays read-only, transaction *inspection* (`get_all_transactions`) is supported, arbitrary transaction *execution* is not. There is no OpenAPI spec.
 
-MCP resources are the existing health JSON, `docs-repositories.json`, and `prompt_templates.json` (not a generated library). Prompt templates are the `get_prompts` tool; the server does not advertise MCP `prompts`.
+MCP resources are the existing health JSON, `docs-repositories.json`, and `prompt_templates.json` (not a generated library). The prompt catalogue is served three ways: MCP `prompts/list` + `prompts/get` (the capability is advertised), the `get_prompts` tool, and `chromia://config/prompt-catalog`.
 
 ## Local extras
 
