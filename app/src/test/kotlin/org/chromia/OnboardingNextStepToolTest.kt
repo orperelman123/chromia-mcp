@@ -14,6 +14,7 @@ import kotlinx.serialization.json.put
 import org.chromia.tools.McpTools
 import org.chromia.tools.OnboardingNextStep
 import org.chromia.tools.PromptManager
+import org.chromia.tools.TestnetProvisioning
 import org.chromia.tools.ToolExecutor
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -408,8 +409,15 @@ class OnboardingNextStepToolTest {
             listOf(tools, tools + "local_chain_up").forEach { registered ->
                 val text = plan(state, registered).toJson().toString()
                 // POSTCHAIN_CLIENT_PRIVKEY is the documented CI env var NAME for
-                // chr deployment - naming it is allowed; any other privkey talk is not.
-                val scrubbed = text.replace("POSTCHAIN_CLIENT_PRIVKEY", "")
+                // chr deployment, and TestnetProvisioning.FUNDING_KEY_ENV is this
+                // server's own env var NAME for the operator's funding key (AUDIT
+                // F3 made the notes say which configuration turns the tCHR + lease
+                // step headless). A variable NAME is not key material - the policy
+                // is that no VALUE ever appears, which the 64-hex pin below is what
+                // actually enforces. Any other privkey talk is still refused.
+                val scrubbed = text
+                    .replace("POSTCHAIN_CLIENT_PRIVKEY", "")
+                    .replace(TestnetProvisioning.FUNDING_KEY_ENV, "")
                 assertFalse(scrubbed.contains("privkey", ignoreCase = true), text)
                 assertFalse(scrubbed.contains("mnemonic", ignoreCase = true), text)
                 assertFalse(scrubbed.contains("BEGIN PRIVATE"), text)

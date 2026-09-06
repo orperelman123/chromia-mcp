@@ -123,9 +123,21 @@ class NoHumanBlockerForAutomatedStepTest {
             result.blockers.none { it.startsWith("testnet_container") },
             "an agent step is never a blocker: ${result.blockers}"
         )
+        // `chr keygen` really is a human step and stays one - asserted in the
+        // state where it is still PENDING. `blockers` lists the pending human
+        // steps, and THIS state already holds the key (hasTestnetKey = true is
+        // what makes testnet_container the stage at all), so deploy_key is done
+        // and correctly absent here. F3 removed the browser blocker, not this one.
+        val beforeKeygen = OnboardingNextStep.plan(state.copy(hasTestnetKey = false), registered)
+        assertEquals("deploy_key", beforeKeygen.stage)
+        assertEquals("human", beforeKeygen.nextAction.who, beforeKeygen.nextAction.toString())
         assertTrue(
-            result.blockers.any { it.startsWith("deploy_key") },
-            "chr keygen really is a human step and stays one: ${result.blockers}"
+            beforeKeygen.blockers.any { it.startsWith("deploy_key") },
+            "chr keygen really is a human step and stays one: ${beforeKeygen.blockers}"
+        )
+        assertTrue(
+            beforeKeygen.blockers.none { it.startsWith("testnet_container") },
+            "an agent step is never a blocker, even from an earlier stage: ${beforeKeygen.blockers}"
         )
         assertTrue(result.notes.contains("claim_testnet_tchr"), result.notes)
     }
