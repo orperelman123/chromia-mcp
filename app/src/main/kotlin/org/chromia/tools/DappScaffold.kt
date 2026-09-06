@@ -2555,7 +2555,7 @@ object DappScaffold {
         // against locked collateral priced by an oracle. This is NOT the vault - a CDP's
         // coin is not paid out of a reserve, it is a LIABILITY of a position whose backing
         // moves with a price - and adversary round 9 built it on the vault's advice and
-        // drained it. Seven guards are STRUCTURAL:
+        // drained it. Nine guards are STRUCTURAL:
         //   RESERVE-BACKED  - locked collateral is a row of the same entity as users'
         //                     balances, keyed by the chain's own id; every collateral move
         //                     debits one row and credits another in the same operation.
@@ -2606,9 +2606,17 @@ object DappScaffold {
         //                     is why the number in the guard is the bonus and not a round
         //                     figure. THE TRADE, STATED: a position that goes bad while the
         //                     system is backed under 105% is closed by NOBODY, and settle()
-        //                     does not open until backing falls under 100%, so [100%, 105%)
-        //                     is a band in which nothing happens at all. That is the price of
-        //                     an exit no one can race for. The alternative - paying the
+        //                     does not open until backing falls under 100%, so in the band
+        //                     [100%, 105%) no position is CLOSED at all. Round 13 called an
+        //                     earlier draft of this sentence - "a band in which nothing
+        //                     happens at all" - false, and it was: the two operations that
+        //                     RAISE backing run throughout that band and are the way out of
+        //                     it. deposit_collateral takes the ratio up directly and
+        //                     burn_stable retires coin at par against its own debt, and
+        //                     both are open to every debtor at every backing level, pending
+        //                     settlement included. What is closed in that band is every
+        //                     operation that takes value OUT: liquidation, withdrawal and
+        //                     minting. That is the price of an exit no one can race for. The alternative - paying the
         //                     liquidator only the system's AVERAGE backing - keeps the
         //                     operation alive, but then every liquidation is priced off
         //                     positions the liquidator has nothing to do with, and its
@@ -2618,6 +2626,40 @@ object DappScaffold {
         //                     tokens and the three parties still settle 97 / 117 / 85 against
         //                     89 / 124 / 86, because par beats what the pool pays once the
         //                     price falls again.
+        //   BACKED          - EVERY operation that takes value OUT of the system reads the
+        //     WITHDRAWAL       SYSTEM and not only the position. withdraw_collateral is
+        //                      refused if it would leave the total collateral worth less
+        //                      than the coin outstanding plus the liquidation bonus -
+        //                      the same floor liquidate() clears, at the same fresh price,
+        //                      and a debt-free position is no exception. Round 13 measured
+        //                      the version that read the position's own ratio alone: a
+        //                      whale holding 100 tokens against 10 of coin withdrew 99 of
+        //                      them, her own position never leaving 150%, and settled IN
+        //                      THE SAME BLOCK. Three positions, 300 tokens at 48.00 against
+        //                      9676 of coin - 149% backed, with settle() refused "system is
+        //                      solvent" to everybody - became 201 tokens worth 9648 against
+        //                      9676: INSOLVENT ON DEMAND, with no price move, no oracle
+        //                      touched and no other party given a block to act in. The
+        //                      honest position at 160% was frozen into the pool and
+        //                      redeemed 88 where burning at par would have returned 100,
+        //                      and the whale walked out with every token she came in with.
+        //   SETTLEMENT IS   - opening settlement and closing it are two calls of settle(),
+        //     TWO PHASES      SETTLEMENT_WINDOW_MS apart. While it is pending, the only
+        //                     operations that still run are the two that RAISE the system's
+        //                     backing - deposit_collateral and burn_stable - so a debtor
+        //                     whose position is sound always has a block in which to take
+        //                     the par exit, and if enough of them do, the shortfall is gone
+        //                     and the opening is VOID: calling settle() on a system that
+        //                     has recovered closes it and freezes nothing. Round 13
+        //                     measured the one-phase version, which was permissionless,
+        //                     instant and irreversible: at 48.00 a position at 72% settled
+        //                     first and the party at 160% - who was the reason nothing was
+        //                     wrong with her own position, who could not even be liquidated
+        //                     ("position is healthy") and who could have burned at par and
+        //                     been made whole - redeemed 88 against her 100. ELEVEN TOKENS
+        //                     on transaction order, all of them out of the best
+        //                     collateralised party. Whoever moved first won, and that is
+        //                     what a window removes.
         //   NO REDEMPTION   - there is NO operation that pays a coin holder par out of
         //     AT PAR          somebody else's position. That was round 9's drain: 13332 of
         //                     coin against collateral worth 10240, and whoever redeemed first
@@ -2636,10 +2678,16 @@ object DappScaffold {
         //                     coin at a fresh price, anyone may settle: every position's
         //                     surplus goes back to its owner, the rest of the collateral is
         //                     one pool, and every coin redeems for the SAME pro-rata share of
-        //                     it in any order. A shortfall is shared, never raced for - and
-        //                     since round 11 that covers the WHOLE shortfall, because the one
-        //                     operation that could take a slice of the pool ahead of
-        //                     settlement is refused for as long as the shortfall exists.
+        //                     it in any order. A shortfall is shared, never raced for. Read
+        //                     that WITH the two-phase rule above and not on its own: round
+        //                     11 closed the one operation that could take a slice of the
+        //                     pool ahead of settlement, and round 13 found the race one
+        //                     level up - not for the pool, but for the moment settlement
+        //                     happens at all. Sharing a shortfall pro rata is only fair
+        //                     between parties who are all in it; an instant settlement put
+        //                     a party at 160% into the pool before she could take the par
+        //                     exit that was hers, and cost her eleven tokens for being on
+        //                     the wrong side of one transaction's ordering.
         // The oracle is the ONE key in chain_context.args.oracle_pubkey - configured, never
         // a parameter, never in source.
         // What no template can fix: a price that falls faster than liquidators act still
@@ -2650,8 +2698,12 @@ object DappScaffold {
         // wrong window: the band that matters starts at 105% BACKING, NOT AT 100%. From the
         // block the system's backing falls under 105%, NOTHING closes a bad position; and
         // settle() is refused "system is solvent" until backing falls under 100%, so in that
-        // band the holders who are about to lose have no move at all and "settle promptly"
-        // is not advice they can take. Below 100% settle() opens, and it freezes every
+        // band a holder who is not also a debtor has no move at all and "settle promptly" is
+        // not advice they can take. A holder who IS a debtor has two, and they are the two
+        // that fix the band rather than exit it: deposit collateral, or burn coin against
+        // their own debt. Round 13 measured what a holder-who-is-a-debtor lost when
+        // settlement could close in the block it opened and took the second of those away:
+        // 88 tokens where burning first returned 100. Below 100% settle() opens, and it freezes every
         // position at whatever price is fresh when it is finally called. Watch the system
         // ratio against 105%, not against 100%. The second residual is narrower and is not
         // an ordering defect: a liquidator paid 105% of par while the system is comfortably
@@ -2659,6 +2711,18 @@ object DappScaffold {
         // then falls far enough. That is a price forecast, not a choice of transaction
         // order - the guard binds only what the liquidation itself does to the system's
         // backing - and no template closes it. Size LIQUIDATION_BONUS_BPS accordingly.
+        // THE THIRD RESIDUAL, and it is round 13's: SETTLEMENT_WINDOW_MS is a window, not
+        // an oracle. A debtor who is not watching the chain when somebody opens a
+        // settlement still ends in the pool at the pool's rate, and that is worse for her
+        // than the par exit she did not take. The window makes the par exit AVAILABLE in
+        // every ordering; it cannot make her use it. The alternative was considered and
+        // rejected: crediting each debtor's own coin against their own debt INSIDE
+        // settlement would remove the residual, and it would also subordinate every holder
+        // who is not a debtor - in round 13's own fixture it pays the two debtors 100 each
+        // and a third-party holder nothing, because the whole reserve is somebody's
+        // collateral. A stablecoin whose coin is worthless to anyone who bought it is not
+        // a stablecoin, so the pool stays, the shortfall stays shared, and the window is
+        // what makes the ordering not matter. Size it against how fast your holders act.
 
         struct module_args {
             oracle_pubkey: pubkey;
@@ -2700,6 +2764,11 @@ object DappScaffold {
         // Written once, by settle(). After that only redeem_settled and the queries run.
         object settlement {
             mutable settled: boolean = false;
+            // PHASE ONE: somebody has shown the system short at a fresh price. Nothing is
+            // frozen yet and nothing is pooled; what changes is that the operations which
+            // take value OUT stop until this is resolved, one way or the other.
+            mutable open: boolean = false;
+            mutable opened_at: timestamp = 0;
             mutable price: integer = 0;
             mutable pool: integer = 0;     // collateral set aside for coin holders
             mutable supply: integer = 0;   // coin outstanding when the system settled
@@ -2726,6 +2795,12 @@ object DappScaffold {
         val LIQUIDATION_BONUS_BPS = 500;
         // The one-time welcome grant is the ONLY place collateral is created.
         val WELCOME_TOKENS = 100;
+        // How long a pending settlement stays open before anyone may close it. It is the
+        // window in which a debtor may still burn at par against their own position, so it
+        // is the whole of round 13's fix: size it against how fast your holders can act,
+        // and never make it a parameter - a settler who chooses zero has chosen the
+        // one-phase settlement that raced a healthy debtor out of eleven tokens.
+        val SETTLEMENT_WINDOW_MS = 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this default.
@@ -2761,6 +2836,14 @@ object DappScaffold {
         // Every operation that moves value while the system is live starts here.
         function live() {
             require(not settlement.settled, "system is settled");
+        }
+
+        // ...and every operation that takes value OUT of the system also starts here.
+        // While a settlement is pending the only two operations that run are the ones that
+        // RAISE the system's backing, deposit_collateral and burn_stable: a shortfall that
+        // somebody has already shown at a fresh price is not the moment to let value leave.
+        function not_pending() {
+            require(not settlement.open, "settlement is pending - deposit or burn until it closes");
         }
 
         function current_price(): integer {
@@ -2831,6 +2914,7 @@ object DappScaffold {
         // WHOLE debt, so slicing the mint gains nothing.
         operation mint_stable(amount: integer) {
             live();
+            not_pending();
             val account = auth.authenticate();
             val me = stable_of(account.id);
             require(amount > 0, "amount must be positive");
@@ -2864,15 +2948,31 @@ object DappScaffold {
         // Unlock collateral: the ratio is re-checked at a fresh price, exactly as at mint.
         operation withdraw_collateral(amount: integer) {
             live();
+            not_pending();
             val account = auth.authenticate();
             val me = tokens_of(account.id);
             require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
             val c = cdp_of(account.id);
             require(c.collateral >= amount, "not that much collateral");
+            // A FRESH PRICE, ALWAYS - even for a debt-free position, which used to walk
+            // out without reading the oracle at all. It is needed for the system floor
+            // below, and the system floor has no exceptions.
+            val price = current_price();
             if (c.debt > 0) {
-                val price = current_price();
                 require(meets_ratio(c.collateral - amount, c.debt, price), "under the collateral ratio");
             }
+            // THE SYSTEM, not only the position - round 13. mint prices its new debt at
+            // 150% and so can only raise the average; liquidate and settle read the system
+            // outright; this was the one value-moving operation that read neither, so a
+            // whale withdrew 99 of her own 100 tokens against 10 of coin, stayed over 150%
+            // in her own position, and took the system from 149% backed to insolvent in
+            // the block she chose - then settled in the same one.
+            require(
+                collateral_value(system.total_collateral - amount, price) * BPS
+                    >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),
+                "withdrawal would take the system under its backing floor"
+            );
             val reserve = collateral_reserve();
             require(reserve.balance >= amount, "vault cannot cover the withdrawal");
             update c ( .collateral -= amount );
@@ -2889,6 +2989,7 @@ object DappScaffold {
         // leaves it alone, never down. Nobody is paid par out of somebody else's shortfall.
         operation liquidate(target: byte_array, stable_in: integer) {
             live();
+            not_pending();
             val account = auth.authenticate();
             require(target != account.id, "cannot liquidate your own position");
             val my_stable = stable_of(account.id);
@@ -2957,10 +3058,26 @@ object DappScaffold {
             live();
             auth.authenticate();
             val price = current_price();
-            require(
-                collateral_value(system.total_collateral, price) < system.total_debt,
-                "system is solvent"
-            );
+            val now = op_context.last_block_time;
+            val short = collateral_value(system.total_collateral, price) < system.total_debt;
+            // THE OPENING IS VOID once the shortfall is gone. Anyone may say so, and
+            // nothing is frozen: this is the branch a debtor's par exit reaches through.
+            if (settlement.open and not short) {
+                settlement.open = false;
+                settlement.opened_at = 0;
+                return;
+            }
+            require(short, "system is solvent");
+            // PHASE ONE. Show the shortfall and stop; value stops leaving the system and
+            // the debtors get their window.
+            if (not settlement.open) {
+                settlement.open = true;
+                settlement.opened_at = now;
+                return;
+            }
+            // PHASE TWO, a window later, and only if the shortfall is still there at a
+            // price that is still fresh.
+            require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, "settlement window is still open");
             val reserve = collateral_reserve();
             var pool = 0;
             for (c in cdp @* { .collateral > 0 }) {
@@ -2976,6 +3093,7 @@ object DappScaffold {
             }
             system.total_collateral = pool;
             settlement.settled = true;
+            settlement.open = false;
             settlement.price = price;
             settlement.pool = pool;
             settlement.supply = system.total_debt;
@@ -3024,6 +3142,10 @@ object DappScaffold {
             val c = cdp @? { .owner == owner };
             return if (c != null) (collateral = c.collateral, debt = c.debt) else null;
         }
+
+        query settlement_pending(): boolean = settlement.open;
+
+        query settlement_opened_at(): timestamp = settlement.opened_at;
 
         query get_system() = (
             total_collateral = system.total_collateral,
@@ -3139,6 +3261,19 @@ object DappScaffold {
             assert_true(main.debt_matches_supply());
         }
 
+        // SETTLEMENT IS TWO CALLS a window apart - round 13's fix. Anyone may OPEN it at
+        // a fresh insolvent price and anyone may CLOSE it once SETTLEMENT_WINDOW_MS has
+        // passed and the shortfall is still there; in between, the two operations that
+        // RAISE backing still run, so a debtor whose position is sound can still burn at
+        // par against it. This helper does both, which is what these tests mean by
+        // "settle" - and the assertion in the middle is why they are not the same call.
+        function settle_by(keypair: rell.test.keypair) {
+            signed(keypair, main.settle());
+            assert_true(main.settlement_pending());
+            after(main.SETTLEMENT_WINDOW_MS + 1000);
+            signed(keypair, main.settle());
+        }
+
         val HOUR = 60 * 60 * 1000;
         // 100.00 cash per token at PRICE_SCALE 1000000.
         val PAR = 100000000;
@@ -3152,6 +3287,9 @@ object DappScaffold {
         // system one and a half percent short instead of twenty-three percent short.
         val P4 = 52000000;
         val P5 = 45000000;
+        // Round 13's last post: 48.00, -7.7% from 52.00, an hour later, the same honest
+        // oracle. It leaves the system 0.7% short - and ONE position is the whole reason.
+        val P7 = 48000000;
 
         // Round 9's setup, verbatim: two identical users each lock 100 tokens (worth 10000
         // at par) and mint 6666 - exactly what the 150% ratio allows - then the price falls
@@ -3205,7 +3343,7 @@ object DappScaffold {
 
             // The exit, attacker first: 6666 * 200 / 13332 = 100, for her and for the
             // honest holder alike, and the position she wanted is untouched by her.
-            signed(attacker.keypair, main.settle());
+            settle_by(attacker.keypair);
             signed(attacker.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(attacker.account.id), 100);
             signed(honest.keypair, main.redeem_settled(6666));
@@ -3223,7 +3361,7 @@ object DappScaffold {
 
             signed_must_fail(honest.keypair, main.liquidate(attacker.account.id, 5120),
                 "system is under-backed - settle instead of liquidating");
-            signed(honest.keypair, main.settle());
+            settle_by(honest.keypair);
             signed(honest.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(honest.account.id), 100);
             signed(attacker.keypair, main.redeem_settled(6666));
@@ -3284,7 +3422,7 @@ object DappScaffold {
 
             // Settlement is the exit, and it is the settle-first column of round 11's
             // table: pool 256 against a supply of 13756, and 89 / 124 / 86.
-            signed(trudy.keypair, main.settle());
+            settle_by(trudy.keypair);
             assert_equals(main.get_system().settlement_pool, 256);
             assert_equals(main.get_system().settlement_supply, 13756);
             signed(trudy.keypair, main.redeem_settled(3000));
@@ -3306,7 +3444,7 @@ object DappScaffold {
             val trudy = register_trudy();
             crash_r11(alice.keypair, bob.keypair, trudy.keypair);
 
-            signed(alice.keypair, main.settle());
+            settle_by(alice.keypair);
             signed_must_fail(trudy.keypair, main.liquidate(bob.account.id, 3000), "system is settled");
             signed(bob.keypair, main.redeem_settled(4090));
             signed(alice.keypair, main.redeem_settled(6666));
@@ -3329,7 +3467,7 @@ object DappScaffold {
             val attacker = register_trudy();
             crash(honest.keypair, attacker.keypair);
 
-            signed(attacker.keypair, main.settle());
+            settle_by(attacker.keypair);
             assert_true(main.get_system().settled);
             assert_equals(main.get_system().settlement_pool, 200);
             assert_equals(main.get_system().settlement_supply, 13332);
@@ -3382,7 +3520,7 @@ object DappScaffold {
             // 185 tokens * 32.768 = 6062 against 6666.
             after(HOUR); post_price(40960000);
             after(HOUR); post_price(32768000);
-            signed(alice.keypair, main.settle());
+            settle_by(alice.keypair);
             // Bob owes 1000 = 30 tokens at 32.768; his other 70 come straight back.
             assert_equals(main.get_tokens(bob.account.id), 85);
             assert_equals(main.get_cdp(bob.account.id)!!.collateral, 30);
@@ -3434,6 +3572,156 @@ object DappScaffold {
 
         // Mint and withdraw are checked against the ratio at a FRESH price, and a stale or
         // missing price halts them.
+        // Round 13's fixture. ONE position is the reason the system is short, and the
+        // other is the best collateralised party in it: alice locks 100 tokens and mints
+        // 3000 (160% at the end of the fall), trudy locks 100 and mints 6666 (72%). The
+        // oracle is honest throughout - 100.00, 80.00, 64.00, 52.00, 48.00, an hour apart,
+        // every post inside MAX_PRICE_MOVE_BPS - and it stops with 200 tokens worth 9600
+        // against 9666 of coin.
+        function crash_r13(alice: rell.test.keypair, trudy: rell.test.keypair) {
+            post_price(PAR);
+            signed(alice, main.deposit_collateral(100));
+            signed(alice, main.mint_stable(3000));
+            signed(trudy, main.deposit_collateral(100));
+            signed(trudy, main.mint_stable(6666));
+            after(HOUR);
+            post_price(P1);
+            after(HOUR);
+            post_price(P2);
+            after(HOUR);
+            post_price(P4);
+            after(HOUR);
+            post_price(P7);
+            assert_equals(main.get_system().total_collateral, 200);
+            assert_equals(main.get_system().total_debt, 9666);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13: settlement raced a healthy debtor's par exit.
+        // settle() was permissionless, instant and irreversible, and it took collateral
+        // from a HEALTHY position - everything up to that position's own debt at the
+        // settlement price - into a pool paying under par, while that debtor could have
+        // burned at par against her own debt and walked out whole. Measured at 48.00:
+        // trudy at 72% settled first and the two redeemed 111 and 88; alice burning first
+        // gave 100 and 100. ELEVEN TOKENS on transaction order, all of them out of the
+        // party at 160% who was party to nothing and could not even be liquidated.
+        //
+        // Settlement is now two calls a window apart, and while it is pending the two
+        // operations that RAISE backing still run. So the attack buys nothing: alice takes
+        // her par exit inside the window, the shortfall goes with it, and the opening is
+        // void. Her outcome is the same in both orders - the sibling test does it the
+        // other way round and lands on the same two numbers.
+        function test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            crash_r13(alice.keypair, trudy.keypair);
+
+            // alice cannot be reached by a liquidation: she is the only reason the system
+            // has any backing at all. Round 13 took 62 of her 100 tokens anyway.
+            signed_must_fail(trudy.keypair, main.liquidate(alice.account.id, 3000), "position is healthy");
+
+            // THE ATTACK, in the block the price arrives.
+            signed(trudy.keypair, main.settle());
+            assert_true(main.settlement_pending());
+            assert_false(main.get_system().settled);
+            // Nothing is frozen and nothing is pooled yet, and value cannot leave...
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(1), "settlement is pending");
+            // ...but the par exit is open, and using it ends the shortfall.
+            signed(alice.keypair, main.burn_stable(3000));
+            after(main.SETTLEMENT_WINDOW_MS + 1000);
+            // So the close finds a solvent system and the opening is VOID.
+            signed(trudy.keypair, main.settle());
+            assert_false(main.get_system().settled);
+            assert_false(main.settlement_pending());
+
+            // And what alice may now take out is bounded by the SYSTEM and not by her own
+            // debt-free position: 146 tokens must stay to keep 6666 of coin over the 105%
+            // floor, so 54 may leave and 55 may not.
+            signed_must_fail(alice.keypair, main.withdraw_collateral(55), "withdrawal would take the system under its backing floor");
+            signed(alice.keypair, main.withdraw_collateral(54));
+            assert_equals(main.get_tokens(alice.account.id), 54);
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 46);
+            assert_equals(main.get_cdp(alice.account.id)!!.debt, 0);
+            assert_equals(main.get_tokens(trudy.account.id), 0);
+            assert_conserved();
+        }
+
+        // THE CONTROL, the other order: alice burns first and trudy's settlement never
+        // opens at all. The same two numbers, 54 out and 46 still hers, so the order the
+        // transactions arrive in is worth nothing to either party. Round 13's columns were
+        // 111/88 one way and 100/100 the other.
+        function test_r13_burning_first_reaches_the_same_place() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            crash_r13(alice.keypair, trudy.keypair);
+
+            signed(alice.keypair, main.burn_stable(3000));
+            signed_must_fail(trudy.keypair, main.settle(), "system is solvent");
+            signed_must_fail(alice.keypair, main.withdraw_collateral(55), "withdrawal would take the system under its backing floor");
+            signed(alice.keypair, main.withdraw_collateral(54));
+            assert_equals(main.get_tokens(alice.account.id), 54);
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 46);
+            assert_equals(main.get_tokens(trudy.account.id), 0);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13, the other half: the whale withdrawal. withdraw was
+        // the ONE value-moving operation that read the position's ratio and never the
+        // system's, so a party comfortably over-collateralised could take their own excess
+        // out and put the system under water whenever they chose - no price move, no
+        // oracle touched. Measured: three positions, 300 tokens at 48.00 against 9676 of
+        // coin, 149% backed and settle() refused "system is solvent" to everybody; trudy
+        // withdrew 99 of her own 100 tokens, keeping her own position over 150%, and
+        // settled IN THE SAME BLOCK. Here the withdrawal is refused, and so is the
+        // settlement it was meant to open.
+        function test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            post_price(PAR);
+            // The whale: 100 tokens against 10 of coin, so her own 150% floor would let
+            // her withdraw down to a single token.
+            signed(trudy.keypair, main.deposit_collateral(100));
+            signed(trudy.keypair, main.mint_stable(10));
+            signed(bob.keypair, main.deposit_collateral(100));
+            signed(bob.keypair, main.mint_stable(6666));
+            signed(alice.keypair, main.deposit_collateral(100));
+            signed(alice.keypair, main.mint_stable(3000));
+            after(HOUR);
+            post_price(P1);
+            after(HOUR);
+            post_price(P2);
+            after(HOUR);
+            post_price(P4);
+            after(HOUR);
+            post_price(P7);
+            assert_equals(main.get_system().total_collateral, 300);
+            assert_equals(main.get_system().total_debt, 9676);
+            // 300 tokens at 48.00 is 14400 against 9676 of coin: 149% backed, and nobody
+            // can settle.
+            signed_must_fail(trudy.keypair, main.settle(), "system is solvent");
+            signed_must_fail(alice.keypair, main.settle(), "system is solvent");
+
+            // THE ATTACK. Her own position stays over 150% at every step of it.
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(99), "withdrawal would take the system under its backing floor");
+            // The floor is the SYSTEM's: 212 tokens must stay to keep 9676 of coin over
+            // 105%, so 88 may leave and 89 may not - and none of it opens a settlement.
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(89), "withdrawal would take the system under its backing floor");
+            signed(trudy.keypair, main.withdraw_collateral(88));
+            signed_must_fail(trudy.keypair, main.settle(), "system is solvent");
+            assert_equals(main.get_tokens(trudy.account.id), 88);
+            assert_equals(main.get_system().total_collateral, 212);
+            assert_false(main.get_system().settled);
+            assert_conserved();
+        }
+
         function test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
@@ -3456,6 +3744,12 @@ object DappScaffold {
             signed_must_fail(alice.keypair, main.withdraw_collateral(1), "price feed is stale");
             // Burning needs no price: the debtor can always retire debt at par.
             signed(alice.keypair, main.burn_stable(3333));
+            // ...but taking collateral OUT does, and since round 13 that is true even with
+            // no debt left: the floor withdraw_collateral clears is the SYSTEM's backing,
+            // and a debt-free position is no exception to it. This used to leave without
+            // reading the oracle at all.
+            signed_must_fail(alice.keypair, main.withdraw_collateral(50), "price feed is stale");
+            post_price(PAR);
             signed(alice.keypair, main.withdraw_collateral(50));
             assert_equals(main.get_tokens(alice.account.id), 100);
             assert_conserved();
@@ -3540,7 +3834,7 @@ object DappScaffold {
             // 300 * 45 = 13500 against 13756. Settlement is the exit, and it pays the
             // round-11 numbers - the pool the attack shrank to 190 is 256 here.
             after(HOUR); post_price(P5);
-            signed(trudy.keypair, main.settle());
+            settle_by(trudy.keypair);
             assert_equals(main.get_system().settlement_pool, 256);
             assert_equals(main.get_system().settlement_supply, 13756);
             signed(trudy.keypair, main.redeem_settled(3000));
@@ -3563,7 +3857,7 @@ object DappScaffold {
             crash_r12(alice.keypair, bob.keypair, trudy.keypair);
 
             after(HOUR); post_price(P5);
-            signed(alice.keypair, main.settle());
+            settle_by(alice.keypair);
             signed_must_fail(trudy.keypair, main.liquidate(bob.account.id, 3000), "system is settled");
             signed(bob.keypair, main.redeem_settled(4090));
             signed(alice.keypair, main.redeem_settled(6666));
