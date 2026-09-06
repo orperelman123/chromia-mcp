@@ -3497,11 +3497,14 @@ object DappScaffold {
                 //      light on a hundred is a rounding and losing your last point is
                 //      losing your vote for the life of the chain - there is no unstake;
                 //   3. only when NO staker survives the point at all does it fall on the
-                //      largest remainder outright and empty somebody. Every staker having
-                //      at most one point of slack means the treasury left after this
-                //      payout is FEWER POINTS THAN THERE ARE STAKERS - it is taking
-                //      essentially everyone's, and no allocation of indivisible points
-                //      avoids it.
+                //      largest remainder outright - among the stakers that have not
+                //      already taken one, because nobody is charged two of them - and
+                //      empties somebody. Every staker having at most one point of slack
+                //      means the treasury left after this payout is FEWER POINTS THAN
+                //      THERE ARE STAKERS: it is taking essentially everyone's, and no
+                //      allocation of indivisible points avoids it. Both of those bounds
+                //      were brute-forced over every stake vector of two to five holders
+                //      before this was written, not reasoned about.
                 var pick: byte_array? = null;
                 var best = NO_CANDIDATE_YET;
                 var second: byte_array? = null;
@@ -3512,7 +3515,7 @@ object DappScaffold {
                     val r = remainder[owner];
                     val m = member @ { .owner == owner };
                     val survives = owed[owner] + 1 < m.stake;
-                    if (r > fallback_best) {
+                    if (not (owner in awarded) and r > fallback_best) {
                         fallback_best = r;
                         fallback = owner;
                     }
