@@ -472,6 +472,21 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(retire.contains("dao.total_stake -= amount;"), "the retirement must lower the DAO's total weight")
         assertTrue(retire.contains("update m ( .stake -= share );"), "the retirement must lower the stakers' own weight")
         assertTrue(retire.contains("( @sort .owner )"), "the rounding must fall in a canonical order - an unsorted at-expression is not a consensus rule")
+        // LARGEST REMAINDER - round 14. Rounding UP in owner order is not a rounding: the
+        // shares overshoot, so the loop stopped as soon as the amount was covered and the
+        // tail of the sort paid nothing. Ten one-point payouts across three EQUAL stakes
+        // took ten points from the member who sorts first and none from the other two, and
+        // a two-point payout took 100% of a one-point staker while the 1000-point holder
+        // who sorted last paid nothing. Floor first, then hand the leftover points one
+        // each to the largest remainders.
+        assertFalse(retire.contains("+ backing - 1"), "rounding UP exempts the tail of the sort order - round 14")
+        assertTrue(retire.contains("owed[owner] = exact / backing;"), "every share must be FLOORED first")
+        assertTrue(retire.contains("remainder[owner] = exact % backing;"), "and its fractional remainder kept, because that is what decides the odd point")
+        assertTrue(retire.contains("var leftover = amount - floored;"), "the points the floors leave over are what is distributed")
+        assertTrue(
+            retire.contains("if (remainder[owner] > best) {"),
+            "the leftover points go to the LARGEST remainders, ties to the first owner in the canonical order"
+        )
         assertEquals(
             1,
             Regex("dao\\.total_stake -= ").findAll(code).count(),
@@ -1850,7 +1865,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_r12_first_claimant_cannot_shut_the_genesis_window_must_fail",
             "test_r12_a_re_proposal_does_not_buy_a_fresh_window",
             "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
-            "test_r13_a_payout_retires_the_stake_that_backed_it"
+            "test_r13_a_payout_retires_the_stake_that_backed_it",
+            "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
+            "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail"
         )
     )
 
@@ -2321,6 +2338,45 @@ class DappScaffoldSecureTemplatesTest {
         "test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail",
         "no such subscription",
         attackLanded
+    )
+
+    /**
+     * ROUND 14, THE ROUNDING. Put ceil-in-owner-order back - each staker's share rounded
+     * UP and the walk stopped the moment `remaining` reached zero - and the shares
+     * overshoot again, so the head of the sort order pays every rounding point and the
+     * tail pays none. The replay REQUIRES ten ordinary one-point payouts across three
+     * EQUAL stakes to land 996 / 997 / 997; with the mutant they land 990 / 1000 / 1000,
+     * which is what round 14 measured, and the first assertion trips. Nothing else moves:
+     * the same @sort, the same total, the same conservation - only WHO PAYS.
+     */
+    @Test
+    fun governanceR14ReplayGoesRedWhenTheRoundingIsCeilInSortOrder() = assertGuardMutationRedensExploitTest(
+        "governance",
+        listOf(
+            "    for (owner in owners) {",
+            "        val m = member @ { .owner == owner };",
+            "        val exact = m.stake * amount;",
+            "        owed[owner] = exact / backing;",
+            "        remainder[owner] = exact % backing;",
+            "        floored += exact / backing;",
+            "    }"
+        ).joinToString("\n"),
+        listOf(
+            "    var remaining = amount;",
+            "    for (owner in owners) {",
+            "        val m = member @ { .owner == owner };",
+            "        var share = (m.stake * amount + backing - 1) / backing;",
+            "        if (share > m.stake) share = m.stake;",
+            "        if (share > remaining) share = remaining;",
+            "        owed[owner] = share;",
+            "        remainder[owner] = 0;",
+            "        remaining -= share;",
+            "    }",
+            "    floored = amount;"
+        ).joinToString("\n"),
+        "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
+        "stake retirement did not balance",
+        "expected"
     )
 
     /** The approval cannot be parked either: strip the window and the expiry replay goes red. */

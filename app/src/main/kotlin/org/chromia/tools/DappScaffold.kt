@@ -1313,7 +1313,17 @@ object DappScaffold {
         //                   point and mints a point of weight together, and every point
         //                   execute_proposal pays OUT of the treasury retires a point of
         //                   weight with it, pro rata from the stakes that were backing it
-        //                   (retire_stake_backing). dao.total_stake == dao.treasury_balance
+        //                   (retire_stake_backing), PRO RATA BY LARGEST REMAINDER: every
+        //                   staker's share is floored, and the points the floors leave over
+        //                   go one each to the largest fractional remainders, ties by
+        //                   owner. Every staker is within ONE POINT of exact pro rata and
+        //                   the odd point falls on whoever is owed most of it - round 14
+        //                   drained the version that rounded UP in owner order and stopped
+        //                   when the amount was covered, where the head of the sort paid
+        //                   every rounding point (ten one-point payouts: 10 / 0 / 0) and a
+        //                   two-point payout took 100% of a one-point staker while the
+        //                   1000-point holder who sorted last paid nothing.
+        //                   dao.total_stake == dao.treasury_balance
         //                   at every block, and the shipped conservation test asserts it,
         //                   so total voting weight can never exceed what genesis allocated.
         //                   Round 13 measured what the missing half cost: a payout retired
@@ -1524,24 +1534,71 @@ object DappScaffold {
         // is exactly the amount paid. O(members with stake), once per payout.
         // The caller is execute_proposal and there is no other: this is the only place any
         // stake is ever reduced, which is why there is no unstake operation.
+        // RETIREMENT IS PRO RATA, BY LARGEST REMAINDER. Each staker's share is FLOORED
+        // first - nobody is charged a point they do not owe, and no payout can take a
+        // staker's whole holding unless it takes everyone's - and the points the floors
+        // leave over, always FEWER THAN THE NUMBER OF STAKERS, are handed out ONE EACH to
+        // the largest fractional remainders. So every staker's retirement is within one
+        // point of exact pro rata, and WHO PAYS THE ODD POINT is whoever is owed most of
+        // it: it moves with the stakes rather than sitting on one account.
+        //
+        // Round 14 measured the version that rounded UP in @sort .owner order and stopped
+        // the moment `remaining` reached zero. Rounding up is not a rounding - the shares
+        // OVERSHOOT - so the tail of the sort order paid NOTHING and the head paid all of
+        // it. Three members with EQUAL stakes of 1000 and ten ordinary unanimous one-point
+        // payouts left the member who sorts first ten points lighter and the other two
+        // untouched, where pro rata each owed between three and four; and with stakes of
+        // 1 / 1000 / 1000 against a backing of 2001, ONE two-point payout took 100% of the
+        // one-point staker's weight - half the retirement out of 0.05% of the stake - and
+        // nothing at all from the 1000-point holder who sorted last. There is no unstake,
+        // so what she lost was not refundable.
+        //
+        // The @sort is still here and is still load-bearing: an at-expression with no
+        // @sort has no defined row order, and the tie-break between EQUAL remainders is a
+        // consensus rule that every node must decide the same way.
         function retire_stake_backing(amount: integer) {
             val backing = dao.total_stake;
             require(backing >= amount, "the treasury is not backed by stake");
-            var remaining = amount;
-            // Sorted by owner, because the rounding decides which staker pays the odd
-            // point and every node must decide it the same way: an at-expression with no
-            // @sort has no defined row order, and a consensus rule may not depend on one.
-            for (owner in member @* { .stake > 0 } ( @sort .owner )) {
-                if (remaining > 0) {
+            val owners = member @* { .stake > 0 } ( @sort .owner );
+            val owed = map<byte_array, integer>();
+            val remainder = map<byte_array, integer>();
+            var floored = 0;
+            for (owner in owners) {
+                val m = member @ { .owner == owner };
+                val exact = m.stake * amount;
+                owed[owner] = exact / backing;
+                remainder[owner] = exact % backing;
+                floored += exact / backing;
+            }
+            // Fewer leftover points than stakers with a remainder, so this terminates and
+            // every staker it touches has room for the point: a staker whose remainder is
+            // non-zero has floored strictly below their own stake.
+            var leftover = amount - floored;
+            while (leftover > 0) {
+                var pick: byte_array? = null;
+                var best = 0;
+                for (owner in owners) {
+                    if (remainder[owner] > best) {
+                        best = remainder[owner];
+                        pick = owner;
+                    }
+                }
+                val chosen = require(pick, "stake retirement did not balance");
+                owed[chosen] = owed[chosen] + 1;
+                // Awarded: nobody takes a second leftover point, and a staker with no
+                // remainder is never charged one at all.
+                remainder[chosen] = 0;
+                leftover -= 1;
+            }
+            require(leftover == 0, "stake retirement did not balance");
+            for (owner in owners) {
+                val share = owed[owner];
+                if (share > 0) {
                     val m = member @ { .owner == owner };
-                    var share = (m.stake * amount + backing - 1) / backing;
-                    if (share > m.stake) share = m.stake;
-                    if (share > remaining) share = remaining;
+                    require(m.stake >= share, "stake retirement did not balance");
                     update m ( .stake -= share );
-                    remaining -= share;
                 }
             }
-            require(remaining == 0, "stake retirement did not balance");
             dao.total_stake -= amount;
         }
 
@@ -2585,6 +2642,126 @@ object DappScaffold {
             assert_equals(main.get_stake(bob.account.id), 250);
             assert_equals(main.total_stake(), 500);
             assert_equals(main.treasury_balance(), 500);
+            assert_conserved();
+        }
+
+        // The three FT4 test accounts in @sort .owner order. The rounding is not a
+        // property of alice, bob or trudy - it is a property of whoever sorts first, and
+        // an account id is a hash of a public key - so these tests DISCOVER the order
+        // rather than assuming it.
+        function sorted_ids(a: byte_array, b: byte_array, c: byte_array): list<byte_array> {
+            val out = [a, b, c];
+            var i = 0;
+            while (i < out.size()) {
+                var j = i + 1;
+                while (j < out.size()) {
+                    if (out[j] < out[i]) {
+                        val t = out[i];
+                        out[i] = out[j];
+                        out[j] = t;
+                    }
+                    j += 1;
+                }
+                i += 1;
+            }
+            return out;
+        }
+
+        // One payout of `amount` to `to`, proposed and carried by the whole DAO.
+        function payout(proposer: rell.test.keypair, voters: list<rell.test.keypair>, to: byte_array, amount: integer, title: text) {
+            signed(proposer, main.create_proposal(title, to, amount));
+            val p = proposal_titled(title);
+            for (v in voters) signed(v, main.cast_vote(p, true));
+            close_voting_window();
+            signed(proposer, main.execute_proposal(p));
+        }
+
+        // EXPLOIT MUST FAIL. Round 14: the rounding always fell on the same staker.
+        // retire_stake_backing took ceil(stake * amount / backing) from each staker walked
+        // in @sort .owner order and stopped the moment `remaining` reached zero - so the
+        // shares OVERSHOOT and the tail of the sort order pays nothing. Measured: three
+        // members with EQUAL stakes of 1000 and TEN ordinary unanimous one-point payouts
+        // left the member who sorts first 990 and the other two on 1000, where pro rata
+        // each owed between three and four points. The comment said the sort was there so
+        // every node agrees WHO pays the odd point; it did not say the answer is always
+        // the same account, decided by a hash of a public key.
+        //
+        // Largest remainder puts it where it is owed: 4 / 3 / 3, and it moves.
+        function test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            val by_key = map<byte_array, rell.test.keypair>();
+            by_key[alice.account.id] = alice.keypair;
+            by_key[bob.account.id] = bob.keypair;
+            by_key[trudy.account.id] = trudy.keypair;
+            for (k in [alice, bob, trudy]) signed(k.keypair, main.register_member());
+            for (k in [alice, bob, trudy]) claim(k.keypair);
+            close_genesis_window();
+            for (k in [alice, bob, trudy]) signed(k.keypair, main.fund_treasury(1000));
+            assert_equals(main.total_stake(), 3000);
+
+            val order = sorted_ids(alice.account.id, bob.account.id, trudy.account.id);
+            val first = order[0];
+            val last = order[2];
+            val voters = [alice.keypair, bob.keypair, trudy.keypair];
+
+            // TEN one-point payouts to the member who sorts LAST - each of them an
+            // entirely ordinary unanimous DAO decision.
+            var i = 0;
+            while (i < 10) {
+                payout(by_key[first], voters, last, 1, "tiny " + i);
+                i += 1;
+            }
+
+            // Round 14 measured 990 / 1000 / 1000 here. Nobody is more than one point
+            // from exact pro rata over the ten, and the odd point moved every time.
+            assert_equals(main.get_stake(first), 996);
+            assert_equals(main.get_stake(order[1]), 997);
+            assert_equals(main.get_stake(last), 997);
+            assert_equals(main.total_stake(), 2990);
+            assert_equals(main.treasury_balance(), 2990);
+            assert_conserved();
+            assert_equals(main.staked_points(), main.total_stake());
+        }
+
+        // EXPLOIT MUST FAIL. The same defect as a takeover. Round 14: with stakes of
+        // 1 / 1000 / 1000 and a backing of 2001, ONE two-point payout took 100% of the
+        // one-point staker's weight - ceil(1 * 2 / 2001) = 1, her whole holding, half the
+        // retirement out of 0.05% of the stake - and NOTHING from the 1000-point holder
+        // who sorted last, because `remaining` had already reached zero. There is no
+        // unstake, so what she lost was not refundable.
+        //
+        // Floored first: 0.05% of two points is nothing, so she pays nothing, and the two
+        // points fall on the two largest remainders.
+        function test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            val by_key = map<byte_array, rell.test.keypair>();
+            by_key[alice.account.id] = alice.keypair;
+            by_key[bob.account.id] = bob.keypair;
+            by_key[trudy.account.id] = trudy.keypair;
+            for (k in [alice, bob, trudy]) signed(k.keypair, main.register_member());
+            for (k in [alice, bob, trudy]) claim(k.keypair);
+            close_genesis_window();
+
+            val order = sorted_ids(alice.account.id, bob.account.id, trudy.account.id);
+            // The member who sorts FIRST stakes ONE POINT; the other two stake 1000 each.
+            signed(by_key[order[0]], main.fund_treasury(1));
+            signed(by_key[order[1]], main.fund_treasury(1000));
+            signed(by_key[order[2]], main.fund_treasury(1000));
+            assert_equals(main.total_stake(), 2001);
+
+            payout(by_key[order[1]], [by_key[order[1]], by_key[order[2]]], order[2], 2, "two points");
+
+            // Round 14 measured 0 / 999 / 1000. Her point is hers, and the holder who
+            // sorts last pays the same as the one who sorts second.
+            assert_equals(main.get_stake(order[0]), 1);
+            assert_equals(main.get_stake(order[1]), 999);
+            assert_equals(main.get_stake(order[2]), 999);
+            assert_equals(main.total_stake(), 1999);
+            assert_equals(main.treasury_balance(), 1999);
             assert_conserved();
         }
     """.trimIndent() + "\n"
