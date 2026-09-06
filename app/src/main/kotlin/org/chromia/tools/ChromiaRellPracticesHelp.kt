@@ -386,6 +386,8 @@ object ChromiaRellPracticesHelp {
                 "staking / rewards / emissions: template=staking; payroll / vesting / drip (PREPAID): template=streaming; subscription / recurring pull billing / allowance / membership: template=subscription, never streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
                 "template=lending; order book / limit orders / bids and asks / matching: template=exchange, never amm; " +
+                "OTC swap / escrow between two named parties / p2p trade / atomic swap / any two-party trade with a timeout: template=escrow, never amm - " +
+                "a swap settles in full or not at all, the deadline is written once and the offer is revocable in any block; " +
                 "bridge / cross-chain / wrapped asset / relayer attestation: template=bridge, never ft4 - " +
                 "the processed-burns registry is keyed by the burn's identity on the source chain so one " +
                 "burn mints once, the row binds the recipient and amount the mint reads, a relayer SET with " +

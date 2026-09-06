@@ -164,7 +164,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -229,6 +229,11 @@ object DappScaffold {
                 "chromia.yml" to bridgeChromiaYml(chain),
                 "src/main.rell" to bridgeMainRell(),
                 "src/test/main_test.rell" to bridgeTestRell()
+            )
+            "escrow" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to escrowMainRell(),
+                "src/test/main_test.rell" to escrowTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -1161,6 +1166,32 @@ object DappScaffold {
             because it compares balances against a counter the minting operation raises
             itself - it was exact at every step of round 14's 10x mint. A bridge's invariant
             compares what was MINTED against the burns it ACCEPTED.
+            Building an OTC SWAP, an ESCROW between two named parties, a peer-to-peer trade
+            or any two-party exchange with a timeout: start from template=escrow. NOT
+            template=amm, which is where this ask used to go because `swap` is in that
+            keyword list: adversary round 15 asked for "an OTC swap escrow between two
+            parties with a timeout", was answered with a CONSTANT-PRODUCT POOL in the full
+            confident prose of a covered class, and drained the build twice - both times
+            out of the advice rather than a forgotten check. The amm's discipline is an
+            IMMUTABLE POSITION ROW DELETED WHOLE, so a partly filled offer re-created its
+            remainder as a NEW ROW whose timeout started NOW: a taker who bought ONE unit
+            every 59 minutes held a one-hour offer open for ever, and six hours in 94 of
+            the maker's 100 units were still escrowed with her reclaim refused every time,
+            after which he took the lot at the price she had quoted six hours earlier. And
+            only ONE LEG was escrowed, so the window was an option the maker wrote for
+            nothing: the taker held his own asset throughout and decided at the end of it.
+            The template makes both unwritable. A swap SETTLES IN FULL OR NOT AT ALL, so
+            there is no remainder to re-create and no second clock; the terms and the
+            deadline are IMMUTABLE fields written once by the operation that escrows the
+            maker's leg, and no operation writes a timestamp; the offer is REVOCABLE IN ANY
+            BLOCK, so the counterparty's free look is worth one block rather than the whole
+            window; after the deadline EITHER party may close it and the escrowed leg goes
+            back to whoever escrowed it, never to the caller; and the conservation queries
+            cover BOTH assets, because a swap that conserves one of them has lost the
+            other. Both drains ship as must-fail tests with mutants, and the cost of the
+            revocable offer is stated in the header rather than hidden: a taker cannot rely
+            on an offer still standing when their transaction lands, and a firm offer that
+            cannot be withdrawn is an option you must charge a premium for.
             Building an NFT marketplace, a listing/auction board, or anything with a buy button and
             creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
             to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
@@ -1553,6 +1584,39 @@ object DappScaffold {
                     "offers, AND a timed ascending auction with no mutable bid field (the standing " +
                     "bid is its own immutable escrow row), plus the encumbrance helper every " +
                     "token-moving path consults."
+            // AHEAD OF THE AMM BRANCH, which is what this ask used to get: "swap" is
+            // in that keyword list, so "an OTC swap escrow between two parties with a
+            // timeout" was answered with a CONSTANT-PRODUCT POOL, in the full confident
+            // prose of a covered class. Adversary round 15 built exactly that and
+            // drained it twice. `swap` ALONE still means the pool - that is what most
+            // people mean by it - but a swap that names two parties, an escrow, an OTC
+            // trade or a timeout is this class and not that one.
+            has("escrow", "otc", "atomic swap", "atomic_swap", "p2p trade", "p2p_trade",
+                "peer to peer trade", "peer-to-peer trade", "swap between two parties",
+                "two party swap", "two-party swap", "counterparty swap", "swap with a timeout") ->
+                "Use `template=escrow`: a TWO-PARTY OTC SWAP with a deadline, and it is the " +
+                    "FOURTEENTH template because adversary round 15 asked this server for exactly " +
+                    "this and was answered `template=amm` - a constant-product pool - since `swap` " +
+                    "is in the amm keyword list and neither `escrow` nor `otc` was anywhere in " +
+                    "this map. The build that followed that answer carried every guard the answer " +
+                    "names and drained twice, both times out of the ADVICE rather than a forgotten " +
+                    "check. THE TIMEOUT WAS THE TAKER'S TO RESET: the amm's own discipline is an " +
+                    "immutable position row DELETED WHOLE, so a partly filled offer re-created its " +
+                    "remainder as a NEW ROW whose timeout started NOW - a taker who bought ONE " +
+                    "unit every 59 minutes held a one-hour offer open for ever, and six hours in " +
+                    "94 of the maker's 100 units were still escrowed with her reclaim refused " +
+                    "every time. AND THE WINDOW WAS AN OPTION SHE WROTE FOR FREE: only one leg " +
+                    "was escrowed, so the maker's asset was locked while the taker committed " +
+                    "nothing and decided at the end of the hour. The template makes both " +
+                    "unwritable: a swap SETTLES IN FULL OR NOT AT ALL, so there is no remainder " +
+                    "and no second clock; the deadline is written ONCE by the operation that " +
+                    "escrows the maker's leg and no operation writes a timestamp; and the offer " +
+                    "is REVOCABLE IN ANY BLOCK, so the free look lasts one block rather than the " +
+                    "window. Both drains ship as must-fail tests with mutants, and the cost of " +
+                    "the revocable offer - a taker cannot rely on an offer still standing when " +
+                    "their transaction lands - is in the header rather than hidden. If what you " +
+                    "want is a POOL that prices off reserves, that is `template=amm`; if it is " +
+                    "resting orders anyone may fill, that is `template=exchange`."
             has("dao", "govern", "vot", "treasury", "proposal", "quorum") ->
                 "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
                     "execute-once are structural there, and it ships the single-account drain as a " +
@@ -1592,7 +1656,14 @@ object DappScaffold {
                     "ONE LIMIT, since `exchange` reaches this answer: this is a constant-product " +
                     "pool, NOT an order book. If you need resting orders that get matched, that IS " +
                     "covered now - `template=exchange`, shipped after adversary round 12 drained " +
-                    "an order book built freehand on this server's advice."
+                    "an order book built freehand on this server's advice. AND A SECOND LIMIT, " +
+                    "since `swap` reaches this answer too: this is a POOL, not a trade between two " +
+                    "named parties. If what you want is an OTC swap, an escrow between a maker and " +
+                    "ONE counterparty, or any two-party trade with a timeout, that is " +
+                    "`template=escrow` - shipped after adversary round 15 was answered with THIS " +
+                    "note for that ask and drained the pool-shaped build twice: the immutable row " +
+                    "deleted whole re-created a partial fill's remainder with a fresh timeout, and " +
+                    "escrowing only one leg made the window an option the maker wrote for free."
             has("oracle", "vault", "redeem", "redemption", "price") ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
@@ -7129,6 +7200,528 @@ object DappScaffold {
             signed(bob.keypair, main.place_order(true, 20, 1));
             assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 1);
             assert_equals(main.get_order(1)!!.remaining, 49);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    // ---- escrow template: a TWO-PARTY OTC SWAP, both legs in the module's hands
+    // ---- at the instant it settles, terms and deadline written once ----
+    //
+    // The FOURTEENTH template, and the class adversary round 15 built with no
+    // template at all: "an OTC swap escrow between two parties with a timeout" was
+    // answered `template=amm` - a constant-product pool - because `swap` is in the
+    // amm keyword list and neither `escrow` nor `otc` was anywhere in the redirect
+    // map. The build that followed that answer carried every guard the answer
+    // names, and drained twice.
+    private fun escrowMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Escrow template: a TWO-PARTY OTC SWAP with a deadline. One party offers a
+        // quantity of asset A for a quantity of asset B, names the ONE counterparty who
+        // may take it, and the trade either happens in full or not at all.
+        //
+        // This is the class adversary round 15 built with NO TEMPLATE AT ALL, because
+        // this server sent the ask somewhere else: `closestTemplateNote()` had no keyword
+        // for "escrow" and none for "otc", and "swap" is in the `amm` list, so "an OTC
+        // swap escrow between two parties with a timeout" was answered `template=amm` - a
+        // constant-product pool - with the full confident prose of a covered class. The
+        // build that followed that answer carried every guard the answer names: the exact
+        // quoted terms or revert, the IMMUTABLE POSITION ROW DELETED WHOLE, the golden FT4
+        // shape, bounded amounts, the auth handler at ["T"], conservation queries. It
+        // drained twice, and BOTH drains came out of the advice rather than out of a
+        // forgotten check:
+        //   - THE TIMEOUT WAS THE TAKER'S TO RESET. "A burn deletes one row whole" is the
+        //     amm's discipline for a liquidity position, and applied to a partly filled
+        //     offer it means the remainder is a NEW ROW - whose timeout starts NOW. A
+        //     taker who bought ONE unit every 59 minutes held a one-hour offer open for
+        //     ever: six hours in, 94 of the maker's 100 units were still escrowed, her
+        //     reclaim refused every time, and the taker closed the lot out at the price
+        //     she had quoted six hours earlier.
+        //   - THE WINDOW WAS AN OPTION SHE WROTE FOR FREE. Only ONE leg was escrowed. The
+        //     maker's asset was locked for the window and could not be recalled; the
+        //     taker committed nothing, held his own asset throughout, and decided at the
+        //     end of the hour. He took 100 units at 10 when the market had moved to 20;
+        //     had it moved the other way he would simply not have taken it.
+        // Nine guards are STRUCTURAL - they live in the entity and its operations, not in
+        // a require() a later operation can forget:
+        //   TWO PARTIES, NAMED - a swap is between the maker and ONE counterparty written
+        //     into the row when it is created. This is not a book and there is no matcher:
+        //     `taker` is a field, and the only account that can settle a swap is the one
+        //     it names. If you want resting orders that anyone may fill, that is a
+        //     different exploit class and a different template - `template=exchange`.
+        //   THE TERMS ARE WRITTEN ONCE - qty_a, qty_b, maker, taker, opened_at and the
+        //     deadline are IMMUTABLE fields. The row carries exactly ONE mutable field,
+        //     `status`, and it moves out of OPEN once and never back. There is no quote to
+        //     move underneath a taker, so the taker's quoted terms are checked against a
+        //     row that cannot have changed rather than against a reserve that can.
+        //   ALL OR NOTHING - a settlement moves BOTH legs in full or the transaction
+        //     aborts: `qty_a` must equal the whole quantity on offer. So there is no
+        //     remainder, no re-created row, and no new clock - which is round 15's first
+        //     drain made unwritable rather than checked. If you need partial fills, the
+        //     shape that survives is the exchange template's: keep the ORIGINAL row and
+        //     write ONE MONOTONE COUNTER, never delete-and-recreate.
+        //   NO OPERATION WRITES A TIMESTAMP - `opened_at` and `deadline` are written by
+        //     the one operation that escrows the maker's leg and by nothing else, and
+        //     neither field is mutable. Every other operation READS
+        //     op_context.last_block_time and compares. A deadline no counterparty can push
+        //     is the whole of what "with a timeout" was asked for.
+        //   THE MAKER'S LEG IS ESCROWED WHEN THE SWAP IS CREATED, and the taker's is taken
+        //     in the very operation that delivers it, so there is never a block in which
+        //     one party has parted with value and the other has not. Nothing settles
+        //     half-way: one operation debits and credits both sides.
+        //   THE OFFER IS REVOCABLE, IN ANY BLOCK - cancel_swap needs no deadline and no
+        //     counterparty. That is round 15's second drain: an offer the maker cannot
+        //     withdraw is a free option for whoever may take it, and the longer the window
+        //     the more it is worth. Here the option lasts one block, because the maker can
+        //     always take the swap off the table in the next one. THE COST is the mirror
+        //     image and it is stated rather than hidden: a taker cannot rely on an offer
+        //     still standing when their transaction lands, so a swap is a firm offer for
+        //     exactly as long as both parties leave it alone.
+        //   AFTER THE DEADLINE THE LEG GOES HOME TO ITS OWNER - expire_swap may be called
+        //     by EITHER party, and it returns the escrowed leg to the account that
+        //     escrowed it. Never to the caller: the taker can clear a stale row off the
+        //     books and gets nothing for doing it.
+        //   ONE EXIT, ONCE - settle, cancel and expire all require `status == STATUS_OPEN`
+        //     and all move it away from OPEN, so an escrowed leg is released exactly once
+        //     however the swap ends. There is no delete: the row stays as the record of
+        //     what happened.
+        //   BOUNDED BY WHAT IT COSTS - every amount is range-checked before it is used,
+        //     and a maker may hold at most MAX_LIVE_SWAPS open swaps at a time, each one
+        //     backed by escrow it has actually parted with. A free registration cannot
+        //     stand an unbounded book of offers.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - A DEADLINE IS AN OPTION FOR WHOEVER MAY TAKE IT. Escrowing both legs at once
+        //     would need both signatures in one transaction, and then there is no offer to
+        //     accept - just a trade. What this template does instead is make the option
+        //     WORTH ONE BLOCK: the maker may cancel at any time, so the counterparty's
+        //     free look lasts only as long as the maker leaves it alone. If you need a
+        //     firm offer that CANNOT be withdrawn for a stated time, you are selling an
+        //     option and you must charge for it - a premium the taker escrows at
+        //     creation. Do not ship an irrevocable window for nothing and call it a swap.
+        //   - THIS MODULE DOES NOT PRICE ANYTHING. qty_a for qty_b is whatever the two
+        //     parties agreed off-chain. There is no oracle and no market here, so a swap
+        //     at a bad price settles exactly as reliably as a swap at a good one.
+        //   - THE ASSETS ARE STAND-INS. asset_a and asset_b are balances on this chain,
+        //     credited once by a welcome grant so the tests can move real value. Replace
+        //     them with FT4 assets and keep every guard above: the escrow becomes a
+        //     transfer into the module's own account and back out, and the ONE EXIT rule
+        //     is what stops it being paid twice.
+
+        // The two assets. Balances only - nothing is created after the welcome grant, and
+        // the conservation queries at the bottom prove it for BOTH assets, because a swap
+        // that conserves one of them and not the other is not a swap.
+        entity trader {
+            key owner: byte_array;
+            mutable asset_a: integer = 0;
+            mutable asset_b: integer = 0;
+        }
+
+        // THE SWAP. Written once. Everything a party relies on - who may take it, what it
+        // pays, what it costs and when it dies - is an IMMUTABLE field, and the single
+        // mutable one is the status, which leaves OPEN exactly once.
+        entity swap {
+            key id: integer;
+            index maker: byte_array;
+            index taker: byte_array;
+            qty_a: integer;
+            qty_b: integer;
+            opened_at: timestamp;
+            deadline: timestamp;
+            mutable status: integer = 0;
+        }
+
+        object book {
+            mutable next_id: integer = 1;
+        }
+
+        // The status values. OPEN is the only one an operation may act on.
+        val STATUS_OPEN = 0;
+        val STATUS_SETTLED = 1;
+        val STATUS_RETURNED = 2;
+
+        val WELCOME_A = 1000;
+        val WELCOME_B = 10000;
+        val MAX_AMOUNT = 1000000;
+        // How long an offer stands before either party may close it. A constant, never a
+        // parameter: a maker who chooses the window chooses how long the counterparty's
+        // free look lasts, and a taker who chooses it chooses the same thing.
+        val SWAP_WINDOW_MS = 60 * 60 * 1000;
+        // A maker's open offers are bounded, because each one costs escrow it has parted
+        // with and because a free FT4 registration must not be able to stand a book.
+        val MAX_LIVE_SWAPS = 10;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function trader_of(owner: byte_array): trader =
+            require(trader @? { .owner == owner }, "register first");
+
+        operation register_trader() {
+            val account = auth.authenticate();
+            require(trader @? { .owner == account.id } == null, "already registered");
+            create trader(owner = account.id, asset_a = WELCOME_A, asset_b = WELCOME_B);
+        }
+
+        // OPEN. The maker's leg is escrowed in the same operation that writes the row, and
+        // the row's terms and deadline are written here and nowhere else.
+        operation open_swap(counterparty: byte_array, qty_a: integer, qty_b: integer) {
+            // 1. AUTHENTICATE
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - a registered trader, and a NAMED counterparty who is one too.
+            val me = trader_of(account.id);
+            require(counterparty != account.id, "a swap needs two parties");
+            require(trader @? { .owner == counterparty } != null, "the counterparty is not registered");
+            // 3. VALIDATE - each input separately, bounded before it is used.
+            require(qty_a > 0 and qty_a <= MAX_AMOUNT, "quantity out of range");
+            require(qty_b > 0 and qty_b <= MAX_AMOUNT, "price out of range");
+            require(me.asset_a >= qty_a, "insufficient asset A");
+            require(
+                (swap @* { .maker == account.id, .status == STATUS_OPEN } ( .id )).size() < MAX_LIVE_SWAPS,
+                "too many open swaps"
+            );
+            // 4. ESCROW AND WRITE, together. The leg leaves the maker's balance in the
+            //    operation that creates the row, so no row ever exists unbacked.
+            update me ( .asset_a -= qty_a );
+            create swap(
+                id = book.next_id,
+                maker = account.id,
+                taker = counterparty,
+                qty_a = qty_a,
+                qty_b = qty_b,
+                opened_at = op_context.last_block_time,
+                deadline = op_context.last_block_time + SWAP_WINDOW_MS
+            );
+            book.next_id += 1;
+        }
+
+        // SETTLE. The NAMED counterparty pays the whole of leg B and takes the whole of
+        // leg A, in one operation. There is no quantity to choose: `qty_a` is here so that
+        // the caller states what they believe they are taking, and it must be the lot.
+        operation settle_swap(swap_id: integer, quoted_qty_a: integer, quoted_qty_b: integer, qty_a: integer) {
+            val account = auth.authenticate();
+            val taker = trader_of(account.id);
+            val s = require(swap @? { .id == swap_id }, "no such swap");
+            // A SWAP IS BETWEEN TWO PARTIES: the row names who may settle it.
+            require(s.taker == account.id, "this swap names another counterparty");
+            require(s.status == STATUS_OPEN, "this swap is no longer open");
+            require(op_context.last_block_time < s.deadline, "the swap has expired");
+            // The terms cannot have moved - they are immutable - so this compares the row
+            // with what the caller was told, and catches a caller who quoted a DIFFERENT
+            // swap rather than a swap whose terms changed under them.
+            require(s.qty_a == quoted_qty_a and s.qty_b == quoted_qty_b, "the swap's terms are not the ones you quoted");
+            // ALL OR NOTHING. A partial fill would need a remainder, a remainder is a new
+            // row, and a new row has a new clock - which is exactly how round 15 held a
+            // one-hour offer open for six hours, one unit at a time.
+            require(qty_a == s.qty_a, "a swap settles in full or not at all");
+            require(taker.asset_b >= s.qty_b, "insufficient asset B");
+            val maker = trader_of(s.maker);
+            // BOTH LEGS, IN THIS ONE OPERATION. The maker's leg has been escrowed since
+            // the row was written; the taker's is taken here and delivered here.
+            update taker ( .asset_b -= s.qty_b, .asset_a += s.qty_a );
+            update maker ( .asset_b += s.qty_b );
+            update s ( .status = STATUS_SETTLED );
+        }
+
+        // CANCEL, IN ANY BLOCK. The maker takes the offer off the table and her leg back.
+        // No deadline: an offer that cannot be withdrawn is an option written for free,
+        // and round 15 measured what one hour of it was worth.
+        operation cancel_swap(swap_id: integer) {
+            val account = auth.authenticate();
+            val s = require(swap @? { .id == swap_id }, "no such swap");
+            require(s.maker == account.id, "not your swap");
+            require(s.status == STATUS_OPEN, "this swap is no longer open");
+            val me = trader_of(account.id);
+            update me ( .asset_a += s.qty_a );
+            update s ( .status = STATUS_RETURNED );
+        }
+
+        // EXPIRE. After the deadline EITHER party may close the swap, and the escrowed leg
+        // goes back to the account that escrowed it - never to the caller.
+        operation expire_swap(swap_id: integer) {
+            val account = auth.authenticate();
+            val s = require(swap @? { .id == swap_id }, "no such swap");
+            require(s.maker == account.id or s.taker == account.id, "a swap is closed by one of its two parties");
+            require(s.status == STATUS_OPEN, "this swap is no longer open");
+            require(op_context.last_block_time >= s.deadline, "the swap has not expired yet");
+            val maker = trader_of(s.maker);
+            update maker ( .asset_a += s.qty_a );
+            update s ( .status = STATUS_RETURNED );
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_a(owner: byte_array): integer {
+            val t = trader @? { .owner == owner };
+            return if (t != null) t.asset_a else 0;
+        }
+
+        query get_b(owner: byte_array): integer {
+            val t = trader @? { .owner == owner };
+            return if (t != null) t.asset_b else 0;
+        }
+
+        query get_swap(swap_id: integer) {
+            val s = swap @? { .id == swap_id };
+            return if (s != null)
+                (
+                    id = s.id, maker = s.maker, taker = s.taker, qty_a = s.qty_a,
+                    qty_b = s.qty_b, opened_at = s.opened_at, deadline = s.deadline,
+                    status = s.status
+                )
+            else null;
+        }
+
+        query open_swaps_of(maker: byte_array): integer =
+            (swap @* { .maker == maker, .status == STATUS_OPEN } ( .id )).size();
+
+        query trader_count(): integer = trader @* {} ( .owner ).size();
+
+        // INVARIANT, ACROSS BOTH ASSETS. Nothing is created after the welcome grant. Every
+        // unit of A is in a balance or escrowed behind an OPEN swap; every unit of B is in
+        // a balance, because leg B is never escrowed - it is taken and delivered in the
+        // same operation. A swap that conserved one asset and not the other would settle
+        // one leg and lose the other, which is the whole failure an escrow exists to
+        // prevent, so both are asserted after every step of the shipped tests.
+        query a_in_circulation(): integer {
+            var total = 0;
+            for (b in trader @* {} ( .asset_a )) total += b;
+            for (s in swap @* { .status == STATUS_OPEN } ( .qty_a )) total += s;
+            return total;
+        }
+
+        query b_in_circulation(): integer {
+            var total = 0;
+            for (b in trader @* {} ( .asset_b )) total += b;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun escrowTestRell(): String = """
+        @test module;
+
+        // The escrow template's invariant tests. They are real: FT4 test accounts, signed
+        // operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's moduleArgs
+        // PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_r15_otc* functions replay adversary round 15's two drains on the
+        // build this server's own redirect produced for this ask - `template=amm`, a
+        // constant-product pool - and REQUIRE them to fail. There, a partial fill deleted
+        // the offer row and re-created the remainder, so a one-unit buy every 59 minutes
+        // reset the maker's one-hour timeout for ever; and only one leg was escrowed, so
+        // the window was an option the maker wrote for nothing.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val HOUR = 60 * 60 * 1000;
+
+        // BOTH assets, after every step. An escrow that conserves one leg and not the
+        // other has lost the other one.
+        function assert_conserved() {
+            assert_equals(main.a_in_circulation(), main.trader_count() * main.WELCOME_A);
+            assert_equals(main.b_in_circulation(), main.trader_count() * main.WELCOME_B);
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain one: the taker resets the maker's clock. The
+        // answer this ask used to get taught the amm's immutable-row-deleted-whole
+        // discipline, so a partial fill re-created the remainder as a NEW ROW whose
+        // timeout started NOW. Bob bought ONE unit every 59 minutes, six times; alice's
+        // reclaim was refused every time; six hours in she had sold 6 units for 60 of B
+        // and 94 of her 100 units of A were still escrowed with an hour to run, and bob
+        // then took the 94 at the price she quoted six hours earlier.
+        //
+        // Here a swap settles in FULL or not at all, so there is no remainder to re-create
+        // and no clock to restart: the one-unit fill is refused, the deadline is the one
+        // written when the swap was opened, and the maker's leg comes home on time.
+        function test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            val s = main.get_swap(1)!!;
+            assert_equals(s.qty_a, 100);
+            assert_equals(s.deadline, s.opened_at + main.SWAP_WINDOW_MS);
+
+            // THE ATTACK, six times over, nine minutes apart and all of them inside the
+            // one window: buy ONE unit and start the clock again. Every one of them is
+            // refused, and the deadline never moves.
+            var round = 0;
+            while (round < 6) {
+                after(9 * 60 * 1000);
+                signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 1),
+                    "a swap settles in full or not at all");
+                assert_equals(main.get_swap(1)!!.deadline, s.deadline);
+                assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+                assert_equals(main.get_b(alice.account.id), main.WELCOME_B);
+                round += 1;
+            }
+
+            // ...and the deadline the maker wrote is the deadline she gets, whatever the
+            // counterparty did in between. Round 15's maker was still locked at hour six.
+            after(7 * 60 * 1000);
+            signed(alice.keypair, main.expire_swap(1));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+            assert_equals(main.get_swap(1)!!.status, main.STATUS_RETURNED);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain two: the window was a free option. Only the
+        // maker's leg was escrowed and she could not recall it, so the taker held his own
+        // asset for the hour and decided at the end of it - 100 units at 10 when the
+        // market had moved to 20, and nothing at all had the market moved the other way.
+        //
+        // Here the offer is revocable in any block, so the option is worth ONE BLOCK: the
+        // maker takes it off the table half an hour in and there is nothing left to
+        // decide about at the end of the hour.
+        function test_r15_otc2_the_window_is_not_a_free_option_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+
+            // Half an hour in, with bob still holding every unit of his own asset - he has
+            // committed nothing, which is what makes the offer an option - alice withdraws
+            // it. No deadline is needed and none is waited for.
+            after(30 * 60 * 1000);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
+            signed(alice.keypair, main.cancel_swap(1));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+
+            // THE ATTACK: bob waits out the rest of the window and takes it at the end,
+            // the way round 15's taker did. There is nothing to take.
+            after(29 * 60 * 1000);
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100),
+                "this swap is no longer open");
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(alice.account.id), main.WELCOME_B);
+            assert_conserved();
+        }
+
+        // HAPPY PATH + CONSERVATION ACROSS BOTH ASSETS: a swap settles both legs in one
+        // operation, and nothing is created or lost on either side of it.
+        function test_a_swap_settles_both_legs_or_neither_and_conserves() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            assert_conserved();
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            // The maker's leg is escrowed the moment the row exists: it is out of her
+            // balance and counted in circulation behind the swap.
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+            assert_equals(main.open_swaps_of(alice.account.id), 1);
+            assert_conserved();
+
+            // A taker who names a size that is not the lot moves nothing.
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100 + 1),
+                "a swap settles in full or not at all");
+            assert_conserved();
+
+            signed(bob.keypair, main.settle_swap(1, 100, 1000, 100));
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A + 100);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B - 1000);
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+            assert_equals(main.get_b(alice.account.id), main.WELCOME_B + 1000);
+            assert_equals(main.open_swaps_of(alice.account.id), 0);
+            assert_conserved();
+
+            // ONE EXIT, ONCE. A settled swap cannot be settled, cancelled or expired
+            // again, so the escrowed leg is released exactly once however it ended.
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100), "this swap is no longer open");
+            signed_must_fail(alice.keypair, main.cancel_swap(1), "this swap is no longer open");
+            after(HOUR + 1000);
+            signed_must_fail(alice.keypair, main.expire_swap(1), "this swap is no longer open");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. A swap is between TWO PARTIES: the row names who may settle
+        // it, and it dies at the deadline it was written with. Neither is negotiable by a
+        // caller, and no stranger can take a trade that was not offered to them.
+        function test_only_the_named_counterparty_settles_and_only_before_the_deadline_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            signed_must_fail(alice.keypair, main.open_swap(alice.account.id, 100, 1000), "a swap needs two parties");
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+
+            // Trudy was not offered this trade, however well she quotes it.
+            signed_must_fail(trudy.keypair, main.settle_swap(1, 100, 1000, 100),
+                "this swap names another counterparty");
+            // Nor can the maker settle her own offer.
+            signed_must_fail(alice.keypair, main.settle_swap(1, 100, 1000, 100),
+                "this swap names another counterparty");
+            // ...and a taker who quotes terms that are not this swap's is refused.
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 999, 100),
+                "the swap's terms are not the ones you quoted");
+            assert_equals(main.get_a(trudy.account.id), main.WELCOME_A);
+            assert_conserved();
+
+            // THE DEADLINE IS THE ONE THAT WAS WRITTEN. A minute past it the trade is over
+            // for the counterparty, and no operation can push it out.
+            after(HOUR + 60 * 1000);
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100), "the swap has expired");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. After the deadline either party may close the swap, and the
+        // escrowed leg goes back to WHOEVER ESCROWED IT - never to whoever made the call.
+        // Before the deadline nobody but the maker may end it at all.
+        function test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            // Not yet, and not by a stranger.
+            signed_must_fail(bob.keypair, main.expire_swap(1), "the swap has not expired yet");
+            signed_must_fail(trudy.keypair, main.expire_swap(1), "a swap is closed by one of its two parties");
+            signed_must_fail(bob.keypair, main.cancel_swap(1), "not your swap");
+            assert_conserved();
+
+            // THE ATTACK: the counterparty closes the expired swap and keeps the leg. The
+            // escrow goes to the account that escrowed it, and bob is paid nothing for
+            // clearing the row.
+            after(HOUR + 1000);
+            signed(bob.keypair, main.expire_swap(1));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
             assert_conserved();
         }
     """.trimIndent() + "\n"
