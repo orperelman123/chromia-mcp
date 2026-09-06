@@ -5735,8 +5735,9 @@ object DappScaffold {
             assert_equals(before.backing_collateral, 200);
             assert_equals(before.total_collateral, 200);
             assert_equals(before.total_debt, 9666);
-            // 200 tokens at 48.00 = 9600 against 9666 of coin: 99.3%, short.
-            settle_by(trudy.keypair);
+            // 200 tokens at 48.00 = 9600 against 9666 of coin: 99.3%, short. This opens
+            // the settlement and stops there - settle_by() would run BOTH phases.
+            signed(trudy.keypair, main.settle());
             assert_true(main.settlement_pending());
 
             // ALICE TAKES THE PAR EXIT THE WINDOW EXISTS FOR, in full.
@@ -5760,7 +5761,7 @@ object DappScaffold {
             // ...and the fall does not void the opening: a void needs backing to RISE
             // over the bonus line, so phase two runs at the price the opening recorded.
             after(main.SETTLEMENT_WINDOW_MS + 1000);
-            settle_by(trudy.keypair);
+            signed(trudy.keypair, main.settle());
             assert_true(main.get_system().settled);
             assert_equals(main.get_system().settlement_pool, 100);
             assert_equals(main.get_system().settlement_supply, 6666);
