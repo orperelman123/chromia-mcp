@@ -414,7 +414,13 @@ object DappScaffold {
             shipped tests replay round 12's grind and its setup as must-fail tests, and what
             the guards do NOT close ships in the header: a resting order is a free option
             written to the market for MIN_RESTING_MS, and a trader who posts both sides of a
-            crossing market arbitrages themselves.
+            crossing market arbitrages themselves. Round 13 added the half that is not
+            about who gets filled: the matcher SELECTS the orders that cross - side and
+            price are where-clause terms served by an index - and a trader may stand at
+            most MAX_RESTING_ORDERS quotes at once. Before that it read the whole order
+            table on every place_order and nothing bounded the book, so ten one-unit trades
+            went from 1.8 seconds to 26.3 behind 150 resting bids at price 1 and were
+            abandoned at 90 seconds behind 400, bought with one free registration.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -3593,7 +3599,7 @@ object DappScaffold {
         // partial fills and cancellation. This is NOT the amm: a constant-product pool
         // prices every trade off two reserves, and an order book has to decide WHICH
         // resting order is filled and in what order, which is the hard half and the one
-        // adversary round 12 drained. Eight guards are STRUCTURAL - they live in the
+        // adversary round 12 drained. Nine guards are STRUCTURAL - they live in the
         // entities and the matching function, not in a require() a future operation can
         // forget:
         //   IMMUTABLE     - a resting order's TERMS never change. maker, side, price, the
@@ -3643,6 +3649,29 @@ object DappScaffold {
         //                   "An order that can be pulled in the block it would have been
         //                   filled in is not a commitment at all" - and the clock that
         //                   enforces it is the maker's own, not one a stranger can restart.
+        //   BOUNDED BOOK  - the matcher SELECTS the orders that cross: side, price and the
+        //                   taker's own id are where-clause terms, served by
+        //                   `index is_buy, price`, so an order that does not cross this
+        //                   limit costs a place_order nothing. And a trader may stand at
+        //                   most MAX_RESTING_ORDERS quotes at once, so the book is bounded
+        //                   by the traders in it rather than by what one welcome grant can
+        //                   buy. Round 13 measured the unfiltered, unbounded version:
+        //                   best_resting was `for (o in order @* {})` - the whole table,
+        //                   filtered in Rell afterwards - so the header's own advice,
+        //                   "index price and side", could not be followed, because a select
+        //                   with no where-clause has nothing for an index to serve. The
+        //                   SAME ten one-unit trades between two honest traders took 1.8s
+        //                   behind an empty book, 7.4s behind 50 resting bids at price 1,
+        //                   26.3s behind 150, and were ABANDONED at the runner's 90-second
+        //                   cap behind 400. Nothing was stolen: the venue stopped working,
+        //                   the dust cost one point of escrow a row out of the 10000-point
+        //                   welcome grant register_trader mints to every new account, and
+        //                   the maker simply never cancelled. THE COST OF THE CAP, stated
+        //                   because a defence's price belongs in this list: a market maker
+        //                   who wants more than MAX_RESTING_ORDERS live quotes must cancel
+        //                   one to post one, or trade from more than one account - and a
+        //                   cancel is refused for MIN_RESTING_MS, so the two constants have
+        //                   to be sized together.
         //   PAIRED        - every fill debits one side and credits the other in the same
         //     SETTLEMENT    operation, and nothing creates a point or a unit after the
         //                   one-time welcome grant. The conservation queries sum balances
@@ -3658,9 +3687,13 @@ object DappScaffold {
         //     Self-dealing is refused, so their own two orders sit locked until somebody
         //     else takes them, and that somebody takes both. It is their own money and the
         //     matcher will not spend it for them.
-        //   - MATCHING IS O(BOOK) PER FILL. It is a template: it walks the orders and picks
-        //     the best. Index price and side before your book is large, and keep the
-        //     ordering rule - price, then time, then id - exactly as it is.
+        //   - MATCHING WALKS THE ORDERS THAT CROSS, NOT THE BOOK, and it walks them once
+        //     per fill. The filtering is a where-clause the runner serves, not a loop in
+        //     this module, so a book full of orders nobody's limit reaches is free. What
+        //     IS O(book) is the pair of conservation queries at the bottom: they sum every
+        //     row on purpose, and they are queries rather than operations, so nobody pays
+        //     for them inside a transaction. Keep the ordering rule - price, then time,
+        //     then id - exactly as it is.
 
         entity trader {
             key owner: byte_array;
@@ -3678,6 +3711,9 @@ object DappScaffold {
             qty: integer;                // the size committed - never changes
             created_at: timestamp;       // the maker's cancel clock - written ONCE
             mutable filled: integer = 0; // monotone, and always < qty while the row lives
+            // What the matcher's where-clause needs: a taker asks for one side at one
+            // limit, so the runner can answer from this instead of reading the book.
+            index is_buy, price;
         }
 
         object book {
@@ -3691,6 +3727,12 @@ object DappScaffold {
         // A resting order is a commitment: a maker may withdraw it only after it has
         // stood for an hour. A constant, never a parameter.
         val MIN_RESTING_MS = 60 * 60 * 1000;
+        // A BOUNDED BOOK: the most quotes one trader may have standing at once. Rows are
+        // permanent until their maker cancels them, and nothing else limits how many a
+        // trader creates - round 13 filled the book with 1-point bids nobody would ever
+        // reach and made every place_order pay for them. Size it against how many price
+        // levels a real maker quotes; it is a constant, never a parameter.
+        val MAX_RESTING_ORDERS = 20;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this default.
@@ -3721,15 +3763,16 @@ object DappScaffold {
 
         // The one order a taker at this limit is entitled to. The caller passes a side, a
         // limit and their own id - never an order id - so no caller decides who is filled.
-        // O(book) per fill: index price and side before your book is large.
+        // THE RUNNER DOES THE FILTERING: the side, the limit and the self-dealing rule are
+        // all where-clause terms, so `index is_buy, price` serves them and what is walked
+        // here is the orders that CROSS. Round 13 measured the version that selected the
+        // whole table and filtered afterwards at O(book) per place_order whether or not
+        // anything matched - see BOUNDED BOOK in the header.
         function best_resting(want_buy: boolean, limit_price: integer, taker: byte_array): order? {
-            val side = list<order>();
-            for (o in order @* {}) {
-                if (o.maker != taker and o.is_buy == want_buy and o.qty > o.filled) {
-                    val reachable = if (want_buy) o.price >= limit_price else o.price <= limit_price;
-                    if (reachable) side.add(o);
-                }
-            }
+            val side = if (want_buy)
+                order @* { .is_buy == want_buy, .price >= limit_price, .maker != taker, .qty > .filled }
+            else
+                order @* { .is_buy == want_buy, .price <= limit_price, .maker != taker, .qty > .filled };
             if (side.size() == 0) return null;
             var best = side[0];
             for (o in side) {
@@ -3797,6 +3840,12 @@ object DappScaffold {
             // 5. REST what is left, escrowed in the same operation that creates the row.
             if (left > 0) {
                 val me = trader_of(account.id);
+                // A BOUNDED BOOK. A resting row is permanent until its maker cancels it,
+                // and round 13 bought 10000 of them with one free registration.
+                require(
+                    (order @* { .maker == account.id } ( .id )).size() < MAX_RESTING_ORDERS,
+                    "too many resting orders"
+                );
                 val escrow = if (is_buy) price * left else left;
                 if (is_buy) {
                     require(me.points >= escrow, "insufficient points");
@@ -3924,6 +3973,53 @@ object DappScaffold {
         }
 
         val HOUR = 60 * 60 * 1000;
+
+        // EXPLOIT MUST FAIL. Round 13: the dust book. best_resting() was
+        // `for (o in order @* {})` - the whole order table, filtered in Rell afterwards -
+        // so the header's own advice, "index price and side before your book is large",
+        // could not be followed: a select with no where-clause has nothing for an index to
+        // serve. The cost was O(book) per PLACE_ORDER whether or not anything matched, and
+        // nothing bounded the book either: register_trader mints WELCOME_POINTS, a resting
+        // bid at price 1 costs ONE point of escrow, and the maker never cancels. Measured
+        // on a running chain, the SAME ten one-unit trades between two honest traders took
+        // 1.8s behind an empty book, 7.4s behind 50 dust bids, 26.3s behind 150, and were
+        // ABANDONED at the runner's 90-second cap behind 400.
+        //
+        // A timing assertion is not a unit test, so this pins the two things that ARE
+        // decidable: the book is BOUNDED - a trader's 21st resting order is refused - and
+        // the dust that does rest is not on a crossing order's path, because it is not in
+        // the matcher's where-clause at all. The matcher's SHAPE is pinned in Kotlin, by
+        // exchangeMatcherQueriesTheBookRatherThanScanningIt.
+        function test_round13_dust_book_cannot_tax_every_place_order_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            // The attacker buys the cheapest rows there are, and never cancels.
+            var i = 0;
+            while (i < main.MAX_RESTING_ORDERS) {
+                signed(trudy.keypair, main.place_order(true, 1, 1));
+                i += 1;
+            }
+            // THE BOUND. Her welcome grant would pay for 10000 of these.
+            signed_must_fail(trudy.keypair, main.place_order(true, 1, 1), "too many resting orders");
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - main.MAX_RESTING_ORDERS);
+
+            // And the dust that IS resting is not on the path of a crossing order: alice
+            // sells 10 at 20 and bob buys 10 at 20 through a book full of bids at 1, which
+            // the matcher's where-clause never names.
+            signed(alice.keypair, main.place_order(false, 20, 10));
+            signed(bob.keypair, main.place_order(true, 20, 10));
+            assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS + 200);
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 10);
+            // Untouched: a bid at 1 is not reachable by a seller asking 20.
+            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS);
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - main.MAX_RESTING_ORDERS);
+            assert_conserved();
+        }
 
         // HAPPY PATH + CONSERVATION: a resting sell is escrowed, filled at the price it
         // showed, and a PARTIAL fill leaves the row alive with its escrow down by exactly

@@ -1466,7 +1466,7 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("return if (a.is_buy) a.price > b.price else a.price < b.price;"), "best price first")
         assertTrue(main.contains("if (a.created_at != b.created_at) return a.created_at < b.created_at;"), "then the order that has rested longest")
         assertTrue(main.contains("return a.id < b.id;"), "then the lowest id")
-        assertTrue(main.contains("o.maker != taker"), "the matcher must skip a taker's own orders")
+        assertTrue(main.contains(".maker != taker"), "the matcher must skip a taker's own orders - round 13 moved this into the where-clause, so the runner skips them")
         // RESTED CANCEL, measured from the clock nothing writes twice.
         val cancel = opBody(code, "cancel_order")
         assertTrue(cancel.contains("require(o.maker == account.id, \"not your order\");"))
@@ -1480,8 +1480,8 @@ class DappScaffoldSecureTemplatesTest {
         listOf("MAX_PRICE", "MAX_QTY", "WELCOME_POINTS", "WELCOME_UNITS").forEach {
             assertTrue(main.contains("val $it ="), "$it must be a named constant")
         }
-        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the exchange header must state its guard count")
-        assertEquals(8, guardCount(main), "the exchange header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the exchange header must state its guard count")
+        assertEquals(9, guardCount(main), "the exchange header's stated count must be the number of guards it lists")
         assertTrue(main.contains("A RESTING ORDER IS A FREE OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS"), "the header must admit what the cancel delay costs")
     }
 
@@ -1761,7 +1761,8 @@ class DappScaffoldSecureTemplatesTest {
             "test_round12_partial_fill_cannot_reset_the_makers_clock_must_fail",
             "test_round12_a_maker_is_never_left_resting_beside_a_better_price_must_fail",
             "test_matching_is_price_then_time_and_no_caller_chooses",
-            "test_bounds_and_ownership"
+            "test_bounds_and_ownership",
+            "test_round13_dust_book_cannot_tax_every_place_order_must_fail"
         )
     )
 
@@ -2013,7 +2014,7 @@ class DappScaffoldSecureTemplatesTest {
         "governance",
         "retire_stake_backing(p.amount);",
         "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
-        "proposal was not approved"
+        "proposal cannot be paid out of money that arrived after it"
     )
 
     /** The approval cannot be parked either: strip the window and the expiry replay goes red. */
@@ -2207,6 +2208,45 @@ class DappScaffoldSecureTemplatesTest {
      * replay requires it to succeed, which is the attack landing. `filled` still advances
      * and the escrow still comes back, so nothing but the clock changed.
      */
+    /**
+     * ROUND 13, THE SHAPE. The dust book was not a missing require() and it is not a thing
+     * a timing assertion can pin: best_resting selected the WHOLE order table -
+     * `for (o in order @* {})` - and filtered in Rell afterwards, so no index could serve
+     * it and every place_order paid for every row in the book whether it crossed or not.
+     * The same ten one-unit trades took 1.8s / 7.4s / 26.3s behind 0 / 50 / 150 resting
+     * bids at price 1 and were abandoned at the runner's 90-second cap behind 400, bought
+     * with ONE free registration. So this pins the matcher's shape - the filtering is a
+     * where-clause the runner serves - and the bound that keeps the book finite.
+     */
+    @Test
+    fun exchangeMatcherQueriesTheBookRatherThanScanningIt() {
+        val main = DappScaffold.files("book", template = "exchange").getValue("src/main.rell")
+        val code = withoutComments(main)
+        val matcher = code.substringAfter("function best_resting").substringBefore("\n}")
+        assertFalse(
+            Regex("order\\s*@\\*\\s*\\{\\s*\\}").containsMatchIn(matcher),
+            "the matcher must not select the whole book - round 13 measured that at O(book) per place_order: \$matcher"
+        )
+        assertTrue(matcher.contains(".is_buy == want_buy"), "the side must be a where-clause term the runner can serve")
+        assertTrue(
+            matcher.contains(".price >= limit_price") && matcher.contains(".price <= limit_price"),
+            "the limit must be a where-clause term on both sides of the book"
+        )
+        assertTrue(matcher.contains(".maker != taker"), "and so must the self-dealing rule")
+        assertTrue(main.contains("index is_buy, price;"), "the index the matcher's where-clause needs must exist on the order row")
+        // A book nobody walks is still a book somebody pays to store, and round 13 bought
+        // 10000 permanent rows with one free registration. So it is BOUNDED as well.
+        assertTrue(main.contains("val MAX_RESTING_ORDERS ="), "the per-trader cap must be a named constant")
+        assertTrue(
+            opBody(code, "place_order").contains("\"too many resting orders\""),
+            "place_order must refuse a trader's (MAX_RESTING_ORDERS + 1)th resting order"
+        )
+        assertFalse(
+            Regex("operation\\s+place_order\\([^)]*max_resting").containsMatchIn(main.lowercase()),
+            "the cap is a constant, never a parameter"
+        )
+    }
+
     @Test
     fun exchangeR12ReplayGoesRedWhenAFillRewritesTheMakersClock() = assertGuardMutationRedensExploitTest(
         "exchange",
@@ -2224,6 +2264,25 @@ class DappScaffoldSecureTemplatesTest {
      * order - the best price - is the one that moved trips. Nobody chose that: the point
      * is that the RULE decides, and a rule that is not price-first is a different venue.
      */
+    /**
+     * Round 13's bound: strip the per-trader cap and the dust book is writable again - the
+     * 21st resting order the replay REQUIRES to be refused is accepted, so run_must_fail
+     * reports that the transaction did not fail. The matcher's where-clause is untouched,
+     * so this is the cap and nothing else.
+     */
+    @Test
+    fun exchangeR13ReplayGoesRedWithoutThePerTraderOrderCap() = assertGuardRemovalRedensExploitTest(
+        "exchange",
+        listOf(
+            "        require(",
+            "            (order @* { .maker == account.id } ( .id )).size() < MAX_RESTING_ORDERS,",
+            "            \"too many resting orders\"",
+            "        );"
+        ).joinToString("\n"),
+        "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
+        "insufficient points"
+    )
+
     @Test
     fun exchangeMatchingTestGoesRedWithoutPricePriority() = assertGuardMutationRedensExploitTest(
         "exchange",
