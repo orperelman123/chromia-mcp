@@ -499,10 +499,14 @@ class DappScaffoldSecureTemplatesTest {
         // so one permissionless charge() eighty-three years later took all 9990 points the
         // payer held and every point that arrived afterwards. Accrual is capped at what
         // the payer escrowed HERE, and charge() reaches no balance the payer owns.
-        assertTrue(code.contains("return min(s.funded, earned);"), "accrual must be capped at the escrow the payer funded")
+        assertTrue(code.contains("return min(total_funded, earned);"), "accrual must be capped at everything this authorisation was funded with")
+        assertTrue(code.contains("function funded(s: subscription): integer = s.escrow + s.charged;"), "and that ceiling must be the escrow plus what has already been taken")
         val charge = opBody(code, "charge")
         assertFalse(charge.contains("payer"), "charge() must not be able to name the payer at all, let alone their balance")
-        assertTrue(charge.contains("update s ( .charged += owed );") && charge.contains("update merchant ( .balance += owed );"))
+        assertTrue(
+            charge.contains("update s ( .escrow -= owed, .charged += owed );") && charge.contains("update merchant ( .balance += owed );"),
+            "the escrow must be DEBITED in the operation that credits the merchant - a credit with no debit beside it is a mint"
+        )
         assertEquals(
             2,
             Regex("\\.balance -= ").findAll(code).count(),
@@ -536,7 +540,7 @@ class DappScaffoldSecureTemplatesTest {
             assertTrue(entity.contains(it), "a subscription's terms must be immutable: $it")
         }
         assertEquals(2, Regex("mutable ").findAll(entity).count(), "the only mutable fields are the two monotone counters")
-        assertTrue(entity.contains("mutable funded: integer = 0;") && entity.contains("mutable charged: integer = 0;"))
+        assertTrue(entity.contains("mutable escrow: integer = 0;") && entity.contains("mutable charged: integer = 0;"))
         assertEquals(1, Regex("started_at = op_context").findAll(code).count(), "the accrual clock must be written exactly once, by open_subscription")
         assertEquals(1, Regex("create subscription\\(").findAll(code).count())
         // Bounds, and the operation list: no operation names a party it was not authorised by.
@@ -2198,11 +2202,16 @@ class DappScaffoldSecureTemplatesTest {
      * funded, so run_must_fail reports that the transaction did not fail.
      */
     @Test
-    fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardRemovalRedensExploitTest(
+    fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardMutationRedensExploitTest(
         "subscription",
-        "    return min(s.funded, earned);",
+        "    return min(total_funded, earned);",
+        // Deleting the line would leave a function with no return on that path, which
+        // would not compile - a mutant that fails to build proves nothing. So the cap is
+        // taken off and the accrual is left: exactly the shape round 13 drained.
+        "    return earned;",
         "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
-        "insufficient balance"
+        "insufficient balance",
+        attackLanded
     )
 
     /**

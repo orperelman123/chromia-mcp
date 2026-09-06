@@ -3691,12 +3691,17 @@ object DappScaffold {
 
             // THE ATTACK, in the block the price arrives.
             signed(trudy.keypair, main.settle());
+            // NOTHING IS FROZEN, and alice's par exit is still open: burning her own coin
+            // against her own debt is one of the two operations a pending settlement
+            // leaves running, and it is what ends the shortfall. This line is deliberately
+            // the FIRST thing after the attack, so a mutant that lets settlement close in
+            // the block it opened reddens HERE, on "system is settled", and not on an
+            // assertion about a flag.
+            signed(alice.keypair, main.burn_stable(3000));
             assert_true(main.settlement_pending());
             assert_false(main.get_system().settled);
-            // Nothing is frozen and nothing is pooled yet, and value cannot leave...
+            // ...and while it is pending, value cannot leave the system.
             signed_must_fail(trudy.keypair, main.withdraw_collateral(1), "settlement is pending");
-            // ...but the par exit is open, and using it ends the shortfall.
-            signed(alice.keypair, main.burn_stable(3000));
             after(main.SETTLEMENT_WINDOW_MS + 1000);
             // So the close finds a solvent system and the opening is VOID.
             signed(trudy.keypair, main.settle());
@@ -3967,10 +3972,12 @@ object DappScaffold {
         // Eight guards are STRUCTURAL - they live in the entities and the accrual
         // function, not in a require() a future operation can forget:
         //   THE CLAIM IS   - a merchant can NEVER be paid a point the payer did not put
-        //     THE ESCROW     into THIS subscription. `funded` is every point the payer has
-        //                    ever escrowed here and `charged` every point the merchant has
-        //                    ever taken; accrual is capped at `funded`, and charge() moves
-        //                    value out of the escrow and touches no balance the payer owns.
+        //     THE ESCROW     into THIS subscription. `escrow` is what the payer has put in
+        //                    and nobody has taken, `charged` is every point the merchant has
+        //                    ever taken, and their sum is everything this authorisation was
+        //                    ever funded with. Accrual is capped at that sum, and charge()
+        //                    DEBITS the escrow in the same operation that credits the
+        //                    merchant - it touches no balance the payer owns.
         //                    A payer who wants the claim to stop simply stops funding it.
         //                    THIS is the guard that does not carry over from streaming and
         //                    that nothing in the old guidance replaced: round 13's build
@@ -4062,7 +4069,7 @@ object DappScaffold {
             amount_per_period: integer;   // the fee for one whole period - never changes
             period_ms: integer;           // never changes
             started_at: timestamp;        // the accrual clock - written ONCE
-            mutable funded: integer = 0;  // MONOTONE: every point the payer has escrowed
+            mutable escrow: integer = 0;  // what the payer has put in and nobody has taken
             mutable charged: integer = 0; // MONOTONE: every point the merchant has taken
         }
 
@@ -4093,9 +4100,11 @@ object DappScaffold {
         function account_of(owner: byte_array): account =
             require(account @? { .owner == owner }, "register an account first");
 
-        // The escrow this subscription is holding right now: what the payer put in, less
-        // what the merchant has taken. Derived from two monotone counters, never stored.
-        function escrow_of(s: subscription): integer = s.funded - s.charged;
+        // What the payer has ever put into this subscription: what is still escrowed plus
+        // what the merchant has already taken. THE CEILING ON EVERYTHING THE MERCHANT CAN
+        // EVER BE PAID, and the reason a pull authorisation here is a claim on a sum rather
+        // than on a person.
+        function funded(s: subscription): integer = s.escrow + s.charged;
 
         // WHAT HAS BEEN EARNED, and the whole of the billing model. It is PRO RATA across
         // the period - elapsed time, never a whole period in advance - and it is CAPPED AT
@@ -4107,12 +4116,13 @@ object DappScaffold {
             // aborts, and the escrow is the ceiling anyway, so time past the point where
             // the escrow is exhausted is the same number as time at it: a subscription
             // nobody collected on for eighty years must not become an abort.
-            val periods_funded = s.funded / s.amount_per_period + 1;
+            val total_funded = funded(s);
+            val periods_funded = total_funded / s.amount_per_period + 1;
             val bounded = min(at - s.started_at, periods_funded * s.period_ms);
             val whole = bounded / s.period_ms;
             val part = bounded % s.period_ms;
             val earned = s.amount_per_period * whole + s.amount_per_period * part / s.period_ms;
-            return min(s.funded, earned);
+            return min(total_funded, earned);
         }
 
         function due(s: subscription, at: timestamp): integer = accrued(s, at) - s.charged;
@@ -4154,7 +4164,7 @@ object DappScaffold {
                 amount_per_period = amount_per_period,
                 period_ms = period_ms,
                 started_at = op_context.last_block_time,
-                funded = funding
+                escrow = funding
             );
             book.next_id += 1;
         }
@@ -4166,11 +4176,11 @@ object DappScaffold {
             val s = require(subscription @? { .id == subscription_id }, "no such subscription");
             require(s.payer == acct.id, "not your subscription");
             require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
-            require(s.funded + amount <= MAX_AMOUNT, "subscription escrow cap reached");
+            require(funded(s) + amount <= MAX_AMOUNT, "subscription escrow cap reached");
             val payer = account_of(acct.id);
             require(payer.balance >= amount, "insufficient balance");
             update payer ( .balance -= amount );
-            update s ( .funded += amount );
+            update s ( .escrow += amount );
         }
 
         // COLLECTION, permissionless like the streaming template's: anybody may call it and
@@ -4182,7 +4192,10 @@ object DappScaffold {
             val owed = due(s, op_context.last_block_time);
             require(owed > 0, "nothing is due");
             val merchant = account_of(s.merchant);
-            update s ( .charged += owed );
+            // THE ESCROW PAYS, and it is debited in the same operation that credits the
+            // merchant: a credit with no debit beside it is a mint, whatever the counter
+            // next to it is called.
+            update s ( .escrow -= owed, .charged += owed );
             update merchant ( .balance += owed );
         }
 
@@ -4197,7 +4210,7 @@ object DappScaffold {
             val owed = due(s, op_context.last_block_time);
             val merchant = account_of(s.merchant);
             val payer = account_of(s.payer);
-            val refund = escrow_of(s) - owed;
+            val refund = s.escrow - owed;
             // THE ORDER IS THE GUARD: the merchant's earned fee first, the payer's
             // unearned remainder second, both inside this operation.
             update merchant ( .balance += owed );
@@ -4216,8 +4229,8 @@ object DappScaffold {
             val s = subscription @? { .id == subscription_id };
             return if (s != null)
                 (payer = s.payer, merchant = s.merchant, amount_per_period = s.amount_per_period,
-                 period_ms = s.period_ms, started_at = s.started_at, funded = s.funded,
-                 charged = s.charged, escrow = escrow_of(s))
+                 period_ms = s.period_ms, started_at = s.started_at, funded = funded(s),
+                 charged = s.charged, escrow = s.escrow)
             else null;
         }
 
@@ -4235,7 +4248,7 @@ object DappScaffold {
         query points_in_circulation(): integer {
             var total = 0;
             for (b in account @* {} ( .balance )) total += b;
-            for (s in subscription @* {}) total += s.funded - s.charged;
+            for (s in subscription @* {}) total += s.escrow;
             return total;
         }
     """.trimIndent() + "\n"
