@@ -581,6 +581,14 @@ object RellSecurityCheck {
         val identityFieldNames = entityFields(fullyMasked)
             .filter { it.type.trimEnd('?') == "byte_array" }
             .mapTo(mutableSetOf()) { it.name }
+        // Entity declarations of the APP's own files: what a query can return is
+        // decided by the attributes and their declared TYPES, not by the words
+        // around the query (round 14).
+        val appFieldsByEntity = entityFields(
+            fullyMasked.filterKeys {
+                !RellLibs.isVendoredLibraryPath(it) && !RellLibs.isThirdPartyLibPath(it)
+            }
+        ).groupBy { it.entity }
 
         var exemptedLibFiles = 0
         var thirdPartyLibFiles = 0
@@ -633,7 +641,7 @@ object RellSecurityCheck {
             if (!RunRellTests.isTestModuleSource(content)) {
                 val queries = scanQueries(masked)
                 queriesScanned += queries.size
-                queries.forEach { q -> findings += querySecretExposureFindings(path, q) }
+                queries.forEach { q -> findings += querySecretExposureFindings(path, q, appFieldsByEntity) }
             }
             val authMarkers = authMarkersFor(masked, distrust)
             val ops = scanOperations(path, masked)
@@ -1545,6 +1553,31 @@ object RellSecurityCheck {
      * where 1-0 is a legitimate outcome exists, and only the designer knows
      * which one they built.
      */
+    /**
+     * A PARTICIPATION FLOOR, structurally: a comparison one side of which is
+     * the SUM of two field reads and the other side of which is neither of
+     * them and is not the literal 0 or 1. `yes + no >= floor_at_creation` is
+     * that shape however the designer spells it, and adding up the votes cast
+     * to compare them against a third term is not something a bare-majority
+     * gate does.
+     *
+     * Round 14 built a DAO whose floor is half the enrolled roll, fixed when
+     * the motion is created and checked BEFORE the majority - and the advisory
+     * fired on it, because the only thing that had ever silenced this rule was
+     * the PRESENCE somewhere in the submission of one of the words
+     * quorum/threshold/min_votes/.../weight/stake. That designer calls the
+     * floor a turnout, the tallies ballots and the register a roll; renaming
+     * the single constant TURNOUT_BPS to QUORUM_BPS, changing nothing else,
+     * reported zero findings.
+     */
+    private val PARTICIPATION_FLOOR_REGEX = Regex(
+        """\.\s*[A-Za-z_]\w*\s*\+\s*[\w.]*\.\s*[A-Za-z_]\w*\s*(?:>=|>)\s*([\w.]+)"""
+    )
+
+    /** True when [body] compares a SUM of two field reads against a real floor. */
+    internal fun hasParticipationFloor(body: String): Boolean =
+        PARTICIPATION_FLOOR_REGEX.findAll(body).any { it.groupValues[1] !in setOf("0", "1") }
+
     private fun majorityWithoutQuorumFindings(
         path: String,
         op: OperationBlock,
@@ -1553,6 +1586,11 @@ object RellSecurityCheck {
     ): List<Finding> {
         if (quorumTermPresent) return emptyList()
         if (!MAJORITY_COMPARISON_REGEX.containsMatchIn(op.body)) return emptyList()
+        // THE STRUCTURAL SILENCER (round 14). The word list above is the
+        // rule's legacy quieting bias and stays: it only ever produces false
+        // NEGATIVES. This one is what a participation floor actually looks
+        // like, and it is immune to what the designer calls it.
+        if (hasParticipationFloor(op.body)) return emptyList()
         val calls = calledNames(op.body)
         val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
         if (!movesValue) return emptyList()
@@ -1571,21 +1609,52 @@ object RellSecurityCheck {
         )
     }
 
-    /** Parameter names that set the length of some time window. */
-    private val TIME_WINDOW_PARAM_REGEX = Regex("""period|window|duration""", RegexOption.IGNORE_CASE)
-
-    /** The statement actually uses the parameter as a time offset/deadline. */
-    private val TIME_ANCHOR_REGEX = Regex(
-        """last_block_time|block_time|deadline|expires|expiry|ends_at|closes_at""",
+    /**
+     * A read of the BLOCK CLOCK. This is the only thing that can make an
+     * integer the LENGTH OF A WINDOW, and it is not a name the author picks.
+     */
+    private val BLOCK_CLOCK_READ_REGEX = Regex(
+        """op_context\s*\.\s*last_block_time|\blast_block_time\b|\bblock_time\b""",
         RegexOption.IGNORE_CASE
     )
 
+    /** `+` / `-` joining a clock and an offset - not `+=`, `-=` or `->`. */
+    private val ADDITIVE_OP_REGEX = Regex("""[+\-](?![=>])""")
+
     /**
-     * MEDIUM when a caller-supplied period/window/duration parameter feeds a
-     * deadline and its only lower bound is `> 0`. The adversary DAO accepted
-     * voting_period_ms = 1: `require(voting_period_ms > 0)` reads like
-     * validation but permits a voting window that is over before anyone else
-     * can vote, turning governance into a race the proposer always wins.
+     * MEDIUM when a caller-supplied integer parameter is ADDED TO (or
+     * subtracted from) the block clock inside ONE expression - which is what
+     * makes it the length of a window rather than just a number - and the only
+     * bound on it anywhere in the operation is a comparison against the literal
+     * 0. The adversary DAO accepted voting_period_ms = 1: `require(
+     * voting_period_ms > 0)` reads like validation but permits a voting window
+     * that is over before anyone else can vote, turning governance into a race
+     * the proposer always wins.
+     *
+     * STRUCTURAL, rebuilt in round 14. The rule used to key on the parameter's
+     * NAME (`period|window|duration`) and to count a statement as "timed" when
+     * it merely MENTIONED the parameter and a clock somewhere in it. A `create`
+     * is one statement and many expressions, so
+     * `create authorisation(amount_per_period = amount_per_period, ...,
+     * started_at = op_context.last_block_time)` turned a MONEY parameter into a
+     * time window: MEDIUM on correct code, and the shipped subscription
+     * template carried a constant (MIN_FEE) whose own comment said it existed
+     * to silence this advisory. Renaming that one parameter - changing no other
+     * character - reported zero findings, which is principle 2 in reverse.
+     *
+     * Two structural changes close it, and neither reads a name, so no rename
+     * of anything can change the verdict:
+     *  - the parameter must appear in the SAME EXPRESSION as the clock, joined
+     *    by `+`/`-`. Expressions are statements split on top-level `,` as well
+     *    as `;`, because the argument slots of one `create` are separate
+     *    expressions that happen to share a statement.
+     *  - ANY comparison of the parameter against something other than the
+     *    literal 0 silences it, not only a lower bound. An author who wrote
+     *    `require(valid_ms <= MAX_OFFER_MS)` has thought about the range of
+     *    this number; the marketplace template's offer validity is exactly that
+     *    shape, and firing there would be the gate crying wolf on code this
+     *    server ships (principle 3).
+     *
      * Advisory, never blocking: the right minimum is a design number the gate
      * cannot know, and some windows (short auctions, heartbeats) are
      * legitimately tiny.
@@ -1596,30 +1665,35 @@ object RellSecurityCheck {
         requireFunctions: Set<String>
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
-        val statements = op.body.split(';')
+        val expressions = op.body.split(';', ',')
         parseParams(op.params).forEach { (name, type) ->
-            if (!TIME_WINDOW_PARAM_REGEX.containsMatchIn(name)) return@forEach
             if (!type.lowercase().contains("integer")) return@forEach
-            val paramRef = Regex("""\b${Regex.escape(name)}\b""")
-            val timed = statements.any { paramRef.containsMatchIn(it) && TIME_ANCHOR_REGEX.containsMatchIn(it) }
+            val esc = Regex.escape(name)
+            val paramRef = Regex("""\b$esc\b""")
+            val timed = expressions.any { expr ->
+                paramRef.containsMatchIn(expr) &&
+                    BLOCK_CLOCK_READ_REGEX.containsMatchIn(expr) &&
+                    ADDITIVE_OP_REGEX.containsMatchIn(expr)
+            }
             if (!timed) return@forEach
-            // Lower bounds on the parameter: `p > X` / `p >= X` / `X < p` / `X <= p`.
-            val lowerBounds =
-                Regex("""\b${Regex.escape(name)}\b\s*>=?\s*([\w.]+)""").findAll(op.body).map { it.groupValues[1] } +
-                    Regex("""([\w.]+)\s*<=?\s*\b${Regex.escape(name)}\b""").findAll(op.body).map { it.groupValues[1] }
-            if (lowerBounds.any { it != "0" }) return@forEach
+            // Any bound at all, in either direction, against anything but 0.
+            val bounds =
+                Regex("""\b$esc\b\s*(?:>=|<=|>|<)\s*([\w.]+)""").findAll(op.body).map { it.groupValues[1] } +
+                    Regex("""([\w.]+)\s*(?:>=|<=|>|<)\s*\b$esc\b""").findAll(op.body).map { it.groupValues[1] }
+            if (bounds.any { it != "0" }) return@forEach
             // Validation delegated to a require()-bearing helper the param is
             // passed to may bound it where this scan cannot see - stay quiet.
             val delegated = requireFunctions.any { fn ->
-                Regex("""\b${Regex.escape(fn)}\s*\([^)]*\b${Regex.escape(name)}\b""").containsMatchIn(op.body)
+                Regex("""\b${Regex.escape(fn)}\s*\([^)]*\b$esc\b""").containsMatchIn(op.body)
             }
             if (delegated) return@forEach
             findings.add(
                 Finding(
                     "MEDIUM", "unbounded-voting-period", path, op.line,
-                    "operation ${op.name} sets a time window from caller-supplied '$name' with no minimum " +
-                        "(only compared against 0, or not at all) - $name = 1 closes the window in the same " +
-                        "block it opens, e.g. a voting period nobody but the proposer can act in",
+                    "operation ${op.name} adds caller-supplied '$name' to the block clock to set a " +
+                        "deadline, and the only bound on it anywhere in the operation is a comparison " +
+                        "against 0 - $name = 1 closes the window in the same block it opens, e.g. a " +
+                        "voting period nobody but the proposer can act in",
                     "Enforce a real minimum: require($name >= min_period) with the floor from module args " +
                         "or a named constant. Advisory: the right minimum is a design decision - if a " +
                         "near-zero window is intended here, document why and ignore this finding."
@@ -2727,8 +2801,50 @@ object RellSecurityCheck {
     // a fee into a balance that is only ever incremented - no operation can
     // pay it out, so the value is permanently locked at deploy time.
 
-    /** Entity/field names that suggest the row HOLDS collected value. */
+    /**
+     * Entity/field names that suggest the row HOLDS collected value. This is a
+     * NARROWING name filter - it can only make the rule quieter, never louder -
+     * and it is the rule's deliberate false-negative bias, unchanged.
+     */
     private val SINK_NAME_REGEX = Regex("""fee|pot|treasury|vault|reserve|escrow|pool""", RegexOption.IGNORE_CASE)
+
+    /** `.field += <expr>` with the credited expression captured. */
+    private val CREDIT_WITH_RHS_REGEX = Regex("""\.\s*([A-Za-z_]\w*)\s*\+=\s*([^,;)]+)""")
+
+    /**
+     * True when EVERY credit to [field] in the app happens beside a credit of
+     * the SAME amount expression to a DIFFERENT field that IS drainable, in the
+     * same body. Then the value did not stop here: it went to the drainable
+     * field, and this row is a SHADOW of that movement - a lifetime statistic,
+     * monotone on purpose, because a statistic that can go down is not a
+     * statistic.
+     *
+     * Round 14: `update treasurer ( .balance += fee )` and
+     * `update fee_ledger ( .total_fee_amount += fee )` in the same operation -
+     * the fee is spendable through withdraw() the moment it is charged, and the
+     * ledger only records that it was. The advisory fired anyway, on two NAME
+     * lists, and renaming the counter to `charges_recorded` silenced it without
+     * moving a single point.
+     *
+     * The test is a conservation one and is keyed on the EXPRESSION, not on any
+     * name: a real sink has no twin. `fee_pot.balance += fee` beside
+     * `wallet.balance += amount - fee` is NOT this shape - the expressions
+     * differ, the fee really does stop in the pot, and that row still fires.
+     */
+    internal fun isShadowStatistic(bodies: List<String>, field: String, drainable: Set<String>): Boolean {
+        var sawCredit = false
+        bodies.forEach { body ->
+            val credits = CREDIT_WITH_RHS_REGEX.findAll(body)
+                .map { it.groupValues[1] to it.groupValues[2].replace(Regex("""\s+"""), " ").trim() }
+                .toList()
+            credits.filter { it.first == field }.forEach { (_, expr) ->
+                sawCredit = true
+                val twin = credits.any { it.first != field && it.second == expr && it.first in drainable }
+                if (!twin) return false
+            }
+        }
+        return sawCredit
+    }
 
     /** One declared attribute of an entity, with its declared type. */
     internal data class EntityField(
@@ -2886,6 +3002,10 @@ object RellSecurityCheck {
                 .map { body -> body to (fileAlias + aliasMap(body, entities, helperReturns)) }
         }
         val writes = eligible.flatMap { valueWrites(fullyMasked.getValue(it), entities, helperReturns) }
+        // Field names some operation DEBITS or reassigns: a credit twinned
+        // into one of these has left for somewhere spendable.
+        val drainableFieldNames = writes.filter { it.kind == "-=" || it.kind == "=" }
+            .mapTo(mutableSetOf()) { it.field }
         return candidates.mapNotNull { c ->
             val fieldWrites = writes.filter { it.field == c.name && it.entity == c.entity }
             val credited = fieldWrites.any { it.kind == "+=" || it.kind == "create" }
@@ -2897,6 +3017,11 @@ object RellSecurityCheck {
             // An accumulator/denominator is not a pot: it is read as a factor
             // in a payout computation, so debiting it corrupts the payout.
             if (isAccountingIndex(bodies, c.entity, c.name, fieldOwners[c.name]?.size == 1)) {
+                return@mapNotNull null
+            }
+            // A SHADOW OF A MOVEMENT IS NOT A POT (round 14): every credit here
+            // is twinned with the same amount landing in a drainable field.
+            if (isShadowStatistic(bodies.map { it.first }, c.name, drainableFieldNames)) {
                 return@mapNotNull null
             }
             Finding(
@@ -3294,22 +3419,81 @@ object RellSecurityCheck {
         "secret", "secrets", "private", "priv", "password", "passwords", "passwd", "pwd",
         "credential", "credentials", "mnemonic", "ssn"
     )
-    private val IDENTIFIER_REGEX = Regex("""[A-Za-z_]\w*""")
 
-    private fun querySecretExposureFindings(path: String, q: QueryBlock): List<Finding> {
-        val secretId = IDENTIFIER_REGEX.findAll(q.body)
-            .map { it.value }
-            .firstOrNull { id -> id.lowercase().split('_').any { it in SECRET_ID_PARTS } }
-            ?: return emptyList()
+    /**
+     * The declared types a secret can actually be STORED in. A secret is a
+     * payload - a string or a blob - never a count. This is the structural half
+     * of the rule and it is a TYPE, not a name.
+     */
+    private val SECRET_PAYLOAD_TYPES = setOf("text", "byte_array", "json")
+
+    private val IDENTIFIER_REGEX = Regex("""[A-Za-z_]\w*""")
+    private val ATTRIBUTE_READ_REGEX = Regex("""\.\s*([A-Za-z_]\w*)""")
+
+    private fun namesASecret(id: String): Boolean =
+        id.lowercase().split('_').any { it in SECRET_ID_PARTS }
+
+    /**
+     * MEDIUM when a query can RETURN an entity attribute whose declared type
+     * can hold a payload (text / byte_array / json) and whose own name, or the
+     * name of the entity declaring it, reads as secret material. Queries are
+     * publicly callable on every node with NO caller identity: whatever a query
+     * can return, anyone can read.
+     *
+     * REBUILT IN ROUND 14. The rule used to take the FIRST identifier anywhere
+     * in the query body whose underscore-split parts intersected the list
+     * above - any identifier, in any position, of any type. A private sale in
+     * the ordinary financial sense (an allocation round open only to enrolled
+     * buyers) whose query returns the round's TOTAL UNITS SOLD drew MEDIUM
+     * naming 'private_sale', and renaming that entity to `allocation_round`
+     * reported zero findings: the verdict was decided by a word rather than by
+     * what the query returns.
+     *
+     * Now the scan resolves what the query READS - the attributes it projects,
+     * or every attribute of an entity it returns whole - against the
+     * submission's own entity declarations, and an attribute qualifies only if
+     * its DECLARED TYPE could hold a secret. `private_sale.total_units` is an
+     * integer and cannot be one; `secret_note.content` is a text and is.
+     *
+     * The name half is deliberate and is not evasion-proof, because the threat
+     * model here is the only one that makes this rule worth having: a
+     * well-meaning generator storing secret material on chain, NOT an author
+     * hiding one. It is stated in the advisory text so nobody reads silence as
+     * proof - a secret stored in a field called `blob` is invisible to it, and
+     * ALL Chromia state is readable by node operators regardless.
+     */
+    private fun querySecretExposureFindings(
+        path: String,
+        q: QueryBlock,
+        fieldsByEntity: Map<String, List<EntityField>>
+    ): List<Finding> {
+        val bodyIds = IDENTIFIER_REGEX.findAll(q.body).map { it.value }.toSet()
+        val readEntities = fieldsByEntity.keys.filter { it in bodyIds }
+        if (readEntities.isEmpty()) return emptyList()
+        val projected = ATTRIBUTE_READ_REGEX.findAll(q.body).map { it.groupValues[1] }.toSet()
+        // No `.field` projection at all: the query hands back whole rows, so
+        // every attribute of the entity is exposed.
+        val exposed = readEntities.flatMap { e ->
+            val declared = fieldsByEntity.getValue(e)
+            if (projected.isEmpty()) declared else declared.filter { it.name in projected }
+        }
+        val hit = exposed.firstOrNull { f ->
+            f.type.trim().trimEnd('?') in SECRET_PAYLOAD_TYPES &&
+                (namesASecret(f.name) || namesASecret(f.entity))
+        } ?: return emptyList()
+        val secretId = "${hit.entity}.${hit.name}"
         return listOf(
             Finding(
                 "MEDIUM", "query-returns-secret-data", path, q.line,
-                "query ${q.name} reads '$secretId' - queries are publicly callable on every node with " +
-                    "no caller identity, so anything a query returns is readable by anyone",
+                "query ${q.name} can return '$secretId' (declared ${hit.type}) - queries are publicly " +
+                    "callable on every node with no caller identity, so anything a query returns is " +
+                    "readable by anyone",
                 "Queries cannot be access-controlled: do not expose secret material through them. " +
                     "Remember all Chromia state is visible to node operators regardless - secrets " +
-                    "should not live on chain at all. Advisory: if '$secretId' is not actually " +
-                    "secret, rename it or ignore this finding."
+                    "should not live on chain at all. Advisory, and NAME-KEYED in one half: this rule " +
+                    "recognises a secret by your own entity/field NAME plus a payload type, so silence " +
+                    "is not proof - a secret stored in a field called 'blob' is invisible to it. If " +
+                    "'$secretId' is not actually secret, rename it or ignore this finding."
             )
         )
     }

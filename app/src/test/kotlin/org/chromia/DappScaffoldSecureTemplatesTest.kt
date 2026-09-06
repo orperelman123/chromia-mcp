@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -48,6 +48,10 @@ class DappScaffoldSecureTemplatesTest {
         // it every governance case dies with "Unable to create GTX module" - the
         // vacuous-mutant failure mode this map exists to prevent.
         template == "governance" -> DappScaffold.governanceTestModuleArgs()
+        // bridge reads FOUR: the operator key that enrols the relayer set, the
+        // threshold, and the two mint caps. Without them every case dies with
+        // "Unable to create GTX module" - the vacuous-mutant failure mode.
+        template == "bridge" -> DappScaffold.bridgeTestModuleArgs()
         template in oracleTemplates -> DappScaffold.oracleTestModuleArgs()
         else -> DappScaffold.ft4TestModuleArgs()
     }
@@ -112,7 +116,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge"), DappScaffold.templates)
+        assertEquals("bridge", DappScaffold.toJson("wrapped", template = "bridge").getValue("template").toString().trim('"'), "the class round 14 drained must scaffold its own template")
         assertEquals("subscription", DappScaffold.toJson("plan", template = "subscription").getValue("template").toString().trim('"'), "the class round 13 drained must scaffold its own template")
         assertEquals("exchange", DappScaffold.toJson("book", template = "exchange").getValue("template").toString().trim('"'), "the class round 12 drained must scaffold its own template")
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
@@ -197,6 +202,17 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(
             notes.contains("a resting order is a free option"),
             "the notes must carry the exchange header's residual, not only its guards"
+        )
+        // Round 14's un-templated class, and the answer that produced it was these
+        // notes' own redirect: a bridge ask reached template=ft4 with no warning.
+        assertTrue(notes.contains("start from template=bridge"), "notes must steer bridge / cross-chain builders to their own template")
+        assertTrue(
+            notes.contains("NOT template=ft4, which is where this ask used to go"),
+            "the notes must name the redirect round 14 drained, not only the template"
+        )
+        assertTrue(
+            notes.contains("a TRANSFER-conservation test is structurally blind to a mint"),
+            "the notes must retract the invariant they handed round 14's author"
         )
     }
 
@@ -348,6 +364,39 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(
             DappScaffold.toJson("x", template = "swap_pool").getValue("warnings").toString().contains("that IS covered now - `template=exchange`"),
             "the amm answer must name the order-book template now that one ships"
+        )
+        // ROUND 14. The bridge row was the TOP and highest-severity row of
+        // docs/TEMPLATE-GAPS.md, and its own reason for being deprioritised was
+        // false: every realistic phrasing names a token or an asset, so "a
+        // cross-chain token bridge" was answered "Use `template=ft4`: it ships the
+        // conservation ... invariant tests" with no warning at all - and the build
+        // that followed that answer lost ten times its backing.
+        listOf(
+            "bridge", "a cross-chain token bridge", "crosschain", "wrapped asset",
+            "relayer attestation receiver", "mint on proof of a burn on another chain"
+        ).forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("Use `template=bridge`"), "$asked must be routed to the bridge template: $warning")
+            assertFalse(warning.contains("Use `template=ft4`"), "$asked must NOT still be sent to the token skeleton: $warning")
+            assertTrue(
+                warning.contains("NOTHING RECORDED WHICH BURNS HAD ALREADY BEEN PAID"),
+                "$asked must be told what made round 14's receiver drainable: $warning"
+            )
+            assertTrue(
+                warning.contains("THE PROCESSED-BURNS REGISTRY IS KEYED BY THE BURN'S IDENTITY") &&
+                    warning.contains("THE ROW BINDS WHAT THE BURN PAYS"),
+                "$asked must be told what makes both round-14 drains unwritable: $warning"
+            )
+            assertTrue(
+                warning.contains("TRANSFER-conservation test is structurally blind to a mint"),
+                "$asked must be warned off the invariant this server used to hand it: $warning"
+            )
+        }
+        // ...and the ft4 answer, which a token/asset phrasing still reaches, must
+        // name the bridge template rather than repeating the answer round 14 built on.
+        assertTrue(
+            DappScaffold.toJson("x", template = "token").getValue("warnings").toString().contains("that is `template=bridge`"),
+            "the ft4 answer must name the bridge template now that one ships"
         )
         assertTrue(
             DappScaffold.toJson("x", template = "zzz_nothing_like_this").getValue("warnings").toString().contains("No shipped template covers that name"),
@@ -1806,6 +1855,86 @@ class DappScaffoldSecureTemplatesTest {
         )
     }
 
+    /**
+     * ROUND 14's class, and the template that closes it. Each assertion below is
+     * one of the eight guards the header lists, and each is a KEY or an immutable
+     * attribute rather than a require() a later operation can forget.
+     */
+    @Test
+    fun bridgeGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("wrapped", template = "bridge").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // ONE BURN, ONE ROW: the registry key IS the burn's identity on the source
+        // chain. Round 14's receiver recorded nothing at all and minted one burn ten
+        // times; source_tx was a parameter it read only to check the length of.
+        val burnEntity = main.substringAfter("entity processed_burn {").substringBefore("\n}")
+        assertTrue(
+            burnEntity.contains("key source_chain: byte_array, source_tx: byte_array, log_index: integer;"),
+            "the burn's identity must be a database key: $burnEntity"
+        )
+        // THE ROW BINDS WHAT THE BURN PAYS: recipient and amount are immutable and
+        // are NOT part of the key, so an attestation that disagrees is refused
+        // rather than opening a row of its own.
+        assertEquals(1, Regex("mutable ").findAll(burnEntity).count(), "the burn row must have exactly ONE mutable field: $burnEntity")
+        assertTrue(burnEntity.contains("mutable attestations: integer = 0;"), burnEntity)
+        listOf("recipient: byte_array;", "amount: integer;").forEach {
+            assertTrue(burnEntity.contains(it), "what a burn pays must be immutable: $it")
+        }
+        assertFalse(burnEntity.contains("mutable recipient") || burnEntity.contains("mutable amount"), burnEntity)
+        assertTrue(
+            main.contains("require(opened.recipient == recipient, \"this burn was opened for a different recipient\");") &&
+                main.contains("require(opened.amount == amount, \"this burn was opened for a different amount\");"),
+            "a later attestation must have to agree with the row"
+        )
+        // ONE RELAYER, ONE VOICE - a key again, so the count is a count of DISTINCT
+        // relayers and nothing else.
+        val attestationEntity = main.substringAfter("entity attestation {").substringBefore("\n}")
+        assertTrue(attestationEntity.contains("key burn: processed_burn, witness: relayer;"), attestationEntity)
+        // THE MINT READS THE ROW, never the operation's arguments, and there is
+        // exactly one place a unit is created.
+        assertTrue(code.contains("function mint_against(burn: processed_burn)"))
+        assertTrue(code.contains("val h = holding_of(burn.recipient);") && code.contains("update h ( .balance += burn.amount );"))
+        assertEquals(1, Regex("mint_against\\(burn\\);").findAll(code).count(), "there must be exactly one call site that mints")
+        // THE THRESHOLD IS CROSSED ONCE: equality against a counter that rises by
+        // one per distinct relayer. No minted flag to test and none to forget.
+        assertTrue(code.contains("if (voices == relayer_threshold()) {"), "the threshold must be crossed by equality, once")
+        assertFalse(code.contains("mutable minted"), "a minted flag is a check; the counter is the guard")
+        // THE RELAYER SET IS CONFIGURATION: enrolled by the configured operator key,
+        // shut before anything is attested, and no operation names its own signer.
+        assertEquals(
+            listOf("register_account", "enrol_relayer", "close_relayer_set", "attest_burn", "burn_for_exit", "transfer"),
+            Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
+            "the template must ship exactly these operations"
+        )
+        val operatorCheck = "require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), \"the bridge operator must sign this\");"
+        assertTrue(opBody(code, "enrol_relayer").contains(operatorCheck))
+        assertTrue(opBody(code, "close_relayer_set").contains(operatorCheck))
+        assertTrue(opBody(code, "attest_burn").contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
+        assertTrue(
+            code.contains("relayer @? { .account_id == account.id },"),
+            "the attesting relayer must be the AUTHENTICATED account looked up by its own id"
+        )
+        assertFalse(opBody(code, "attest_burn").contains("pubkey"), "no caller may name its own signer")
+        assertTrue(main.contains("val MIN_RELAYER_THRESHOLD = 2;"), "a bridge whose threshold is one must be refused")
+        // CAPPED IN TOTAL AND PER PERIOD, and neither is a parameter.
+        assertTrue(main.contains("\"the bridge's total mint cap is reached\"") && main.contains("\"the bridge's mint cap for this period is reached\""))
+        assertTrue(main.contains("val MINT_PERIOD_MS ="), "the period must be a named constant")
+        assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*cap").containsMatchIn(main), "a cap must never be an operation parameter")
+        // THE EXIT IS A RECORD, written in the operation that burns.
+        assertTrue(opBody(code, "burn_for_exit").contains("create exit_record("))
+        assertEquals(1, Regex("create exit_record\\(").findAll(code).count(), "an exit record must be written in exactly one place")
+        // MINTED AGAINST PROCESSED BURNS - the invariant a transfer test cannot be,
+        // which is the prose defect underneath the whole round.
+        assertTrue(main.contains("query attested_burn_total(): integer"))
+        assertTrue(
+            main.contains("TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT"),
+            "the header must say why the invariant this server used to hand out did not help"
+        )
+        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the bridge header must state its guard count")
+        assertEquals(8, guardCount(main), "the bridge header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("A THRESHOLD OF RELAYERS IS THE TRUST ROOT"), "the header must admit what no guard here can fix")
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -1903,6 +2032,28 @@ class DappScaffoldSecureTemplatesTest {
                 }
             } else {
                 assertFalse(yml.contains("oracle_pubkey"), "$template yml carries no oracle key")
+                if (template == "bridge") {
+                    // The bridge operator key is configured exactly the way the vault's
+                    // oracle and the DAO's founder are: unset in production so the chain
+                    // cannot build with a placeholder, FT4's published test key under
+                    // test: so the shipped tests can enrol a relayer set. The three
+                    // numbers beside it are configuration too - a cap or a threshold a
+                    // caller could pass would be neither.
+                    val uncommentedOperator = production.lineSequence().filter { !it.trimStart().startsWith("#") }
+                        .any { it.contains("bridge_operator_pubkey") }
+                    assertFalse(uncommentedOperator, "bridge production yml must not set a placeholder operator key")
+                    assertTrue(production.contains("#   bridge_operator_pubkey: x\"<your bridge operator public key>\""), "bridge yml must tell the deployer where the operator key goes")
+                    assertTrue(production.contains("#   relayer_threshold: 3") && production.contains("#   total_mint_cap:"), "bridge yml must tell the deployer what else it must decide")
+                    assertTrue(testBlock.contains("    main:\n      bridge_operator_pubkey: x\"${DappScaffold.TEST_ADMIN_PUBKEY}\""), "bridge test.moduleArgs must wire the operator test key")
+                    assertEquals(
+                        DappScaffold.TEST_ADMIN_PUBKEY,
+                        DappScaffold.bridgeTestModuleArgs().getValue("main").getValue("bridge_operator_pubkey").toString().trim('"'),
+                        "bridgeTestModuleArgs must mirror the yml"
+                    )
+                    assertTrue(testBlock.contains("      relayer_threshold: ${DappScaffold.BRIDGE_TEST_THRESHOLD}"), "bridge test.moduleArgs must mirror the threshold")
+                    assertTrue(testBlock.contains("      total_mint_cap: ${DappScaffold.BRIDGE_TEST_TOTAL_CAP}"), "bridge test.moduleArgs must mirror the total cap")
+                    assertTrue(testBlock.contains("      period_mint_cap: ${DappScaffold.BRIDGE_TEST_PERIOD_CAP}"), "bridge test.moduleArgs must mirror the period cap")
+                }
                 if (template == "governance") {
                     // The DAO's founder key is configured exactly the way the oracle is:
                     // unset in production so the chain cannot build with a placeholder,
@@ -2109,6 +2260,18 @@ class DappScaffoldSecureTemplatesTest {
             "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
             "test_r14_the_shortest_period_lapse_is_not_billable_either_must_fail",
             "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail"
+        )
+    )
+
+    @Test
+    fun bridgeShippedTestsRunGreen() = assertShippedGreen(
+        "bridge",
+        setOf(
+            "test_round14_one_burn_cannot_be_minted_twice_must_fail",
+            "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+            "test_mint_transfer_and_exit_conserve_against_attested_burns",
+            "test_the_caps_bound_what_one_bridge_can_mint_must_fail",
+            "test_the_relayer_set_is_configuration_not_an_input_must_fail"
         )
     )
 
@@ -4015,6 +4178,53 @@ class DappScaffoldSecureTemplatesTest {
         "",
         "test_round9_dust_pool_deposit_is_refused_not_haircut",
         "deposit must match the pool ratio",
+        attackLanded
+    )
+
+    /**
+     * REMOVE THE REGISTRY. Mint on EVERY attestation instead of when the counter
+     * equals the threshold, and drop the attestation row that makes that count a
+     * count of DISTINCT relayers - which is round 14's receiver exactly: it minted
+     * on a relayer's signature and recorded nothing. The same attestation
+     * resubmitted then mints again, so the replay's run_must_fail succeeds and the
+     * case goes red because the attack landed.
+     */
+    private val BRIDGE_REGISTRY_GUARD =
+        "    val voices = burn.attestations + 1;\n" +
+            "    update burn ( .attestations = voices );\n" +
+            "    if (voices == relayer_threshold()) {\n" +
+            "        mint_against(burn);\n" +
+            "    }"
+
+    @Test
+    fun bridgeR14ReplayGoesRedWhenEveryAttestationMints() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        BRIDGE_REGISTRY_GUARD,
+        "    mint_against(burn);",
+        "test_round14_one_burn_cannot_be_minted_twice_must_fail",
+        // Wrong reason: the repeat still refused by the attestation key, which
+        // names that table. Right reason is the transaction not failing at all.
+        "attestation",
+        attackLanded,
+        alsoRemove = listOf("create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);")
+    )
+
+    /**
+     * REMOVE THE FIELD BINDING. Put what a burn PAYS into the burn's identity, so
+     * an attestation naming a different recipient or a different amount opens a row
+     * of its own instead of being refused - which is round 14's second drain, where
+     * three attestations quoting ONE source transaction paid three accounts 1000,
+     * 5000 and 250000 against one burn.
+     */
+    @Test
+    fun bridgeR14ReplayGoesRedWhenTheKeyCarriesWhatTheBurnPays() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    key source_chain: byte_array, source_tx: byte_array, log_index: integer;\n" +
+            "    recipient: byte_array;\n" +
+            "    amount: integer;",
+        "    key source_chain: byte_array, source_tx: byte_array, log_index: integer, recipient: byte_array, amount: integer;",
+        "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+        "this burn was opened for a different recipient",
         attackLanded
     )
 }
