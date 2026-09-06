@@ -81,7 +81,8 @@ weakens, via `replacement`) the guard, reruns only that test, and reads *why* it
 
 - `load_bearing` — failed because the attack landed (`run_must_fail` reports "did not fail")
 - `vacuous` — stayed green without the guard; the test does not exercise it
-- `still_refused` — something else refused the attack (name it in `alsoRemove`)
+- `still_refused` — something else refused the attack (name it in `alsoRemove`); a refused
+  transaction is never read as the attack landing, whatever `attackLanded` says
 - `environmental` — the mutant did not compile or lacked `moduleArgs`; proves nothing
 - `baseline_red` / `guard_not_found` / `guard_ambiguous` / `test_not_found` — the inputs cannot be verified yet
 - `replacement_rejected` / `also_remove_overlaps_guard` — the mutation itself is refused: a

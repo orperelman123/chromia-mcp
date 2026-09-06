@@ -1942,8 +1942,12 @@ object McpTools {
               vacuous                - the test stayed green with the guard gone: it does not
                                        exercise the guard. Make the test drive the attack.
               still_refused          - something else refused the attack (another require, a
-                                       second guard). Name it in alsoRemove if it is defence in
-                                       depth, else the test measures a different guard.
+                                       second guard, a module_args bound). Name it in alsoRemove
+                                       if it is defence in depth, else the test measures a
+                                       different guard. A REFUSED TRANSACTION IS NEVER THE ATTACK
+                                       LANDING: any production message or "Operation ... failed"
+                                       in the mutant's error is this verdict, whatever
+                                       attackLanded says.
               environmental          - the mutant is not a running dapp (compile error, missing
                                        module_args). A failure for that reason proves nothing.
               red_for_another_reason - red, but not the attack; read the error before counting it.

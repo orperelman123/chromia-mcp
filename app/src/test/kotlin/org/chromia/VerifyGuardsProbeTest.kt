@@ -445,10 +445,13 @@ class VerifyGuardsProbeTest {
     }
 
     // ---- P11: DEFENCE IN DEPTH read as the attack landing -----------------
-    // ROUND 13, AND P11/P12 ARE RED ON PURPOSE. The tool is NOT fixed here: an
-    // adversary round pins the TRUE verdict and leaves the fix to the fix lane,
-    // so the two probes below fail against the shipped tool, and the failure
-    // message is the finding.
+    // ROUND 13. Pinned red by the adversary round, fixed the same day: a
+    // refused transaction is never the attack landing. The tool now reads the
+    // runner's "Operation '...' failed" shape and every production file's
+    // string literals as refusals, and consults attackLanded only for what is
+    // left (a test-side assertion). Only the chain's answer - the "but was <Y>"
+    // half of a run_must_fail mismatch - is read, so the test quoting the
+    // guard's message cannot masquerade as a refusal either.
     //
     // Round 11's lesson was "an error that contains any string literal from the
     // GUARD line is the guard REFUSING, whatever fragment the caller supplied";
@@ -544,9 +547,11 @@ class VerifyGuardsProbeTest {
 
     /**
      * CONTROL 1: the same files and the same guard with the DEFAULT
-     * attackLanded. The tool is right here - the mismatch text does not contain
-     * "did not fail" - which is why every false verdict in this class needs a
-     * caller-supplied fragment. GREEN today.
+     * attackLanded. Before the fix this was red_for_another_reason - right in
+     * that it was not ok:true, wrong in what it said: the second guard REFUSED
+     * the overdraft, and a refusal is still_refused whatever fragment is in
+     * play. The fix reads the refusal itself, so the default fragment and a
+     * caller's fragment now give the same answer.
      */
     @Test
     fun p11cTheDefaultFragmentDoesNotMistakeTheSecondRefusal() {
@@ -554,7 +559,8 @@ class VerifyGuardsProbeTest {
             mapOf("main.rell" to depthMain, "main_test.rell" to depthTests),
             guard(depthGuard, "test_overdraft_must_fail")
         )
-        assertEquals("red_for_another_reason", verdict(r), r.toString())
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
     }
 
     /**
