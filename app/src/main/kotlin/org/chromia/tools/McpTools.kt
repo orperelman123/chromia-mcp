@@ -2105,12 +2105,24 @@ object McpTools {
               still_refused          - something else refused the attack (another require, a
                                        second guard, a module_args bound). Name it in alsoRemove
                                        if it is defence in depth, else the test measures a
-                                       different guard. A refusal by the GUARD'S OWN operation
-                                       (the runner's "Operation '...' failed" frame, compared
-                                       with the declaration the guard lives in) is this verdict
-                                       whatever attackLanded says; a refusal by a LATER
-                                       operation, or a test-side failure, is the damage being
-                                       noticed and counts as load_bearing.
+                                       different guard. A refusal is the GUARD'S OWN when the
+                                       runner's frame - [module:declaration(file:line)] - names
+                                       the declaration the guard sits in, MODULE INCLUDED, or
+                                       (guard in a function) any operation or query that reaches
+                                       it through your own call graph; and when it came from the
+                                       FIRST statement of the test that invokes that declaration.
+                                       A refusal by any other declaration, by the same one in a
+                                       LATER statement, or a test-side failure, is the damage
+                                       being noticed and counts as load_bearing.
+              ambiguous_refusal      - the mutant went red and the tool CANNOT SAY which of the
+                                       two it is: the error carries no frame it recognises while
+                                       the test does invoke the guard's own declaration, or that
+                                       declaration is invoked more than once and the error gave
+                                       no line in the test to place the failure in. Never
+                                       proven, and never a reason to weaken the test - the
+                                       evidence text says what to add (an assertion on the state
+                                       the attack changes, a run_must_fail on the attack, or one
+                                       call to the declaration instead of several).
               environmental          - the mutant is not a running dapp (compile error, missing
                                        module_args). A failure for that reason proves nothing.
               red_for_another_reason - red, but not the attack; read the error before counting it.

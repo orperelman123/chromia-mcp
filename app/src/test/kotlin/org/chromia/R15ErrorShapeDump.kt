@@ -216,4 +216,89 @@ class R15ErrorShapeDump {
         dump("p15d-querynotices", mapOf("main.rell" to queryNoticesMain, "main_test.rell" to queryNoticesTests), clamp, unclamped, "test_overdraft_must_fail")
         dump("p15e-querydefence", mapOf("main.rell" to queryMain, "main_test.rell" to queryTests), clamp, unclamped, "test_overdraft_must_fail")
     }
+
+    private val r14ClampMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        operation sweep() {
+            val p = pot @ { .id == 1 };
+            require(p.balance > 0, "the pot is short");
+            update p ( .balance = 0 );
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private val r14HelperTests = """
+        @test module;
+        import main;
+        function pot_is_sound(v: integer) {
+            require(v >= 0, "the pot is short");
+        }
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            pot_is_sound(main.left());
+        }
+    """.trimIndent()
+
+    private val r14AssertTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    private val depthMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(amount <= p.balance, "the pot does not hold that much");
+            require(p.balance - amount >= 0, "the balance would go negative");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    private val depthTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run_must_fail("does not hold");
+        }
+    """.trimIndent()
+
+    @Test
+    fun dumpLegacyShapes() {
+        assertNotNull(System.getenv(RunRellTests.DATABASE_URL_ENV), "needs CHROMIA_TEST_DATABASE_URL")
+        dump(
+            "p11-runmustfail-mismatch",
+            mapOf("main.rell" to depthMain, "main_test.rell" to depthTests),
+            "require(amount <= p.balance, \"the pot does not hold that much\");", "", "test_overdraft_must_fail"
+        )
+        dump(
+            "p14b-testside-require",
+            mapOf("main.rell" to r14ClampMain, "main_test.rell" to r14HelperTests),
+            clamp, unclamped, "test_overdraft_must_fail"
+        )
+        dump(
+            "p14c-assert-equals",
+            mapOf("main.rell" to r14ClampMain, "main_test.rell" to r14AssertTests),
+            clamp, unclamped, "test_overdraft_must_fail"
+        )
+    }
 }

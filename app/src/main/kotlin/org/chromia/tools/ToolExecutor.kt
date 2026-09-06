@@ -1821,7 +1821,8 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                         "notes",
                         "ok=true means EVERY named guard is load-bearing: its must-fail test passes with the guard present and " +
                             "fails WITHOUT it because the attack landed. Any other verdict - vacuous, baseline_red, " +
-                            "environmental, still_refused, red_for_another_reason, guard_not_found - means the test proves " +
+                            "environmental, still_refused, ambiguous_refusal, red_for_another_reason, guard_not_found - " +
+                            "means the test proves " +
                             "nothing about that guard yet. This is the standard the shipped templates are held to (every " +
                             "guard has a mutant that reddens a must-fail test because the attack lands). It does not " +
                             "replace an audit, and it says nothing about guards you did not name."
@@ -1855,6 +1856,57 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      * pass, or the named guard proved nothing; and an error that contains any
      * string literal from the guard line is the guard REFUSING, whatever
      * fragment the caller supplied.
+     *
+     * ROUND 15 REBUILT STEP 4 rather than patching it a fifth time. Rounds 11
+     * to 14 each answered the round before: the guard's literals, then the
+     * replacement's, then "a refused transaction is never the attack landing",
+     * then "compare the runner's failing frame with the declaration the guard
+     * lives in". Round 15 broke that comparison in four places at once - a
+     * guard in a `function` matched ANY refusing operation; substringAfterLast
+     * (':') threw the MODULE away so `x:take` read as `main:take`; the frame
+     * says which DECLARATION refused and never which TRANSACTION, so the
+     * guard's own operation refusing in a LATER transaction read as the attack
+     * being refused; and a query refusal carries no "Operation '...' failed"
+     * shape at all, so a guard that was only defence in depth behind a second
+     * guard in the same query was certified `load_bearing`, ok:true.
+     *
+     * So step 4 is now built from what the two sides actually hold.
+     *
+     * WHAT THE TOOL KNOWS: the guard's FILE, its OFFSET in that file, the
+     * declaration it sits in, and - because the runner names modules the same
+     * way - that file's MODULE. It also holds the whole submission, so it can
+     * read the production call graph and the test's own statements.
+     * WHAT THE RUNNER GIVES: one error string per failing case, whose frames
+     * are `[<module>:<declaration>(<file>:<line>)]`.
+     *
+     * The rule:
+     *  1. "did not fail" is the attack landing. Unchanged, and still first.
+     *  2. THE GUARD'S OWN DECLARATIONS are computed, not guessed: the
+     *     declaration the guard sits in, module-qualified, PLUS - when that is
+     *     a `function` - every operation and query that REACHES it through the
+     *     submission's own call graph, transitively ([declarationsReaching]).
+     *     Round 14's `guardInFunction` short-circuit made every refusing
+     *     operation the guard's own, which matters because factoring a guard
+     *     into a helper is what the shipped templates do (mint_against,
+     *     accrued, escrow_of).
+     *  3. FRAMES ARE COMPARED MODULE-QUALIFIED. `x:take` is not `main:take`,
+     *     and a frame whose file is one of the submission's TEST files is the
+     *     test side of the stack, not a refusal.
+     *  4. WHICH TRANSACTION, not just which declaration. A refusal by the
+     *     guard's own declaration is the ATTACK being refused only if it came
+     *     from the FIRST statement of the test that invokes that declaration
+     *     (directly or through a test-module helper). The test-side frame
+     *     carries the failing line, so the tool locates that statement and
+     *     compares. A refusal from a LATER statement is the damage being
+     *     noticed: the attack landed in an earlier transaction.
+     *  5. WHEN IT CANNOT TELL, IT SAYS SO. `ambiguous_refusal` is a new
+     *     verdict with ok:false - never `still_refused`, which would send the
+     *     author off to weaken a load-bearing test, and never `load_bearing`,
+     *     which is the direction that certifies a guard that is not. It is
+     *     returned when the error carries no frame the tool recognises while
+     *     the test does invoke the guard's own declaration, and when the
+     *     guard's declaration is invoked more than once and the runner gave no
+     *     test-side line to place the failure in.
      */
     private suspend fun verifyOne(
         files: Map<String, String>,
@@ -2048,50 +2100,244 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
         val error = case.error.orEmpty()
 
-        // 4. WHY did it fail. Round 14: A REFUSAL COUNTS ONLY IF IT CAME FROM THE
-        //    GUARD'S OWN DECLARATION. Round 13 made "a refused transaction is
-        //    never the attack landing" structural, and round 14 found the three
-        //    ways a refusal in the error is NOT the attack being refused: a LATER
-        //    operation refusing after the attack landed, a test-side require()
-        //    that happens to use production words, and a diagnostic string that
-        //    carries its own "but was <...>". So the rule reads the runner's
-        //    frame - "Operation 'main:take' failed" - and compares the failing
-        //    declaration with the declaration the guard lives in. No string
-        //    literals are consulted any more: "did not fail" is the attack
-        //    landing, a refusal from the guard's declaration is still_refused, a
-        //    refusal from anywhere else or a test-side failure is the damage
-        //    being noticed - which, for a test that was GREEN with the guard, is
-        //    load-bearing evidence. attackLanded is a pin the caller may add on
-        //    top (absent => red_for_another_reason), never the decider.
+        // 4. WHY did it fail. See the KDoc above verifyOne for the rule, and for
+        //    what each round found wrong with the round before it.
         if (error.contains("did not fail", ignoreCase = true)) {
             return@withContext verdict("load_bearing", "with the guard removed the test fails because the attack LANDED: $error", loadBearing = true)
         }
+
+        // Every load-bearing conclusion still passes the caller's own pins.
+        fun landed(note: String): JsonObject {
+            if (stillRefused != null && error.contains(stillRefused)) {
+                return verdict(
+                    "still_refused",
+                    "the attack was still refused, by something other than this guard: $error. If that is defence in " +
+                        "depth, name it in alsoRemove; otherwise the test is measuring a different guard"
+                )
+            }
+            val callerPinned = attackLanded.isNotBlank() && !attackLanded.equals("did not fail", ignoreCase = true)
+            if (callerPinned && !error.contains(attackLanded, ignoreCase = true)) {
+                return verdict(
+                    "red_for_another_reason",
+                    "the test went red without the guard and nothing in the guard's declaration refused, but the " +
+                        "fragment you pinned ('$attackLanded') is absent: $error. Read it before counting this guard as proven"
+                )
+            }
+            return verdict("load_bearing", "with the guard removed the test fails and $note: $error", loadBearing = true)
+        }
+
+        // 4a. THE GUARD'S OWN DECLARATIONS, module-qualified.
+        val guardModule = RunRellTests.moduleNameForPath(path, src)
         val declRx = Regex("\\b(operation|query|function)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(")
         val guardDecl = declRx.findAll(maskRellSource(src, maskStrings = true)).lastOrNull { it.range.first < at }
             ?.let { it.groupValues[1] to it.groupValues[2] }
-        val guardInFunction = guardDecl == null || guardDecl.first == "function"
-        val refusal = Regex("(Operation|Query) '([^']*)' failed").find(error)
-        val refusingName = refusal?.groupValues?.get(2)?.substringAfterLast(':')
-        val refusedByGuardDecl = refusal != null && (guardInFunction || refusingName == guardDecl!!.second)
-        if (refusedByGuardDecl) {
-            val where = if (guardInFunction) "the guard is inside a function, so any refusing operation counts as the guard's own"
-                        else "'${refusingName}' is the ${guardDecl!!.first} the guard lives in"
-            return@withContext verdict(
-                "still_refused",
-                "the transaction was still REFUSED by ${refusal!!.groupValues[1].lowercase()} '${refusal.groupValues[2]}' with the guard removed ($where): $error. " +
-                    "A refusal from the guard's own declaration is never the attack landing. If that is defence in depth, name the refusing line in alsoRemove; " +
-                    "otherwise the test is measuring a different guard"
+        val ownDeclarations = LinkedHashSet<String>()
+        if (guardDecl != null) {
+            ownDeclarations += "$guardModule:${guardDecl.second}"
+            if (guardDecl.first == "function") {
+                ownDeclarations += declarationsReaching(files, isTest, guardDecl.second)
+            }
+        }
+        val ownNames = ownDeclarations.mapTo(mutableSetOf()) { it.substringAfterLast(':') }
+
+        // 4b. THE RUNNER'S FRAMES, split by whose file each one names.
+        val testBasenames = files.keys.filter { isTest.getValue(it) }.mapTo(mutableSetOf()) { baseName(it) }
+        val frames = FRAME_REGEX.findAll(error).map {
+            Frame(it.groupValues[1], it.groupValues[2], baseName(it.groupValues[3]), it.groupValues[4].toIntOrNull() ?: 0)
+        }.toList()
+        val productionFrames = frames.filter { it.file !in testBasenames }
+        val testFrame = frames.lastOrNull { it.file in testBasenames }
+        val ownFrame = productionFrames.lastOrNull { "${it.module}:${it.declaration}" in ownDeclarations }
+
+        // 4c. NOTHING OF THE GUARD'S IS NAMED AS REFUSING.
+        if (ownFrame == null) {
+            val other = productionFrames.lastOrNull()
+            if (other != null) {
+                return@withContext landed(
+                    "the refusal came from '${other.module}:${other.declaration}' (${other.file}:${other.line}), which is " +
+                        "not a declaration this guard runs in - that is the damage being noticed, not the attack being refused"
+                )
+            }
+            val statements = testStatementsInvoking(files, isTest, test, ownNames)
+            if (frames.isEmpty() && statements.isNotEmpty()) {
+                return@withContext verdict(
+                    "ambiguous_refusal",
+                    "the mutant went red with an error that carries NO frame: $error. The test does invoke " +
+                        "${ownDeclarations.joinToString()}, so this could be that declaration refusing the attack (which " +
+                        "would prove nothing about this guard) or the damage being noticed afterwards, and nothing in the " +
+                        "runner's answer separates the two. It is NOT counted as proven. Make the damage visible to the " +
+                        "test itself - an assertion on the state the attack changes, or a run_must_fail on the attack - " +
+                        "or pass attackLanded naming a fragment only the attack landing produces"
+                )
+            }
+            return@withContext landed("nothing in the guard's own declaration refused the attack")
+        }
+
+        // 4d. THE GUARD'S OWN DECLARATION REFUSED - but in WHICH transaction?
+        val statements = testStatementsInvoking(files, isTest, test, ownNames)
+        val refusedBy = "'${ownFrame.module}:${ownFrame.declaration}' (${ownFrame.file}:${ownFrame.line})"
+        fun stillRefusedByTheGuard() = verdict(
+            "still_refused",
+            "the attack was still REFUSED by $refusedBy with the guard removed, and that is a declaration this guard " +
+                "runs in: $error. A refusal from the guard's own declaration, in the statement that carries the attack, " +
+                "is never the attack landing. If it is defence in depth, name the refusing line in alsoRemove; otherwise " +
+                "the test is measuring a different guard"
+        )
+        when {
+            statements.isEmpty() -> return@withContext verdict(
+                "ambiguous_refusal",
+                "$refusedBy refused, and that is a declaration this guard runs in, but no statement of $test could be " +
+                    "seen invoking it: $error. The tool will not guess whether that refusal is the attack being refused " +
+                    "or the damage being noticed. Call the declaration from the test directly rather than through " +
+                    "something this scan cannot follow"
+            )
+            testFrame == null && statements.size == 1 -> return@withContext stillRefusedByTheGuard()
+            testFrame == null -> return@withContext verdict(
+                "ambiguous_refusal",
+                "$refusedBy refused, and $test invokes it in ${statements.size} statements (lines " +
+                    "${statements.joinToString { it.first.toString() }}), but the error carries no line in the test to " +
+                    "place the failure in: $error. Whether this refusal is the attack being refused or a LATER " +
+                    "transaction refusing because the attack already landed is not the tool's guess to make. Split the " +
+                    "test so the attack is the only call to ${ownDeclarations.joinToString()}, or assert the damage directly"
+            )
+            statements.first().contains(testFrame.line) -> return@withContext stillRefusedByTheGuard()
+            statements.drop(1).any { it.contains(testFrame.line) } -> return@withContext landed(
+                "the refusal came from $refusedBy in a LATER statement of the test (${testFrame.file}:${testFrame.line}, " +
+                    "where the attack is the statement at line ${statements.first().first}) - the attack landed in an " +
+                    "earlier transaction and this is the damage being noticed"
+            )
+            else -> return@withContext verdict(
+                "ambiguous_refusal",
+                "$refusedBy refused at ${testFrame.file}:${testFrame.line}, which is inside no statement of $test that " +
+                    "invokes it (lines ${statements.joinToString { it.first.toString() }}): $error. The tool cannot place " +
+                    "the refusal in the test's statement order, and will not guess"
             )
         }
-        if (stillRefused != null && error.contains(stillRefused)) {
-            return@withContext verdict("still_refused", "the attack was still refused, by something other than this guard: $error. If that is defence in depth, name it in alsoRemove; otherwise the test is measuring a different guard")
+    }
+
+    /** `[main:take(main.rell:9)]` - one frame of the runner's stack. */
+    private val FRAME_REGEX = Regex("\\[([A-Za-z_][\\w.]*)\\s*:\\s*([A-Za-z_]\\w*)\\(([^()]*?):(\\d+)\\)]")
+
+    private data class Frame(val module: String, val declaration: String, val file: String, val line: Int)
+
+    /** A statement's line range in its file - a frame's line falls inside exactly one. */
+    private data class LineSpan(val first: Int, val last: Int) {
+        fun contains(line: Int) = line in first..last
+    }
+
+    private fun baseName(path: String) = path.replace('\\', '/').substringAfterLast('/')
+
+    /** The index of the `close` matching the `open` at [start], or null. */
+    private fun matchBrace(text: String, start: Int, open: Char, close: Char): Int? {
+        var depth = 0
+        for (i in start until text.length) {
+            when (text[i]) {
+                open -> depth++
+                close -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
         }
-        val callerPinned = attackLanded.isNotBlank() && !attackLanded.equals("did not fail", ignoreCase = true)
-        if (callerPinned && !error.contains(attackLanded, ignoreCase = true)) {
-            return@withContext verdict("red_for_another_reason", "the test went red without the guard and nothing in the guard's declaration refused, but the fragment you pinned ('$attackLanded') is absent: $error. Read it before counting this guard as proven")
+        return null
+    }
+
+    /**
+     * Every module-qualified operation and query of the submission's own
+     * PRODUCTION files that reaches the function [target] through the call
+     * graph, transitively. Rell function names are module-scoped and a
+     * cross-module call is written `mod.fn(...)`, so the graph is keyed on the
+     * BARE name: two modules with a same-named helper collapse into one node,
+     * which can only WIDEN "the guard's own declarations" and never narrow it -
+     * the safe direction, because the widening costs an `ambiguous_refusal` and
+     * never a false `load_bearing`.
+     */
+    private fun declarationsReaching(
+        files: Map<String, String>,
+        isTest: Map<String, Boolean>,
+        target: String
+    ): Set<String> {
+        val bodies = mutableMapOf<String, MutableList<String>>()
+        val entryPoints = mutableListOf<Pair<String, String>>()
+        files.forEach { (p, content) ->
+            if (isTest.getValue(p)) return@forEach
+            val masked = maskRellSource(content, maskStrings = true)
+            val module = RunRellTests.moduleNameForPath(p, content)
+            RellSecurityCheck.functionDefinitions(masked).forEach { d ->
+                bodies.getOrPut(d.name) { mutableListOf() }.add(d.body)
+            }
+            RellSecurityCheck.scanOperations(p, masked).forEach { entryPoints += "$module:${it.name}" to it.body }
+            RellSecurityCheck.scanQueries(masked).forEach { entryPoints += "$module:${it.name}" to it.body }
         }
-        val later = if (refusal != null) " (a LATER ${refusal.groupValues[1].lowercase()} '${refusal.groupValues[2]}' refused, which is the damage being noticed, not the attack being refused)" else ""
-        verdict("load_bearing", "with the guard removed the test fails and nothing in the guard's own declaration refused the attack$later: $error", loadBearing = true)
+        return entryPoints.filter { (_, body) -> reaches(bodies, body, target) }
+            .mapTo(LinkedHashSet()) { it.first }
+    }
+
+    /** True when [body]'s transitive call closure over [bodies] contains [target]. */
+    private fun reaches(bodies: Map<String, List<String>>, body: String, target: String): Boolean {
+        val seen = mutableSetOf<String>()
+        val work = ArrayDeque(RellSecurityCheck.calledNames(body))
+        while (work.isNotEmpty()) {
+            val n = work.removeFirst()
+            if (!seen.add(n)) continue
+            if (n == target) return true
+            bodies[n]?.forEach { b -> RellSecurityCheck.calledNames(b).forEach { if (it !in seen) work.add(it) } }
+        }
+        return false
+    }
+
+    /**
+     * The line span of every top-level statement of the test function [test]
+     * that invokes one of [names] - directly, or through a function of the same
+     * test module that does - IN SOURCE ORDER. The first of them carries the
+     * attack; anything later runs after it.
+     */
+    private fun testStatementsInvoking(
+        files: Map<String, String>,
+        isTest: Map<String, Boolean>,
+        test: String,
+        names: Set<String>
+    ): List<LineSpan> {
+        if (names.isEmpty()) return emptyList()
+        files.forEach { (p, content) ->
+            if (!isTest.getValue(p)) return@forEach
+            val masked = maskRellSource(content, maskStrings = true)
+            val head = Regex("\\bfunction\\s+${Regex.escape(test)}\\s*\\(").find(masked) ?: return@forEach
+            val brace = masked.indexOf('{', head.range.last)
+            if (brace < 0) return@forEach
+            val close = matchBrace(masked, brace, '{', '}') ?: return@forEach
+            val helperBodies = mutableMapOf<String, MutableList<String>>()
+            RellSecurityCheck.functionDefinitions(masked).forEach { d ->
+                helperBodies.getOrPut(d.name) { mutableListOf() }.add(d.body)
+            }
+            val reaching = helperBodies.keys.filterTo(mutableSetOf()) { h ->
+                names.any { n -> helperBodies.getValue(h).any { b -> reaches(helperBodies, b, n) } }
+            }
+            val wanted = names + reaching
+            val spans = mutableListOf<LineSpan>()
+            var from = brace + 1
+            var depth = 0
+            var i = brace + 1
+            while (i < close) {
+                when (masked[i]) {
+                    '(', '[', '{' -> depth++
+                    ')', ']', '}' -> depth--
+                    ';' -> if (depth == 0) {
+                        val statement = masked.substring(from, i)
+                        if (RellSecurityCheck.calledNames(statement).any { it in wanted }) {
+                            spans += LineSpan(
+                                masked.substring(0, from).count { c -> c == '\n' } + 1,
+                                masked.substring(0, i).count { c -> c == '\n' } + 1
+                            )
+                        }
+                        from = i + 1
+                    }
+                }
+                i++
+            }
+            if (spans.isNotEmpty()) return spans
+        }
+        return emptyList()
     }
 }
 
