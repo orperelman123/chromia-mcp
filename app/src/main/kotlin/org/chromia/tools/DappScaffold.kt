@@ -8254,6 +8254,10 @@ object DappScaffold {
         // Bound every price BEFORE it is multiplied by the rate (i64 overflow aborts).
         val MAX_PRICE = 1000000000;
         val MAX_OFFER_MS = 30 * 24 * 60 * 60 * 1000;
+        // An offer that expires in the block it is made can never be accepted - the
+        // same emptiness start_auction refuses below, and the reason a window needs a
+        // floor and not just a ceiling.
+        val MIN_OFFER_MS = 60 * 1000;
         // An auction nobody can reach is a seller bidding against themselves; one that
         // never ends holds the escrow forever. Both bounds are checked separately.
         val MIN_AUCTION_MS = 60 * 1000;
@@ -8432,7 +8436,7 @@ object DappScaffold {
             require(token.owner != account.id, "cannot bid on your own token");
             require(amount > 0, "amount must be positive");
             require(amount <= MAX_PRICE, "amount too high");
-            require(valid_ms > 0, "validity must be positive");
+            require(valid_ms >= MIN_OFFER_MS, "validity too short");
             require(valid_ms <= MAX_OFFER_MS, "validity too long");
             require(bidder.balance >= amount, "insufficient balance");
             require(offer @? { .nft == token, .bidder == account.id } == null, "offer already open");
