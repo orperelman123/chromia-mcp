@@ -411,10 +411,11 @@ open class RagStore(
                 serveCache("fetched ${cached.downloadedAt}, refresh after ${CACHE_REFRESH_AFTER.toDays()} days")?.let { return it }
                 logger.warn("Cached embeddings at $cachePath could not be read; downloading a fresh copy")
             }
-            if (cachedIsStale) {
+            if (cached != null && cachedIsStale) {
+                val generatedAt = cached.lastModified ?: cached.downloadedAt
                 logger.warn(
-                    "Cached embeddings at $cachePath were generated ${cached!!.lastModified ?: cached.downloadedAt} " +
-                        "- older than the ${STALE_AFTER.toDays()}-day staleness limit; refreshing before serving them"
+                    "Cached embeddings at $cachePath were generated $generatedAt - older than the " +
+                        "${STALE_AFTER.toDays()}-day staleness limit; refreshing before serving them"
                 )
             }
             val remote = runCatching(download).onFailure { error ->
