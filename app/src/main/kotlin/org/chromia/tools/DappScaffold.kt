@@ -749,14 +749,12 @@ object DappScaffold {
             // and dust buys no rows at all.
             if (claim.amount >= min_row_units()) {
                 create mint_event(burn = burn, amount = claim.amount, minted_at = now, dust_open = false);
+            } else if (mint_event @? { .dust_open == true } == null) {
+                create mint_event(burn = burn, amount = claim.amount, minted_at = now, dust_open = true);
             } else {
-                val open_dust = mint_event @? { .dust_open == true };
-                if (open_dust == null) {
-                    create mint_event(burn = burn, amount = claim.amount, minted_at = now, dust_open = true);
-                } else {
-                    val merged = open_dust.amount + claim.amount;
-                    update open_dust ( .amount = merged, .minted_at = now, .dust_open = merged < min_row_units() );
-                }
+                val open_dust = mint_event @ { .dust_open == true };
+                val merged = open_dust.amount + claim.amount;
+                update open_dust ( .amount = merged, .minted_at = now, .dust_open = merged < min_row_units() );
             }
         }
 
@@ -929,17 +927,21 @@ object DappScaffold {
             //    of one reopen, which IS the threshold, and nothing was minted. The vote
             //    a relayer casts stands until that relayer itself recasts it; a new round
             //    lets it change its mind and never lets anybody erase it.
-            val voice = relayer_voice @? { .burn == burn, .witness == witness };
-            if (voice == null) {
+            if (relayer_voice @? { .burn == burn, .witness == witness } == null) {
                 create relayer_voice(burn = burn, witness = witness, claim = claim, round = burn.round, voiced_at = now);
                 add_voice(claim);
-            } else if (voice.claim != claim) {
+            } else {
+                val voice = relayer_voice @ { .burn == burn, .witness == witness };
                 val previous = voice.claim;
                 update voice ( .claim = claim, .round = burn.round, .voiced_at = now );
-                update previous ( .votes -= 1 );
-                add_voice(claim);
-            } else {
-                update voice ( .round = burn.round, .voiced_at = now );
+                // A RECAST MOVES THE VOICE: the claim it was on loses exactly the vote the
+                // claim it moves to gains, so `votes` is always the number of relayers
+                // backing that tuple right now. Re-stating the same tuple in a new round
+                // moves nothing and is not a second voice.
+                if (previous != claim) {
+                    update previous ( .votes -= 1 );
+                    add_voice(claim);
+                }
             }
         }
 
