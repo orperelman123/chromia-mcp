@@ -316,7 +316,8 @@ object DappScaffold {
         //   THE RELAYER SET IS CONFIGURATION - relayers are enrolled by the configured
         //     bridge operator key, and the set is CLOSED before any burn may be
         //     attested; after that nothing adds, removes or replaces one. A relayer is
-        //     a key, never an operation argument, so no caller names its own signer.
+        //     the AUTHENTICATED account looked up by its own id, so no operation takes
+        //     a signer as an argument and nobody can name their own (probe N5).
         //   CAPPED IN TOTAL AND PER PERIOD - a receiver can only ever owe what the
         //     source chain locked, so a mint is bounded twice, against a total cap and
         //     against a per-period cap, both configuration. A relayer majority that
@@ -367,11 +368,11 @@ object DappScaffold {
             mutable balance: integer = 0;
         }
 
-        // A relayer is a KEY. It needs no account on this chain: it signs the
-        // transaction that carries an attestation, and the chain verifies that
-        // signature over the whole transaction, which is exactly the burn record.
+        // One enrolled relayer, named by its account id. It signs the transaction that
+        // carries an attestation and the platform verifies that signature over the whole
+        // transaction, which IS the burn record; this row says whose signature counts.
         entity relayer {
-            key relayer_pubkey: pubkey;
+            key account_id: byte_array;
             enrolled_at: timestamp;
         }
 
@@ -412,8 +413,8 @@ object DappScaffold {
 
         val MAX_AMOUNT = 1000000000;
         val MAX_LOG_INDEX = 1000000;
-        // The most relayer keys the set may hold. The attestation scan walks them, so
-        // it is bounded here rather than by whoever holds the operator key.
+        // The most relayers the set may hold, so its size is bounded here rather than by
+        // whoever holds the operator key.
         val MAX_RELAYERS = 16;
         // A bridge whose threshold is one is a bridge with one key, and that is the
         // shape round 14 drained. A constant, never configuration.
@@ -479,15 +480,15 @@ object DappScaffold {
             create holding(owner = account.id, balance = 0);
         }
 
-        // Enrol one relayer key. The operator may do this until the set is closed and
-        // never afterwards, so the trust root of the bridge is fixed before the first
-        // burn is attested.
-        operation enrol_relayer(candidate: pubkey) {
+        // Enrol one relayer. The operator may do this until the set is closed and never
+        // afterwards, so the trust root of the bridge is fixed before the first burn is
+        // attested; the account id is the KEY, so nobody is enrolled twice.
+        operation enrol_relayer(candidate: byte_array) {
             require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is closed");
-            require(candidate.size() == 33, "a relayer key must be a 33-byte compressed public key");
+            require(candidate.size() == 32, "a relayer must be a 32-byte account id");
             require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
-            create relayer(relayer_pubkey = candidate, enrolled_at = op_context.last_block_time);
+            create relayer(account_id = candidate, enrolled_at = op_context.last_block_time);
             bridge_state.relayer_count += 1;
         }
 
@@ -515,18 +516,18 @@ object DappScaffold {
             recipient: byte_array,
             amount: integer
         ) {
-            // 1. AUTHORIZE - an enrolled relayer, out of a set that can no longer
-            //    change. There is no FT4 account here: a relayer is a key.
+            // 1. AUTHENTICATE
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - an enrolled relayer, out of a set that can no longer
+            //    change. WHICH relayer is the AUTHENTICATED account looked up by its own
+            //    id: no operation takes a signer as an argument, so nobody can present
+            //    their own (audit probe N5).
             require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
-            // WHICH enrolled relayer signed this transaction. The set is small and
-            // bounded by MAX_RELAYERS, and the key is read from a ROW - never from an
-            // argument - so nobody can present their own (audit probe N5).
-            var found: relayer? = null;
-            for (r in relayer @* {}) {
-                if (op_context.is_signer(r.relayer_pubkey)) found = r;
-            }
-            val witness = require(found, "a burn attestation must be signed by an enrolled relayer");
-            // 2. VALIDATE - each input separately, and bounded before it is added to
+            val witness = require(
+                relayer @? { .account_id == account.id },
+                "a burn attestation must be signed by an enrolled relayer"
+            );
+            // 3. VALIDATE - each input separately, and bounded before it is added to
             //    anything.
             require(chain_rid.size() == 32, "source chain rid must be 32 bytes");
             require(tx_rid.size() == 32, "source tx rid must be 32 bytes");
@@ -534,7 +535,7 @@ object DappScaffold {
             require(recipient.size() == 32, "recipient must be a 32-byte account id");
             require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
             require(holding @? { .owner == recipient } != null, "recipient is not registered");
-            // 3. THE REGISTRY. One row per burn, and the row binds what it pays.
+            // 4. THE REGISTRY. One row per burn, and the row binds what it pays.
             val opened = processed_burn @? {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
@@ -554,7 +555,7 @@ object DappScaffold {
             val burn = processed_burn @ {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            // 4. ONE RELAYER, ONE VOICE - the key refuses a repeat, so the count below
+            // 5. ONE RELAYER, ONE VOICE - the key refuses a repeat, so the count below
             //    is a count of DISTINCT relayers and nothing else.
             create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);
             val voices = burn.attestations + 1;
@@ -662,7 +663,7 @@ object DappScaffold {
         // identity is a database key and the row it opens is what the mint reads.
 
         import main;
-        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, register_account_open, ft_auth_operation_for };
         // admin_priv_key() is defined in test.core.auth; importing it from the parent
         // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
         import lib.ft4.test.core.auth.{ admin_priv_key };
@@ -688,9 +689,10 @@ object DappScaffold {
             rell.test.tx().op(op).nop().sign(operator()).run_must_fail(expected);
         }
 
-        // A relayer is a KEY, not an account: it signs the transaction that carries the
-        // attestation and holds nothing on this chain. The keys are DERIVED here so no
-        // key material ships in the scaffold.
+        // A relayer is an ENROLLED ACCOUNT: it signs the transaction that carries the
+        // attestation the way any account signs, and the relayer row on this chain says
+        // whose signature counts. The keys are DERIVED here so that no key material
+        // ships in the scaffold, and the accounts are registered like any other.
         function hexbyte(i: integer): text {
             val d = "0123456789abcdef";
             return d.sub(i / 16, i / 16 + 1) + d.sub(i % 16, i % 16 + 1);
@@ -701,18 +703,20 @@ object DappScaffold {
             return rell.test.keypair(priv = priv, pub = crypto.privkey_to_pubkey(priv, true));
         }
 
-        function relayed(keypair: rell.test.keypair, op: rell.test.op) {
-            rell.test.tx().op(op).nop().sign(keypair).run();
-        }
+        // The relayer's account id, which is what the operator enrols. Registering is
+        // open and free; being ENROLLED is what makes an account a relayer.
+        function relayer_id(i: integer): byte_array = register_account_open(relayer_keypair(i)).account.id;
 
-        function relayed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+        // enrol_relayer and close_relayer_set authenticate on the CONFIGURED operator
+        // key rather than through FT4, so these carry no auth descriptor operation.
+        function unauthed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
             rell.test.tx().op(op).nop().sign(keypair).run_must_fail(expected);
         }
 
         // The duplicate an entity KEY refuses is a database error, not a require() with
         // a message of ours - which is the point of a guard that is structural.
-        function relayed_must_fail_any(keypair: rell.test.keypair, op: rell.test.op) {
-            rell.test.tx().op(op).nop().sign(keypair).run_must_fail();
+        function signed_must_fail_any(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail();
         }
 
         // 32-byte rids built from a tag, so no long hex literal ships either.
@@ -737,17 +741,19 @@ object DappScaffold {
 
         val DAY = 24 * 60 * 60 * 1000;
 
-        // Three keys, threshold two: enough that a third honest voice can be shown to
-        // mint nothing.
+        // Three relayers, threshold two: enough that a third honest voice can be shown
+        // to mint nothing.
         function open_the_bridge() {
-            by_operator(main.enrol_relayer(relayer_keypair(1).pub));
-            by_operator(main.enrol_relayer(relayer_keypair(2).pub));
-            by_operator(main.enrol_relayer(relayer_keypair(3).pub));
+            var i = 1;
+            while (i <= 3) {
+                by_operator(main.enrol_relayer(relayer_id(i)));
+                i += 1;
+            }
             by_operator(main.close_relayer_set());
         }
 
         function attest(i: integer, tag: integer, recipient: byte_array, amount: integer) {
-            relayed(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount));
+            signed(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount));
         }
 
         function mint_burn(tag: integer, recipient: byte_array, amount: integer) {
@@ -784,8 +790,8 @@ object DappScaffold {
             // the relayers that already gave it.
             var i = 0;
             while (i < 10) {
-                relayed_must_fail_any(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(1), 0, alice.account.id, 1000));
-                relayed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(1), 0, alice.account.id, 1000));
+                signed_must_fail_any(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(1), 0, alice.account.id, 1000));
+                signed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(1), 0, alice.account.id, 1000));
                 i += 1;
             }
             assert_equals(main.get_balance(alice.account.id), 1000);
@@ -821,11 +827,11 @@ object DappScaffold {
             // THE ATTACK: the same source transaction, a different beneficiary and a
             // different amount. Every one of them is refused, and refused BEFORE it can
             // be counted towards the threshold.
-            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000),
+            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000),
                 "this burn was opened for a different recipient");
-            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, trudy.account.id, 250000),
+            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, trudy.account.id, 250000),
                 "this burn was opened for a different recipient");
-            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 5000),
+            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 5000),
                 "this burn was opened for a different amount");
             assert_equals(main.minted_total(), 0);
 
@@ -890,7 +896,7 @@ object DappScaffold {
 
             // The next burn is attested but cannot be paid until the period turns.
             attest(1, 6, alice.account.id, 40000);
-            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(6), 0, alice.account.id, 40000),
+            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(6), 0, alice.account.id, 40000),
                 "the bridge's mint cap for this period is reached");
             assert_equals(main.minted_total(), 100000);
             after(DAY);
@@ -900,10 +906,10 @@ object DappScaffold {
 
             // The TOTAL cap is not a per-period one: waiting does not help.
             attest(1, 7, alice.account.id, 20000);
-            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
+            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
                 "the bridge's total mint cap is reached");
             after(DAY);
-            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
+            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
                 "the bridge's total mint cap is reached");
             assert_equals(main.minted_total(), 140000);
             assert_equals(main.get_balance(alice.account.id), 140000);
@@ -918,37 +924,42 @@ object DappScaffold {
             val trudy = register_trudy();
             signed(alice.keypair, main.register_account());
             signed(trudy.keypair, main.register_account());
+            // Registering an account is open and free. Being ENROLLED is what makes one
+            // a relayer, and only the operator can do that.
+            val first = relayer_id(1);
+            val second = relayer_id(2);
+            val outsider = relayer_id(9);
 
-            // Only the operator enrols, and only the operator closes.
-            relayed_must_fail(relayer_keypair(1), main.enrol_relayer(relayer_keypair(1).pub),
+            unauthed_must_fail(relayer_keypair(1), main.enrol_relayer(first),
                 "the bridge operator must sign this");
-            relayed_must_fail(trudy.keypair, main.close_relayer_set(), "the bridge operator must sign this");
+            unauthed_must_fail(trudy.keypair, main.close_relayer_set(), "the bridge operator must sign this");
             // ...and the operator cannot close a set that could never reach its own
             // threshold.
             by_operator_must_fail(main.close_relayer_set(), "fewer relayers than the threshold requires");
+
             // Nothing may be attested while the set can still change.
-            by_operator(main.enrol_relayer(relayer_keypair(1).pub));
-            by_operator(main.enrol_relayer(relayer_keypair(2).pub));
-            relayed_must_fail(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
+            by_operator(main.enrol_relayer(first));
+            by_operator(main.enrol_relayer(second));
+            signed_must_fail(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
                 "the relayer set is not closed yet");
             by_operator(main.close_relayer_set());
             assert_true(main.relayer_set_is_closed());
             assert_equals(main.relayer_count(), 2);
 
-            // A key nobody enrolled is not a relayer, however it signs...
-            relayed_must_fail(relayer_keypair(9), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
+            // An account nobody enrolled is not a relayer, however it signs...
+            signed_must_fail(relayer_keypair(9), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
                 "a burn attestation must be signed by an enrolled relayer");
-            // ...and neither is an ordinary account of this chain.
-            relayed_must_fail(trudy.keypair, main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
+            // ...and neither is an ordinary holder of the wrapped token.
+            signed_must_fail(trudy.keypair, main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
                 "a burn attestation must be signed by an enrolled relayer");
 
             // ONE RELAYER IS NOT THE THRESHOLD, and signing ten times does not make it
-            // one: the second attestation from the same key is refused by the key on
-            // the attestation row.
+            // one: the second attestation from the same relayer is refused by the key
+            // on the attestation row.
             attest(1, 8, alice.account.id, 10);
             var i = 0;
             while (i < 10) {
-                relayed_must_fail_any(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10));
+                signed_must_fail_any(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10));
                 i += 1;
             }
             assert_equals(main.get_balance(alice.account.id), 0);
@@ -957,7 +968,7 @@ object DappScaffold {
 
             // The set is shut for good: the operator cannot widen it now, and the
             // second relayer is the one that pays the burn.
-            by_operator_must_fail(main.enrol_relayer(relayer_keypair(9).pub), "the relayer set is closed");
+            by_operator_must_fail(main.enrol_relayer(outsider), "the relayer set is closed");
             by_operator_must_fail(main.close_relayer_set(), "the relayer set is already closed");
             attest(2, 8, alice.account.id, 10);
             assert_equals(main.get_balance(alice.account.id), 10);

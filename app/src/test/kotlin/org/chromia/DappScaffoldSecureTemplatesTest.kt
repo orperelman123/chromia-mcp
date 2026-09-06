@@ -1750,7 +1750,10 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(opBody(code, "enrol_relayer").contains(operatorCheck))
         assertTrue(opBody(code, "close_relayer_set").contains(operatorCheck))
         assertTrue(opBody(code, "attest_burn").contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
-        assertTrue(code.contains("if (op_context.is_signer(r.relayer_pubkey)) found = r;"), "a relayer key must be read from a row, never from an argument")
+        assertTrue(
+            code.contains("relayer @? { .account_id == account.id },"),
+            "the attesting relayer must be the AUTHENTICATED account looked up by its own id"
+        )
         assertFalse(opBody(code, "attest_burn").contains("pubkey"), "no caller may name its own signer")
         assertTrue(main.contains("val MIN_RELAYER_THRESHOLD = 2;"), "a bridge whose threshold is one must be refused")
         // CAPPED IN TOTAL AND PER PERIOD, and neither is a parameter.
