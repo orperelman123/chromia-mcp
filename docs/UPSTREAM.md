@@ -39,18 +39,24 @@ discards it (onFailure returns the receiver), so callers get a generic
 "Tool execution failed" with no reason - e.g. a missing required parameter
 loses its message. Fix: use `getOrElse` and include `e.message`.
 
-## 5. Ktor HTTP logging on stdout corrupts MCP stdio
+## 5. Console logging on stdout corrupts MCP stdio
 
-Upstream installs the Ktor `Logging` plugin with the default logger, which
-writes to stdout - the same stream MCP JSON-RPC uses in stdio mode. Any HTTP
-log line corrupts the protocol. Fix: route logs to stderr (or a file), never
-stdout, in stdio mode.
+**Root cause corrected 2026-09-06 while porting this to upstream:** upstream
+installs no Ktor `Logging` plugin at all. The defect is `log4j2.properties`
+declaring a Console appender with no `target`, and log4j2's default target is
+`SYSTEM_OUT` - the same stream MCP JSON-RPC uses in stdio mode, so any log
+line corrupts the protocol. Fix: `appender.console.target = SYSTEM_ERR`
+(upstream branch `fix/fork-findings`, commit `b834ab3`, `LoggingTargetTest`).
 
-## 6. `fetch_docs` returns whole files (up to ~863KB per call)
+## 6. `fetch_docs` returns an unbounded result
 
-Upstream returns the entire `llms-full.txt` resource in one tool result, which
-overflows an AI assistant's context. Fix: add `search` (matches with context)
-and `offset`/`maxChars` pagination to the tool schema and handler.
+Upstream returns a whole documentation resource in one tool result with no
+output bound and no paging. **The "~863 KB" figure this entry used to carry
+did not survive re-verification on 2026-09-06 and is withdrawn** - the defect
+is the missing bound, not a measured size. Fix: bound the result and let the
+caller page it with `offset`/`maxChars` (upstream commit `3f5bf63`,
+`DocsResultWindowTest`); the fork's `search` parameter is a design choice and
+is not part of the upstream MR.
 
 ## 7a. Explorer: `getNodeUnavailability` now requires reCAPTCHA
 
@@ -106,3 +112,16 @@ parked under `lib/ft4/` would dodge the scan): this repo exempts a
 vendored v1.1.0r copy, and scans any file that differs, with a note (commits
 `b66f033`, `15dbaf8`). Relevant to upstream if it ever grows scanning, and
 to any other Rell security tooling.
+
+## Status (2026-09-06)
+
+The nine code findings are ported to a clone of upstream `dev`
+(`146777767968721ecb6c97b1905721516d3281d0`) on branch `fix/fork-findings`,
+one commit each with a test (upstream had no test sources; the branch adds
+36, all green). The merge-request text is `docs/upstream/MR.md`; what
+upstreaming the fork's compiler loop, templates, `verify_guards` and corpus
+would take is `docs/upstream/SECOND-MR-SCOPE.md`. Two further upstream
+defects were confirmed and left for a follow-up because they change
+`App.kt`'s public shape: the stdio server never exits on client disconnect
+(orphan JVM per session) and CORS is installed with no allowed host. Opening
+the MR is a ChromaWay-account action.
