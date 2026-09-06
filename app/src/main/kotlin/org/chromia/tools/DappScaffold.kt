@@ -161,7 +161,16 @@ object DappScaffold {
      * Minimal chromia.yml at the current pins, used by check_dapp_project when
      * the caller omits `yaml` - same content the hello scaffold ships.
      */
-    fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
+    fun defaultChromiaYml(): String = chromiaYmlFor(DEFAULT_NAME)
+
+    /**
+     * The same minimal chromia.yml for a NAMED chain. [defaultChromiaYml] is
+     * this at `hello`, and a caller that already knows which chain it is about
+     * to deploy needs the yml that declares THAT chain: a base whose
+     * `blockchains:` key is `hello` makes `chr deployment create --blockchain
+     * my_dapp` a "not declared in the provided chromiaYml" error.
+     */
+    fun chromiaYmlFor(name: String): String = chromiaYml(normalizeName(name))
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
     val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")

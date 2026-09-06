@@ -712,9 +712,17 @@ class ProvisioningToolsTest {
         """.trimIndent()
     )
 
+    /**
+     * write_deployment_config MERGES into a caller-supplied chromia.yml (F7: it
+     * no longer invents a project file), so the base has to be the scaffold yml
+     * for the chain under test - `defaultChromiaYml()` declares `hello`, and
+     * deploying `my_dapp` against it is correctly refused as "not declared in
+     * the provided chromiaYml".
+     */
     private fun deployYml(container: String = "or_container_42", chain: String = "my_dapp"): String {
         val spec = WriteDeploymentConfig.resolveNetwork("testnet")!!
-        return WriteDeploymentConfig.chromiaYml(spec, chain, DappScaffold.defaultChromiaYml()).replace("<containerIID>", container)
+        return WriteDeploymentConfig.chromiaYml(spec, chain, DappScaffold.chromiaYmlFor(chain))
+            .replace("<containerIID>", container)
     }
 
     private class FakeRunner(
