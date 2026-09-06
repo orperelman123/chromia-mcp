@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -73,6 +73,16 @@ class DappScaffoldSecureTemplatesTest {
     private fun withoutComments(source: String): String =
         source.lineSequence().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
 
+    /**
+     * Every header opens by COUNTING its structural guards, and round 12 found that
+     * count wrong: the stablecoin said "Six guards are STRUCTURAL" and listed seven -
+     * round 11 added one and did not move the number. A count in a header is a claim
+     * like any other, so it is measured here from the list itself: one entry is a
+     * `//   NAME  - ` line, and its continuation lines are indented two spaces further.
+     */
+    private fun guardCount(main: String): Int =
+        Regex("(?m)^\\s*//\\s{3}[A-Z][A-Z0-9 ,'/-]*\\s+-\\s").findAll(main).count()
+
     @Test
     fun secureTemplatesShipYmlMainAndRunnableTests() {
         secureTemplates.forEach { template ->
@@ -102,7 +112,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange"), DappScaffold.templates)
+        assertEquals("exchange", DappScaffold.toJson("book", template = "exchange").getValue("template").toString().trim('"'), "the class round 12 drained must scaffold its own template")
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("stablecoin", DappScaffold.toJson("peg", template = "stablecoin").getValue("template").toString().trim('"'))
         assertEquals("vault", DappScaffold.toJson("dex", template = "vault").getValue("template").toString().trim('"'))
@@ -165,6 +176,27 @@ class DappScaffoldSecureTemplatesTest {
         )
         assertTrue(notes.contains("PRO-RATA share (collateral * repaid / debt, never more, whatever the\norder)"), "the notes must name the liquidation cap that makes order irrelevant")
         assertTrue(notes.contains("still leaves bad debt"), "the notes must carry the header's residual, not a claim of a peg no template can hold")
+        // Round 12: the stablecoin's residual named the window AFTER the system goes
+        // under-backed and the loss is created BEFORE it - the guard is a bonus floor.
+        assertTrue(
+            notes.contains("that band starts at 105% BACKING, not at 100%"),
+            "the notes must name the band the round-12 guard actually opens at"
+        )
+        // Round 12's un-templated class. Every name for an order book must reach its own
+        // template, and the notes must name the guard rather than just the template.
+        assertTrue(notes.contains("start from template=exchange, NOT template=amm"), "notes must steer order-book builders to their own template")
+        assertTrue(
+            notes.contains("A PARTIAL FILL WRITES ONE\nMONOTONE COUNTER"),
+            "the notes must name the exchange guard - the drain was a partial fill that re-created the row"
+        )
+        assertTrue(
+            notes.contains("NO\nOPERATION NAMES A COUNTERPARTY"),
+            "the notes must say the book matches and no caller does"
+        )
+        assertTrue(
+            notes.contains("a resting order is a free option"),
+            "the notes must carry the exchange header's residual, not only its guards"
+        )
     }
 
     /**
@@ -265,6 +297,24 @@ class DappScaffoldSecureTemplatesTest {
             DappScaffold.toJson("x", template = "debt_market").getValue("warnings").toString().contains("Use `template=lending`"),
             "a debt market must still reach the lending template"
         )
+        // Round 12's drain landed in the un-templated order-book class, and the answer
+        // that produced it was this table's own: it said nothing covered an order book and
+        // offered two sentences, both of which were implemented literally.
+        listOf("order_book", "orderbook", "limit_order", "matching_engine", "clob", "bid_ask").forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("Use `template=exchange`"), "$asked must be routed to the exchange template: $warning")
+            assertTrue(warning.contains("ONE MONOTONE COUNTER"), "$asked must be told what makes the round-12 grind unwritable: $warning")
+        }
+        assertFalse(
+            DappScaffold.toJson("x", template = "order book").getValue("warnings").toString().contains("NO SHIPPED TEMPLATE COVERS AN ORDER BOOK"),
+            "the answer that produced round 12's drain must not still be given"
+        )
+        // ...and the amm answer, which `exchange` phrasings also reach, must name it too
+        // rather than repeating that nothing covers a book.
+        assertTrue(
+            DappScaffold.toJson("x", template = "swap_pool").getValue("warnings").toString().contains("that IS covered now - `template=exchange`"),
+            "the amm answer must name the order-book template now that one ships"
+        )
         assertTrue(
             DappScaffold.toJson("x", template = "zzz_nothing_like_this").getValue("warnings").toString().contains("No shipped template covers that name"),
             "an unrecognisable name must still get the four hardened templates and the write-the-invariant-test-first advice"
@@ -317,14 +367,44 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("val GENESIS_POINTS ="), "the whole supply of voting weight must be a named constant")
         val claim = opBody(code, "claim_allocation")
         assertTrue(claim.contains("require(op_context.is_signer(chain_context.args.founder_pubkey), \"the founder must countersign a genesis claim\");"))
-        assertTrue(claim.contains("require(dao.total_stake == 0, \"genesis allocation is closed\");"), "the mint must shut once there is stake to protect")
+        assertTrue(claim.contains("require(not dao.genesis_closed, \"genesis allocation is closed\");"), "the mint must shut when the FOUNDER shuts it - round 12: a member staking one point shut it for everyone")
         assertTrue(claim.contains("require(not m.allocated, \"already allocated\");"), "one claim per member, ever")
         assertTrue(claim.contains("require(dao.allocated + WELCOME_POINTS <= GENESIS_POINTS, \"genesis supply exhausted\");"))
-        // ROUND 10, closed without reading live stake: a proposal reserves what it may
-        // spend when it is created, so 100 approvals of 1000 each against a treasury of
-        // 1000 cannot exist, and no approval reaches money that arrived after it.
+        // ROUND 10, closed without reading live stake, and since round 12 closed at the
+        // ARITHMETIC rather than at a scan: a proposal may be paid only out of money that
+        // had already arrived when it was created, and each point of it once. Two monotone
+        // counters, O(1), and no number of proposers changes it.
+        assertTrue(main.contains(GOVERNANCE_VINTAGE_GUARD), "an approval must not be payable out of money that arrived after it")
+        assertTrue(main.contains("funded_at_creation = dao.funded_total"), "the vintage must be recorded on the proposal")
+        assertTrue(main.contains("dao.paid_total += p.amount;") && main.contains("dao.funded_total += amount;"), "both counters must be monotone")
         assertTrue(main.contains(GOVERNANCE_COMMITTED_TREASURY_GUARD), "a proposal must reserve its amount from the uncommitted treasury")
         assertFalse(code.contains("require(amount <= dao.treasury_balance, \"amount exceeds treasury\")"), "the raw treasury check is round 10's parked approval")
+        // ROUND 12, THE FREEZE. committed_treasury() counted every row that was
+        // `not .executed`, so one point of stake out of 2001 reserved the whole treasury
+        // by LOSING a vote 2000 to 1 and could renew it in the block its window lapsed.
+        // Only an APPROVED proposal reserves against other members now.
+        assertTrue(main.contains(GOVERNANCE_APPROVED_ONLY_TERM), "only an approved proposal may reserve the treasury against other members")
+        assertFalse(
+            code.contains("if (now < p.deadline + EXECUTION_WINDOW_MS) total += p.amount;"),
+            "round 12: a rejected proposal that still reserves is a veto one point of stake can buy"
+        )
+        assertTrue(
+            main.contains("function is_approved(p: proposal, now: timestamp): boolean"),
+            "approved must be a named predicate, not an inline guess"
+        )
+        assertTrue(main.contains("not has_live_claim(now, account.id, beneficiary, amount),"), "a re-proposal must not buy a fresh reservation")
+        // ROUND 12, THE GENESIS WINDOW. It closed on `dao.total_stake == 0`, so the first
+        // member the founder countersigned shut it on everybody else by staking one point.
+        // Only the founder closes it, and staking is refused until they have.
+        assertFalse(code.contains("require(dao.total_stake == 0, \"genesis allocation is closed\")"), "a member's stake must not close the mint")
+        assertTrue(opBody(code, "close_genesis").contains("require(op_context.is_signer(chain_context.args.founder_pubkey), \"the founder must sign the genesis close\");"))
+        assertTrue(opBody(code, "close_genesis").contains("dao.genesis_closed = true;"))
+        assertTrue(opBody(code, "fund_treasury").contains(GOVERNANCE_GENESIS_PHASE_GUARD), "staking must be refused while the genesis window is open")
+        assertEquals(
+            1,
+            Regex("dao\\.genesis_closed = ").findAll(code).count(),
+            "the genesis flag must be written in exactly one place, and it must be the founder's operation"
+        )
         // An approval cannot be parked: it expires EXECUTION_WINDOW_MS after the deadline.
         assertTrue(main.contains("val EXECUTION_WINDOW_MS ="), "execution window must be a named constant")
         assertTrue(main.contains("require(op_context.last_block_time < p.deadline + EXECUTION_WINDOW_MS, \"proposal expired\")"))
@@ -338,12 +418,17 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(execute.contains("dao.treasury_balance -= p.amount;"))
         // Every entity/constant the guards need exists as declared state.
         listOf(
-            "quorum_weight: integer", "stake_at_creation: integer", "mutable yes_weight", "mutable no_weight",
+            "quorum_weight: integer", "stake_at_creation: integer", "funded_at_creation: integer",
+            "mutable yes_weight", "mutable no_weight",
             "mutable executed", "key proposal, voter", "key proposal, owner", "mutable allocated: boolean",
-            "mutable allocated: integer"
+            "mutable allocated: integer", "mutable genesis_closed: boolean", "mutable funded_total: integer",
+            "mutable paid_total: integer"
         ).forEach {
             assertTrue(main.contains(it), "governance entities must declare $it")
         }
+        // The header COUNTS its guards. Round 12 found the stablecoin's count off by one.
+        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the governance header must state its guard count")
+        assertEquals(9, guardCount(main), "the governance header's stated count must be the number of guards it lists")
     }
 
     @Test
@@ -1271,13 +1356,20 @@ class DappScaffoldSecureTemplatesTest {
         // the seizure. Round 11: the per-position cap held while the system did not, so
         // the bonus came out of the settlement pool every coin holder shares - 15 tokens
         // moved on transaction order, 7 of them from a party to no liquidation.
+        // ...and since round 12 that line is the BONUS, not solvency: a floor at 100%
+        // left [100%, 105%) live, and at 102.5% backing the same liquidation moved twelve
+        // tokens on transaction order with seven of them out of a party to nothing.
         assertTrue(
-            liquidate.contains("collateral_value(system.total_collateral, price) >= system.total_debt"),
-            "liquidation must be refused while the system as a whole is under-backed"
+            liquidate.contains("collateral_value(system.total_collateral, price) * BPS\n            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)"),
+            "liquidation must be refused unless the system is worth its coin PLUS the bonus it is about to pay"
         )
         assertTrue(
-            liquidate.contains("collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in"),
-            "liquidation must also be refused when it would PUT the system under water - the bonus is 105% of what it retires"
+            liquidate.contains("collateral_value(system.total_collateral - seize, price) * BPS\n                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS)"),
+            "and refused when it would LEAVE the system inside the bonus of insolvency"
+        )
+        assertFalse(
+            liquidate.contains("collateral_value(system.total_collateral, price) >= system.total_debt\n"),
+            "round 12: a floor at 100% is a live band up to the bonus rate"
         )
         assertTrue(
             liquidate.contains("\"system is under-backed - settle instead of liquidating\""),
@@ -1303,8 +1395,76 @@ class DappScaffoldSecureTemplatesTest {
         listOf("MIN_COLLATERAL_RATIO_BPS", "LIQUIDATION_RATIO_BPS", "LIQUIDATION_BONUS_BPS", "MAX_PRICE_MOVE_BPS", "MAX_AMOUNT").forEach {
             assertTrue(main.contains("val $it ="), "$it must be a named constant")
         }
-        // The header admits what the template cannot fix.
+        // The header admits what the template cannot fix, and names the RIGHT band: the
+        // loss is created before the system goes under-backed, not after.
         assertTrue(main.contains("What no template can fix: a price that falls faster than liquidators act still"))
+        assertTrue(
+            main.contains("the band that matters starts at 105% BACKING, NOT AT 100%"),
+            "the residual must name the window the guard actually opens, which round 12 measured"
+        )
+        assertTrue(main.contains("Seven guards are STRUCTURAL"), "the stablecoin header must state its guard count")
+        assertEquals(7, guardCount(main), "round 12: this header said six and listed seven")
+    }
+
+    /**
+     * The eleventh template, and the class `docs/TEMPLATE-GAPS.md` ranked first. Round
+     * 12 built an order book from this server's own two sentences - the marketplace's
+     * immutable escrow row, and "an order that can be pulled in the block it would have
+     * been filled in is not a commitment at all" - implemented both literally, and
+     * drained it: with no mutable field a partial fill is delete-and-recreate, so the
+     * remainder's created_at was NOW and any counterparty restarted the maker's cancel
+     * clock with one unit an hour. The guards below are what makes that unwritable.
+     */
+    @Test
+    fun exchangeGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("book", template = "exchange").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // IMMUTABLE TERMS, ONE MUTABLE COUNTER. Round 12's build had NO mutable field,
+        // which is what forced the recreate; carrying created_at through the recreate
+        // instead is the other pinned drain (r9-amm-position-transfer-sells-the-jit).
+        val orderEntity = main.substringAfter("entity order {").substringBefore("\n}")
+        assertEquals(1, Regex("mutable ").findAll(orderEntity).count(), "an order row must have exactly ONE mutable field: $orderEntity")
+        assertTrue(orderEntity.contains("mutable filled: integer = 0;"), orderEntity)
+        listOf("is_buy: boolean;", "price: integer;", "qty: integer;", "created_at: timestamp;").forEach {
+            assertTrue(orderEntity.contains(it), "an order's terms must be immutable: $it")
+        }
+        assertFalse(orderEntity.contains("mutable created_at"), "the maker's clock is a term, not a counter")
+        assertFalse(orderEntity.contains("escrow"), "the escrow must be derived from the terms, never a field that can drift")
+        // THE ROW IS NEVER RE-CREATED. This single assertion is the round-12 fix.
+        assertEquals(1, Regex("create order\\(").findAll(code).count(), "a partial fill must not delete and re-create the order - that recreate IS the drain")
+        assertEquals(1, Regex("created_at = op_context").findAll(code).count(), "created_at must be written exactly once, by place_order")
+        assertTrue(opBody(code, "place_order").contains("created_at = op_context.last_block_time"))
+        assertTrue(code.contains("update o ( .filled = new_filled );"), "a fill must write the counter and nothing else")
+        assertFalse(code.contains(".filled = new_filled, .created_at"), "a fill must not touch the maker's clock")
+        // NO CALLER NAMES A COUNTERPARTY: there is no fill_order(id) at all.
+        assertEquals(
+            listOf("register_trader", "place_order", "cancel_order"),
+            Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
+            "the template must ship exactly these operations - an operation that names a resting order is the ordering problem handed to the caller"
+        )
+        assertFalse(Regex("operation\\s+fill_order").containsMatchIn(main), "no operation may name the order it fills")
+        assertFalse(opBody(code, "place_order").contains("order_id"), "a taker gives a side, a limit and a size")
+        // ...and the book's own priority is price, then time, then id.
+        assertTrue(main.contains("return if (a.is_buy) a.price > b.price else a.price < b.price;"), "best price first")
+        assertTrue(main.contains("if (a.created_at != b.created_at) return a.created_at < b.created_at;"), "then the order that has rested longest")
+        assertTrue(main.contains("return a.id < b.id;"), "then the lowest id")
+        assertTrue(main.contains("o.maker != taker"), "the matcher must skip a taker's own orders")
+        // RESTED CANCEL, measured from the clock nothing writes twice.
+        val cancel = opBody(code, "cancel_order")
+        assertTrue(cancel.contains("require(o.maker == account.id, \"not your order\");"))
+        assertTrue(cancel.contains("op_context.last_block_time - o.created_at >= MIN_RESTING_MS"))
+        assertTrue(main.contains("val MIN_RESTING_MS ="), "the resting period must be a named constant")
+        assertFalse(Regex("operation\\s+place_order\\s*\\([^)]*resting").containsMatchIn(main), "the resting period must not be a parameter")
+        // ESCROWED AT REST, and derived from the terms.
+        assertTrue(main.contains("function escrow_of(o: order): integer =\n    if (o.is_buy) o.price * remaining(o) else remaining(o);"))
+        assertTrue(opBody(code, "place_order").contains("update me ( .points -= escrow );") && opBody(code, "place_order").contains("update me ( .units -= escrow );"))
+        // Bounds before any multiplication, the default auth flag, and the header's count.
+        listOf("MAX_PRICE", "MAX_QTY", "WELCOME_POINTS", "WELCOME_UNITS").forEach {
+            assertTrue(main.contains("val $it ="), "$it must be a named constant")
+        }
+        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the exchange header must state its guard count")
+        assertEquals(8, guardCount(main), "the exchange header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("A RESTING ORDER IS A FREE OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS"), "the header must admit what the cancel delay costs")
     }
 
     @Test
@@ -1467,7 +1627,10 @@ class DappScaffoldSecureTemplatesTest {
             "test_round10_parked_cheap_quorum_drain_must_fail",
             "test_approved_proposal_expires_unexecuted",
             "test_r11_free_stake_sybil_takeover_must_fail",
-            "test_r11_two_point_stake_cannot_veto_an_approved_proposal"
+            "test_r11_two_point_stake_cannot_veto_an_approved_proposal",
+            "test_r12_one_point_of_stake_cannot_freeze_the_treasury_must_fail",
+            "test_r12_first_claimant_cannot_shut_the_genesis_window_must_fail",
+            "test_r12_a_re_proposal_does_not_buy_a_fresh_window"
         )
     )
 
@@ -1564,7 +1727,21 @@ class DappScaffoldSecureTemplatesTest {
             "test_liquidation_is_bounded_and_never_worsens_a_position",
             "test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price",
             "test_r11_liquidation_out_of_the_settlement_pool_must_fail",
-            "test_r11_settling_first_pays_the_same_three_numbers"
+            "test_r11_settling_first_pays_the_same_three_numbers",
+            "test_r12_liquidation_inside_the_bonus_band_must_fail",
+            "test_r12_settling_the_47_00_fixture_pays_the_same_three_numbers"
+        )
+    )
+
+    @Test
+    fun exchangeShippedTestsRunGreen() = assertShippedGreen(
+        "exchange",
+        setOf(
+            "test_place_and_fill_conserve_both_assets",
+            "test_round12_partial_fill_cannot_reset_the_makers_clock_must_fail",
+            "test_round12_a_maker_is_never_left_resting_beside_a_better_price_must_fail",
+            "test_matching_is_price_then_time_and_no_caller_chooses",
+            "test_bounds_and_ownership"
         )
     )
 
@@ -1586,10 +1763,52 @@ class DappScaffoldSecureTemplatesTest {
      */
     private val GOVERNANCE_COMMITTED_TREASURY_GUARD = listOf(
         "    require(",
-        "        amount <= dao.treasury_balance - committed_treasury(now),",
+        "        amount <= dao.treasury_balance - committed_treasury(now) - committed_by(now, account.id),",
         "        \"amount exceeds the uncommitted treasury\"",
         "    );"
     ).joinToString("\n")
+
+    /**
+     * Round 12's freeze, in one term: only an APPROVED proposal reserves the treasury
+     * against other members. The shipped line before it counted every row that was
+     * `not .executed`, which is what let one point of stake out of 2001 hold the whole
+     * treasury by losing a vote 2000 to 1 - and renew it for ever.
+     */
+    private val GOVERNANCE_APPROVED_ONLY_TERM =
+        "if (now < p.deadline + EXECUTION_WINDOW_MS and is_approved(p, now)) total += p.amount;"
+
+    /**
+     * The guard that actually closes round 10, and the reason the reservation above can
+     * afford to release on a defeat: two monotone counters, O(1), no scan to size.
+     */
+    private val GOVERNANCE_VINTAGE_GUARD = listOf(
+        "    require(",
+        "        dao.paid_total + p.amount <= p.funded_at_creation,",
+        "        \"proposal cannot be paid out of money that arrived after it\"",
+        "    );"
+    ).joinToString("\n")
+
+    /**
+     * Round 12: repetition buys nothing. It is a SECOND refusal of round 10's
+     * "pay me twice", which asks for the same payment as "pay me" - so the round-10
+     * mutant below has to strip this too before that attack can land, and this guard
+     * carries a mutant of its own rather than riding on the reservation's back.
+     */
+    private val GOVERNANCE_RE_PROPOSAL_GUARD = listOf(
+        "    require(",
+        "        not has_live_claim(now, account.id, beneficiary, amount),",
+        "        \"an identical proposal is still live\"",
+        "    );"
+    ).joinToString("\n")
+
+    /** Round 12: the genesis phase and the live phase are strictly ordered. */
+    private val GOVERNANCE_GENESIS_PHASE_GUARD =
+        "require(dao.genesis_closed, \"genesis allocation is still open\");"
+
+    /** The window as round 11 shipped it: shut by the first member to stake a point. */
+    private val GOVERNANCE_STAKE_CLOSES_GENESIS_MUTANT =
+        "require(dao.total_stake == 0, \"genesis allocation is closed\");"
+
 
     /** Registration as round 11 found it: a permissionless mint of voting weight. */
     private val GOVERNANCE_FREE_GRANT_MUTANT = "create member(owner = account.id, balance = WELCOME_POINTS);"
@@ -1710,17 +1929,36 @@ class DappScaffoldSecureTemplatesTest {
     )
 
     /**
-     * Round 10, at the money instead of the bar: drop the reservation and the
-     * second cheap approval can be created against a treasury the first has
-     * already claimed - 100 of them against a treasury of 1000, which is the
-     * drain. The replay's must-fail stops failing.
+     * Round 10, at the money instead of the bar: drop the reservation and the second
+     * cheap approval can be created against a treasury the first has already claimed -
+     * 100 of them against a treasury of 1000, which is the drain. The replay's must-fail
+     * stops failing. Round 12 added a SECOND refusal of that same step - "pay me twice"
+     * asks for the same payment as "pay me", so the re-proposal rule catches it once the
+     * reservation is gone - and the mutant has to strip both, or it would report an
+     * attack still refused as an attack landed.
      */
     @Test
     fun governanceRound10ReplayGoesRedWithoutTheCommittedTreasuryGuard() = assertGuardRemovalRedensExploitTest(
         "governance",
         GOVERNANCE_COMMITTED_TREASURY_GUARD,
         "test_round10_parked_cheap_quorum_drain_must_fail",
-        "only members with stake may propose"
+        "only members with stake may propose",
+        alsoRemove = listOf(GOVERNANCE_RE_PROPOSAL_GUARD)
+    )
+
+    /**
+     * ...and that second guard on its own: strip it and the attacker may say the same
+     * thing again while her first attempt is still inside its window, which is how the
+     * round-12 freeze renewed itself. The replay's must-fail stops failing, and the
+     * reservation and the vintage guard are both still in place so neither can be what
+     * went red.
+     */
+    @Test
+    fun governanceR12ReplayGoesRedWhenAReProposalBuysAFreshWindow() = assertGuardRemovalRedensExploitTest(
+        "governance",
+        GOVERNANCE_RE_PROPOSAL_GUARD,
+        "test_r12_a_re_proposal_does_not_buy_a_fresh_window",
+        "amount exceeds the uncommitted treasury"
     )
 
     /**
@@ -1835,6 +2073,17 @@ class DappScaffoldSecureTemplatesTest {
      */
     private val STABLECOIN_SYSTEM_BACKING_GUARD = listOf(
         "    require(",
+        "        collateral_value(system.total_collateral, price) * BPS",
+        "            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)",
+        "            and collateral_value(system.total_collateral - seize, price) * BPS",
+        "                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS),",
+        "        \"system is under-backed - settle instead of liquidating\"",
+        "    );"
+    ).joinToString("\n")
+
+    /** The same guard as round 11 shipped it: a floor at 100%, with the bonus at 105%. */
+    private val STABLECOIN_ROUND11_100PCT_FLOOR = listOf(
+        "    require(",
         "        collateral_value(system.total_collateral, price) >= system.total_debt",
         "            and collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in,",
         "        \"system is under-backed - settle instead of liquidating\"",
@@ -1856,6 +2105,95 @@ class DappScaffoldSecureTemplatesTest {
         STABLECOIN_SYSTEM_BACKING_GUARD,
         "test_r11_liquidation_out_of_the_settlement_pool_must_fail",
         "position is healthy"
+    )
+
+    /**
+     * ROUND 12, THE FREEZE. Put back the term that counted every unexecuted proposal and
+     * trudy's DEFEATED 2001-point proposal reserves the whole treasury again: the honest
+     * majority's own payout cannot be CREATED, which is the attack landing - the drain
+     * here is a refusal that should not happen, exactly as in the round-11 veto replay
+     * above. Nothing else moves: the vintage guard, the reservation and the re-proposal
+     * refusal are all still in place, so only the approved-only term can be what changed.
+     */
+    @Test
+    fun governanceR12ReplayGoesRedWhenARejectedProposalKeepsItsReservation() = assertGuardMutationRedensExploitTest(
+        "governance",
+        GOVERNANCE_APPROVED_ONLY_TERM,
+        "if (now < p.deadline + EXECUTION_WINDOW_MS) total += p.amount;",
+        "test_r12_one_point_of_stake_cannot_freeze_the_treasury_must_fail",
+        "only members with stake may propose",
+        "amount exceeds the uncommitted treasury"
+    )
+
+    /**
+     * ROUND 12, THE GENESIS WINDOW. Take the phase gate off fund_treasury and put the
+     * round-11 closing condition back into claim_allocation, and the first claimant's one
+     * point of stake shuts the mint on everybody again: the replay's must-fail stops
+     * failing, which is the attack landing. The founder's close_genesis() is untouched and
+     * carries its own message, so it cannot be what went red.
+     */
+    @Test
+    fun governanceR12ReplayGoesRedWhenAMembersStakeShutsTheGenesisWindow() = assertGuardMutationRedensExploitTest(
+        "governance",
+        GOVERNANCE_GENESIS_PHASE_GUARD,
+        "",
+        "test_r12_first_claimant_cannot_shut_the_genesis_window_must_fail",
+        "the founder must sign the genesis close",
+        attackLanded,
+        alsoReplace = listOf(
+            "require(not dao.genesis_closed, \"genesis allocation is closed\");" to GOVERNANCE_STAKE_CLOSES_GENESIS_MUTANT
+        )
+    )
+
+    /**
+     * ROUND 12, THE BONUS BAND. Restore the floor at 100% and the liquidation the replay
+     * requires to be refused lands again at 102.5% backing: trudy takes 67 tokens for 3000
+     * of coin, the pool falls 256 to 190 against a supply of 10756, and the three parties
+     * settle 101 / 117 / 81 instead of 89 / 124 / 86. The pro-rata cap and the health
+     * check are both still in place, so neither can be what went red.
+     */
+    @Test
+    fun stablecoinR12ReplayGoesRedWithTheFloorBackAtOneHundredPercent() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        STABLECOIN_SYSTEM_BACKING_GUARD,
+        STABLECOIN_ROUND11_100PCT_FLOOR,
+        "test_r12_liquidation_inside_the_bonus_band_must_fail",
+        "position is healthy",
+        attackLanded
+    )
+
+    /**
+     * ROUND 12, THE MAKER'S CLOCK. This is the round-12 build's own shape, put back: make
+     * created_at mutable and let the fill write it, and three one-unit fills push the
+     * maker's cancel out past the hour she started - her cancel is refused where the
+     * replay requires it to succeed, which is the attack landing. `filled` still advances
+     * and the escrow still comes back, so nothing but the clock changed.
+     */
+    @Test
+    fun exchangeR12ReplayGoesRedWhenAFillRewritesTheMakersClock() = assertGuardMutationRedensExploitTest(
+        "exchange",
+        "update o ( .filled = new_filled );",
+        "update o ( .filled = new_filled, .created_at = op_context.last_block_time );",
+        "test_round12_partial_fill_cannot_reset_the_makers_clock_must_fail",
+        "not your order",
+        "the order has not rested long enough",
+        alsoReplace = listOf("created_at: timestamp;" to "mutable created_at: timestamp;")
+    )
+
+    /**
+     * ...and the other half of an order book: take price priority out of the matcher and
+     * the taker is filled at 12 where the book showed 10, so the assertion that alice's
+     * order - the best price - is the one that moved trips. Nobody chose that: the point
+     * is that the RULE decides, and a rule that is not price-first is a different venue.
+     */
+    @Test
+    fun exchangeMatchingTestGoesRedWithoutPricePriority() = assertGuardMutationRedensExploitTest(
+        "exchange",
+        "return if (a.is_buy) a.price > b.price else a.price < b.price;",
+        "return a.id < b.id;",
+        "test_matching_is_price_then_time_and_no_caller_chooses",
+        "insufficient points",
+        "expected"
     )
 
     @Test

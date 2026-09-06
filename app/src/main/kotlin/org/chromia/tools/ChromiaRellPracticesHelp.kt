@@ -195,7 +195,7 @@ object ChromiaRellPracticesHelp {
         weights included - a bar read live at execution is a veto anybody can buy, and two points
         of stake posted after voting closed killed an approved payout for ever. Oracle-priced value (vault, redemption, a bounded price FEED - NOT an "exchange", which is how
         adversary round 8 came to build a drainable AMM here; a vault covers a reserve and a feed,
-        never a CURVE, so a swap pool is template=amm and an order book has no template at all):
+        never a CURVE, so a swap pool is template=amm and an order book is template=exchange):
         start from
         template=vault - every credit is paid out of a reserve row in the same operation and price
         posts are bounded, rate-limited and time-checked. Staking, yield, rewards, emissions - a pool many stakers split, and NOT vesting (a clock-metered
@@ -228,6 +228,21 @@ object ChromiaRellPracticesHelp {
         written. Its header states what neither guard stops - price impact you re-quote
         into, and a cheap grief where anyone touching the reserves makes pending swaps
         revert - and ships both as tests rather than as claims.
+        Order book, limit orders, bids and asks, matching, a venue where resting orders are
+        FILLED rather than priced off a curve: start from template=exchange, NOT template=amm.
+        Adversary round 12 drained one built freehand on this server's advice, and both of the
+        sentences it followed were ours: the marketplace's immutable escrow row, so the order
+        had no mutable field and a partial fill was delete-and-recreate; and "an order that can
+        be pulled in the block it would have been filled in is not a commitment at all", so
+        cancel required MIN_RESTING_MS. The remainder was a NEW row whose created_at was NOW,
+        so ANY counterparty restarted the maker's cancel clock by taking one unit - one unit
+        every 59 minutes froze a maker's whole position at 10 beside a bid of 20 and cost her
+        1000 points, half her inventory's value, with gate ok:true and both conservation
+        invariants exact. The template's answer is that A PARTIAL FILL WRITES ONE MONOTONE
+        COUNTER AND NOTHING ELSE - the terms and the clock are immutable and the row is never
+        re-created - and that NO OPERATION NAMES A COUNTERPARTY, so the book matches by price,
+        then time, then id, and a crossing order is filled at the resting price in the block it
+        is signed.
         Stablecoin, CDP, synthetic, pegged asset - a coin MINTED AGAINST LOCKED COLLATERAL that
         a price can put under water: start from template=stablecoin, NOT template=vault. Round 9
         built one on the vault's advice, followed its reserve discipline to the letter, and was
@@ -361,7 +376,8 @@ object ChromiaRellPracticesHelp {
                 "DAO / treasury: template=governance (its founder key is a module arg, main.founder_pubkey - registration mints no weight); oracle-priced reserve or vault, NOT an exchange: template=vault; swap pool / DEX pair / AMM: template=amm; " +
                 "staking / rewards / emissions: template=staking; payroll / subscription / vesting / drip: template=streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
-                "template=lending; stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
+                "template=lending; order book / limit orders / bids and asks / matching: template=exchange, never amm; " +
+                "stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail. " +
                 "Then PROVE your own guards the same way the templates are proven: verify_guards removes a guard " +
                 "you name, reruns only its must-fail test, and reports load_bearing only if that test failed " +
