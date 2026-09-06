@@ -242,7 +242,16 @@ object ChromiaRellPracticesHelp {
         COUNTER AND NOTHING ELSE - the terms and the clock are immutable and the row is never
         re-created - and that NO OPERATION NAMES A COUNTERPARTY, so the book matches by price,
         then time, then id, and a crossing order is filled at the resting price in the block it
-        is signed.
+        is signed. Round 14 then corrected the OTHER half of that old sentence: refusing the
+        CANCEL for MIN_RESTING_MS is a commitment only a maker with ONE ACCOUNT can be held to,
+        because self-dealing is refused per ACCOUNT and registration is free - a maker with two
+        keys removes a resting order in the block she places it by crossing it from the other
+        one, which cost the one-account maker 500 points on the same stale quote and cost her
+        nothing. So the template binds what a second key cannot reach: the QUOTE may be pulled in
+        any block and the ESCROW comes back only MIN_RESTING_MS after the order was placed. A
+        resting quote is NOT firm, and the header says so. The book is bounded the same way -
+        by a MIN_NOTIONAL a row's author must pay for, not by a per-trader cap that a free
+        registration resets.
         Stablecoin, CDP, synthetic, pegged asset - a coin MINTED AGAINST LOCKED COLLATERAL that
         a price can put under water: start from template=stablecoin, NOT template=vault. Round 9
         built one on the vault's advice, followed its reserve discipline to the letter, and was
