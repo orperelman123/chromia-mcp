@@ -182,6 +182,26 @@ class McpStreamableHttpSessionTest {
                 .getValue("result").jsonObject.getValue("tools").jsonArray
             assertTrue(tools.size >= 25, "only ${tools.size} tools over /mcp")
 
+            // A successful tools/call still carries "isError": false on the wire.
+            // kotlin-sdk 0.7.7 defaulted CallToolResult.isError to false; 0.15
+            // defaults it to null, and the field is serialized as set - so a
+            // success that leaves it unset drops the field entirely. That is a
+            // wire change for any client reading the field rather than its
+            // absence, which is why toolSuccessResult states it.
+            val called = http.post(url) {
+                contentType(ContentType.Application.Json)
+                header(HttpHeaders.Accept, "application/json, text/event-stream")
+                header(App.MCP_SESSION_ID_HEADER, sessionId)
+                setBody("""{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_prompts","arguments":{}}}""")
+            }
+            assertEquals(HttpStatusCode.OK, called.status)
+            val callResult = Json.parseToJsonElement(called.bodyAsText()).jsonObject.getValue("result").jsonObject
+            assertEquals(
+                false,
+                callResult.getValue("isError").jsonPrimitive.content.toBoolean(),
+                "a successful tools/call must still send isError:false"
+            )
+
             // An id this process never minted is not a session.
             val bogus = http.post(url) {
                 contentType(ContentType.Application.Json)

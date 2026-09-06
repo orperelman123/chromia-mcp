@@ -10,6 +10,16 @@
   own docs speaks; SSE keeps working unchanged, so no client has to move.
   `scripts/e2e-sweep.mjs --transport http|sse` runs the whole sweep over either, and
   CI runs both against one server.
+- **Two SDK behaviour changes the upgrade would otherwise have shipped silently**,
+  both caught by tests that pinned the old behaviour and both fixed in the code
+  rather than in the tests:
+  - `CallToolResult.isError` defaulted to `false` in 0.7.7 and to `null` in 0.15,
+    and the field is serialized as set - so every successful tool answer would have
+    stopped sending `"isError": false`. `toolSuccessResult` (and the two docs tools
+    that build their success result inline) now state it.
+  - `CallToolRequest.arguments` became nullable, where 0.7.7 substituted an empty
+    object; `argumentsOrEmpty` restores that, so a tool called with no arguments
+    still reaches its strategy as an empty map instead of throwing.
 - **The Streamable HTTP session table is bounded**: unlike an SSE session, a
   Streamable HTTP session is not pinned to an open socket - it survives between
   requests by design and holds a whole `Server` with the full tool registry. On a

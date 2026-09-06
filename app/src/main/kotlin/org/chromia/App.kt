@@ -266,9 +266,16 @@ class App(
         // kotlin-sdk 0.15 gave RegisteredTool.handler a ClientConnection receiver
         // (a tool can ping/sample/elicit back at the client). The session's own
         // connection is internal to the SDK, but the server hands it out by id.
-        val connection = server.clientConnection(session.sessionId)
+        //
+        // Resolved INSIDE the handler, not here: `clientConnection` throws for a
+        // session the registry no longer holds, and a transport can already be
+        // closed by the time createSession returns - stdin at EOF is the normal
+        // case, not an edge one, and looking it up eagerly crashed
+        // runStdioMcpServer for a client that disconnected immediately
+        // (DocsWarmupSkipTest). A handler that is running has a live session by
+        // construction, so the lookup is safe there.
         session.setRequestHandler<CallToolRequest>(Method.Defined.ToolsCall) { request, _ ->
-            callToolGated(server, connection, request, disabled)
+            callToolGated(server, server.clientConnection(session.sessionId), request, disabled)
         }
         return session
     }

@@ -52,7 +52,10 @@ class ChatGptSearchFetchContractTest {
         val result = executor().executeTool(
             callToolRequest(name = "search", arguments = buildJsonObject { put("query", "FT4 authentication") })
         )
-        assertEquals(false, result.isError == true)
+        // `false`, not merely "not true": 0.7.7 defaulted isError to false and 0.15
+        // defaults it to null, so a success that leaves it unset silently stops
+        // sending `"isError": false`. See toolSuccessResult.
+        assertEquals(false, result.isError)
 
         val structured = result.structuredContent
             ?: error("search must return structuredContent - ChatGPT reads it")
@@ -86,7 +89,10 @@ class ChatGptSearchFetchContractTest {
         val result = executor.executeTool(
             callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", id) })
         )
-        assertEquals(false, result.isError == true)
+        // `false`, not merely "not true": 0.7.7 defaulted isError to false and 0.15
+        // defaults it to null, so a success that leaves it unset silently stops
+        // sending `"isError": false`. See toolSuccessResult.
+        assertEquals(false, result.isError)
 
         val structured = result.structuredContent
             ?: error("fetch must return structuredContent - ChatGPT reads it")

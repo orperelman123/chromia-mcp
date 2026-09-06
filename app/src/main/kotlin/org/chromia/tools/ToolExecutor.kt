@@ -262,10 +262,22 @@ class ToolExecutor(
  * [CallToolResult.content] (no per-tool outputSchema). Errors are
  * `{ "error": "<same message as text>" }` plus [CallToolResult.isError].
  */
+/**
+ * A successful tool answer.
+ *
+ * `isError = false` is stated rather than left to the default: kotlin-sdk 0.7.7
+ * defaulted [CallToolResult.isError] to `false`, 0.15 defaults it to `null`, and
+ * the field is serialized as it is set. Leaving it null would silently drop
+ * `"isError": false` from every success this server has ever sent - a wire change
+ * for any client that reads the field rather than its absence (the live
+ * provisioning probes read it, and caught this). Saying it keeps the answer
+ * identical across the upgrade.
+ */
 internal fun toolSuccessResult(data: JsonObject): CallToolResult =
     CallToolResult(
         content = listOf(TextContent(Json.encodeToString(data))),
-        structuredContent = data
+        structuredContent = data,
+        isError = false
     )
 
 internal fun toolErrorResult(message: String): CallToolResult =
@@ -1213,7 +1225,9 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
                         // Origin/age of the index on every answer, so a deploy can be
                         // verified over the wire; the text stays lean for the agent.
                         ragStore.provenance?.let { put("index", it.toJson()) }
-                    }
+                    },
+                    // Stated, not defaulted - see toolSuccessResult.
+                    isError = false
                 )
             }
         }.getOrElse { e ->
@@ -1255,7 +1269,9 @@ class SearchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Bas
             val payload = buildJsonObject { put("results", results) }
             CallToolResult(
                 content = listOf(TextContent(Json.encodeToString(payload))),
-                structuredContent = payload
+                structuredContent = payload,
+                // Stated, not defaulted - see toolSuccessResult.
+                isError = false
             )
         }.getOrElse { e ->
             val message = "Error searching documentation: ${e.message}"
