@@ -206,48 +206,103 @@ class ScaffoldToGreenTestsFirstRunTest {
         assertEquals(0, s["failed"]!!.jsonPrimitive.content.toInt(), s.toString())
     }
 
-    private fun runFirstHonestPass(template: String) {
+    /** Every `function test_*` the template's own @test sources declare. */
+    private fun declaredTestFunctions(files: JsonObject): Set<String> =
+        files.entries
+            .filter { it.key.endsWith(".rell") }
+            .flatMap { (_, content) ->
+                Regex("""\bfunction\s+(test_\w+)\s*\(""")
+                    .findAll(content.jsonPrimitive.content)
+                    .map { it.groupValues[1] }
+            }
+            .toSet()
+
+    private fun caseNames(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): Set<String> =
+        (result.structuredContent!!["cases"] as JsonArray)
+            .map { it.jsonObject["name"]!!.jsonPrimitive.content.substringAfterLast(':').substringAfterLast('.') }
+            .toSet()
+
+    /**
+     * Runs the template's shipped suite through the tool and asserts it is green.
+     *
+     * [batches] > 1 splits the suite across that many calls with the tool's own
+     * `tests` selector, and every case is still run and still asserted: the union
+     * of the cases the calls report must equal every `function test_*` the
+     * template's sources declare, so a case that stops matching cannot silently
+     * disappear. This is not a relaxed deadline - `run_rell_tests` deliberately
+     * allows the 90s execution bound to be TIGHTENED and never raised, and the
+     * bound is per call. governance ships FOURTEEN real FT4 suites against
+     * PostgreSQL: on the 2026-09-06 full run only 11 of them finished inside the
+     * 90s - every one of those green - and the call was abandoned with the 12th
+     * still executing, in a JVM where AuditFindingsRegressionTest's
+     * abandoned-runner test leaves a daemon thread pinning a core for the rest of
+     * the suite. ~8s per case is not a runaway loop, it is fourteen chains' worth
+     * of real transactions; one tool call is simply the wrong unit of work for
+     * it. DappScaffoldSecureTemplatesTest reached the same conclusion from the
+     * other side and gave its direct-API runs a 600s bound. ft4's three cases fit
+     * one call and keep batches = 1.
+     */
+    private fun runFirstHonestPass(template: String, batches: Int = 1) {
         assumeTrue(
             System.getenv(RunRellTests.DATABASE_URL_ENV) != null,
             "${RunRellTests.DATABASE_URL_ENV} is required: these are real transactions, not a simulation"
         )
         val payload = scaffold(template)
         val files = payload["files"]!!.jsonObject
+        val expectedCases = declaredTestFunctions(rellOnly(files))
+        assertTrue(expectedCases.size >= 3, "$template must ship a real suite: $expectedCases")
+        val selections: List<List<String>> =
+            if (batches <= 1) listOf(emptyList())
+            else expectedCases.sorted().chunked((expectedCases.size + batches - 1) / batches)
 
         // Path 1 - copy TWO fields of the response: files (the .rell ones, exactly
         // as the audit's call did) and the moduleArgs the response handed back.
-        assertGreen(
-            call(
+        val ownArgsCases = mutableSetOf<String>()
+        selections.forEach { selection ->
+            val result = call(
                 "run_rell_tests",
                 buildJsonObject {
                     put("files", rellOnly(files))
                     put("moduleArgs", payload["moduleArgs"]!!)
+                    if (selection.isNotEmpty()) {
+                        put("tests", JsonArray(selection.map { JsonPrimitive(it) }))
+                    }
                 }
-            ),
-            "$template with the response's own moduleArgs"
-        )
+            )
+            assertGreen(result, "$template with the response's own moduleArgs")
+            ownArgsCases += caseNames(result)
+        }
+        assertEquals(expectedCases, ownArgsCases, "$template: every shipped case must have run")
 
         // Path 2 - forward everything the scaffold returned and pass no module
         // args at all. This is the call the audit made, minus the hand-merging.
-        val fromYml = call(
-            "run_rell_tests",
-            buildJsonObject {
-                put(
-                    "files",
-                    buildJsonObject {
-                        put("chromia.yml", files["chromia.yml"]!!)
-                        files.forEach { (p, c) -> if (p.endsWith(".rell")) put(p, c) }
+        val fromYmlCases = mutableSetOf<String>()
+        selections.forEach { selection ->
+            val fromYml = call(
+                "run_rell_tests",
+                buildJsonObject {
+                    put(
+                        "files",
+                        buildJsonObject {
+                            put("chromia.yml", files["chromia.yml"]!!)
+                            files.forEach { (p, c) -> if (p.endsWith(".rell")) put(p, c) }
+                        }
+                    )
+                    if (selection.isNotEmpty()) {
+                        put("tests", JsonArray(selection.map { JsonPrimitive(it) }))
                     }
-                )
-            }
-        )
-        assertGreen(fromYml, "$template with chromia.yml in files and no moduleArgs argument")
-        assertEquals("chromia.yml", fromYml.structuredContent!!["moduleArgsSource"]!!.jsonPrimitive.content)
+                }
+            )
+            assertGreen(fromYml, "$template with chromia.yml in files and no moduleArgs argument")
+            assertEquals("chromia.yml", fromYml.structuredContent!!["moduleArgsSource"]!!.jsonPrimitive.content)
+            fromYmlCases += caseNames(fromYml)
+        }
+        assertEquals(expectedCases, fromYmlCases, "$template: every shipped case must have run from the yml too")
     }
 
     @Test
     fun theFt4TemplatesShippedTestsAreGreenOnTheFirstHonestRun() = runFirstHonestPass("ft4")
 
     @Test
-    fun theGovernanceTemplatesShippedTestsAreGreenOnTheFirstHonestRun() = runFirstHonestPass("governance")
+    fun theGovernanceTemplatesShippedTestsAreGreenOnTheFirstHonestRun() = runFirstHonestPass("governance", batches = 3)
 }
