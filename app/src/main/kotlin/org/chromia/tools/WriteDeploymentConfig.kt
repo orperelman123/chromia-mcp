@@ -111,18 +111,28 @@ object WriteDeploymentConfig {
     fun mergeDeployments(existingYaml: String, spec: NetworkSpec, chain: String): String {
         val block = deploymentsYaml(spec, chain).trimEnd(NEWLINE)
         val lines = existingYaml.replace(CRLF, NEWLINE.toString()).split(NEWLINE)
-        val deploymentsAt = lines.indexOfFirst {
-            it.trimEnd() == "deployments:" && !it.startsWith(" ") && !it.startsWith(TAB)
-        }
+        // THE KEY IS FOUND BY PARSING, NOT BY MATCHING A LINE (round 16). This
+        // used to be `it.trimEnd() == "deployments:"`, so a caller's
+        // `deployments: # prod` - a comment after the key, which is ordinary
+        // YAML - was not the section: the else branch appended a SECOND
+        // top-level `deployments:` block at the end of the file, YAML takes the
+        // last one, the caller's real section was orphaned and the tool
+        // reported success. The end-of-section scan had the same shape, so a
+        // column-0 comment INSIDE the section ended it early and the rebuilt
+        // network block was emitted beside the old one under the same key. A
+        // line is now read as {key, comment}: the comment plays no part in
+        // finding the key, and a comment line is not a key at all.
+        val deploymentsAt = lines.indexOfFirst { topLevelKeyOf(it) == DEPLOYMENTS_KEY }
         if (deploymentsAt < 0) {
             return existingYaml.trimEnd(NEWLINE, ' ', TAB) + NEWLINE + NEWLINE + block + NEWLINE
         }
-        // The whole `deployments:` section: everything until the next non-blank
-        // line at indent 0.
+        // The whole `deployments:` section: everything until the next top-level
+        // KEY. A blank line does not end it and neither does a comment, at any
+        // column - a comment belongs to the section it sits in.
         var end = lines.size
         for (i in deploymentsAt + 1 until lines.size) {
             val line = lines[i]
-            if (line.isBlank()) continue
+            if (line.isBlank() || isCommentLine(line)) continue
             if (!line.startsWith(" ") && !line.startsWith(TAB)) {
                 end = i
                 break
@@ -130,13 +140,13 @@ object WriteDeploymentConfig {
         }
         val section = lines.subList(deploymentsAt + 1, end)
         val netHeader = Regex("^(\\s+)" + Regex.escape(spec.name) + "\\s*:\\s*$")
-        val netAt = section.indexOfFirst { netHeader.matches(it) }
+        val netAt = section.indexOfFirst { netHeader.matches(stripComment(it).trimEnd()) }
         val rebuilt = if (netAt >= 0) {
-            val indent = netHeader.find(section[netAt])!!.groupValues[1]
+            val indent = netHeader.find(stripComment(section[netAt]).trimEnd())!!.groupValues[1]
             var netEnd = section.size
             for (i in netAt + 1 until section.size) {
                 val line = section[i]
-                if (line.isBlank()) continue
+                if (line.isBlank() || isCommentLine(line)) continue
                 val lead = line.takeWhile { it == ' ' || it == TAB }
                 if (lead.length <= indent.length) {
                     netEnd = i
@@ -177,6 +187,39 @@ object WriteDeploymentConfig {
     private const val NEWLINE = '\n'
     private const val TAB = '\t'
     private const val CRLF = "\r\n"
+    private const val DEPLOYMENTS_KEY = "deployments"
+    private val TOP_LEVEL_KEY_REGEX = Regex("""^([A-Za-z_][\w.-]*)\s*:(?:\s.*)?$""")
+
+    /**
+     * [line] with a trailing `#` comment removed, quotes respected. `url: "a#b"`
+     * keeps its value; `deployments: # prod` becomes `deployments:`.
+     */
+    internal fun stripComment(line: String): String {
+        var quote = ' '
+        line.forEachIndexed { i, c ->
+            when {
+                quote != ' ' -> if (c == quote) quote = ' '
+                c == '"' || c == '\'' -> quote = c
+                c == '#' && (i == 0 || line[i - 1].isWhitespace()) -> return line.substring(0, i)
+            }
+        }
+        return line
+    }
+
+    /** A line whose only content is a comment - it is not a key, at any column. */
+    internal fun isCommentLine(line: String): Boolean = stripComment(line).isBlank() && line.isNotBlank()
+
+    /**
+     * The key a COLUMN-0 mapping line declares, or null when the line is not
+     * one (indented, blank, a comment, a list item, a document marker). This is
+     * the parse that replaced `line.trimEnd() == "deployments:"`.
+     */
+    internal fun topLevelKeyOf(line: String): String? {
+        if (line.isBlank() || line.startsWith(" ") || line.startsWith(TAB)) return null
+        val bare = stripComment(line).trimEnd()
+        if (bare.isBlank()) return null
+        return TOP_LEVEL_KEY_REGEX.find(bare)?.groupValues?.get(1)
+    }
     private val PLACEHOLDER_CONTAINER_VALUES =
         setOf("<containeriid>", "todo", "tbd", "placeholder", "changeme", "container")
 

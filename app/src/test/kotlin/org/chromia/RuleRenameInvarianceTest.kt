@@ -262,4 +262,107 @@ class RuleRenameInvarianceTest {
             "an integer key is named like a secret" to mapOf("id" to "secret_id")
         )
     }
+
+    // =====================================================================
+    // ROUND 16. Three of round 15's four rebuilds were evaded by a ONE-TOKEN
+    // change - a constant that is zero, a floor the proposer writes, a list
+    // built in a loop - and a fourth shape (a credit that is a clock
+    // difference) was missed outright. Every fix is keyed on a value, a data
+    // flow or a type, so the same treatment applies: rename identifiers in
+    // both directions and require the verdict not to move.
+    // =====================================================================
+
+    @Test
+    fun aVotingFloorThatIsZeroIsRenameInvariant() {
+        assertRenameInvariant(
+            "r16-voting-floor-is-a-constant-zero",
+            "the constant loses every hint it is a floor" to mapOf(
+                "MIN_VOTING_MS" to "K",
+                "voting_period_ms" to "w",
+                "motion" to "item"
+            ),
+            "the window is named like money and the zero like a real minimum" to mapOf(
+                "voting_period_ms" to "amount_per_period",
+                "MIN_VOTING_MS" to "MINIMUM_SAFE_WINDOW_MS"
+            )
+        )
+        // ...and the control, whose only difference is that the same zero is
+        // written inline: the pair must move together, or the pair proves
+        // nothing about the rule.
+        assertRenameInvariant(
+            "r16-voting-floor-control-the-same-zero-inline",
+            "every identifier the DAO is spelled with" to mapOf(
+                "voting_period_ms" to "w",
+                "motion" to "item",
+                "MIN_VOTING_MS" to "K"
+            )
+        )
+    }
+
+    @Test
+    fun aProposerWrittenQuorumFloorIsRenameInvariant() {
+        assertRenameInvariant(
+            "r16-quorum-floor-written-by-the-proposer",
+            "the bar loses every hint it is one" to mapOf(
+                "floor_at_creation" to "bar_at_creation",
+                "motion" to "item",
+                "settle_motion" to "finish"
+            ),
+            "the tallies and the proposing operation are renamed" to mapOf(
+                "yes_ballots" to "ayes",
+                "no_ballots" to "noes",
+                "propose" to "open_item"
+            )
+        )
+        assertRenameInvariant(
+            "r16-quorum-floor-control-a-literal-two",
+            "the motion and its payee are renamed" to mapOf(
+                "motion" to "item",
+                "beneficiary" to "to_key",
+                "yes_ballots" to "ayes",
+                "no_ballots" to "noes"
+            )
+        )
+    }
+
+    @Test
+    fun aSecretThroughAnAccumulatorIsRenameInvariant() {
+        assertRenameInvariant(
+            "r16-secret-published-through-an-accumulator",
+            "the accumulator, the loop variable and the query are renamed" to mapOf(
+                "out" to "rows",
+                "c" to "row",
+                "all_tokens" to "everything"
+            ),
+            // The entity stops reading as secret; the FIELD still does, and the
+            // field's declared type is what the rule keys the payload on.
+            "the entity stops reading as secret" to mapOf("credential" to "enrolment_record")
+        )
+        assertRenameInvariant(
+            "r16-secret-control-returned-as-a-projection",
+            "the query and its local are renamed" to mapOf("token_of" to "read_one", "c" to "row")
+        )
+    }
+
+    @Test
+    fun aClockDifferenceMintIsRenameInvariant() {
+        listOf(
+            "r16-clock-mint-declared-as-a-timestamp",
+            "r16-clock-mint-control-declared-as-an-integer"
+        ).forEach { id ->
+            assertRenameInvariant(
+                id,
+                "every identifier the faucet is spelled with" to mapOf(
+                    "subscriber" to "holder_row",
+                    "last_claim" to "since_ms",
+                    "claim_credit" to "tick",
+                    "merchant" to "vendor"
+                ),
+                // The credited field keeps a word from the value-field list -
+                // that list is the rule's definition of "a field that holds
+                // value" - but loses every hint that it is a clock or a credit.
+                "the credited balance is renamed" to mapOf("credit_balance" to "token_holding")
+            )
+        }
+    }
 }
