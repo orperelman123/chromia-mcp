@@ -1628,6 +1628,25 @@ object McpTools {
                             "description" to JsonPrimitive("Full chromia.yml text to validate")
                         )
                     ),
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Optional Rell sources (path -> source), the same map rell_check and run_rell_tests take. PASS THEM: a yml can only be checked against what the CODE needs when the code is here - a module declaring `struct module_args` the yml never sets, or an FT4 import with no lib.ft4.core.accounts configuration (rate_limit, auth_descriptor, auth_flags.mandatory), are errors `chr build` would otherwise be the first to report. `rell` and `source` are accepted as aliases. Without sources the validator checks the yml alone, exactly as before.")
+                        )
+                    ),
+                    "rell" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("Alias for `files`.")
+                        )
+                    ),
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("A single Rell source, when there is only one file.")
+                        )
+                    ),
                     "strict" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
@@ -2202,6 +2221,14 @@ object McpTools {
             Return the chromia.yml deployments.<network> block that Chromia CLI 0.33.x expects
             (url, official Directory Chain BRID; chains omitted on purpose - a first
             chr deployment create must not carry it, and a placeholder null value is rejected by chr).
+            PASS YOUR EXISTING chromia.yml AS `yaml`: the block is then MERGED into it - moduleArgs,
+            test.moduleArgs, libs, compile pins and comments all preserved - and comes back as
+            `chromia_yml`. Without `yaml` you get the block alone and no full file: this tool does
+            not regenerate a project config. (It used to, from the `hello` scaffold, and adopting
+            that output deleted an FT4 project's moduleArgs including auth_flags.mandatory, its
+            test.moduleArgs block and libs.iccf - silently, with every gate green. Audit F7.)
+            An existing deployments.<network> block is replaced, but a real container id and any
+            chains map in it are carried over.
             network must be testnet or mainnet. Does not invent a BRID.
             Since CLI 0.30.0, chr deployment create writes deployments.<net>.chains back into chromia.yml;
             on 0.29.x add chains.<name>: x"<dapp rid>" by hand after the first create.
@@ -2223,6 +2250,14 @@ object McpTools {
                                 "Optional dapp / chain name (lowercase [a-z][a-z0-9_]{0,31}). Default: hello. `chain` is accepted as an alias."
                             )
                         )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Your project's existing chromia.yml. PASS IT: the deployments.<network> block is MERGED into it and every other key - moduleArgs, test.moduleArgs, libs, compile pins, comments - is preserved verbatim, and the merged file comes back as `chromia_yml`. Without it you get only the `yaml` block to paste yourself; this tool never regenerates a project file. `chromiaYml` is accepted as an alias."
+                            )
+                        )
                     )
                 )
             ),
@@ -2237,8 +2272,24 @@ object McpTools {
                     "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                     "url" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                     "brid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                    "yaml" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                    "chromia_yml" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The deployments.<network> block alone.")
+                        )
+                    ),
+                    "chromia_yml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Present ONLY when you passed `yaml`: that same file with the deployments block merged in and every other key preserved. It is never a file this tool made up.")
+                        )
+                    ),
+                    "merge_note" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Present when no `yaml` was passed: says why there is no full chromia.yml to adopt.")
+                        )
+                    ),
                     "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                 )
             ),

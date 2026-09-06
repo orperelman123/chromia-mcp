@@ -1315,7 +1315,21 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
         // merkle_hash_version) into errors; the default warns, since chr
         // builds official configs that omit them (real-world round 2 D3).
         val strict = extractBoolean(args, "strict") ?: false
-        return toolSuccessResult(ChromiaYmlValidator.validate(yaml, strict).toJson())
+        // AUDIT F7: with the sources, the validator can see what the yml is
+        // MISSING - a module that declares `struct module_args` the yml never
+        // sets, or an FT4 import with no lib.ft4.core.accounts configuration.
+        // Without them it behaves exactly as before and guesses nothing.
+        val (files, invalid) = extractRellFilesMap(args["files"] ?: args["rell"])
+        if (invalid.isNotEmpty()) {
+            return toolErrorResult(
+                "`files` values must be Rell source strings; non-string value(s) at: ${invalid.joinToString(", ")}"
+            )
+        }
+        val single = extractString(args, "source")
+        val rell = LinkedHashMap(files).also { map ->
+            if (map.isEmpty() && single != null) map["main.rell"] = single
+        }
+        return toolSuccessResult(ChromiaYmlValidator.validate(yaml, strict, rell).toJson())
     }
 }
 
@@ -2080,7 +2094,12 @@ class WriteDeploymentConfigStrategy : BaseToolStrategy() {
         if (WriteDeploymentConfig.resolveNetwork(network) == null) {
             return toolErrorResult(WriteDeploymentConfig.unknownNetworkMessage(network))
         }
-        return toolSuccessResult(WriteDeploymentConfig.toJson(network, name))
+        // AUDIT F7: the caller's own chromia.yml, merged into rather than replaced.
+        // deployment_preflight's fix line sends agents here, and the file this tool
+        // used to synthesise dropped the project's FT4 moduleArgs, its
+        // test.moduleArgs block and libs.iccf - invisibly to validate_chromia_yml.
+        val yaml = extractString(args, "yaml") ?: extractString(args, "chromiaYml")
+        return toolSuccessResult(WriteDeploymentConfig.toJson(network, name, yaml))
     }
 }
 

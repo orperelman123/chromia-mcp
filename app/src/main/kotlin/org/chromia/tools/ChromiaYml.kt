@@ -51,7 +51,76 @@ object ChromiaYmlValidator {
      * build-breaking findings (a rellVersion newer than the CLI's compiler, a
      * present-but-wrong merkle value, malformed values) stay errors regardless.
      */
-    fun validate(yaml: String, strict: Boolean = false): Result {
+    /**
+     * AUDIT F7 (2026-09-06): `validate_chromia_yml` answered
+     * {"ok":true,"errors":[],"warnings":[]} on a chromia.yml that had had the
+     * whole FT4 configuration deleted from it - blockchains.<name>.moduleArgs
+     * (rate_limit, auth_descriptor, auth_flags.mandatory ["A","T"]), the
+     * test.moduleArgs block, libs.iccf - because a validator that only sees the
+     * yml cannot know what the MODULE needs. Given the sources, it can.
+     *
+     * Every module in [rell] that declares `struct module_args` must be set in
+     * the yml (blockchains.<name>.moduleArgs merged with test.moduleArgs, the
+     * merge `chr test` performs); a module that imports FT4 must configure it.
+     * Without sources this is silent - it never guesses.
+     *
+     * @param rell path -> Rell source, the same map the code tools take.
+     */
+    fun validate(
+        yaml: String,
+        strict: Boolean = false,
+        rell: Map<String, String> = emptyMap()
+    ): Result {
+        val base = validateYamlOnly(yaml, strict)
+        if (rell.isEmpty()) return base
+        val moduleArgsErrors = moduleArgsFindings(yaml, rell)
+        if (moduleArgsErrors.isEmpty()) return base
+        return Result(false, base.errors + moduleArgsErrors, base.warnings)
+    }
+
+    private val MODULE_ARGS_DECL = Regex("""(?m)^\s*struct\s+module_args\b""")
+    private val FT4_IMPORT = Regex("""(?m)^\s*import\s+(?:\w+\s*:\s*)?(lib\.ft4[\w.]*)""")
+
+    /**
+     * What the sources declare and the yml does not set. Errors, not warnings:
+     * `chr build` / `chr test` refuse to start ("Missing module_args for
+     * module(s): ..."), and run_rell_tests fails every case with "Unable to
+     * create GTX module".
+     */
+    internal fun moduleArgsFindings(yaml: String, rell: Map<String, String>): List<String> {
+        val set = ChromiaYmlModuleArgs.merged(yaml)
+        val findings = mutableListOf<String>()
+        rell.forEach { (path, source) ->
+            if (!MODULE_ARGS_DECL.containsMatchIn(source)) return@forEach
+            val module = RunRellTests.moduleNameForPath(path, source)
+            if (module.isNotEmpty() && module !in set) {
+                findings += "$path declares `struct module_args` for module '$module', but this " +
+                    "chromia.yml sets no moduleArgs for it (neither blockchains.<name>.moduleArgs nor " +
+                    "test.moduleArgs). `chr build` refuses with \"Missing module_args for module(s): " +
+                    "$module\" and run_rell_tests fails every case with \"Unable to create GTX module\"."
+            }
+        }
+        val importsFt4 = rell.values.any { FT4_IMPORT.containsMatchIn(it) }
+        if (importsFt4) {
+            if ("lib.ft4.core.accounts" !in set) {
+                findings += "The sources import FT4, but this chromia.yml sets no moduleArgs for " +
+                    "lib.ft4.core.accounts - so the account rate limit, the auth-descriptor limits and " +
+                    "auth_flags.mandatory are all UNSET on the deployed chain. Restore the " +
+                    "blockchains.<name>.moduleArgs block (ft4_module_args returns production-correct " +
+                    "values); do not adopt a regenerated chromia.yml that dropped it."
+            }
+            val usesFt4TestHelpers = rell.values.any { it.contains("lib.ft4.test.") }
+            if (usesFt4TestHelpers && "lib.ft4.core.admin" !in set) {
+                findings += "The sources use FT4's test helpers (lib.ft4.test.*), which transitively " +
+                    "import lib.ft4.admin, but this chromia.yml sets no test.moduleArgs for " +
+                    "lib.ft4.core.admin (admin_pubkey) - every test transaction will fail with " +
+                    "\"Unable to create GTX module\"."
+            }
+        }
+        return findings
+    }
+
+    private fun validateYamlOnly(yaml: String, strict: Boolean): Result {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
         // Missing-pin findings: errors only in strict mode.
