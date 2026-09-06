@@ -377,6 +377,11 @@ object ChromiaRellPracticesHelp {
                 "staking / rewards / emissions: template=staking; payroll / vesting / drip (PREPAID): template=streaming; subscription / recurring pull billing / allowance / membership: template=subscription, never streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
                 "template=lending; order book / limit orders / bids and asks / matching: template=exchange, never amm; " +
+                "bridge / cross-chain / wrapped asset / relayer attestation: template=bridge, never ft4 - " +
+                "the processed-burns registry is keyed by the burn's identity on the source chain so one " +
+                "burn mints once, the row binds the recipient and amount the mint reads, a relayer SET with " +
+                "a threshold replaces the single key, and the mint is capped; a TRANSFER-conservation test " +
+                "is blind to a mint, and adversary round 14 minted 10x with that invariant exact; " +
                 "stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail. " +
                 "Then PROVE your own guards the same way the templates are proven: verify_guards removes a guard " +

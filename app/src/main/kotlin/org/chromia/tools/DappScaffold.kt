@@ -124,7 +124,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -185,6 +185,11 @@ object DappScaffold {
                 "src/main.rell" to subscriptionMainRell(),
                 "src/test/main_test.rell" to subscriptionTestRell()
             )
+            "bridge" -> linkedMapOf(
+                "chromia.yml" to bridgeChromiaYml(chain),
+                "src/main.rell" to bridgeMainRell(),
+                "src/test/main_test.rell" to bridgeTestRell()
+            )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
                 "src/main.rell" to mainRell(),
@@ -192,6 +197,780 @@ object DappScaffold {
             )
         }
     }
+
+
+    /**
+     * The bridge template reads FOUR things from configuration, and every one of
+     * them is a decision no default can make: the operator key that enrols the
+     * relayer set, how many relayers must agree on a burn, and the two caps on
+     * what this receiver may ever mint.
+     */
+    fun bridgeTestModuleArgs(): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> =
+        ft4TestModuleArgs() + mapOf(
+            "main" to mapOf(
+                "bridge_operator_pubkey" to JsonPrimitive(TEST_ADMIN_PUBKEY),
+                "relayer_threshold" to JsonPrimitive(BRIDGE_TEST_THRESHOLD),
+                "total_mint_cap" to JsonPrimitive(BRIDGE_TEST_TOTAL_CAP),
+                "period_mint_cap" to JsonPrimitive(BRIDGE_TEST_PERIOD_CAP)
+            )
+        )
+
+    const val BRIDGE_TEST_THRESHOLD = 2
+    const val BRIDGE_TEST_TOTAL_CAP = 150000
+    const val BRIDGE_TEST_PERIOD_CAP = 100000
+
+    /**
+     * The bridge chromia.yml. Same discipline as the vault's oracle key and the
+     * governance founder's: the production block leaves EVERY main arg unset,
+     * with instructions, so the chain cannot be built with a placeholder - and
+     * for a bridge that is four decisions, not one.
+     */
+    private fun bridgeChromiaYml(name: String): String = ft4ChromiaYml(
+        name,
+        productionModuleArgsNote = buildString {
+            append("      # REQUIRED before `chr build` / deploy - the bridge's own configuration.\n")
+            append("      # Deliberately NOT set here so the chain cannot be built with a placeholder,\n")
+            append("      # and every line is a decision no default can make for you:\n")
+            append("      #   bridge_operator_pubkey - the key that enrols the relayer set and closes\n")
+            append("      #     it. It can do nothing else, and once close_relayer_set() is signed the\n")
+            append("      #     set is fixed for the life of the chain.\n")
+            append("      #   relayer_threshold - how many DISTINCT relayers must attest one burn\n")
+            append("      #     before it mints. At least two: a bridge whose threshold is one is a\n")
+            append("      #     bridge with one key, and this module refuses that.\n")
+            append("      #   total_mint_cap / period_mint_cap - what the source chain's locked supply\n")
+            append("      #     bounds, and the most that may cross in one MINT_PERIOD_MS. Size the\n")
+            append("      #     period cap to what you can afford to lose to a hostile relayer\n")
+            append("      #     majority in one period, not to what the source chain holds.\n")
+            append("      # main:\n")
+            append("      #   bridge_operator_pubkey: x\"<your bridge operator public key>\"\n")
+            append("      #   relayer_threshold: 3\n")
+            append("      #   total_mint_cap: 1000000000\n")
+            append("      #   period_mint_cap: 10000000\n")
+        },
+        extraTestModuleArgs = buildString {
+            append("    # The shipped tests enrol relayers with FT4's published test admin key as the\n")
+            append("    # bridge operator. The relayer keys themselves are DERIVED inside the test\n")
+            append("    # module, so no key material ships here. Test scope only.\n")
+            append("    main:\n")
+            append("      bridge_operator_pubkey: x\"$TEST_ADMIN_PUBKEY\"\n")
+            append("      relayer_threshold: $BRIDGE_TEST_THRESHOLD\n")
+            append("      total_mint_cap: $BRIDGE_TEST_TOTAL_CAP\n")
+            append("      period_mint_cap: $BRIDGE_TEST_PERIOD_CAP\n")
+        }
+    )
+
+    private fun bridgeMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Bridge template: a one-way bridge RECEIVER, and the exit that lets a holder
+        // leave again. This chain MINTS a wrapped unit when a burn on a source chain
+        // has been attested by a threshold of a configured relayer set, and BURNS that
+        // unit on the way out, leaving the record the other side releases against.
+        //
+        // This is the class adversary round 14 built with no template and drained twice
+        // in one afternoon - the top and highest-severity row of docs/TEMPLATE-GAPS.md.
+        // That build carried EVERY guard this server ships: the relayer was ONE
+        // configured key like the vault's oracle, every amount was bounded before it
+        // was added to anything, the auth flags stayed ["T"], and the conservation
+        // invariant was copied from the ft4 template exactly as the scaffold's own
+        // notes instruct. rell_security_check returned ok:true with ZERO findings. It
+        // still lost ten times its backing: nothing recorded WHICH BURNS HAD ALREADY
+        // BEEN PAID - source_tx was an operation parameter the module read only to
+        // check that it was 32 bytes - so one burn of 1000 was submitted ten times for
+        // 10000 wrapped units, and three attestations quoting the SAME source
+        // transaction paid three different accounts 1000, 5000 and 250000.
+        //
+        // AND THE INVARIANT THIS SERVER TOLD THAT AUTHOR TO COPY WAS EXACT AT EVERY
+        // STEP OF BOTH. That is the prose defect underneath the drain and the reason
+        // the last guard below exists: test_transfer_conserves_total_points compares
+        // balances against a minted counter THE MINTING OPERATION RAISES ITSELF, so A
+        // TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT. A bridge's
+        // invariant has to compare what was minted against something that was NOT
+        // written by the mint, and the only such thing this chain can hold is the
+        // attested burn record - so that is what it compares against here.
+        //
+        // Eight guards are STRUCTURAL - they live in the entities and their keys, not
+        // in a require() a later operation can forget:
+        //   ONE BURN, ONE ROW - the processed-burns registry is keyed by the burn's
+        //     identity on the source chain and by nothing else: (source_chain,
+        //     source_tx, log_index) is a `key`, so a second row for the same burn is
+        //     refused by the DATABASE and there is no check to omit. The log index is
+        //     part of it because one transaction can carry several burns and they are
+        //     different burns.
+        //   THE ROW BINDS WHAT THE BURN PAYS - recipient and amount are written ONCE,
+        //     by the attestation that opens the row, and neither is mutable. The mint
+        //     reads the ROW, never the operation's arguments, so nothing in a later
+        //     attestation can be substituted; one that disagrees with what is already
+        //     recorded is refused rather than counted, which is how a relayer set
+        //     agrees on a burn rather than on a payment.
+        //   ONE RELAYER, ONE VOICE - an attestation row is keyed (burn, witness), so a
+        //     relayer counts once per burn however many times it signs. A `key` again,
+        //     and not a check: the second attestation from the same relayer aborts.
+        //   THE THRESHOLD IS CROSSED ONCE - the counter rises by exactly one per
+        //     DISTINCT relayer, so it EQUALS the threshold in exactly one transaction,
+        //     ever, and that is the transaction that mints. There is no minted flag to
+        //     test and none to forget.
+        //   THE RELAYER SET IS CONFIGURATION - relayers are enrolled by the configured
+        //     bridge operator key, and the set is CLOSED before any burn may be
+        //     attested; after that nothing adds, removes or replaces one. A relayer is
+        //     a key, never an operation argument, so no caller names its own signer.
+        //   CAPPED IN TOTAL AND PER PERIOD - a receiver can only ever owe what the
+        //     source chain locked, so a mint is bounded twice, against a total cap and
+        //     against a per-period cap, both configuration. A relayer majority that
+        //     turns hostile is then a bounded and visible loss rather than the supply.
+        //   THE EXIT IS A RECORD - burn_for_exit destroys the wrapped units AND writes
+        //     an exit_record in the same operation, so a holder can never burn without
+        //     leaving the evidence the source chain releases against.
+        //   MINTED AGAINST PROCESSED BURNS - the conservation invariant compares what
+        //     this chain minted against the burns it ACCEPTED, and what circulates
+        //     against minted minus burned. That is the invariant a bridge needs and a
+        //     transfer-conservation test is not it.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - A THRESHOLD OF RELAYERS IS THE TRUST ROOT. Enough of them, colluding,
+        //     mint whatever they like up to the caps, and the caps are the only thing
+        //     that bounds it. Choose a threshold and a set that make collusion
+        //     expensive, and size the period cap to what you can afford to lose in one
+        //     period rather than to what the source chain holds.
+        //   - THIS CHAIN CANNOT VERIFY THE SOURCE CHAIN. Nothing here reads the other
+        //     ledger; what it has is a signed claim about it. If both sides are
+        //     Chromia, replace the relayer set with ICCF proof verification and keep
+        //     everything else - the registry key, the row that binds the payout, the
+        //     caps and the invariant are the same either way.
+        //   - A CAP THAT IS REACHED STALLS THE BRIDGE. The attestation that would
+        //     cross a cap is REFUSED, so the burn waits for the next period or for the
+        //     operator to raise the total. That is deliberate - a bridge that keeps
+        //     minting past its cap has no cap - but it means a burn may not land in
+        //     the block it was attested in, and whoever runs the bridge has to say so.
+        //   - THE EXIT IS ONLY A RECORD. Burning here releases nothing on the source
+        //     chain; a relayer reading exit_record does. What this side guarantees is
+        //     that the record exists exactly once per burned unit and that nobody can
+        //     write one without burning.
+
+        // Configuration. Every one of these is a decision no default can make: who may
+        // enrol the relayer set, how many of them must agree, and how much this bridge
+        // may ever mint. They are module args so that none of them is an argument a
+        // caller supplies.
+        struct module_args {
+            bridge_operator_pubkey: pubkey;
+            relayer_threshold: integer;
+            total_mint_cap: integer;
+            period_mint_cap: integer;
+        }
+
+        // The wrapped token. Every unit in existence was minted against a burn in the
+        // registry below.
+        entity holding {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // A relayer is a KEY. It needs no account on this chain: it signs the
+        // transaction that carries an attestation, and the chain verifies that
+        // signature over the whole transaction, which is exactly the burn record.
+        entity relayer {
+            key relayer_pubkey: pubkey;
+            enrolled_at: timestamp;
+        }
+
+        // THE PROCESSED-BURNS REGISTRY. The key IS the burn's identity on the source
+        // chain, so one burn has one row for the life of this chain, and the row
+        // carries what that burn pays.
+        entity processed_burn {
+            key source_chain: byte_array, source_tx: byte_array, log_index: integer;
+            recipient: byte_array;
+            amount: integer;
+            opened_at: timestamp;
+            mutable attestations: integer = 0;
+        }
+
+        // One relayer's voice on one burn. Keyed, so it cannot be repeated.
+        entity attestation {
+            key burn: processed_burn, witness: relayer;
+            attested_at: timestamp;
+        }
+
+        // What the source chain releases against.
+        entity exit_record {
+            key id: integer;
+            index holder: byte_array;
+            amount: integer;
+            recorded_at: timestamp;
+        }
+
+        object bridge_state {
+            mutable relayer_count: integer = 0;
+            mutable relayer_set_closed: boolean = false;
+            mutable minted_total: integer = 0;
+            mutable burned_total: integer = 0;
+            mutable next_exit_id: integer = 1;
+            mutable period_started_at: integer = 0;
+            mutable minted_this_period: integer = 0;
+        }
+
+        val MAX_AMOUNT = 1000000000;
+        val MAX_LOG_INDEX = 1000000;
+        // The most relayer keys the set may hold. The attestation scan walks them, so
+        // it is bounded here rather than by whoever holds the operator key.
+        val MAX_RELAYERS = 16;
+        // A bridge whose threshold is one is a bridge with one key, and that is the
+        // shape round 14 drained. A constant, never configuration.
+        val MIN_RELAYER_THRESHOLD = 2;
+        // The window the per-period cap is measured over. A constant, never a
+        // parameter: a caller who chooses the period chooses the cap.
+        val MINT_PERIOD_MS = 24 * 60 * 60 * 1000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function bridge_operator_pubkey(): pubkey = chain_context.args.bridge_operator_pubkey;
+
+        function relayer_threshold(): integer {
+            val t = chain_context.args.relayer_threshold;
+            require(t >= MIN_RELAYER_THRESHOLD, "the relayer threshold must be at least two");
+            require(t <= MAX_RELAYERS, "the relayer threshold cannot exceed the relayer set");
+            return t;
+        }
+
+        function total_mint_cap(): integer {
+            val c = chain_context.args.total_mint_cap;
+            require(c > 0 and c <= MAX_AMOUNT, "the total mint cap is out of range");
+            return c;
+        }
+
+        function period_mint_cap(): integer {
+            val c = chain_context.args.period_mint_cap;
+            require(c > 0 and c <= total_mint_cap(), "the period mint cap is out of range");
+            return c;
+        }
+
+        function holding_of(owner: byte_array): holding =
+            require(holding @? { .owner == owner }, "register an account first");
+
+        function require_operator() {
+            require(op_context.is_signer(bridge_operator_pubkey()), "the bridge operator must sign this");
+        }
+
+        // Which ENROLLED relayer signed this transaction. The key is read from a row,
+        // never from an argument, so nobody can present their own.
+        function signing_relayer(): relayer {
+            var found: relayer? = null;
+            for (r in relayer @* {}) {
+                if (op_context.is_signer(r.relayer_pubkey)) found = r;
+            }
+            return require(found, "a burn attestation must be signed by an enrolled relayer");
+        }
+
+        // The caps, applied to the one place units are created.
+        function mint_against(burn: processed_burn) {
+            if (op_context.last_block_time - bridge_state.period_started_at >= MINT_PERIOD_MS) {
+                bridge_state.period_started_at = op_context.last_block_time;
+                bridge_state.minted_this_period = 0;
+            }
+            require(
+                bridge_state.minted_total + burn.amount <= total_mint_cap(),
+                "the bridge's total mint cap is reached"
+            );
+            require(
+                bridge_state.minted_this_period + burn.amount <= period_mint_cap(),
+                "the bridge's mint cap for this period is reached"
+            );
+            val h = holding_of(burn.recipient);
+            update h ( .balance += burn.amount );
+            bridge_state.minted_total += burn.amount;
+            bridge_state.minted_this_period += burn.amount;
+        }
+
+        operation register_account() {
+            val account = auth.authenticate();
+            require(holding @? { .owner == account.id } == null, "already registered");
+            create holding(owner = account.id, balance = 0);
+        }
+
+        // Enrol one relayer key. The operator may do this until the set is closed and
+        // never afterwards, so the trust root of the bridge is fixed before the first
+        // burn is attested.
+        operation enrol_relayer(candidate: pubkey) {
+            require_operator();
+            require(not bridge_state.relayer_set_closed, "the relayer set is closed");
+            require(candidate.size() == 33, "a relayer key must be a 33-byte compressed public key");
+            require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
+            create relayer(relayer_pubkey = candidate, enrolled_at = op_context.last_block_time);
+            bridge_state.relayer_count += 1;
+        }
+
+        // Shut the set. One way, and nothing re-opens it.
+        operation close_relayer_set() {
+            require_operator();
+            require(not bridge_state.relayer_set_closed, "the relayer set is already closed");
+            require(
+                bridge_state.relayer_count >= relayer_threshold(),
+                "fewer relayers than the threshold requires"
+            );
+            bridge_state.relayer_set_closed = true;
+        }
+
+        // THE ATTESTATION. A relayer signs a transaction whose operation arguments ARE
+        // the burn record - the chain, the transaction and log index that identify the
+        // burn, and the recipient and amount it pays - and the platform verifies that
+        // signature over exactly those fields. The first attestation OPENS the burn's
+        // one row; every later one must agree with it or be refused; and the one that
+        // makes the count equal the threshold is the one that mints.
+        operation attest_burn(
+            chain_rid: byte_array,
+            tx_rid: byte_array,
+            log_idx: integer,
+            recipient: byte_array,
+            amount: integer
+        ) {
+            // 1. AUTHORIZE - an enrolled relayer, out of a set that can no longer
+            //    change. There is no FT4 account here: a relayer is a key.
+            require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
+            val witness = signing_relayer();
+            // 2. VALIDATE - each input separately, and bounded before it is added to
+            //    anything.
+            require(chain_rid.size() == 32, "source chain rid must be 32 bytes");
+            require(tx_rid.size() == 32, "source tx rid must be 32 bytes");
+            require(log_idx >= 0 and log_idx <= MAX_LOG_INDEX, "log index out of range");
+            require(recipient.size() == 32, "recipient must be a 32-byte account id");
+            require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
+            require(holding @? { .owner == recipient } != null, "recipient is not registered");
+            // 3. THE REGISTRY. One row per burn, and the row binds what it pays.
+            val opened = processed_burn @? {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            if (opened == null) {
+                create processed_burn(
+                    source_chain = chain_rid,
+                    source_tx = tx_rid,
+                    log_index = log_idx,
+                    recipient = recipient,
+                    amount = amount,
+                    opened_at = op_context.last_block_time
+                );
+            } else {
+                require(opened.recipient == recipient, "this burn was opened for a different recipient");
+                require(opened.amount == amount, "this burn was opened for a different amount");
+            }
+            val burn = processed_burn @ {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            // 4. ONE RELAYER, ONE VOICE - the key refuses a repeat, so the count below
+            //    is a count of DISTINCT relayers and nothing else.
+            create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);
+            val voices = burn.attestations + 1;
+            update burn ( .attestations = voices );
+            if (voices == relayer_threshold()) {
+                mint_against(burn);
+            }
+        }
+
+        // Leave. The wrapped units are destroyed here and the record is what the source
+        // chain releases against - one operation, so neither can happen without the
+        // other.
+        operation burn_for_exit(amount: integer) {
+            val account = auth.authenticate();
+            val me = holding_of(account.id);
+            require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
+            require(me.balance >= amount, "insufficient balance");
+            update me ( .balance -= amount );
+            bridge_state.burned_total += amount;
+            create exit_record(
+                id = bridge_state.next_exit_id,
+                holder = account.id,
+                amount = amount,
+                recorded_at = op_context.last_block_time
+            );
+            bridge_state.next_exit_id += 1;
+        }
+
+        operation transfer(to: byte_array, amount: integer) {
+            val account = auth.authenticate();
+            val from = holding_of(account.id);
+            val payee = require(holding @? { .owner == to }, "recipient is not registered");
+            require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
+            require(from.balance >= amount, "insufficient balance");
+            update from ( .balance -= amount );
+            update payee ( .balance += amount );
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_balance(owner: byte_array): integer {
+            val h = holding @? { .owner == owner };
+            return if (h != null) h.balance else 0;
+        }
+
+        query minted_total(): integer = bridge_state.minted_total;
+
+        query burned_total(): integer = bridge_state.burned_total;
+
+        query relayer_count(): integer = bridge_state.relayer_count;
+
+        query relayer_set_is_closed(): boolean = bridge_state.relayer_set_closed;
+
+        query holder_count(): integer = holding @* {} ( .owner ).size();
+
+        query burn_attestations(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer): integer {
+            val b = processed_burn @? {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            return if (b != null) b.attestations else 0;
+        }
+
+        // INVARIANT 1: every wrapped unit that exists was minted and has not been
+        // burned. Balances are the only place a unit can sit.
+        query units_in_circulation(): integer {
+            var total = 0;
+            for (b in holding @* {} ( .balance )) total += b;
+            return total;
+        }
+
+        // INVARIANT 2, AND THE ONE A BRIDGE ACTUALLY NEEDS: what this chain minted
+        // against what it ACCEPTED as burned elsewhere. Nothing the mint writes appears
+        // on this side of the comparison - the registry rows are written by the
+        // attestations, so a mint that no burn backs shows up here and a
+        // transfer-conservation test cannot see it at all.
+        query attested_burn_total(): integer {
+            var total = 0;
+            val threshold = relayer_threshold();
+            for (b in processed_burn @* {}) {
+                if (b.attestations >= threshold) total += b.amount;
+            }
+            return total;
+        }
+
+        // INVARIANT 3: every unit burned on the way out left a record, exactly once.
+        query exited_total(): integer {
+            var total = 0;
+            for (a in exit_record @* {} ( .amount )) total += a;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun bridgeTestRell(): String = """
+        @test module;
+
+        // The bridge template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_r14_* functions replay adversary round 14's bridge drains and
+        // REQUIRE them to fail. There, nothing recorded which burns had been paid, so
+        // one burn of 1000 minted 10000 in ten identical transactions; and nothing tied
+        // the recipient and amount to the source transaction, so three attestations
+        // quoting one burn paid three accounts 1000, 5000 and 250000. Here the burn's
+        // identity is a database key and the row it opens is what the mint reads.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        // The bridge operator is the configured key, exactly the way the governance
+        // template's founder and the vault's oracle are.
+        function operator(): rell.test.keypair =
+            rell.test.keypair(priv = admin_priv_key(), pub = main.bridge_operator_pubkey());
+
+        function by_operator(op: rell.test.op) {
+            rell.test.tx().op(op).nop().sign(operator()).run();
+        }
+
+        function by_operator_must_fail(op: rell.test.op, expected: text) {
+            rell.test.tx().op(op).nop().sign(operator()).run_must_fail(expected);
+        }
+
+        // A relayer is a KEY, not an account: it signs the transaction that carries the
+        // attestation and holds nothing on this chain. The keys are DERIVED here so no
+        // key material ships in the scaffold.
+        function hexbyte(i: integer): text {
+            val d = "0123456789abcdef";
+            return d.sub(i / 16, i / 16 + 1) + d.sub(i % 16, i % 16 + 1);
+        }
+
+        function relayer_keypair(i: integer): rell.test.keypair {
+            val priv = byte_array.from_hex("33333333333333333333333333333333333333333333333333333333333333" + hexbyte(i + 1));
+            return rell.test.keypair(priv = priv, pub = crypto.privkey_to_pubkey(priv, true));
+        }
+
+        function relayed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(op).nop().sign(keypair).run();
+        }
+
+        function relayed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        // The duplicate an entity KEY refuses is a database error, not a require() with
+        // a message of ours - which is the point of a guard that is structural.
+        function relayed_must_fail_any(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(op).nop().sign(keypair).run_must_fail();
+        }
+
+        // 32-byte rids built from a tag, so no long hex literal ships either.
+        function rid_of(tag: integer): byte_array {
+            var s = "";
+            var i = 0;
+            while (i < 32) {
+                s = s + hexbyte(tag);
+                i += 1;
+            }
+            return byte_array.from_hex(s);
+        }
+
+        function source_chain(): byte_array = rid_of(1);
+
+        function burn_tx(tag: integer): byte_array = rid_of(16 + tag);
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val DAY = 24 * 60 * 60 * 1000;
+
+        // Three keys, threshold two: enough that a third honest voice can be shown to
+        // mint nothing.
+        function open_the_bridge() {
+            by_operator(main.enrol_relayer(relayer_keypair(1).pub));
+            by_operator(main.enrol_relayer(relayer_keypair(2).pub));
+            by_operator(main.enrol_relayer(relayer_keypair(3).pub));
+            by_operator(main.close_relayer_set());
+        }
+
+        function attest(i: integer, tag: integer, recipient: byte_array, amount: integer) {
+            relayed(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount));
+        }
+
+        function mint_burn(tag: integer, recipient: byte_array, amount: integer) {
+            attest(1, tag, recipient, amount);
+            attest(2, tag, recipient, amount);
+        }
+
+        // THE INVARIANT A BRIDGE NEEDS, and the one round 14's build did not have: what
+        // was MINTED against what was ACCEPTED as burned elsewhere. A
+        // transfer-conservation test compares balances against a counter the minting
+        // operation raises itself and is structurally blind to a mint.
+        function assert_conserved() {
+            assert_equals(main.minted_total(), main.attested_burn_total());
+            assert_equals(main.units_in_circulation(), main.minted_total() - main.burned_total());
+            assert_equals(main.burned_total(), main.exited_total());
+        }
+
+        // EXPLOIT MUST FAIL. Round 14, drain one: the same burn attestation submitted
+        // ten times minted 10000 wrapped units against 1000 burned on the source chain,
+        // because nothing on this chain recorded which burns had already been paid.
+        // Here the burn's identity - (source chain, source tx, log index) - is a
+        // database KEY, one relayer's voice on it is another, and the counter equals
+        // the threshold in exactly one transaction, so the burn pays once.
+        function test_r14_one_burn_cannot_be_minted_twice_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            open_the_bridge();
+
+            // Two of the three relayers attest, and the second crosses the threshold.
+            attest(1, 1, alice.account.id, 1000);
+            attest(2, 1, alice.account.id, 1000);
+
+            // THE ATTACK: the same attestation again, ten times over, from either of
+            // the relayers that already gave it.
+            var i = 0;
+            while (i < 10) {
+                relayed_must_fail_any(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(1), 0, alice.account.id, 1000));
+                relayed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(1), 0, alice.account.id, 1000));
+                i += 1;
+            }
+            assert_equals(main.get_balance(alice.account.id), 1000);
+            assert_equals(main.minted_total(), 1000);
+
+            // And a THIRD honest relayer's attestation is welcome and mints nothing:
+            // the counter passes the threshold once and only once.
+            attest(3, 1, alice.account.id, 1000);
+            assert_equals(main.burn_attestations(source_chain(), burn_tx(1), 0), 3);
+            assert_equals(main.get_balance(alice.account.id), 1000);
+            assert_equals(main.minted_total(), 1000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 14, drain two: the same hole from the other side.
+        // The attestation carried a recipient and an amount and NOTHING tied them to
+        // the source transaction, so three attestations quoting one burn paid three
+        // accounts 1000, 5000 and 250000 - 256000 wrapped units against one burn. Here
+        // the first attestation opens the burn's row with what it pays, and the mint
+        // reads the ROW.
+        function test_r14_one_source_tx_cannot_pay_anyone_any_amount_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+
+            // The burn is opened for alice, for a thousand.
+            attest(1, 2, alice.account.id, 1000);
+
+            // THE ATTACK: the same source transaction, a different beneficiary and a
+            // different amount. Every one of them is refused, and refused BEFORE it can
+            // be counted towards the threshold.
+            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000),
+                "this burn was opened for a different recipient");
+            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, trudy.account.id, 250000),
+                "this burn was opened for a different recipient");
+            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 5000),
+                "this burn was opened for a different amount");
+            assert_equals(main.minted_total(), 0);
+
+            // The only thing that can be completed is the burn as it was opened.
+            attest(2, 2, alice.account.id, 1000);
+            assert_equals(main.get_balance(alice.account.id), 1000);
+            assert_equals(main.get_balance(bob.account.id), 0);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_equals(main.minted_total(), 1000);
+            assert_conserved();
+        }
+
+        // HAPPY PATH + CONSERVATION: a burn mints once, the units move, and an exit
+        // destroys them and leaves the record the source chain releases against.
+        function test_mint_transfer_and_exit_conserve_against_attested_burns() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            open_the_bridge();
+            assert_conserved();
+
+            mint_burn(3, alice.account.id, 1000);
+            assert_equals(main.get_balance(alice.account.id), 1000);
+            assert_equals(main.attested_burn_total(), 1000);
+            assert_conserved();
+
+            signed(alice.keypair, main.transfer(bob.account.id, 400));
+            assert_equals(main.get_balance(alice.account.id), 600);
+            assert_equals(main.get_balance(bob.account.id), 400);
+            assert_conserved();
+
+            signed(bob.keypair, main.burn_for_exit(400));
+            assert_equals(main.get_balance(bob.account.id), 0);
+            assert_equals(main.burned_total(), 400);
+            assert_equals(main.exited_total(), 400);
+            assert_equals(main.units_in_circulation(), 600);
+            assert_conserved();
+
+            // Nothing can leave that did not arrive.
+            signed_must_fail(bob.keypair, main.burn_for_exit(1), "insufficient balance");
+            signed_must_fail(bob.keypair, main.transfer(alice.account.id, 1), "insufficient balance");
+
+            // A DIFFERENT burn is a different row and pays on its own.
+            mint_burn(4, bob.account.id, 250);
+            assert_equals(main.get_balance(bob.account.id), 250);
+            assert_equals(main.minted_total(), 1250);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. A receiver can only ever owe what the source chain locked,
+        // so the mint is bounded twice - and the cost of a cap is that a burn waits,
+        // which is what the header's third residual says out loud.
+        function test_the_caps_bound_what_one_bridge_can_mint_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            open_the_bridge();
+
+            // The period cap, filled exactly.
+            mint_burn(5, alice.account.id, 100000);
+            assert_equals(main.minted_total(), 100000);
+
+            // The next burn is attested but cannot be paid until the period turns.
+            attest(1, 6, alice.account.id, 40000);
+            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(6), 0, alice.account.id, 40000),
+                "the bridge's mint cap for this period is reached");
+            assert_equals(main.minted_total(), 100000);
+            after(DAY);
+            attest(2, 6, alice.account.id, 40000);
+            assert_equals(main.minted_total(), 140000);
+            assert_conserved();
+
+            // The TOTAL cap is not a per-period one: waiting does not help.
+            attest(1, 7, alice.account.id, 20000);
+            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
+                "the bridge's total mint cap is reached");
+            after(DAY);
+            relayed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
+                "the bridge's total mint cap is reached");
+            assert_equals(main.minted_total(), 140000);
+            assert_equals(main.get_balance(alice.account.id), 140000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. The relayer set is CONFIGURATION: enrolled by the
+        // configured operator key, shut before anything may be attested, and never
+        // touched again. And one relayer is not a threshold however often it signs.
+        function test_the_relayer_set_is_configuration_not_an_input_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+
+            // Only the operator enrols, and only the operator closes.
+            relayed_must_fail(relayer_keypair(1), main.enrol_relayer(relayer_keypair(1).pub),
+                "the bridge operator must sign this");
+            relayed_must_fail(trudy.keypair, main.close_relayer_set(), "the bridge operator must sign this");
+            // ...and the operator cannot close a set that could never reach its own
+            // threshold.
+            by_operator_must_fail(main.close_relayer_set(), "fewer relayers than the threshold requires");
+            // Nothing may be attested while the set can still change.
+            by_operator(main.enrol_relayer(relayer_keypair(1).pub));
+            by_operator(main.enrol_relayer(relayer_keypair(2).pub));
+            relayed_must_fail(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
+                "the relayer set is not closed yet");
+            by_operator(main.close_relayer_set());
+            assert_true(main.relayer_set_is_closed());
+            assert_equals(main.relayer_count(), 2);
+
+            // A key nobody enrolled is not a relayer, however it signs...
+            relayed_must_fail(relayer_keypair(9), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
+                "a burn attestation must be signed by an enrolled relayer");
+            // ...and neither is an ordinary account of this chain.
+            relayed_must_fail(trudy.keypair, main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
+                "a burn attestation must be signed by an enrolled relayer");
+
+            // ONE RELAYER IS NOT THE THRESHOLD, and signing ten times does not make it
+            // one: the second attestation from the same key is refused by the key on
+            // the attestation row.
+            attest(1, 8, alice.account.id, 10);
+            var i = 0;
+            while (i < 10) {
+                relayed_must_fail_any(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10));
+                i += 1;
+            }
+            assert_equals(main.get_balance(alice.account.id), 0);
+            assert_equals(main.minted_total(), 0);
+            assert_equals(main.burn_attestations(source_chain(), burn_tx(8), 0), 1);
+
+            // The set is shut for good: the operator cannot widen it now, and the
+            // second relayer is the one that pays the burn.
+            by_operator_must_fail(main.enrol_relayer(relayer_keypair(9).pub), "the relayer set is closed");
+            by_operator_must_fail(main.close_relayer_set(), "the relayer set is already closed");
+            attest(2, 8, alice.account.id, 10);
+            assert_equals(main.get_balance(alice.account.id), 10);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
 
     fun notes(name: String): String {
         val chain = normalizeName(name)
@@ -256,6 +1035,22 @@ object DappScaffold {
             has its own template. If a MERCHANT collects from a payer period after period,
             that is recurring pull billing and it is template=subscription, which is a third
             class again: streaming is prepaid and a pull authorisation is not.
+            Building a BRIDGE - minting a wrapped unit on this chain when a burn is proved on
+            another one, and burning it again on the way out: start from template=bridge.
+            NOT template=ft4, which is where this ask used to go: adversary round 14 built a
+            receiver on that answer, carried every guard this server ships, passed
+            rell_security_check with zero findings, and lost ten times its backing because
+            nothing recorded WHICH BURNS HAD ALREADY BEEN PAID. Its two structural guards are
+            the ones a bridge gets wrong: the PROCESSED-BURNS REGISTRY is keyed by the burn's
+            identity on the source chain, so one burn has one row and a repeat is refused by
+            the database rather than by a check somebody has to remember; and THE ROW BINDS
+            WHAT THE BURN PAYS - recipient and amount are written once, by the attestation
+            that opens it, and the mint reads the ROW rather than the operation's arguments,
+            so a later attestation cannot substitute either. Read its last guard before you
+            copy any invariant: a TRANSFER-conservation test is structurally blind to a mint,
+            because it compares balances against a counter the minting operation raises
+            itself - it was exact at every step of round 14's 10x mint. A bridge's invariant
+            compares what was MINTED against the burns it ACCEPTED.
             Building an NFT marketplace, a listing/auction board, or anything with a buy button and
             creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
             to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
@@ -479,6 +1274,41 @@ object DappScaffold {
         val t = requested.lowercase()
         fun has(vararg keys: String) = keys.any { it in t }
         return when {
+            // AHEAD OF EVERYTHING, including the order-book branch: every realistic
+            // phrasing of a bridge ask names a token, an asset or a transfer, so
+            // "a cross-chain token bridge" used to be answered "Use `template=ft4`"
+            // with no warning at all - the route audit of 2026-09-03 recorded that,
+            // the TEMPLATE-GAPS row said this was the highest-severity class in the
+            // file, and round 14 drained the build that followed the answer.
+            has("bridge", "cross_chain", "crosschain", "cross chain", "cross-chain",
+                "wrapped", "relayer", "attestation", "burn_proof", "burn proof",
+                "mint on proof", "teleport", "canonical token") ->
+                "Use `template=bridge`: it is the template for this class, and this class is what " +
+                    "adversary round 14 drained WITH NO TEMPLATE AT ALL - from this very answer, " +
+                    "which used to send a bridge ask to `template=ft4` and say only that it ships " +
+                    "conservation tests to copy. The build that followed it carried EVERY guard " +
+                    "this server supplies - the relayer was ONE configured key like the vault's " +
+                    "oracle, every amount was bounded before it was added, the auth flags stayed " +
+                    "[\"T\"], and the ft4 conservation invariant was copied exactly as the notes " +
+                    "instruct - and rell_security_check returned ok:true with ZERO findings. It " +
+                    "lost ten times its backing anyway, because NOTHING RECORDED WHICH BURNS HAD " +
+                    "ALREADY BEEN PAID: source_tx was an operation parameter the module read only " +
+                    "to check that it was 32 bytes, so ONE burn of 1000 submitted ten times minted " +
+                    "10000, and three attestations quoting the SAME source transaction paid three " +
+                    "different accounts 1000, 5000 and 250000. The template makes both unwritable: " +
+                    "THE PROCESSED-BURNS REGISTRY IS KEYED BY THE BURN'S IDENTITY on the source " +
+                    "chain - (source_chain, source_tx, log_index) is a `key`, so a repeat is " +
+                    "refused by the database and there is no check to forget - and THE ROW BINDS " +
+                    "WHAT THE BURN PAYS, with recipient and amount written once by the attestation " +
+                    "that opens it and read from the ROW by the mint, so nothing in a later " +
+                    "attestation can be substituted. A relayer SET with a threshold replaces the " +
+                    "single key, one relayer counts once per burn, and the mint is capped per " +
+                    "period and in total. AND READ THE LAST GUARD BEFORE YOU COPY AN INVARIANT: a " +
+                    "TRANSFER-conservation test is structurally blind to a mint - it compares " +
+                    "balances against a counter the minting operation raises itself, and it was " +
+                    "exact at every step of the 10x mint - so the template's invariant compares " +
+                    "what was MINTED against the burns it ACCEPTED. Both round-14 drains ship as " +
+                    "must-fail tests with mutants."
             // FIRST, ahead of every other branch, and the ordering is load-bearing.
             // "exchange" lives in the amm word list, so an order-book ask used to land
             // on a constant-product template - closer than the `vault` it landed on
@@ -674,9 +1504,15 @@ object DappScaffold {
                     "`template=subscription`, a third one."
             has("token", "ft4", "asset", "coin", "transfer", "wallet", "payment") ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
-                    "non-owner-must-fail invariant tests to copy for your own economics."
+                    "non-owner-must-fail invariant tests to copy for your own economics. If what " +
+                    "you are building MINTS on proof of something that happened on ANOTHER chain " +
+                    "- a bridge, a wrapped asset, a cross-chain receiver - that is " +
+                    "`template=bridge`, a different exploit class with its own template: this " +
+                    "answer used to send it here, and round 14 drained the result for ten times " +
+                    "its backing while the conservation invariant it copied from HERE stayed " +
+                    "exact, because a TRANSFER-conservation test cannot see a mint."
             else ->
-                "No shipped template covers that name. The ten hardened ones are `governance` " +
+                "No shipped template covers that name. The eleven hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
                     "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
                     "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
@@ -689,7 +1525,10 @@ object DappScaffold {
                     "one monotone counter, and matching no caller can reorder) and " +
                     "`subscription` (RECURRING PULL BILLING: a merchant's whole claim is the " +
                     "escrow the payer funded, the fee accrues pro rata so nothing is billed in " +
-                    "advance, and either party may always cancel); " +
+                    "advance, and either party may always cancel) and " +
+                    "`bridge` (a one-way bridge RECEIVER and its exit: a processed-burns registry " +
+                    "keyed by the burn's identity on the source chain, a row that binds what the " +
+                    "burn pays, a relayer SET with a threshold, and caps); " +
                     "`ft4` is the plain token skeleton with " +
                     "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +

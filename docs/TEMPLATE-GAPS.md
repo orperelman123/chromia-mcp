@@ -24,6 +24,33 @@ agent proved nothing, because a disclaimer is not a guard.
 So a redirect is a **debt**, and this is the ledger. Ordered by what an agent is
 most likely to ask for next times how far the redirect target is from the ask.
 
+**Closed so far:** `bridge` / `cross-chain` / `wrapped` asset. That row was the
+top of this table and the highest-severity entry it has ever carried, and its own
+stated reason for being deprioritised was FALSE: the earlier text said bridge asks
+"fall to the `else` branch, which at least says plainly that nothing covers it",
+and the route audit of 2026-09-03 disproved it - every realistic phrasing names a
+token or an asset, so "a cross-chain token bridge" was answered "Use
+`template=ft4`: it ships the conservation ... invariant tests to copy for your own
+economics" with no warning at all. Round 14 built a receiver on that answer,
+carried every guard this server ships, drew ok:true with ZERO findings, and lost
+TEN TIMES its backing: nothing recorded which burns had already been paid, so one
+burn of 1000 submitted ten times minted 10000, and three attestations quoting one
+source transaction paid three accounts 1000, 5000 and 250000. The prose defect
+underneath both is the invariant the redirect handed over:
+`test_transfer_conserves_total_points` compares balances against a counter THE
+MINTING OPERATION RAISES ITSELF, so it was exact at every step of the 10x mint - a
+TRANSFER-conservation test is structurally blind to a mint. The `bridge` template
+makes all of it unwritable: the PROCESSED-BURNS REGISTRY is keyed by the burn's
+identity on the source chain, so a repeat is refused by the database rather than
+by a check somebody has to remember; the ROW BINDS WHAT THE BURN PAYS, with
+recipient and amount written once by the attestation that opens it and read from
+the row by the mint; one relayer counts once per burn; the counter EQUALS the
+threshold in exactly one transaction, so the mint happens once with no flag to
+forget; the relayer set is configuration, shut before anything may be attested;
+the mint is capped per period and in total; and the invariant compares what was
+MINTED against the burns it ACCEPTED. Both drains ship as must-fail tests, each
+with a mutant that reddens it because the attack lands.
+
 **Closed so far:** `subscription` / `allowance` / recurring PULL billing. That row
 was the top of this table and its answer was the drain: it sent the ask to
 `streaming`, which is PREPAID to one named beneficiary and every guard of which
@@ -76,9 +103,21 @@ paid 104 tokens for liquidating-then-settling where settling first paid 89, and
 at all. The round-9 and round-11 numbers ship as must-fail tests in both orders,
 and the redirect now names it ahead of `lending` (which claims "debt").
 
+**THE TABLE IS EMPTY.** For the first time since it was written, there is no ask
+in it that no template covers.
+
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| bridge / cross-chain | `ft4` (via `token`, `asset`, `transfer`) | everything - burn-proof authenticity, replay protection, destination-chain minting | **the earlier version of this row said bridge asks "fall to the `else` branch, which at least says plainly that nothing covers it". The route audit of 2026-09-03 disproved that: every realistic phrasing names a token or an asset, so "a cross-chain token bridge" is answered "Use `template=ft4`: it ships the conservation invariant tests" with no warning at all. Only the bare words reach `else`.** Highest severity if built; the ledger's own reason for deprioritising it was false |
+| _(none open)_ | - | - | - |
+
+That is not a claim that no class is missing. It is a claim that no class we have
+NAMED is missing, and naming is the part that has always lagged: every drain in
+this project landed in a class this file had either not thought of or had ranked
+below the one that got built - and the bridge row is the sharpest case, because it
+sat at the top for four rounds carrying a reason for its own deprioritisation that
+was not true. So the next drain is still predictable from the redirect map rather
+than from this table. When you find a class with no template, put it here FIRST,
+before you build anything.
 
 ## How to use this
 
