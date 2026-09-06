@@ -83,7 +83,7 @@ and the redirect now names it ahead of `lending` (which claims "debt").
 ## How to use this
 
 Take the top row that is not in flight. Build the template the way the other
-others are built - the exploit made **unwritable**, not merely detected
+twelve are built - the exploit made **unwritable**, not merely detected
 (GOAL.md principle 4), every guard carrying a mutant that reddens a shipped
 must-fail test *because the attack landed*, and the shape SHIPPED rather than
 described.
