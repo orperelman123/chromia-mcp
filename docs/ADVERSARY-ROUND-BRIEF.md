@@ -50,6 +50,18 @@ Not "fewer than last round". Coverage moving is not a pass.
    that also appears in the test module, an `attackLanded` fragment that
    matches an unrelated error, a test that fails for a second reason once the
    guard is gone, module_args that make every mutant fail alike.
+   **And a tool is attacked the round AFTER its fix**, at the input the fix
+   did not touch: round 11 hardened the search and the error, round 12 found
+   the substitution; round 12 hardened the substitution, round 13 found that
+   the error rule was a list of message sources (the guard's, then the
+   replacement's) with a next item (any OTHER production line, or
+   `module_args`). The rule is now structural - a refused transaction is
+   never the attack landing - so round 14 attacks the structure: an error
+   where the attack DID land but the chain's half still contains a production
+   literal or an `Operation '...' failed` from a LATER operation in the test;
+   a production literal short enough (under four characters) to slip the
+   filter, or one that also names the test's assertion; a test whose only
+   evidence of the attack is a query result rather than a transaction.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
