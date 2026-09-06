@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **Streamable HTTP, beside SSE, from the same server**: the MCP Kotlin SDK is
+  upgraded 0.7.7 -> 0.15.0 (ktor 3.5.1) and the `--sse` server (now also `--http`)
+  serves `POST/GET/DELETE /mcp` alongside the existing root SSE endpoints, with the
+  same bearer token, CORS rule, keepalive and `/health`. Streamable HTTP is the
+  transport the MCP spec moved to and the one every current client outside ChatGPT's
+  own docs speaks; SSE keeps working unchanged, so no client has to move.
+  `scripts/e2e-sweep.mjs --transport http|sse` runs the whole sweep over either, and
+  CI runs both against one server.
+- **`public` tool profile**: `CHROMIA_MCP_PROFILE=public` / `--profile public`
+  disables exactly the tools that act on the machine or use a key (`local_chain_up`,
+  `provision_testnet_container`, `claim_testnet_tchr`, `deploy_testnet_chain`) and
+  keeps everything else - the compiler loop, the docs tools, the explorer queries.
+  It exists because a ChatGPT connector URL without auth is callable by anyone who
+  has it. The set is pinned against a `touchesLocalMachine` marker that every tool
+  strategy must declare (abstract, undefaulted: a new strategy does not compile
+  until someone classifies it). The active profile is reported in `/health` and in
+  the MCP `serverInfo` title.
+- **DNS-rebinding protection on both HTTP transports**: requests whose `Host` is not
+  allowed are refused with 403 before any tool runs. Loopback and
+  `*.trycloudflare.com` are allowed by default (a quick tunnel's name is random and
+  cannot be listed in advance, which is why the SDK's exact-hostname list could not
+  be used); `CHROMIA_MCP_ALLOWED_HOSTS` adds a custom domain, `*` turns it off.
+  `/health` is exempt. The SSE endpoints had no `Host` validation at all before.
+- **`serve-public.ps1` / `.cmd`**: starts the server on `127.0.0.1` with the public
+  profile, verifies `/health` agrees, then opens a Cloudflare quick tunnel and prints
+  the public URL with the exact ChatGPT connector steps for `/mcp` and `/sse`.
+  `-NoTunnel` stops before publishing anything. README documents OpenAI's Secure MCP
+  Tunnel as the no-public-URL alternative.
+- **ChatGPT's `search`/`fetch` contract is pinned**: `ChatGptSearchFetchContractTest`
+  holds the exact wire shape OpenAI documents, in `structuredContent` and as the JSON
+  string in `content[0]`.
+
 - **Exploit corpus + coverage scoreboard**: the known exploit patterns and
   false positives from the adversarial audits now live permanently in
   `app/src/test/resources/exploit-corpus/` (30 minimal Rell samples with

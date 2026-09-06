@@ -19,8 +19,7 @@ import io.ktor.http.contentType
 import io.ktor.http.headersOf
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.mcpStreamableHttp
-import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequest
-import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequestParams
+import org.chromia.tools.readResourceRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import kotlinx.coroutines.runBlocking
@@ -90,7 +89,7 @@ class McpStreamableHttpSessionTest {
                 listed.resources.map { it.uri }.toSet()
             )
             val read = withTimeout(10_000) {
-                client.readResource(ReadResourceRequest(ReadResourceRequestParams(uri = McpResources.HEALTH_URI)))
+                client.readResource(readResourceRequest(uri = McpResources.HEALTH_URI))
             }
             val content = read.contents.single() as TextResourceContents
             assertEquals(App.healthJson(), content.text)

@@ -23,6 +23,8 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.server.*
 import io.ktor.server.request.path
+import io.ktor.server.request.httpMethod
+import io.ktor.server.response.header
 import io.ktor.server.application.pluginOrNull
 import io.modelcontextprotocol.kotlin.sdk.server.StreamableHttpServerTransport
 import kotlinx.coroutines.CoroutineScope
@@ -271,7 +273,7 @@ class App(
                 isError = true
             )
         return try {
-            with(connection) { registered.handler(request) }
+            registered.handler(connection, request)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -545,18 +547,37 @@ class App(
         installMcpJson()
         routing {
             route(path) {
+                // Two things ktor's `sse {}` cannot do from inside the handler,
+                // because it has already committed the response by then: answer a
+                // GET whose session does not exist with a status, and set the
+                // Mcp-Session-Id response header the spec asks for on the stream.
+                // Both belong before the handler. (The SDK's own DSL does the same.)
+                intercept(ApplicationCallPipeline.Plugins) {
+                    if (call.request.httpMethod == HttpMethod.Get) {
+                        val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
+                        val known = sessionId?.let { transports[it] } != null
+                        if (!known) {
+                            call.respondText(
+                                text = """{"error":"no such MCP session","header":"$MCP_SESSION_ID_HEADER"}""",
+                                contentType = ContentType.Application.Json,
+                                status = if (sessionId == null) HttpStatusCode.BadRequest else HttpStatusCode.NotFound
+                            )
+                            finish()
+                        } else {
+                            call.response.header(MCP_SESSION_ID_HEADER, sessionId!!)
+                        }
+                    }
+                }
                 post {
                     val transport = streamableTransport(transports, compact, disabled) ?: return@post
                     transport.handleRequest(null, call)
                 }
                 sse {
-                    val transport = transports[call.request.headers[MCP_SESSION_ID_HEADER]]
-                    if (transport == null) {
-                        // A GET without a live session cannot open a stream. Ending the
-                        // handler closes the (already committed) SSE response.
-                        logger.debug("Streamable HTTP GET without a known session id")
-                        return@sse
-                    }
+                    // The interceptor above guarantees a live session here.
+                    val sessionId = call.request.headers[MCP_SESSION_ID_HEADER]
+                        ?: error("the interceptor above rejects a GET without a session id")
+                    val transport = transports[sessionId]
+                        ?: error("the interceptor above rejects a GET whose session is unknown")
                     heartbeat {
                         period = heartbeatMillis.milliseconds
                         event = io.ktor.sse.ServerSentEvent(comments = "keepalive")

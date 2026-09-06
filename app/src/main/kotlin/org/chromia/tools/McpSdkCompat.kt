@@ -3,6 +3,8 @@ package org.chromia.tools
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.EmptyJsonObject
+import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequest
+import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonObject
 
@@ -37,3 +39,7 @@ val CallToolRequest.argumentsOrEmpty: JsonObject
  */
 val ToolSchema.propertiesOrEmpty: JsonObject
     get() = properties ?: EmptyJsonObject
+
+/** [ReadResourceRequest] from a bare uri, as 0.7.7's constructor took it. */
+fun readResourceRequest(uri: String): ReadResourceRequest =
+    ReadResourceRequest(ReadResourceRequestParams(uri = uri))

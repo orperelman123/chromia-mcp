@@ -205,8 +205,8 @@ class DisabledToolRefusalTest {
         val app = McpTestSupport.testApp()
         val server = app.createMcpServer(compact = compact, disabled = disabled)
         val serverTransport = StdioServerTransport(
-            inputStream = serverIn.asSource().buffered(),
-            outputStream = serverToClient.asSink().buffered()
+            input = serverIn.asSource().buffered(),
+            output = serverToClient.asSink().buffered()
         )
         val clientTransport = StdioClientTransport(
             input = clientIn.asSource().buffered(),

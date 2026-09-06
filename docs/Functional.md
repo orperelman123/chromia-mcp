@@ -34,6 +34,15 @@ RAG-powered documentation retrieval:
 - **Multi-Repository Support** - Searches across multiple Chromia documentation repositories
 - **Vector-Based Matching** - Uses embedding similarity to find relevant content
 
+### 4. Tool profiles
+
+The advertised tool set depends on the deployment, not only on the build:
+
+- `full` (default) — every tool this build implements.
+- `public` (`CHROMIA_MCP_PROFILE=public` / `--profile public`) — everything except the tools that act on the machine the server runs on or use a private key: `local_chain_up`, `provision_testnet_container`, `claim_testnet_tchr`, `deploy_testnet_chain`. Intended for a URL anyone can reach (a ChatGPT connector without auth). The compiler loop, the docs tools, the explorer queries, the deployment advisors and `get_prompts` all remain.
+
+A profile only ever ADDS to `CHROMIA_MCP_DISABLE_TOOLS`; it never re-enables a tool the operator disabled. Disabled tools are absent from `tools/list`, and calling one by name answers with a refusal that names the gate and a working alternative rather than "Tool not found". The active profile is reported in `/health` (`"profile"`) and in the MCP `serverInfo.title`.
+
 ## Primary User/System Flows
 
 ### Tool Execution Flow
@@ -292,6 +301,7 @@ This MCP is a query / RAG expert. It does not hold keys or submit signed transac
 
 ### ChatGPT `search` / `fetch` Tools
 
+- The contract OpenAI documents, pinned by `ChatGptSearchFetchContractTest`: `search` takes `{query}` and answers `{results:[{id,title,url}]}`; `fetch` takes the `id` `search` handed out and answers `{id,title,text,url}` (`metadata` optional, not emitted here). Both answers appear BOTH as `structuredContent` and as a JSON string in `content[0]`, because clients read one or the other.
 - `search` and `fetch` use the same RAG store as `fetch_docs` (ChatGPT-compatible id/title/url and document payloads)
 - `search` is fuzzy/semantic. `fetch` is exact id match against the loaded store (stable SHA-256 of source + chunk index + text; works across restarts). A miss is not-found + `isError`.
 - `fetch_docs` remains the primary documentation tool

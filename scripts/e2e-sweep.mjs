@@ -12,18 +12,93 @@
 // signature allowlist, and the guardrails near the summary at the bottom
 // (all-warn is a FAIL; more than SWEEP_MAX_UPSTREAM_WARNS warnings is a FAIL;
 // non-network checks never warn).
-//   node scripts/e2e-sweep.mjs                          (a local SSE server on 127.0.0.1:3001)
+//   node scripts/e2e-sweep.mjs                          (a local server on 127.0.0.1:3001, SSE transport)
 //   node scripts/e2e-sweep.mjs http://127.0.0.1:3010
+//   node scripts/e2e-sweep.mjs http://127.0.0.1:3010 --transport http   (Streamable HTTP at /mcp)
 // The hosted Render target this used to default to was retired 2026-09-05.
+//
+// --transport picks the wire, not the checks: every check below runs unchanged
+// over whichever transport is selected, because both must serve the identical
+// tool surface from the same process. Run it twice (sse, then http) to prove
+// they do - CI does exactly that.
 import { upstreamSignature, UpstreamError, probeExplorerCanary, registerUpstreamSignature } from './upstream-classifier.mjs';
-const BASE = process.argv[2] || 'http://127.0.0.1:3001';
-console.log('TARGET:', BASE);
+const argv = process.argv.slice(2);
+const transportArg = (() => {
+  const i = argv.findIndex(a => a === '--transport' || a.startsWith('--transport='));
+  if (i < 0) return 'sse';
+  const v = argv[i].includes('=') ? argv[i].split('=')[1] : argv[i + 1];
+  if (!['sse', 'http'].includes(v)) { console.error(`unknown --transport ${v} (expected sse or http)`); process.exit(2); }
+  argv.splice(i, argv[i].includes('=') ? 1 : 2);
+  return v;
+})();
+const TRANSPORT = transportArg;
+const BASE = argv[0] || 'http://127.0.0.1:3001';
+/** Streamable HTTP endpoint; the SSE transport uses BASE itself. */
+const MCP_URL = `${BASE.replace(/\/$/, '')}/mcp`;
+console.log('TARGET:', BASE, `(transport: ${TRANSPORT}${TRANSPORT === 'http' ? ` -> ${MCP_URL}` : ''})`);
 
-// --- Reconnectable MCP-over-SSE session. A dropped stream (server hiccup,
+let nextId = 1;
+
+// --- Reconnectable MCP session (SSE or Streamable HTTP). A dropped stream (server hiccup,
 // flaky third-party hop) must cost at most one retried check, never cascade
 // timeouts through the rest of the sweep. ---
 let session = null;
 async function openSession() {
+  return TRANSPORT === 'http' ? openStreamableHttpSession() : openSseSession();
+}
+
+/**
+ * Streamable HTTP session: one POST /mcp mints an Mcp-Session-Id and every later
+ * POST echoes it. The server runs with enableJsonResponse, so a request/response
+ * pair comes back as a plain JSON body - no stream to hold open, which is why
+ * this session has nothing to abort and no endpoint event to wait for.
+ */
+async function openStreamableHttpSession() {
+  const s = { controller: { abort() {} }, pending: new Map(), sessionId: null, msgUrl: MCP_URL };
+  session = s;
+  const init = await httpRpc(s, 'initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'e2e-sweep', version: '1' },
+  });
+  if (!s.sessionId) throw new Error('no mcp-session-id on the initialize response');
+  if (init?.error) throw new Error(`initialize failed: ${JSON.stringify(init.error)}`);
+  await httpSend(s, { jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+}
+
+async function httpSend(s, body, t = 90000) {
+  const headers = {
+    'content-type': 'application/json',
+    // The transport rejects a POST that does not accept BOTH.
+    accept: 'application/json, text/event-stream',
+  };
+  if (s.sessionId) headers['mcp-session-id'] = s.sessionId;
+  let res;
+  try {
+    res = await fetch(MCP_URL, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(t) });
+  } catch (e) {
+    // Match the SSE path's retryable vocabulary so check() reconnects and retries.
+    throw new Error(e.name === 'TimeoutError' ? 'timeout' : `fetch failed: ${e.message}`);
+  }
+  const minted = res.headers.get('mcp-session-id');
+  if (minted) s.sessionId = minted;
+  if (res.status === 202) return null; // notification acknowledged
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+  if (!text) return null;
+  // enableJsonResponse gives us JSON; tolerate an SSE framing anyway.
+  const payload = (res.headers.get('content-type') || '').includes('text/event-stream')
+    ? text.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('')
+    : text;
+  const parsed = JSON.parse(payload);
+  return Array.isArray(parsed) ? parsed[0] : parsed;
+}
+
+async function httpRpc(s, method, params, t = 90000) {
+  return httpSend(s, { jsonrpc: '2.0', id: nextId++, method, params }, t);
+}
+
+async function openSseSession() {
   if (session) { try { session.controller.abort(); } catch {} }
   const controller = new AbortController();
   const s = { controller, pending: new Map(), msgUrl: null };
@@ -50,9 +125,9 @@ async function openSession() {
   await fetch(s.msgUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) });
 }
 
-let nextId = 1;
 async function rpc(method, params, t = 90000) {
   const s = session;
+  if (TRANSPORT === 'http') return httpRpc(s, method, params, t);
   const id = nextId++;
   const p = new Promise((res, rej) => { const h = setTimeout(() => { s.pending.delete(id); rej(new Error('timeout')); }, t); s.pending.set(id, m => { clearTimeout(h); res(m); }); });
   p.catch(() => {}); // avoid unhandled rejection if the timeout fires while the POST below is in flight

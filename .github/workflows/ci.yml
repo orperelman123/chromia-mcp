@@ -161,7 +161,12 @@ jobs:
               sleep 2
             done
             curl -sf http://127.0.0.1:3001/health || rc=$?
-            if [ "$rc" -eq 0 ]; then node scripts/e2e-sweep.mjs http://127.0.0.1:3001 || rc=$?; fi
+            # The SAME sweep over BOTH HTTP transports of the SAME server. They
+            # must serve an identical tool surface; running one and assuming the
+            # other is how a client that picked the newer endpoint would have
+            # discovered a difference in production instead of here.
+            if [ "$rc" -eq 0 ]; then node scripts/e2e-sweep.mjs http://127.0.0.1:3001 --transport sse || rc=$?; fi
+            if [ "$rc" -eq 0 ]; then node scripts/e2e-sweep.mjs http://127.0.0.1:3001 --transport http || rc=$?; fi
             if [ "$rc" -eq 0 ]; then node scripts/synthetic-agent.mjs http://127.0.0.1:3001 || rc=$?; fi
             # Always reap the server so a retry starts clean on a freed port.
             kill "$server_pid" 2>/dev/null || true
@@ -181,6 +186,23 @@ jobs:
             sleep 30
             run_e2e
           fi
+
+      # serve-local.ps1 / serve-public.ps1 are the two supported launchers and they
+      # are not covered by the Kotlin suite. A parse check is what this runner can
+      # honestly do: it catches the class of breakage that actually happens to them
+      # (a bad edit that only fails when a user double-clicks the .cmd). The real
+      # -NoTunnel run is a Windows step; starting an actual tunnel is never CI's call.
+      - name: PowerShell launchers parse
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($f in @('serve-local.ps1', 'serve-public.ps1')) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count) { $failed = $true; Write-Host "::error::$f : $($errors | ForEach-Object { $_.Message })" }
+            else { Write-Host "$f parses" }
+          }
+          if ($failed) { exit 1 }
 
       - name: Stdio transport smoke (the Claude Code surface + npm launcher)
         env:
