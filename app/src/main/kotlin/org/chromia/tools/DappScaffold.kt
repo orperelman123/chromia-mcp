@@ -4989,9 +4989,10 @@ object DappScaffold {
         //                     also set_price (the oracle keeps posting, bounded and rate
         //                     limited), register_account (which mints WELCOME_TOKENS of
         //                     COLLATERAL to a newcomer and no coin) and settle() itself,
-        //                     which is how the window is ever closed. Round 16 corrected
-        //                     "the only operations that still run are the two" here: five
-        //                     run, and the claim that matters is the narrower one below. Round 15 measured the
+        //                     which is how the window is ever closed. This paragraph used
+        //                     to name only the first two and call them the only ones that
+        //                     run; round 16 counted five. The claim that matters is the
+        //                     narrower one below, and it is the one that is true. Round 15 measured the
         //                     sentence that used to stand here, "the two that RAISE the
         //                     system's backing", and it is FALSE of burn_stable: a debtor
         //                     who retires her LAST unit of debt stops backing the coin, so
@@ -5253,8 +5254,8 @@ object DappScaffold {
         // touch a position are the ones that CANNOT MOVE A TOKEN OUT OF THE RESERVE,
         // deposit_collateral and burn_stable; set_price, register_account and settle()
         // itself run too, and none of them takes a token out either. Round 16: this
-        // comment used to say those two were "the only two operations that run", and
-        // five do. NOT "the two that raise the system's backing" - that is what
+        // comment used to name the first two and call them the only ones that run, and
+        // it is five. NOT "the two that raise the system's backing" - that is what
         // this comment used to say and round 15 measured it false, because a FULL par exit
         // retires the debtor's last unit of debt and her collateral stops backing the coin
         // in the same block (99.3% -> 72.0% at 48.00). The ratio can fall here. What
@@ -8428,10 +8429,11 @@ object DappScaffold {
         //   BOTH LEGS IN ONE SETTLEMENT - the taker's leg is taken in the very operation
         //     that delivers the maker's, so a SETTLEMENT never happens half-way: one
         //     transaction debits and credits both sides or neither of them moves. That is
-        //     the whole of what this guard says, and round 16 deleted the absolute that
-        //     used to stand beside it ("there is never a block in which one party has
-        //     parted with value and the other has not"), because it was false for the
-        //     whole window and the template's own GREEN test asserted the counterexample.
+        //     the whole of what this guard says, and round 16 DELETED the absolute that
+        //     used to close this paragraph - it claimed no block could exist with one
+        //     party's value gone and the other's untouched - because that was false for
+        //     the whole window, and the template's own GREEN test asserted the
+        //     counterexample while staying green.
         //     WHAT IS ACTUALLY TRUE, and it is asymmetric on purpose: only the MAKER'S
         //     leg is escrowed. From the block a swap opens until it settles, is cancelled
         //     or expires, exactly ONE party has parted with value - the maker, whose
