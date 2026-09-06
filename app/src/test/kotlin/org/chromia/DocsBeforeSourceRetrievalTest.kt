@@ -106,6 +106,51 @@ class DocsBeforeSourceRetrievalTest {
         )
     }
 
+    /**
+     * `val BIG_INTEGER: Rt_ValueClass<*>` in the compiler's rt_primitive_types.kt
+     * matched the case-insensitive definition regex for `big_integer` and beat
+     * the page that explains Rell big_integer arithmetic (audit F15, question 5).
+     * A host-language source cannot claim the definition boost.
+     */
+    @Test
+    fun aCasingCoincidenceInKotlinIsNotADefinition() {
+        val kotlinConstant = TextSegment.from(
+            "    val BIG_INTEGER: Rt_ValueClass<*> = Rt_BigIntegerValue",
+            Metadata.from("file_name", "rt_primitive_types.kt")
+        )
+        val page = TextSegment.from(
+            "Rell big_integer is an arbitrary-precision integer; division truncates toward zero.",
+            Metadata.from("file_name", "simple-types.md")
+        )
+        val fixture = dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<TextSegment>().also {
+            it.add(dev.langchain4j.data.embedding.Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), kotlinConstant)
+            it.add(dev.langchain4j.data.embedding.Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), page)
+        }
+        val store = RagStore(loadFromRegistry = false, initialStore = fixture)
+        assertEquals(
+            "simple-types.md",
+            store.lexicalHits("big_integer arithmetic").first().metadata().getString("file_name")
+        )
+        // A Rell definition still wins - that is round 10, and it is not a host source.
+        val rellDefinition = TextSegment.from(
+            "function require_mandatory_flags(auth_descriptor) { val flags = get_flags(auth_descriptor); }",
+            Metadata.from("file_name", "module.rell")
+        )
+        val prose = TextSegment.from(
+            "Auth descriptors carry flags; require_mandatory_flags is mentioned here and here: require_mandatory_flags.",
+            Metadata.from("file_name", "auth-descriptors.md")
+        )
+        val fixture2 = dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<TextSegment>().also {
+            it.add(dev.langchain4j.data.embedding.Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), prose)
+            it.add(dev.langchain4j.data.embedding.Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), rellDefinition)
+        }
+        assertEquals(
+            "module.rell",
+            RagStore(loadFromRegistry = false, initialStore = fixture2)
+                .lexicalHits("require_mandatory_flags").first().metadata().getString("file_name")
+        )
+    }
+
     // ---- the audit's ten questions -----------------------------------------
 
     @Test

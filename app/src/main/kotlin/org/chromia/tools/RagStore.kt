@@ -167,6 +167,8 @@ open class RagStore(
         const val MAX_HITS = 15
         /** Exact-identifier hits kept per identifier token in the query. */
         const val LEXICAL_HITS_PER_TOKEN = 3
+        /** [segmentTier] of a host-language source (kt, ts, js, py, java). */
+        const val HOST_SOURCE_TIER = 4
         /**
          * Identifier tokens scanned per query, first-mentioned first. Each token
          * is one pass over every segment; a pasted stack trace carried 40+ names
@@ -745,7 +747,16 @@ open class RagStore(
                 .filter { it.lowerText.contains(matcher.lower) }
                 .map { entry ->
                     val text = entry.segment.text()
-                    Triple(entry.segment, matcher.definesIn(text), matcher.mentions(text))
+                    // A "definition" in a HOST-LANGUAGE source is usually a
+                    // coincidence of casing: `val BIG_INTEGER: Rt_ValueClass<*>`
+                    // in the compiler's rt_primitive_types.kt matched the
+                    // case-insensitive definition regex for `big_integer` and
+                    // outranked the page that explains Rell big_integer
+                    // arithmetic (audit F15, question 5). Only a docs page, a
+                    // release note, a Rell file or a config file can DEFINE a
+                    // name for the purposes of this boost.
+                    val defines = matcher.definesIn(text) && segmentTier(entry.segment) < HOST_SOURCE_TIER
+                    Triple(entry.segment, defines, matcher.mentions(text))
                 }
                 // A DEFINITION site first - round 10, the reason this hybrid
                 // exists. Among the rest, the kind of file decides before the

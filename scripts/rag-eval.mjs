@@ -8,7 +8,7 @@
 // that shrank below --min-segments (a half-failed ingest), is not published.
 //
 //   node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar \
-//        --embeddings app/build/embeddings.json [--min-pass 39] [--min-segments 20000]
+//        --embeddings app/build/embeddings.json [--min-pass 39] [--min-segments 18000]
 //
 // --production-shaped: boot the way every fresh install does - NO local
 // embeddings.json (the path points at nothing), NO cached copy in
@@ -40,7 +40,10 @@ const embeddings = productionShaped
   ? join(tmpdir(), `chromia-mcp-no-local-index-${process.pid}`, 'embeddings.json') // does not exist, by design
   : resolve(args.embeddings ?? 'app/build/embeddings.json');
 const expectOrigin = new RegExp(args['expect-origin'] ?? 'GitHub release asset', 'i');
-const minSegments = Number(args['min-segments'] ?? 20000);
+// 18,000, not 20,000: audit F15 took the compiler's *.kt TEST sources out of the
+// corpus (IngestPathFilter), which is why a healthy full ingest is now 19,281
+// segments and not 25,823. The floor still catches a half-failed fetch.
+const minSegments = Number(args['min-segments'] ?? 18000);
 
 // [question, substrings/regexes a correct answer must contain (all of them, case-insensitive)]
 // Round 10 (2026-09-04) set: the misses that motivated hybrid retrieval and the
