@@ -3367,7 +3367,7 @@ object McpTools {
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                            "description" to JsonPrimitive("Rell sources as a map of relative path -> source, e.g. {\\"src/main.rell\\": \\"module; ...\\"}. This is the canonical name for Rell sources on every code-taking tool here; `rell` and `source` are accepted as aliases with no warning. A single source string is accepted too (filed as main.rell).")
+                            "description" to JsonPrimitive("Rell sources as a map of relative path -> source, e.g. {\"src/main.rell\": \"module; ...\"}. This is the canonical name for Rell sources on every code-taking tool here; `rell` and `source` are accepted as aliases with no warning. A single source string is accepted too (filed as main.rell).")
                         )
                     ),
 
