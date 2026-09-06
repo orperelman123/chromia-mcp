@@ -5244,8 +5244,10 @@ object DappScaffold {
         //                   so a fill that lands after a reprice aborts on "no such order"
         //                   instead of trading at a moved price. This is the marketplace's
         //                   immutable listing and its immutable auction bid, in a book.
-        //   ONE MUTABLE   - the one mutable field is `filled`, and it only ever goes up.
-        //     COUNTER,      A PARTIAL FILL WRITES THAT COUNTER AND NOTHING ELSE, so the
+        //   ONE MUTABLE   - the only field a FILL writes is `filled`, and it only ever
+        //     COUNTER,      goes up. (The row's other mutable field, `cancelled`, is
+        //     MONOTONE      written by the MAKER alone and only ever goes true.)
+        //                   A PARTIAL FILL WRITES THAT COUNTER AND NOTHING ELSE, so the
         //     MONOTONE      maker's clock, price and size survive every fill: the order is
         //                   never deleted and re-created. Round 12's drain was exactly that
         //                   recreate - measured, a taker who bought ONE unit every 59
@@ -5280,18 +5282,74 @@ object DappScaffold {
         //   NO SELF       - the matcher skips a taker's own orders, so nobody trades with
         //     DEALING       themselves and no fill can be manufactured between two rows one
         //                   account controls.
-        //   RESTED        - a maker may withdraw an order only MIN_RESTING_MS after they
-        //     CANCEL        placed it, measured from the created_at NOTHING writes twice.
-        //                   "An order that can be pulled in the block it would have been
-        //                   filled in is not a commitment at all" - and the clock that
-        //                   enforces it is the maker's own, not one a stranger can restart.
-        //   BOUNDED BOOK  - the matcher SELECTS the orders that cross: side, price and the
-        //                   taker's own id are where-clause terms, served by
-        //                   `index is_buy, price`, so an order that does not cross this
-        //                   limit costs a place_order nothing. And a trader may stand at
-        //                   most MAX_RESTING_ORDERS quotes at once, so the book is bounded
-        //                   by the traders in it rather than by what one welcome grant can
-        //                   buy. Round 13 measured the unfiltered, unbounded version:
+        //   COMMITTED     - MIN_RESTING_MS binds the ESCROW, not the row. A maker may take
+        //     CAPITAL,      a quote off the market in any block - cancel_order marks it
+        //     NOT A         cancelled and the matcher stops seeing it that instant - but the
+        //     COMMITTED     points or units behind it come back only MIN_RESTING_MS after
+        //     QUOTE         the order was PLACED, measured from the created_at nothing
+        //                   writes twice, through withdraw_escrow. So posting a quote
+        //                   commits capital for an hour whatever happens to the quote, and
+        //                   no second account can shorten that.
+        //                   THIS TEMPLATE USED TO REFUSE THE CANCEL ITSELF, and round 14
+        //                   measured what that bought: `.maker != taker` refuses self-
+        //                   dealing per ACCOUNT and register_trader() is open to every FT4
+        //                   account, so a maker with two keys removed a resting order IN
+        //                   THE BLOCK SHE PLACED IT by crossing it from the other one - no
+        //                   cancel, no clock, and the value back in the other asset. Priced
+        //                   against the maker who cannot do it: the same stale bid for 50
+        //                   units at 50 into a market that had moved to 40 cost the
+        //                   one-account maker 500 POINTS and the two-key maker NOTHING. A
+        //                   rule that binds only the honest is worse than no rule
+        //                   (principle 3), and no rule can tell one household's two keys
+        //                   from two traders, so what is bound is the thing a second key
+        //                   cannot reach: the capital.
+        //                   THE COST, STATED: A QUOTE IS NOT FIRM. A taker who sees a
+        //                   resting order may find it cancelled in the block their own
+        //                   transaction lands, and this template does not pretend
+        //                   otherwise. What it guarantees is that quoting is never free -
+        //                   every live or cancelled row holds its escrow for the hour and
+        //                   counts against MAX_RESTING_ORDERS until it is withdrawn.
+        //                   AND THE RESIDUAL, MEASURED: a two-key maker who self-crosses
+        //                   still gets the capital back in the SAME BLOCK, because a fill
+        //                   pays the taker at once, where the one-account maker who cancels
+        //                   waits MIN_RESTING_MS for it. That is an hour of liquidity on
+        //                   the escrow and nothing more - the 500 points is gone.
+        //   BOUNDED BOOK  - the matcher SELECTS the orders that cross rather than reading
+        //                   the book: `.is_buy` and `.price` are the terms the index
+        //                   `is_buy, price` serves, so the runner seeks straight to the
+        //                   crossing side of the crossing price range. The other terms in
+        //                   the same where-clause - `.maker != taker`, `.qty > .filled` and
+        //                   `.cancelled == false` - are NOT served by that index; they are
+        //                   filters the runner applies to the rows it already found, which
+        //                   is cheap because the index has already cut the book down to
+        //                   what crosses. Say it that way round when you extend this: an
+        //                   order that does not cross the taker's limit costs a place_order
+        //                   nothing, and one that does costs a row's worth of filtering.
+        //                   AND THE BOOK IS BOUNDED BY WHAT AN ATTACKER PAYS FOR. A resting
+        //                   order must be worth MIN_NOTIONAL - price * qty - and a trader
+        //                   may stand at most MAX_RESTING_ORDERS quotes at once. The cap
+        //                   alone is not a bound and this header used to say it was ("the
+        //                   book is bounded by the traders in it rather than by what one
+        //                   welcome grant can buy"): a trader is a FREE FT4 REGISTRATION
+        //                   that mints a fresh welcome grant, so the cap bounds rows per
+        //                   registration and registrations are free. Round 14 measured the
+        //                   half round 13's where-clause did not close: dust priced AT THE
+        //                   MARKET crosses every taker's limit, is walked by every one of
+        //                   them, and costs its author nothing, because a unit sold at the
+        //                   market price is a unit sold at the market price. The same ten
+        //                   one-unit trades between two honest traders took 2.8 seconds
+        //                   behind an empty book and 16.6 SECONDS behind 100 one-unit sells
+        //                   at the market standing on FIVE free registrations, and at 200
+        //                   rows the run sat on the runner's 90-second cap. MIN_NOTIONAL is
+        //                   what makes those rows cost something: at a market of 20 a
+        //                   welcome grant of 100 units is 2000 of notional, so it buys TWO
+        //                   crossing rows and not twenty, and a hundred of them needs fifty
+        //                   funded accounts offering 5000 units of real inventory at the
+        //                   market - which is a market and not a denial of service. Size
+        //                   MIN_NOTIONAL against what a grant (or, in production, the
+        //                   cheapest funded account) can hold: the bound is
+        //                   holdings * price / MIN_NOTIONAL rows per account.
+        //                   Round 13 measured the unfiltered, unbounded version:
         //                   best_resting was `for (o in order @* {})` - the whole table,
         //                   filtered in Rell afterwards - so the header's own advice,
         //                   "index price and side", could not be followed, because a select
@@ -5302,23 +5360,30 @@ object DappScaffold {
         //                   cap behind 400. Nothing was stolen: the venue stopped working,
         //                   the dust cost one point of escrow a row out of the 10000-point
         //                   welcome grant register_trader mints to every new account, and
-        //                   the maker simply never cancelled. THE COST OF THE CAP, stated
-        //                   because a defence's price belongs in this list: a market maker
-        //                   who wants more than MAX_RESTING_ORDERS live quotes must cancel
-        //                   one to post one, or trade from more than one account - and a
-        //                   cancel is refused for MIN_RESTING_MS, so the two constants have
-        //                   to be sized together.
+        //                   the maker simply never cancelled. THE COST OF THE CAP AND THE
+        //                   FLOOR, stated because a defence's price belongs in this list: a
+        //                   market maker who wants more than MAX_RESTING_ORDERS live quotes
+        //                   must withdraw one to post one, and a cancelled row keeps its
+        //                   slot until its escrow has rested, so the two constants have to
+        //                   be sized together. MIN_NOTIONAL is a floor on ORDER SIZE, so a
+        //                   venue for small parcels wants it small and then wants the
+        //                   welcome grant small too - the ratio between them is the bound,
+        //                   not either number.
         //   PAIRED        - every fill debits one side and credits the other in the same
         //     SETTLEMENT    operation, and nothing creates a point or a unit after the
         //                   one-time welcome grant. The conservation queries sum balances
         //                   AND order escrow, which is the marketplace's seam 3.
         // What no template can fix, and this header will not pretend otherwise:
-        //   - A RESTING ORDER IS A FREE OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS.
-        //     The cancel delay is what makes the quote a commitment, and the price of a
-        //     commitment is that a price move inside that hour picks the maker off. Size
-        //     MIN_RESTING_MS against how fast your asset moves; it is a constant here, and
-        //     if you make it a parameter, floor it - a maker who chooses zero has posted
-        //     nothing.
+        //   - A RESTING ORDER IS A FREE OPTION WRITTEN TO THE MARKET UNTIL ITS MAKER
+        //     PULLS IT, and pulling it is a transaction like any other: a maker who is not
+        //     watching is picked off by a price move, and a taker who is not first is
+        //     front-run by the cancel. This template does NOT claim a resting quote is
+        //     firm - round 14 measured the version that did, where MIN_RESTING_MS bound
+        //     only a maker with ONE account (500 points against nothing) - and MIN_RESTING_MS
+        //     is a floor on how long the CAPITAL is committed, which is the part a second
+        //     key cannot escape. Size it against how fast your asset moves; it is a
+        //     constant here, and if you make it a parameter, floor it - a maker who chooses
+        //     zero has committed nothing.
         //   - A TRADER WHO POSTS BOTH SIDES OF A CROSSING MARKET ARBITRAGES THEMSELVES.
         //     Self-dealing is refused, so their own two orders sit locked until somebody
         //     else takes them, and that somebody takes both. It is their own money and the
@@ -5337,18 +5402,24 @@ object DappScaffold {
             mutable units: integer = 0;    // the base asset
         }
 
-        // A RESTING ORDER. Everything a maker is bound by is immutable: `filled` is the
-        // only field any operation writes after the row exists, and it only goes up.
+        // A RESTING ORDER. Everything a maker is bound by is immutable, and the two
+        // mutable fields are one-way: `filled` only goes up, and `cancelled` only goes
+        // true. Neither is a clock and neither can be written by a counterparty.
         entity order {
             key id: integer;
             index maker: byte_array;
             is_buy: boolean;
             price: integer;              // points per unit - never changes
             qty: integer;                // the size committed - never changes
-            created_at: timestamp;       // the maker's cancel clock - written ONCE
+            created_at: timestamp;       // the ESCROW's clock - written ONCE
             mutable filled: integer = 0; // monotone, and always < qty while the row lives
-            // What the matcher's where-clause needs: a taker asks for one side at one
-            // limit, so the runner can answer from this instead of reading the book.
+            // The maker has taken the quote off the market. The matcher stops seeing it in
+            // the same block; the escrow behind it stays committed until created_at +
+            // MIN_RESTING_MS, and the row keeps its MAX_RESTING_ORDERS slot until then.
+            mutable cancelled: boolean = false;
+            // What the matcher's where-clause needs INDEXED: a taker asks for one side at
+            // one limit, so the runner seeks to the crossing rows instead of reading the
+            // book. The rest of the where-clause is filtering, not seeking.
             index is_buy, price;
         }
 
@@ -5360,9 +5431,17 @@ object DappScaffold {
         val WELCOME_UNITS = 100;
         val MAX_PRICE = 1000000;
         val MAX_QTY = 1000000;
-        // A resting order is a commitment: a maker may withdraw it only after it has
-        // stood for an hour. A constant, never a parameter.
+        // THE ESCROW'S CLOCK. A quote may be pulled in any block, but the capital behind
+        // it comes back only an hour after the order was PLACED - so quoting is never free
+        // and a second account cannot shorten it. A constant, never a parameter.
         val MIN_RESTING_MS = 60 * 60 * 1000;
+        // THE SMALLEST RESTING ORDER, in points of notional (price * qty). This is what
+        // bounds the book by something an attacker pays for: MAX_RESTING_ORDERS bounds
+        // rows PER TRADER and a trader is a free FT4 registration, so before round 14 the
+        // book was bounded by registrations - and dust priced AT THE MARKET crosses every
+        // taker's limit and costs its author nothing. It applies to what RESTS, never to a
+        // taker's own order: a one-unit trade against a real quote is still a trade.
+        val MIN_NOTIONAL = 1000;
         // A BOUNDED BOOK: the most quotes one trader may have standing at once. Rows are
         // permanent until their maker cancels them, and nothing else limits how many a
         // trader creates - round 13 filled the book with 1-point bids nobody would ever
@@ -5406,9 +5485,9 @@ object DappScaffold {
         // anything matched - see BOUNDED BOOK in the header.
         function best_resting(want_buy: boolean, limit_price: integer, taker: byte_array): order? {
             val side = if (want_buy)
-                order @* { .is_buy == want_buy, .price >= limit_price, .maker != taker, .qty > .filled }
+                order @* { .is_buy == want_buy, .price >= limit_price, .maker != taker, .qty > .filled, .cancelled == false }
             else
-                order @* { .is_buy == want_buy, .price <= limit_price, .maker != taker, .qty > .filled };
+                order @* { .is_buy == want_buy, .price <= limit_price, .maker != taker, .qty > .filled, .cancelled == false };
             if (side.size() == 0) return null;
             var best = side[0];
             for (o in side) {
@@ -5476,8 +5555,14 @@ object DappScaffold {
             // 5. REST what is left, escrowed in the same operation that creates the row.
             if (left > 0) {
                 val me = trader_of(account.id);
-                // A BOUNDED BOOK. A resting row is permanent until its maker cancels it,
-                // and round 13 bought 10000 of them with one free registration.
+                // A BOOK BOUNDED BY WHAT IT COSTS TO FILL. The row must be worth
+                // MIN_NOTIONAL - round 14 measured one-unit rows AT THE MARKET PRICE
+                // crossing every taker's limit at no cost to their author, five free
+                // registrations paying for a hundred of them and a 5.9x tax on ten honest
+                // trades. This is on the REMAINDER, so a taker's small order still trades.
+                require(price * left >= MIN_NOTIONAL, "order notional too small");
+                // ...and a trader may stand only so many at once. A cancelled row keeps its
+                // slot until its escrow has rested: the slot is the capital, not the quote.
                 require(
                     (order @* { .maker == account.id } ( .id )).size() < MAX_RESTING_ORDERS,
                     "too many resting orders"
@@ -5502,16 +5587,33 @@ object DappScaffold {
             }
         }
 
-        // Withdraw a resting order and take the escrow back - but only once it has been a
-        // commitment for MIN_RESTING_MS, measured from the created_at written when the
-        // maker placed it. No fill touches that field, so no stranger can push this out.
+        // TAKE THE QUOTE OFF THE MARKET, in this block. The matcher stops seeing the row
+        // the instant this lands, so no later fill can touch it - but the escrow behind it
+        // does NOT come back here. Round 14 measured the version that refused this call for
+        // MIN_RESTING_MS: a maker with a second key removed a resting order in the block she
+        // placed it by crossing it from the other account, so the delay was a cost only a
+        // one-account maker paid - 500 points against nothing on the same stale quote.
         operation cancel_order(order_id: integer) {
             val account = auth.authenticate();
             val o = require(order @? { .id == order_id }, "no such order");
             require(o.maker == account.id, "not your order");
+            require(not o.cancelled, "order already cancelled");
+            update o ( .cancelled = true );
+        }
+
+        // ...AND TAKE THE CAPITAL BACK, MIN_RESTING_MS after the order was PLACED,
+        // measured from the created_at written when the maker placed it. No fill touches
+        // that field, so no stranger can push this out - and no SECOND ACCOUNT can pull it
+        // in, which is the half round 14 found missing. The row lives, and holds its
+        // MAX_RESTING_ORDERS slot, until this runs.
+        operation withdraw_escrow(order_id: integer) {
+            val account = auth.authenticate();
+            val o = require(order @? { .id == order_id }, "no such order");
+            require(o.maker == account.id, "not your escrow");
+            require(o.cancelled, "cancel the order first");
             require(
                 op_context.last_block_time - o.created_at >= MIN_RESTING_MS,
-                "the order has not rested long enough"
+                "the escrow has not rested long enough"
             );
             val me = trader_of(account.id);
             val back = escrow_of(o);
@@ -5540,7 +5642,7 @@ object DappScaffold {
             return if (o != null)
                 (maker = o.maker, is_buy = o.is_buy, price = o.price, qty = o.qty,
                  filled = o.filled, remaining = remaining(o), escrow = escrow_of(o),
-                 created_at = o.created_at)
+                 created_at = o.created_at, cancelled = o.cancelled)
             else null;
         }
 
@@ -5574,6 +5676,13 @@ object DappScaffold {
         // The exchange template's invariant tests. They are real: FT4 test accounts,
         // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
         // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_r14_* functions replay adversary round 14, which attacked the round
+        // AFTER round 13's fix at the inputs that fix did not touch: a maker with a second
+        // key removed a resting order in the block she placed it by crossing it from the
+        // other account (500 points against nothing, priced against the one-account maker
+        // who could not), and dust priced AT THE MARKET crossed every taker's limit at no
+        // cost to its author (2.8s -> 16.6s for the same ten trades behind 100 rows).
         //
         // The two test_round12_* functions replay adversary round 12's order-book drain
         // and REQUIRE it to fail. There, a partial fill was delete-and-recreate, so the
@@ -5625,7 +5734,9 @@ object DappScaffold {
         // decidable: the book is BOUNDED - a trader's 21st resting order is refused - and
         // the dust that does rest is not on a crossing order's path, because it is not in
         // the matcher's where-clause at all. The matcher's SHAPE is pinned in Kotlin, by
-        // exchangeMatcherQueriesTheBookRatherThanScanningIt.
+        // exchangeMatcherQueriesTheBookRatherThanScanningIt. Round 14 added the other half
+        // of the bound - MIN_NOTIONAL - so round 13's own one-point row is refused outright
+        // now and the twenty rows below are the cheapest a welcome grant can actually buy.
         function test_round13_dust_book_cannot_tax_every_place_order_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
@@ -5634,26 +5745,29 @@ object DappScaffold {
             signed(bob.keypair, main.register_trader());
             signed(trudy.keypair, main.register_trader());
 
-            // The attacker buys the cheapest rows there are, and never cancels.
+            // ROUND 13'S ROW, at one point of escrow: refused before it is counted.
+            signed_must_fail(trudy.keypair, main.place_order(true, 1, 1), "order notional too small");
+            // The cheapest rows she can actually stand: one unit each at MAX_PRICE / 1000,
+            // which is MIN_NOTIONAL exactly.
             var i = 0;
             while (i < main.MAX_RESTING_ORDERS) {
-                signed(trudy.keypair, main.place_order(true, 1, 1));
+                signed(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1));
                 i += 1;
             }
-            // THE BOUND. Her welcome grant would pay for 10000 of these.
-            signed_must_fail(trudy.keypair, main.place_order(true, 1, 1), "too many resting orders");
-            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - main.MAX_RESTING_ORDERS);
+            // THE BOUND. Round 13's version would have paid for 10000 rows.
+            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "too many resting orders");
+            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS - main.MAX_RESTING_ORDERS);
 
-            // And the dust that IS resting is not on the path of a crossing order: alice
-            // sells 10 at 20 and bob buys 10 at 20 through a book full of bids at 1, which
+            // And the rows that ARE resting are not on the path of a crossing order: alice
+            // sells 50 at 20 and bob buys 50 at 20 through a book of asks at 1000, which
             // the matcher's where-clause never names.
-            signed(alice.keypair, main.place_order(false, 20, 10));
-            signed(bob.keypair, main.place_order(true, 20, 10));
-            assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS + 200);
-            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 10);
-            // Untouched: a bid at 1 is not reachable by a seller asking 20.
-            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS);
-            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - main.MAX_RESTING_ORDERS);
+            signed(alice.keypair, main.place_order(false, 20, 50));
+            signed(bob.keypair, main.place_order(true, 20, 50));
+            assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS + 1000);
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 50);
+            // Untouched: an ask at 1000 is not reachable by a buyer bidding 20.
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS);
+            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS - main.MAX_RESTING_ORDERS);
             assert_conserved();
         }
 
@@ -5666,28 +5780,29 @@ object DappScaffold {
             signed(alice.keypair, main.register_trader());
             signed(bob.keypair, main.register_trader());
 
-            signed(alice.keypair, main.place_order(false, 10, 40));
+            signed(alice.keypair, main.place_order(false, 25, 40));
             assert_equals(main.get_units(alice.account.id), 60);
             assert_equals(main.get_order(1)!!.escrow, 40);
             assert_conserved();
 
-            signed(bob.keypair, main.place_order(true, 10, 40));
+            signed(bob.keypair, main.place_order(true, 25, 40));
             assert_equals(main.get_units(bob.account.id), 140);
-            assert_equals(main.get_points(bob.account.id), 9600);
-            assert_equals(main.get_points(alice.account.id), 10400);
+            assert_equals(main.get_points(bob.account.id), 9000);
+            assert_equals(main.get_points(alice.account.id), 11000);
             assert_true(main.get_order(1) == null);
             assert_conserved();
 
-            // A partial fill: 8 of a 20-unit bid, and the row keeps its terms.
-            signed(alice.keypair, main.place_order(true, 5, 20));
-            assert_equals(main.get_order(2)!!.escrow, 100);
+            // A partial fill: 8 of a 200-unit bid, and the row keeps its terms.
+            signed(alice.keypair, main.place_order(true, 5, 200));
+            assert_equals(main.get_order(2)!!.escrow, 1000);
             val placed_at = main.get_order(2)!!.created_at;
             after(HOUR);
+            // A taker's own order is not bound by MIN_NOTIONAL - it crosses and fills.
             signed(bob.keypair, main.place_order(false, 5, 8));
-            assert_equals(main.get_order(2)!!.remaining, 12);
+            assert_equals(main.get_order(2)!!.remaining, 192);
             assert_equals(main.get_order(2)!!.filled, 8);
-            assert_equals(main.get_order(2)!!.qty, 20);
-            assert_equals(main.get_order(2)!!.escrow, 60);
+            assert_equals(main.get_order(2)!!.qty, 200);
+            assert_equals(main.get_order(2)!!.escrow, 960);
             // THE TERMS, AND THE CLOCK, ARE WHERE THE MAKER LEFT THEM. A fill writes
             // `filled` and nothing else, so an hour of somebody else's trading does not
             // move the hour the maker committed to.
@@ -5704,8 +5819,11 @@ object DappScaffold {
         // the maker's only exit was refused every single time.
         //
         // Here `filled` is the only field a fill writes. created_at is written once, by
-        // the maker's own place_order, so the clock is hers: three strangers' fills later
-        // she cancels on the hour SHE started.
+        // the maker's own place_order, so the ESCROW's clock is hers: three strangers'
+        // fills later her capital comes back on the hour SHE started. (Since round 14 the
+        // QUOTE is hers to pull in any block - MIN_RESTING_MS bound only a maker with one
+        // account - so what round 12's grind could have held hostage is the capital, and
+        // that clock is the one nothing but place_order writes.)
         function test_round12_partial_fill_cannot_reset_the_makers_clock_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
@@ -5718,13 +5836,11 @@ object DappScaffold {
             // it, so it rests - and her clock starts in this block and nowhere else.
             signed(alice.keypair, main.place_order(false, 30, 100));
             assert_equals(main.get_units(alice.account.id), 0);
-            signed_must_fail(alice.keypair, main.cancel_order(1), "the order has not rested long enough");
 
             // THE ATTACK: one unit at a time, always inside the hour.
             after(20 * 60 * 1000);
             signed(trudy.keypair, main.place_order(true, 30, 1));
             assert_equals(main.get_order(1)!!.remaining, 99);
-            signed_must_fail(alice.keypair, main.cancel_order(1), "the order has not rested long enough");
 
             after(20 * 60 * 1000);
             signed(trudy.keypair, main.place_order(true, 30, 1));
@@ -5732,15 +5848,22 @@ object DappScaffold {
             signed(trudy.keypair, main.place_order(true, 30, 1));
             assert_equals(main.get_order(1)!!.remaining, 97);
             assert_equals(main.get_order(1)!!.qty, 100);
-            // Fifty minutes in: still a commitment, and still hers.
-            signed_must_fail(alice.keypair, main.cancel_order(1), "the order has not rested long enough");
             signed_must_fail(trudy.keypair, main.cancel_order(1), "not your order");
 
-            // An hour after SHE placed it - not after the last stranger touched it - she
-            // takes it back. Under the round-12 shape this block was ten minutes into a
-            // fresh hour and the cancel was refused, renewably, for ever.
-            after(20 * 60 * 1000);
+            // Fifty minutes in she takes the quote off the market, in this block, and the
+            // matcher stops seeing it at once.
             signed(alice.keypair, main.cancel_order(1));
+            assert_true(main.get_order(1)!!.cancelled);
+            signed(trudy.keypair, main.place_order(true, 30, 1));
+            assert_equals(main.get_order(1)!!.remaining, 97);
+            // ...but the CAPITAL is committed on HER hour, not on the last stranger's fill.
+            signed_must_fail(alice.keypair, main.withdraw_escrow(1), "the escrow has not rested long enough");
+
+            // An hour after SHE placed it - not after the last stranger touched it - it
+            // comes back. Under the round-12 shape this block was ten minutes into a fresh
+            // hour and the maker was refused, renewably, for ever.
+            after(20 * 60 * 1000);
+            signed(alice.keypair, main.withdraw_escrow(1));
             assert_true(main.get_order(1) == null);
             assert_equals(main.get_units(alice.account.id), 97);
             assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS + 90);
@@ -5788,34 +5911,34 @@ object DappScaffold {
             signed(bob.keypair, main.register_trader());
             signed(trudy.keypair, main.register_trader());
 
-            signed(bob.keypair, main.place_order(false, 12, 10));      // order 1
-            signed(alice.keypair, main.place_order(false, 10, 10));    // order 2
+            signed(bob.keypair, main.place_order(false, 24, 50));      // order 1
+            signed(alice.keypair, main.place_order(false, 20, 50));    // order 2
             after(HOUR);
-            signed(trudy.keypair, main.place_order(false, 10, 10));    // order 3
+            signed(trudy.keypair, main.place_order(false, 20, 50));    // order 3
 
-            // PRICE FIRST. trudy takes one unit at a limit of 12. Her own order is
-            // skipped, and of the two she can reach - bob at 12, alice at 10 - she is
-            // filled at 10. She named neither, and could not have.
-            signed(trudy.keypair, main.place_order(true, 12, 1));
-            assert_equals(main.get_order(2)!!.remaining, 9);
-            assert_equals(main.get_order(1)!!.remaining, 10);
-            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - 10);
+            // PRICE FIRST. trudy takes one unit at a limit of 24. Her own order is
+            // skipped, and of the two she can reach - bob at 24, alice at 20 - she is
+            // filled at 20. She named neither, and could not have.
+            signed(trudy.keypair, main.place_order(true, 24, 1));
+            assert_equals(main.get_order(2)!!.remaining, 49);
+            assert_equals(main.get_order(1)!!.remaining, 50);
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - 20);
 
             // THEN TIME. bob takes one unit at the same limit. His own order is skipped,
-            // and of the two left at 10 the one that has rested longer is filled.
-            signed(bob.keypair, main.place_order(true, 12, 1));
-            assert_equals(main.get_order(2)!!.remaining, 8);
-            assert_equals(main.get_order(3)!!.remaining, 10);
-            assert_equals(main.get_order(1)!!.remaining, 10);
+            // and of the two left at 20 the one that has rested longer is filled.
+            signed(bob.keypair, main.place_order(true, 24, 1));
+            assert_equals(main.get_order(2)!!.remaining, 48);
+            assert_equals(main.get_order(3)!!.remaining, 50);
+            assert_equals(main.get_order(1)!!.remaining, 50);
 
-            // And a sweep takes them in that same order: alice's eight, and not one unit
-            // of bob's own order at 12.
-            signed(bob.keypair, main.place_order(true, 10, 8));
+            // And a sweep takes them in that same order: alice's forty-eight, and not one
+            // unit of bob's own order at 24.
+            signed(bob.keypair, main.place_order(true, 20, 48));
             assert_true(main.get_order(2) == null);
-            assert_equals(main.get_order(3)!!.remaining, 10);
-            assert_equals(main.get_order(1)!!.remaining, 10);
-            assert_equals(main.get_points(bob.account.id), main.WELCOME_POINTS - 90);
-            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS - 10 + 9);
+            assert_equals(main.get_order(3)!!.remaining, 50);
+            assert_equals(main.get_order(1)!!.remaining, 50);
+            assert_equals(main.get_points(bob.account.id), main.WELCOME_POINTS - 980);
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS - 50 + 49);
             assert_conserved();
         }
 
@@ -5834,25 +5957,129 @@ object DappScaffold {
             signed_must_fail(alice.keypair, main.place_order(false, main.MAX_PRICE + 1, 10), "price out of range");
             signed_must_fail(alice.keypair, main.place_order(false, 10, 0), "quantity out of range");
             signed_must_fail(trudy.keypair, main.place_order(false, 10, 1), "register as a trader first");
+            signed_must_fail(alice.keypair, main.place_order(false, 10, 10), "order notional too small");
             signed_must_fail(alice.keypair, main.place_order(false, 10, 101), "insufficient units");
             signed_must_fail(alice.keypair, main.place_order(true, 1000, 11), "insufficient points");
             signed_must_fail(alice.keypair, main.register_trader(), "already registered");
             assert_conserved();
 
-            signed(alice.keypair, main.place_order(false, 10, 10));    // order 1
+            signed(alice.keypair, main.place_order(false, 100, 10));   // order 1
             // Her own crossing buy is NOT matched against her own sell: it rests.
-            signed(alice.keypair, main.place_order(true, 10, 5));      // order 2
+            signed(alice.keypair, main.place_order(true, 100, 10));    // order 2
             assert_equals(main.get_order(1)!!.remaining, 10);
-            assert_equals(main.get_order(2)!!.remaining, 5);
+            assert_equals(main.get_order(2)!!.remaining, 10);
 
             signed_must_fail(bob.keypair, main.cancel_order(1), "not your order");
             signed_must_fail(bob.keypair, main.cancel_order(99), "no such order");
-            signed_must_fail(alice.keypair, main.cancel_order(1), "the order has not rested long enough");
-            after(HOUR);
+            signed_must_fail(bob.keypair, main.withdraw_escrow(1), "not your escrow");
+            // The quote comes off the market at once; the capital waits for its hour.
             signed(alice.keypair, main.cancel_order(1));
             signed(alice.keypair, main.cancel_order(2));
+            signed_must_fail(alice.keypair, main.cancel_order(1), "order already cancelled");
+            signed_must_fail(alice.keypair, main.withdraw_escrow(1), "the escrow has not rested long enough");
+            after(HOUR);
+            signed(alice.keypair, main.withdraw_escrow(1));
+            signed(alice.keypair, main.withdraw_escrow(2));
+            signed_must_fail(alice.keypair, main.withdraw_escrow(1), "no such order");
             assert_equals(main.get_units(alice.account.id), 100);
             assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 14: MIN_RESTING_MS was a commitment only a maker with
+        // ONE account could be held to. `.maker != taker` refuses self-dealing per ACCOUNT
+        // and register_trader() is open to every FT4 account, so a maker with two keys
+        // removed a resting order IN THE BLOCK SHE PLACED IT by crossing it from the other
+        // one - no cancel, no clock, and the value back in the other asset. Priced against
+        // the maker who could not do it: the same stale bid for 50 units at 50 into a
+        // market that had moved to 40 cost the one-account maker FIVE HUNDRED POINTS and
+        // the two-key maker nothing.
+        //
+        // The quote is now hers to pull in any block, so both makers end in the same place,
+        // and what MIN_RESTING_MS binds is the capital - which a second key cannot reach.
+        function test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail() {
+            val alice = register_alice();          // the honest maker, one account
+            val bob = register_bob();              // the two-key maker's second key
+            val trudy = register_trudy();          // the two-key maker's first key
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+            val MARKET = 40;                       // where the market has moved to
+
+            // THE TWO-KEY MAKER: a stale bid for 50 units at 50, pulled by a self-cross
+            // from the other key in the block after it was placed.
+            signed(trudy.keypair, main.place_order(true, 50, 50));
+            signed(bob.keypair, main.place_order(false, 50, 50));
+            assert_true(main.get_order(1) == null);
+            // Marked at the market, the household is exactly where it started.
+            assert_equals(
+                main.get_points(trudy.account.id) + MARKET * main.get_units(trudy.account.id)
+                    + main.get_points(bob.account.id) + MARKET * main.get_units(bob.account.id),
+                2 * main.WELCOME_POINTS + MARKET * 2 * main.WELCOME_UNITS
+            );
+
+            // THE ONE-ACCOUNT MAKER: the same stale bid, and she takes it off the market
+            // herself, in the block she chooses. Round 14 measured this refused - "the
+            // order has not rested long enough" - and bob picking her off for 500 points.
+            signed(alice.keypair, main.place_order(true, 50, 50));
+            signed(alice.keypair, main.cancel_order(2));
+            // There is nothing left to hit, so bob's sell rests instead of filling her.
+            signed(bob.keypair, main.place_order(false, 50, 50));
+            assert_equals(main.get_order(3)!!.remaining, 50);
+
+            // Her capital is committed until HER quote's hour is up - that is the whole of
+            // what the second key still buys, and it is an hour of liquidity rather than
+            // 500 points.
+            signed_must_fail(alice.keypair, main.withdraw_escrow(2), "the escrow has not rested long enough");
+            after(HOUR);
+            signed(alice.keypair, main.withdraw_escrow(2));
+            assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS);
+            assert_equals(main.get_units(alice.account.id), main.WELCOME_UNITS);
+            // Marked at the market she is exactly where the two-key household is: nothing
+            // lost, where round 14 measured 13500 against the 14000 she came in with.
+            assert_equals(
+                main.get_points(alice.account.id) + MARKET * main.get_units(alice.account.id),
+                main.WELCOME_POINTS + MARKET * main.WELCOME_UNITS
+            );
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 14: the book was still unbounded, and round 13's
+        // where-clause had only moved the attacker's price. MAX_RESTING_ORDERS bounds rows
+        // PER TRADER and a trader is a FREE FT4 registration that mints a fresh welcome
+        // grant, so "the book is bounded by the traders in it" was not a bound - and dust
+        // priced AT THE MARKET crosses every taker's limit, is walked by every one of them,
+        // and costs its author nothing, because a unit sold at the market price is a unit
+        // sold at the market price. MEASURED: the same ten one-unit trades between two
+        // honest traders took 2.8 seconds behind an empty book and 16.6 seconds behind 100
+        // one-unit sells at the market standing on FIVE free registrations; at 200 rows the
+        // run sat on the runner's 90-second execution cap.
+        //
+        // A resting order must now be worth MIN_NOTIONAL, so a row costs its author real
+        // inventory: a welcome grant at a market of 20 buys TWO crossing rows, not twenty.
+        function test_r14_market_priced_dust_is_refused_must_fail() {
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            // ROUND 14'S ROW: one unit at the market price of 20.
+            signed_must_fail(trudy.keypair, main.place_order(false, 20, 1), "order notional too small");
+            // ...and the bound is on the NOTIONAL, so it cannot be sliced.
+            signed_must_fail(trudy.keypair, main.place_order(false, 20, 49), "order notional too small");
+
+            // What a welcome grant buys at that market is TWO rows: 100 units * 20 = 2000
+            // of notional against a floor of 1000.
+            assert_equals(main.WELCOME_UNITS * 20 / main.MIN_NOTIONAL, 2);
+            signed(trudy.keypair, main.place_order(false, 20, 50));
+            signed(trudy.keypair, main.place_order(false, 20, 50));
+            signed_must_fail(trudy.keypair, main.place_order(false, 20, 50), "insufficient units");
+
+            // A taker's own small order is NOT refused - the floor is on what RESTS - so a
+            // one-unit trade against a real quote still works.
+            signed(bob.keypair, main.place_order(true, 20, 1));
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 1);
+            assert_equals(main.get_order(1)!!.remaining, 49);
             assert_conserved();
         }
     """.trimIndent() + "\n"

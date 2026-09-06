@@ -1716,8 +1716,9 @@ class DappScaffoldSecureTemplatesTest {
         // which is what forced the recreate; carrying created_at through the recreate
         // instead is the other pinned drain (r9-amm-position-transfer-sells-the-jit).
         val orderEntity = main.substringAfter("entity order {").substringBefore("\n}")
-        assertEquals(1, Regex("mutable ").findAll(orderEntity).count(), "an order row must have exactly ONE mutable field: $orderEntity")
+        assertEquals(2, Regex("mutable ").findAll(orderEntity).count(), "an order row's only mutable fields are the fill counter and the maker's own cancel flag: $orderEntity")
         assertTrue(orderEntity.contains("mutable filled: integer = 0;"), orderEntity)
+        assertTrue(orderEntity.contains("mutable cancelled: boolean = false;"), orderEntity)
         listOf("is_buy: boolean;", "price: integer;", "qty: integer;", "created_at: timestamp;").forEach {
             assertTrue(orderEntity.contains(it), "an order's terms must be immutable: $it")
         }
@@ -1731,7 +1732,7 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(code.contains(".filled = new_filled, .created_at"), "a fill must not touch the maker's clock")
         // NO CALLER NAMES A COUNTERPARTY: there is no fill_order(id) at all.
         assertEquals(
-            listOf("register_trader", "place_order", "cancel_order"),
+            listOf("register_trader", "place_order", "cancel_order", "withdraw_escrow"),
             Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
             "the template must ship exactly these operations - an operation that names a resting order is the ordering problem handed to the caller"
         )
@@ -1742,12 +1743,37 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("if (a.created_at != b.created_at) return a.created_at < b.created_at;"), "then the order that has rested longest")
         assertTrue(main.contains("return a.id < b.id;"), "then the lowest id")
         assertTrue(main.contains(".maker != taker"), "the matcher must skip a taker's own orders - round 13 moved this into the where-clause, so the runner skips them")
-        // RESTED CANCEL, measured from the clock nothing writes twice.
+        assertTrue(main.contains(".cancelled == false"), "and a pulled quote must leave the matcher's where-clause in the block it is pulled")
+        // ROUND 14: MIN_RESTING_MS binds the ESCROW, not the quote. Refusing the CANCEL was
+        // a cost only a one-account maker paid - `.maker != taker` is per ACCOUNT and
+        // register_trader() is a free FT4 registration, so a maker with two keys removed a
+        // resting order in the block she placed it by crossing it from the other one, and
+        // the same stale bid cost the one-account maker 500 points and her nothing.
         val cancel = opBody(code, "cancel_order")
         assertTrue(cancel.contains("require(o.maker == account.id, \"not your order\");"))
-        assertTrue(cancel.contains("op_context.last_block_time - o.created_at >= MIN_RESTING_MS"))
+        assertTrue(cancel.contains("update o ( .cancelled = true );"), "a cancel must take the quote off the market in the block it lands")
+        assertFalse(cancel.contains("MIN_RESTING_MS"), "round 14: a delay on the cancel binds only a maker with one account")
+        assertFalse(cancel.contains("delete o;"), "and it must NOT return the escrow - that is what the clock is for")
+        val withdraw = opBody(code, "withdraw_escrow")
+        assertTrue(withdraw.contains("require(o.maker == account.id, \"not your escrow\");"))
+        assertTrue(withdraw.contains("require(o.cancelled, \"cancel the order first\");"), "the escrow comes back only once the quote is off the market")
+        assertTrue(withdraw.contains("op_context.last_block_time - o.created_at >= MIN_RESTING_MS"), "and only an hour after the order was PLACED - the clock nothing but place_order writes")
+        assertTrue(withdraw.contains("delete o;"))
         assertTrue(main.contains("val MIN_RESTING_MS ="), "the resting period must be a named constant")
         assertFalse(Regex("operation\\s+place_order\\s*\\([^)]*resting").containsMatchIn(main), "the resting period must not be a parameter")
+        // ROUND 14, THE BOOK'S BOUND. MAX_RESTING_ORDERS bounds rows per TRADER and a
+        // trader is a free FT4 registration, so it bounded nothing that mattered: dust
+        // priced AT THE MARKET crosses every taker's limit and costs its author nothing,
+        // and 100 such rows on five registrations took ten honest trades from 2.8s to 16.6s.
+        assertTrue(main.contains("val MIN_NOTIONAL ="), "a resting order must be worth something the attacker pays for")
+        assertTrue(
+            opBody(code, "place_order").contains("require(price * left >= MIN_NOTIONAL, \"order notional too small\");"),
+            "the notional floor applies to what RESTS - a taker's own small order is still a trade"
+        )
+        assertFalse(
+            Regex("operation\\s+place_order\\s*\\([^)]*notional").containsMatchIn(main),
+            "the notional floor is a constant, never a parameter"
+        )
         // ESCROWED AT REST, and derived from the terms.
         assertTrue(main.contains("function escrow_of(o: order): integer =\n    if (o.is_buy) o.price * remaining(o) else remaining(o);"))
         assertTrue(opBody(code, "place_order").contains("update me ( .points -= escrow );") && opBody(code, "place_order").contains("update me ( .units -= escrow );"))
@@ -1757,7 +1783,27 @@ class DappScaffoldSecureTemplatesTest {
         }
         assertTrue(main.contains("Nine guards are STRUCTURAL"), "the exchange header must state its guard count")
         assertEquals(9, guardCount(main), "the exchange header's stated count must be the number of guards it lists")
-        assertTrue(main.contains("A RESTING ORDER IS A FREE OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS"), "the header must admit what the cancel delay costs")
+        // ROUND 14, THE PROSE. Two header sentences were false. "A RESTING ORDER IS A FREE
+        // OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS. The cancel delay is what makes
+        // the quote a commitment" was a cost only a one-account maker paid; and "the book
+        // is bounded by the traders in it rather than by what one welcome grant can buy"
+        // was not a bound, because a trader is a free registration.
+        assertFalse(
+            main.contains("The cancel delay is what makes the quote a commitment"),
+            "round 14: the cancel delay bound only a maker with one account"
+        )
+        assertFalse(
+            main.contains("so the book is bounded by the traders in it rather than by what one welcome grant can"),
+            "round 14: a trader is a free FT4 registration, so a per-trader cap is not a bound"
+        )
+        assertTrue(
+            main.contains("A QUOTE IS NOT FIRM"),
+            "the header must state what dropping the cancel delay costs"
+        )
+        assertTrue(
+            main.contains("are NOT served by that index"),
+            "the header must say which of the matcher's where-clause terms the index actually serves"
+        )
     }
 
     @Test
@@ -2045,7 +2091,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_round12_a_maker_is_never_left_resting_beside_a_better_price_must_fail",
             "test_matching_is_price_then_time_and_no_caller_chooses",
             "test_bounds_and_ownership",
-            "test_round13_dust_book_cannot_tax_every_place_order_must_fail"
+            "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
+            "test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail",
+            "test_r14_market_priced_dust_is_refused_must_fail"
         )
     )
 
@@ -2806,6 +2854,7 @@ class DappScaffoldSecureTemplatesTest {
             "the limit must be a where-clause term on both sides of the book"
         )
         assertTrue(matcher.contains(".maker != taker"), "and so must the self-dealing rule")
+        assertTrue(matcher.contains(".cancelled == false"), "and a pulled quote must be out of the matcher's reach in the block it is pulled")
         assertTrue(main.contains("index is_buy, price;"), "the index the matcher's where-clause needs must exist on the order row")
         // A book nobody walks is still a book somebody pays to store, and round 13 bought
         // 10000 permanent rows with one free registration. So it is BOUNDED as well.
@@ -2818,6 +2867,12 @@ class DappScaffoldSecureTemplatesTest {
             Regex("operation\\s+place_order\\([^)]*max_resting").containsMatchIn(main.lowercase()),
             "the cap is a constant, never a parameter"
         )
+        // ...and round 14: the cap alone is not a bound, because a trader is free.
+        assertTrue(main.contains("val MIN_NOTIONAL ="), "the book must be bounded by something the attacker pays for")
+        assertTrue(
+            opBody(code, "place_order").contains("\"order notional too small\""),
+            "place_order must refuse a resting order worth less than MIN_NOTIONAL"
+        )
     }
 
     @Test
@@ -2827,8 +2882,51 @@ class DappScaffoldSecureTemplatesTest {
         "update o ( .filled = new_filled, .created_at = op_context.last_block_time );",
         "test_round12_partial_fill_cannot_reset_the_makers_clock_must_fail",
         "not your order",
-        "the order has not rested long enough",
+        "the escrow has not rested long enough",
         alsoReplace = listOf("created_at: timestamp;" to "mutable created_at: timestamp;")
+    )
+
+    /**
+     * ROUND 14, THE SECOND KEY. Put the cancel delay back - the shape this template
+     * shipped, where a maker could not pull her own quote for MIN_RESTING_MS - and the
+     * one-account maker is held to a commitment the two-key maker walked out of in the
+     * block she placed it. The cancel the replay REQUIRES to succeed is refused "the order
+     * has not rested long enough", and that refusal IS the attack landing: the whole
+     * finding is that the delay was a cost only a maker with one account paid, priced at
+     * 500 points against nothing on the same stale quote. The escrow clock is untouched, so
+     * it cannot be what changed.
+     */
+    @Test
+    fun exchangeR14ReplayGoesRedWhenTheCancelIsDelayedAgain() = assertGuardMutationRedensExploitTest(
+        "exchange",
+        "    require(o.maker == account.id, \"not your order\");",
+        listOf(
+            "    require(o.maker == account.id, \"not your order\");",
+            "    require(",
+            "        op_context.last_block_time - o.created_at >= MIN_RESTING_MS,",
+            "        \"the order has not rested long enough\"",
+            "    );"
+        ).joinToString("\n"),
+        "test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail",
+        "not your escrow",
+        "the order has not rested long enough"
+    )
+
+    /**
+     * ROUND 14, THE DUST. Strip the notional floor and a one-unit sell AT THE MARKET PRICE
+     * is writable again - it crosses every taker's limit, is walked by every one of them,
+     * and costs its author nothing, which is how five free registrations put 100 rows in
+     * front of ten honest trades and took them from 2.8 seconds to 16.6. The order the
+     * replay REQUIRES to be refused is accepted, so run_must_fail reports that the
+     * transaction did not fail. The per-trader cap is left standing and cannot be what
+     * changed - round 14's whole point is that a trader is free.
+     */
+    @Test
+    fun exchangeR14ReplayGoesRedWithoutTheNotionalFloor() = assertGuardRemovalRedensExploitTest(
+        "exchange",
+        "        require(price * left >= MIN_NOTIONAL, \"order notional too small\");",
+        "test_r14_market_priced_dust_is_refused_must_fail",
+        "too many resting orders"
     )
 
     /**
@@ -2853,7 +2951,7 @@ class DappScaffoldSecureTemplatesTest {
             "        );"
         ).joinToString("\n"),
         "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
-        "insufficient points"
+        "insufficient units"
     )
 
     @Test
