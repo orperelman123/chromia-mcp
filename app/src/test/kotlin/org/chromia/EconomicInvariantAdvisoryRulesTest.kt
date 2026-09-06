@@ -193,7 +193,16 @@ class EconomicInvariantAdvisoryRulesTest {
         assertTrue(result.ok, "an economic advisory must never make ok=false; got ${result.findings}")
     }
 
-    /** A real minimum (module args or constant) is exactly the fix - clean. */
+    /**
+     * A real minimum (module args or constant) is exactly the fix - clean.
+     *
+     * ROUND 16 added the second half of "real": the arg CARRIES a default
+     * greater than 0. A floor that exists only in the yml is worth whatever
+     * the yml happens to say, so `struct module_args { min_voting_period_ms:
+     * integer; }` with no default draws its own MEDIUM naming the arg
+     * (Round16SecurityRuleFixTest pins both sides). Declaring the struct is
+     * also what real Rell requires of any module that reads chain_context.args.
+     */
     @Test
     fun votingPeriodWithRealMinimumStaysClean() {
         val result = RellSecurityCheck.analyze(
@@ -201,6 +210,7 @@ class EconomicInvariantAdvisoryRulesTest {
                 "main.rell" to """
                     module;
                     import lib.ft4.auth;
+                    struct module_args { min_voting_period_ms: integer = 86400000; }
                     entity proposal { proposer: byte_array; deadline: timestamp; }
                     operation create_proposal(voting_period_ms: integer) {
                         val account = auth.authenticate();
