@@ -120,8 +120,10 @@ try {
   // 8. Ship-prep: validate config and get the deployment block.
   const val1 = parse(await call('validate_chromia_yml', { yaml: scaffold.files['chromia.yml'] }));
   step('config validates', val1.ok === true, JSON.stringify(val1.errors ?? '').slice(0, 100));
-  const dep = parse(await call('write_deployment_config', { network: 'testnet', name: 'agent_dapp' }));
-  step('deployment config produced', (dep.yaml ?? dep.chromia_yml ?? '').includes('testnet'), null);
+  // Since audit F7 the tool merges into the PROJECT's chromia.yml and invents
+  // no file: an agent passes the scaffold's own yaml and takes `chromia_yml` back.
+  const dep = parse(await call('write_deployment_config', { network: 'testnet', name: 'agent_dapp', yaml: scaffold.files['chromia.yml'] }));
+  step('deployment config produced', typeof dep.chromia_yml === 'string' && dep.chromia_yml.includes('testnet'), JSON.stringify(dep).slice(0, 160));
 
   // 9. Ask the server what to do next. The agent has a compiling, secure,
   //    tested project and wants to run it: the plan must name the local chain.
