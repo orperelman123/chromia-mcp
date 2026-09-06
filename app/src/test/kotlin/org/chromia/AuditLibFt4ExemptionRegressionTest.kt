@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -115,7 +116,7 @@ class AuditLibFt4ExemptionRegressionTest {
     @Test
     fun checkDappProjectStrategyCarriesNotesThrough() = runBlocking {
         val result = CheckDappProjectStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject {
                     put("yaml", yaml)
@@ -164,7 +165,7 @@ class AuditLibFt4ExemptionRegressionTest {
     @Test
     fun securityCheckStrategyOkOnSubmittedFt4Tree() = runBlocking {
         val result = RellSecurityCheckStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "rell_security_check",
                 arguments = buildJsonObject {
                     put(
@@ -203,7 +204,7 @@ class AuditLibFt4ExemptionRegressionTest {
     @Test
     fun checkFt4ImportsStrategyNotesExemption() = runBlocking {
         val result = CheckFt4ImportsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_ft4_imports",
                 arguments = buildJsonObject {
                     put(
@@ -331,7 +332,7 @@ class AuditLibFt4ExemptionRegressionTest {
     @Test
     fun securityCheckCompileGateKeepsSubmittedTreeNote() = runBlocking {
         val result = RellSecurityCheckStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "rell_security_check",
                 arguments = buildJsonObject {
                     put(

@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -68,7 +69,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun scaffoldDappStrategyOutputPassesCheckDappProjectStrategy() = runBlocking {
         val scaffold = ScaffoldDappStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "scaffold_dapp",
                 arguments = buildJsonObject { put("name", "wallet") }
             ),
@@ -78,7 +79,7 @@ class DappBuildSchemaAndHelpTest {
         val files = scaffold.structuredContent!!["files"]!!.jsonObject
         val yaml = files["chromia.yml"]!!.jsonPrimitive.content
         val check = CheckDappProjectStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject {
                     put("yaml", yaml)
@@ -176,7 +177,7 @@ class DappBuildSchemaAndHelpTest {
             assertTrue(validated.errors.any { it.contains(needle) }, "$label errors=${validated.errors}")
 
             val tool = ValidateChromiaYmlStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "validate_chromia_yml",
                     arguments = buildJsonObject { put("yaml", yaml) }
                 ),
@@ -368,7 +369,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chrGenerateClientHelpIsOfficialFlags() = runBlocking {
         val result = ChrGenerateClientHelpStrategy().execute(
-            CallToolRequest(name = "chr_generate_client_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_generate_client_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -571,7 +572,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaDocsYmlHelpIsOfficialProjectConfigKeys() = runBlocking {
         val result = ChromiaDocsYmlHelpStrategy().execute(
-            CallToolRequest(name = "chromia_docs_yml_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_docs_yml_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -640,7 +641,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chrLibraryHelpIsOfficialPublicVerbs() = runBlocking {
         val result = ChrLibraryHelpStrategy().execute(
-            CallToolRequest(name = "chr_library_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_library_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -757,7 +758,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chrCreateRellDappHelpIsOfficialTemplates() = runBlocking {
         val result = ChrCreateRellDappHelpStrategy().execute(
-            CallToolRequest(name = "chr_create_rell_dapp_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_create_rell_dapp_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -1432,7 +1433,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaCookbookHelpIsQueryAndTestOnly() = runBlocking {
         val result = ChromiaCookbookHelpStrategy().execute(
-            CallToolRequest(name = "chromia_cookbook_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_cookbook_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2010,7 +2011,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chrKeyIdHelpIsExistingKeyOnly() = runBlocking {
         val result = ChrKeyIdHelpStrategy().execute(
-            CallToolRequest(name = "chr_key_id_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_key_id_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2062,7 +2063,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun languageClientsHelpIsQueryOnly() = runBlocking {
         val result = ChromiaLanguageClientsHelpStrategy().execute(
-            CallToolRequest(name = "chromia_language_clients_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_language_clients_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2305,7 +2306,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellLanguageHelpQuotesOfficialSyntax() = runBlocking {
         val result = ChromiaRellLanguageHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_language_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_language_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2411,7 +2412,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellPracticesHelpIsReadOnlyOfficialPages() = runBlocking {
         val result = ChromiaRellPracticesHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_practices_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_practices_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2490,7 +2491,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaFt4QueriesHelpIsReadOnlyCatalog() = runBlocking {
         val result = ChromiaFt4QueriesHelpStrategy().execute(
-            CallToolRequest(name = "chromia_ft4_queries_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_ft4_queries_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2581,7 +2582,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaIntegrationsHelpIsReadOnlyHub() = runBlocking {
         val result = ChromiaIntegrationsHelpStrategy().execute(
-            CallToolRequest(name = "chromia_integrations_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_integrations_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2643,7 +2644,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaVectorSearchHelpIsReadOnlyLeftoverBuild() = runBlocking {
         val result = ChromiaVectorSearchHelpStrategy().execute(
-            CallToolRequest(name = "chromia_vector_search_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_vector_search_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2688,7 +2689,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chrQueryHelpOfficialLocalIsHelloWorld() = runBlocking {
         val result = ChrQueryHelpStrategy().execute(
-            CallToolRequest(name = "chr_query_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_query_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2712,7 +2713,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellTypesHelpQuotesOfficialSimpleAndCollections() = runBlocking {
         val result = ChromiaRellTypesHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_types_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_types_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2780,7 +2781,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellExpressionsHelpQuotesOfficialOperatorsOnly() = runBlocking {
         val result = ChromiaRellExpressionsHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_expressions_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_expressions_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2813,7 +2814,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellStatementsHelpQuotesOfficialValVarIfWhen() = runBlocking {
         val result = ChromiaRellStatementsHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_statements_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_statements_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2840,7 +2841,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellDatabaseHelpIsRellSyntaxOnly() = runBlocking {
         val result = ChromiaRellDatabaseHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_database_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_database_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2877,7 +2878,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellSystemlibHelpStartedOfficialGlobals() = runBlocking {
         val result = ChromiaRellSystemlibHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_systemlib_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_systemlib_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2911,7 +2912,7 @@ class DappBuildSchemaAndHelpTest {
     @Test
     fun chromiaRellSystemlibHelpExpandsOfficialNamespaces() = runBlocking {
         val result = ChromiaRellSystemlibHelpStrategy().execute(
-            CallToolRequest(name = "chromia_rell_systemlib_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_rell_systemlib_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)

@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -76,7 +77,7 @@ class TestnetProvisioningLiveTest {
             keyStore = DeployKeyStore(Files.createDirectory(dir.resolve("keys")))
         )
         val result = strategy.execute(
-            CallToolRequest(name = "provision_testnet_container", arguments = buildJsonObject {}),
+            callToolRequest(name = "provision_testnet_container", arguments = buildJsonObject {}),
             liveRepository()
         )
         assertEquals(false, result.isError) { "live dry run failed: ${result.structuredContent}" }
@@ -106,7 +107,7 @@ class TestnetProvisioningLiveTest {
             )
         )
         val result = strategy.execute(
-            CallToolRequest(name = "claim_testnet_tchr", arguments = buildJsonObject {}),
+            callToolRequest(name = "claim_testnet_tchr", arguments = buildJsonObject {}),
             liveRepository()
         )
         assertEquals(false, result.isError)

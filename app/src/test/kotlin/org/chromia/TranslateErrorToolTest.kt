@@ -1,7 +1,10 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.boolean
@@ -449,7 +452,7 @@ class TranslateErrorToolTest {
     @Test
     fun executeToolReturnsStructuredTranslation() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "translate_error",
                 arguments = buildJsonObject {
                     put("error", "java.lang.IllegalArgumentException: big_integer cannot be serialized as JSON")
@@ -475,7 +478,7 @@ class TranslateErrorToolTest {
     @Test
     fun executeToolMissingErrorParameterIsError() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(name = "translate_error", arguments = buildJsonObject { })
+            callToolRequest(name = "translate_error", arguments = buildJsonObject { })
         )
         assertEquals(true, result.isError)
         val text = (result.content.first() as TextContent).text!!
@@ -485,7 +488,7 @@ class TranslateErrorToolTest {
     @Test
     fun executeToolOverCapIsErrorMentioningLimit() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "translate_error",
                 arguments = buildJsonObject { put("error", "q".repeat(9000)) }
             )
@@ -508,11 +511,11 @@ class TranslateErrorToolTest {
         val tool = McpTools.translateErrorTool()
         assertEquals("translate_error", tool.name)
         assertEquals(listOf("error"), tool.inputSchema.required)
-        assertNotNull(tool.inputSchema.properties["error"])
-        assertNotNull(tool.inputSchema.properties["context"])
+        assertNotNull(tool.inputSchema.propertiesOrEmpty["error"])
+        assertNotNull(tool.inputSchema.propertiesOrEmpty["context"])
         val out = tool.outputSchema!!
         listOf("matched", "meaning", "likelyCause", "nextAction", "relatedTools", "searchTerms", "notes")
-            .forEach { assertNotNull(out.properties[it], "outputSchema missing $it") }
+            .forEach { assertNotNull(out.propertiesOrEmpty[it], "outputSchema missing $it") }
         assertTrue(out.required!!.containsAll(listOf("matched", "meaning", "likelyCause", "nextAction")))
     }
 }

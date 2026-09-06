@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -62,7 +63,7 @@ class VerifyGuardsProbeTest {
         assertNotNull(System.getenv(RunRellTests.DATABASE_URL_ENV), "verify_guards runs real tests and needs CHROMIA_TEST_DATABASE_URL")
         val result = runBlocking {
             VerifyGuardsStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "verify_guards",
                     arguments = buildJsonObject {
                         put("files", buildJsonObject { files.forEach { (k, v) -> put(k, v) } })

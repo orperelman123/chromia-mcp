@@ -1,7 +1,10 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -45,7 +48,7 @@ class ProbeImprovementsRegressionTest {
 
     private val executor = ToolExecutor(RecordingRepository(), PromptManager())
 
-    private fun textOf(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult): String =
+    private fun textOf(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): String =
         (result.content.first() as TextContent).text!!
 
     // ---- item 2: optional yaml -----------------------------------------
@@ -54,7 +57,7 @@ class ProbeImprovementsRegressionTest {
     fun checkDappProjectWorksWithoutYamlAndSaysSo() = runBlocking {
         val main = DappScaffold.files("hello").getValue("src/main.rell")
         val result = CheckDappProjectStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject {
                     put("rell", buildJsonObject { put("src/main.rell", main) })
@@ -87,7 +90,7 @@ class ProbeImprovementsRegressionTest {
     fun checkDappProjectSchemaNoLongerRequiresYaml() {
         val schema = McpTools.checkDappProjectTool().inputSchema
         assertEquals(listOf("rell"), schema.required)
-        assertTrue("allowAdminModules" in schema.properties.keys, schema.properties.keys.toString())
+        assertTrue("allowAdminModules" in schema.propertiesOrEmpty.keys, schema.propertiesOrEmpty.keys.toString())
     }
 
     // ---- item 3: help topic aliases ------------------------------------
@@ -96,7 +99,7 @@ class ProbeImprovementsRegressionTest {
     fun helpTopicAliasesResolveToRellPractices() = runBlocking {
         listOf("security", "best_practices", "best-practices").forEach { alias ->
             val result = executor.executeTool(
-                CallToolRequest(
+                callToolRequest(
                     name = "chromia_help",
                     arguments = buildJsonObject { put("topic", alias) }
                 )
@@ -187,7 +190,7 @@ class ProbeImprovementsRegressionTest {
     @Test
     fun securityCheckStrategyAcceptsAllowAdminModules() = runBlocking {
         val result = RellSecurityCheckStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "rell_security_check",
                 arguments = buildJsonObject {
                     put("source", "module;\nimport lib.ft4.admin;\n")
@@ -211,7 +214,7 @@ class ProbeImprovementsRegressionTest {
         val rell = buildJsonObject { put("main.rell", "module;\nimport lib.ft4.admin;\n") }
 
         val default = CheckDappProjectStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject { put("rell", rell) }
             ),
@@ -224,7 +227,7 @@ class ProbeImprovementsRegressionTest {
         )
 
         val allowed = CheckDappProjectStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject {
                     put("rell", rell)
@@ -242,7 +245,7 @@ class ProbeImprovementsRegressionTest {
     @Test
     fun checkFt4ImportsStrategyAcceptsAllowAdminModules() = runBlocking {
         val result = CheckFt4ImportsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_ft4_imports",
                 arguments = buildJsonObject {
                     put("rell", "import lib.ft4.admin;")
@@ -400,7 +403,7 @@ class ProbeImprovementsRegressionTest {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Success(bigAggregates(60))
         val result = ChrAggregatesStrategy().execute(
-            CallToolRequest(name = "get_chr_aggregates", arguments = buildJsonObject {}),
+            callToolRequest(name = "get_chr_aggregates", arguments = buildJsonObject {}),
             repo
         )
         assertTrue(result.isError != true)
@@ -420,7 +423,7 @@ class ProbeImprovementsRegressionTest {
         val data = bigAggregates(60)
         repo.next = NetworkResult.Success(data)
         val result = ChrAggregatesStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_chr_aggregates",
                 arguments = buildJsonObject { put("full", true) }
             ),
@@ -434,7 +437,7 @@ class ProbeImprovementsRegressionTest {
     @Test
     fun chrAggregatesSchemaDocumentsFullFlag() {
         val schema = McpTools.getChrAggregatesTool().inputSchema
-        assertTrue("full" in schema.properties.keys, schema.properties.keys.toString())
+        assertTrue("full" in schema.propertiesOrEmpty.keys, schema.propertiesOrEmpty.keys.toString())
         assertTrue(McpTools.getChrAggregatesTool().description!!.contains("full:true"))
     }
 }

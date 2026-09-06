@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -38,7 +39,7 @@ class AuditSilentArgumentRegressionTest {
     private val repo = RecordingRepository()
     private val validBrid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-    private fun dappQueryRequest(arguments: JsonElement) = CallToolRequest(
+    private fun dappQueryRequest(arguments: JsonElement) = callToolRequest(
         name = "chromia_dapp_query",
         arguments = buildJsonObject {
             put("blockchainRid", validBrid)
@@ -89,7 +90,7 @@ class AuditSilentArgumentRegressionTest {
 
         // Absent arguments still means "no arguments".
         DappInteractionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
                     put("blockchainRid", validBrid)
@@ -150,7 +151,7 @@ class AuditSilentArgumentRegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -170,7 +171,7 @@ class AuditSilentArgumentRegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -189,7 +190,7 @@ class AuditSilentArgumentRegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -206,7 +207,7 @@ class AuditSilentArgumentRegressionTest {
     @Test
     fun validAndAbsentListFiltersStillWork() = runBlocking {
         AssetDistributionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_distribution",
                 arguments = buildJsonObject {
                     put("assetId", "chr")
@@ -276,7 +277,7 @@ class AuditSilentArgumentRegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -299,7 +300,7 @@ class AuditSilentArgumentRegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -319,7 +320,7 @@ class AuditSilentArgumentRegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 org.chromia.tools.FilterAssetsStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "filter_assets",
                         arguments = buildJsonObject {
                             put("searchQuery", buildJsonObject { put("q", "CHR") })
@@ -338,7 +339,7 @@ class AuditSilentArgumentRegressionTest {
         // Numeric-timestamp-as-string coercion is a documented reliance; only
         // object/array values are rejected.
         val result = org.chromia.tools.FilterAssetsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_assets",
                 arguments = buildJsonObject { put("searchQuery", 42) }
             ),

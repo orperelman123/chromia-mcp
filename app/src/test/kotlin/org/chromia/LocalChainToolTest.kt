@@ -1,7 +1,10 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -35,12 +38,12 @@ class LocalChainToolTest {
 
     private fun run(arguments: kotlinx.serialization.json.JsonObject) = runBlocking {
         LocalChainStrategy().execute(
-            CallToolRequest(name = "local_chain_up", arguments = arguments),
+            callToolRequest(name = "local_chain_up", arguments = arguments),
             repo
         )
     }
 
-    private fun errorText(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult): String =
+    private fun errorText(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): String =
         (result.content.first() as TextContent).text!!
 
     @AfterEach
@@ -373,10 +376,10 @@ class LocalChainToolTest {
     fun localChainUpIsRegisteredWithSchemas() {
         val tool = org.chromia.tools.McpTools.allTools().first { it.name == "local_chain_up" }
         assertTrue(tool.description!!.contains("run_rell_tests"), "description should place the tool in the agent loop")
-        assertTrue(tool.inputSchema.properties.keys.containsAll(
+        assertTrue(tool.inputSchema.propertiesOrEmpty.keys.containsAll(
             listOf("files", "action", "moduleArgs", "ttlSeconds", "apiPort", "databaseUrl")
         ))
-        assertTrue(tool.outputSchema!!.properties.keys.containsAll(listOf("ok", "status", "brid", "apiUrl", "notes")))
+        assertTrue(tool.outputSchema!!.propertiesOrEmpty.keys.containsAll(listOf("ok", "status", "brid", "apiUrl", "notes")))
     }
 
     @Test
@@ -403,7 +406,7 @@ class LocalChainToolTest {
         // ok=false becomes a tool error (toolErrorResult), so "error" never
         // reaches structuredContent - the schema must not advertise it.
         val tool = org.chromia.tools.McpTools.allTools().first { it.name == "local_chain_up" }
-        val statusDescription = (tool.outputSchema!!.properties["status"] as kotlinx.serialization.json.JsonObject)
+        val statusDescription = (tool.outputSchema!!.propertiesOrEmpty["status"] as kotlinx.serialization.json.JsonObject)
             .getValue("description").jsonPrimitive.content
         assertFalse(statusDescription.contains("| error"), statusDescription)
         for (status in listOf("started", "already_running", "running", "stopped", "not_running")) {

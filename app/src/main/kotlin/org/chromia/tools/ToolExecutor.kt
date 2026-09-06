@@ -1,9 +1,9 @@
 package org.chromia.tools
 
 import dev.langchain4j.data.segment.TextSegment
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import net.postchain.common.BlockchainRid
@@ -16,6 +16,30 @@ import org.chromia.domain.SortingParams
 
 interface ToolStrategy {
     suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult
+
+    /**
+     * True when running this tool acts on the machine the server runs on, or uses
+     * a private key. Concretely: it reads or writes anything outside a scratch
+     * directory built solely from the caller's own arguments, starts or controls a
+     * process or an embedded node, or signs/spends with a key from the environment
+     * or the deploy keystore.
+     *
+     * This is the whole definition of the `public` profile
+     * ([ToolProfiles.PUBLIC]): a no-auth connector URL is a URL anyone who has it
+     * can call, so every marked tool is refused there. The property is abstract
+     * here AND deliberately left unimplemented on [BaseToolStrategy], so a
+     * strategy added later does not compile until its author decides - a new tool
+     * cannot slip into the public surface by omission. [ToolProfiles.PUBLIC_DISABLED]
+     * pins the resulting set, and ToolProfilesTest asserts the two agree.
+     *
+     * The in-process Rell compiler tools (rell_check, rell_security_check,
+     * run_rell_tests, verify_guards) are false: they materialise only the caller's
+     * own sources into a fresh temp directory (path traversal is rejected before
+     * anything is written) and delete it afterwards. run_rell_tests additionally
+     * wants a PostgreSQL; without one it refuses cleanly, which is what a public
+     * deployment should leave it doing (see serve-public.ps1).
+     */
+    val touchesLocalMachine: Boolean
 }
 
 class ToolExecutor(
@@ -114,13 +138,22 @@ class ToolExecutor(
         "deploy_testnet_chain" to DeployTestnetChainStrategy()
     )
 
+    /**
+     * Tool names whose strategy declares [ToolStrategy.touchesLocalMachine].
+     * Derived from the live strategy table, so it cannot drift from the code;
+     * [ToolProfiles.PUBLIC_DISABLED] is the pinned copy the server actually
+     * applies, and ToolProfilesTest asserts the two are equal.
+     */
+    val localMachineToolNames: Set<String>
+        get() = strategies.filterValues { it.touchesLocalMachine }.keys.toSortedSet()
+
     suspend fun executeTool(request: CallToolRequest): CallToolResult {
         val startedAt = System.nanoTime()
         val result = runCatching {
             val strategy = strategies[request.name]
                 ?: return toolErrorResult("Unknown tool: ${request.name}")
                     .also { logToolCall(request.name, startedAt, ok = false) }
-            unknownArgumentsError(request.name, request.arguments.keys)?.let { message ->
+            unknownArgumentsError(request.name, request.argumentsOrEmpty.keys)?.let { message ->
                 return toolErrorResult(message).also { logToolCall(request.name, startedAt, ok = false) }
             }
             strategy.execute(request, repository)
@@ -152,7 +185,7 @@ class ToolExecutor(
     /** Declared input-schema property names per tool (every tool, disabled ones included). */
     private val acceptedArguments: Map<String, Set<String>> by lazy {
         McpTools.allTools().associate { tool ->
-            tool.name to (tool.inputSchema.properties.keys + undeclaredArgumentAliases[tool.name].orEmpty())
+            tool.name to (tool.inputSchema.propertiesOrEmpty.keys + undeclaredArgumentAliases[tool.name].orEmpty())
         }
     }
 
@@ -636,9 +669,11 @@ abstract class BaseToolStrategy : ToolStrategy {
 }
 
 class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return runCatching {
-            val args = request.arguments as Map<String, Any>
+            val args = request.argumentsOrEmpty as Map<String, Any>
             val category = extractString(args, "category")
             val tool = extractString(args, "tool")
             val search = extractString(args, "search")
@@ -724,8 +759,10 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
 }
 
 class BlockchainsTransactionsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val result = repository.getBlockchainsTransactions(network)
@@ -734,8 +771,10 @@ class BlockchainsTransactionsStrategy : BaseToolStrategy() {
 }
 
 class TransactionsByClusterStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val result = repository.getTransactionsByCluster(network)
@@ -744,8 +783,10 @@ class TransactionsByClusterStrategy : BaseToolStrategy() {
 }
 
 class AllAssetsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val result = repository.getAllAssets(network)
@@ -754,8 +795,10 @@ class AllAssetsStrategy : BaseToolStrategy() {
 }
 
 class TotalRewardsPaidStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val result = repository.getTotalRewardsPaid(network)
@@ -764,8 +807,10 @@ class TotalRewardsPaidStrategy : BaseToolStrategy() {
 }
 
 class AssetDistributionStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
 
@@ -783,8 +828,10 @@ class AssetDistributionStrategy : BaseToolStrategy() {
 }
 
 class AssetTopHoldersStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
         // Same validation as extractPagination: a malformed limit used to be
@@ -806,8 +853,10 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
 }
 
 class BlockchainAnalyticsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val brid = requireParameter(args, "brid")
         val network = extractString(args, "network")
         val fromTimestamp = extractString(args, "fromTimestamp")
@@ -818,8 +867,10 @@ class BlockchainAnalyticsStrategy : BaseToolStrategy() {
 }
 
 class BlockchainDetailsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val rid = requireParameter(args, "rid")
         val network = extractString(args, "network")
 
@@ -829,8 +880,10 @@ class BlockchainDetailsStrategy : BaseToolStrategy() {
 }
 
 class MonthlyActiveAccountsPerChainStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val brid = requireParameter(args, "brid")
         val network = extractString(args, "network")
         val untilTimestamp = extractString(args, "untilTimestamp")
@@ -841,8 +894,10 @@ class MonthlyActiveAccountsPerChainStrategy : BaseToolStrategy() {
 }
 
 class AllTransactionsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         requireOrderedTimestamps(extractString(args, "timestampFrom"), extractString(args, "timestampTo"))
@@ -873,8 +928,10 @@ class AllTransactionsStrategy : BaseToolStrategy() {
 }
 
 class AllOperationsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val result = repository.getAllOperations(network)
@@ -883,8 +940,10 @@ class AllOperationsStrategy : BaseToolStrategy() {
 }
 
 class FilterAssetsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val filters = org.chromia.domain.AssetSearchFilters(
@@ -904,8 +963,10 @@ class FilterAssetsStrategy : BaseToolStrategy() {
 }
 
 class ChrAggregatesStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
         val includeTotals = extractBoolean(args, "includeTotals") ?: true
         val includeGroupedDeposits = extractBoolean(args, "includeGroupedDeposits") ?: true
@@ -961,8 +1022,10 @@ internal fun summarizeChrAggregates(data: JsonObject, cap: Int = CHR_AGGREGATES_
 }
 
 class AssetBlockchainsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
         val network = extractString(args, "network")
 
@@ -972,8 +1035,10 @@ class AssetBlockchainsStrategy : BaseToolStrategy() {
 }
 
 class SignerBlockchainsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val signer = requireParameter(args, "signer")
         val network = extractString(args, "network")
 
@@ -983,8 +1048,10 @@ class SignerBlockchainsStrategy : BaseToolStrategy() {
 }
 
 class AccountBlockchainsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val accountId = requireParameter(args, "accountId")
         val network = extractString(args, "network")
 
@@ -994,8 +1061,10 @@ class AccountBlockchainsStrategy : BaseToolStrategy() {
 }
 
 class NodeUnavailabilityStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val pubkey = requireParameter(args, "pubkey")
         val startTimestamp = requireParameter(args, "startTimestamp")
         val network = extractString(args, "network")
@@ -1006,8 +1075,10 @@ class NodeUnavailabilityStrategy : BaseToolStrategy() {
 }
 
 class NetworkStatsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val result = repository.getNetworkStats(network)
@@ -1016,8 +1087,10 @@ class NetworkStatsStrategy : BaseToolStrategy() {
 }
 
 class FilterBlockchainsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
 
         val filters = BlockchainFilters(
@@ -1051,12 +1124,14 @@ class DappInteractionStrategy(
      */
     deadlineMs: Long? = null
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     private val deadlineMs: Long = ProbeBudget.clampDeadlineMs(
         deadlineMs ?: ProbeBudget.configuredDeadlineMs(ProbeBudget.QUERY_DEADLINE_ENV)
     )
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
         val blockchainRid = requireParameter(args, "blockchainRid")
         val queryName = extractString(args, "query")
@@ -1091,8 +1166,10 @@ class DappInteractionStrategy(
 }
 
 class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val query = requireParameter(args, "query")
 
         return runCatching {
@@ -1154,8 +1231,10 @@ class FetchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Base
 }
 
 class SearchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val query = requireParameter(args, "query")
 
         return runCatching {
@@ -1191,8 +1270,10 @@ class SearchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Bas
 }
 
 class FetchDocumentStrategy(private val ragStoreDeferred: Deferred<RagStore>) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val id = normalizeSegmentId(requireParameter(args, "id"))
 
         return runCatching {
@@ -1278,8 +1359,10 @@ internal fun formatFetchDocsText(hits: List<TextSegment>): String =
     }
 
 class ScaffoldDappStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val name = extractString(args, "name")
         val template = extractString(args, "template") ?: "hello"
         val payload = DappScaffold.toJson(name, template)
@@ -1290,8 +1373,10 @@ class ScaffoldDappStrategy : BaseToolStrategy() {
 
 
 class ValidateChromiaYmlStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
         // strict=true turns missing production pins (compile.rellVersion,
         // merkle_hash_version) into errors; the default warns, since chr
@@ -1308,6 +1393,8 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
  * help strategy and returns that tool's exact payload.
  */
 class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
 
     private companion object {
         /**
@@ -1323,7 +1410,7 @@ class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>)
     }
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val requested = extractString(args, "topic")?.trim()?.lowercase()
         val rawTopic = requested?.let { TOPIC_ALIASES[it] ?: it }
         // Accept both "chr_build" and "chr_build_help" spellings.
@@ -1346,8 +1433,10 @@ class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>)
 }
 
 class RellCheckStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val source = extractString(args, "source")
         val filesArg = args["files"]
         val modules = extractStringList(args, "modules")
@@ -1379,8 +1468,10 @@ class RellCheckStrategy : BaseToolStrategy() {
 }
 
 class RellSecurityCheckStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val source = extractString(args, "source")
         val filesArg = args["files"]
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
@@ -1428,8 +1519,10 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
 }
 
 class RunRellTestsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val filesArg = args["files"]
         val (files, invalidKeys) = extractRellFilesMap(filesArg)
         if (invalidKeys.isNotEmpty()) {
@@ -1527,10 +1620,12 @@ class RunRellTestsStrategy : BaseToolStrategy() {
  * `ok` is true only when every guard is load_bearing.
  */
 class VerifyGuardsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     private val environmentalFragments = listOf("Unable to create GTX module", "do not compile", "Missing metadata")
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val (files, invalidKeys) = extractRellFilesMap(args["files"])
         if (invalidKeys.isNotEmpty()) {
             return toolErrorResult(
@@ -1862,8 +1957,10 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
 }
 
 class LocalChainStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = true
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val action = (extractString(args, "action") ?: "up").lowercase()
         return runCatching {
             when (action) {
@@ -1940,8 +2037,10 @@ class LocalChainStrategy : BaseToolStrategy() {
 }
 
 class Ft4ModuleArgsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val name = extractString(args, "name")
         val includeIccf = extractBoolean(args, "includeIccf") ?: false
         return toolSuccessResult(Ft4ModuleArgs.toJson(name, includeIccf))
@@ -1949,68 +2048,90 @@ class Ft4ModuleArgsStrategy : BaseToolStrategy() {
 }
 
 class ChrBuildHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrBuildHelp.toJson())
     }
 }
 
 class ChrReplHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrReplHelp.toJson())
     }
 }
 
 class ChrToolsHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrToolsHelp.toJson())
     }
 }
 
 class ChrSeederHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrSeederHelp.toJson())
     }
 }
 
 class BlockchainPropertiesHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(BlockchainPropertiesHelp.toJson())
     }
 }
 
 class ChrEifHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrEifHelp.toJson())
     }
 }
 
 class ChromiaYmlDefinitionsHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaYmlDefinitionsHelp.toJson())
     }
 }
 
 class ChrCompletionHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrCompletionHelp.toJson())
     }
 }
 
 class ChromiaProjectStructureHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaProjectStructureHelp.toJson())
     }
 }
 
 class ChrMultiSignatureHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrMultiSignatureHelp.toJson())
     }
 }
 
 class WriteDeploymentConfigStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val network = requireParameter(args, "network")
         val name = extractString(args, "name") ?: extractString(args, "chain")
         if (WriteDeploymentConfig.resolveNetwork(network) == null) {
@@ -2021,74 +2142,98 @@ class WriteDeploymentConfigStrategy : BaseToolStrategy() {
 }
 
 class ChrDeployHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrDeployHelp.toJson())
     }
 }
 
 class ChrNodeHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrNodeHelp.toJson())
     }
 }
 
 class ChrQueryHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrQueryHelp.toJson())
     }
 }
 
 class VaultLeaseHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(VaultLeaseHelp.toJson())
     }
 }
 
 class ChrGenerateClientHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrGenerateClientHelp.toJson())
     }
 }
 
 class ChromiaCookbookHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaCookbookHelp.toJson())
     }
 }
 
 class ChrKeyIdHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrKeyIdHelp.toJson())
     }
 }
 
 class ChromiaLanguageClientsHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaLanguageClientsHelp.toJson())
     }
 }
 
 class ChromiaDocsYmlHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaDocsYmlHelp.toJson())
     }
 }
 
 class ChrLibraryHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrLibraryHelp.toJson())
     }
 }
 
 class ChrCreateRellDappHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChrCreateRellDappHelp.toJson())
     }
 }
 
 class CheckDappProjectStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         // yaml is optional: agents often have only Rell code in hand. A blank or
         // missing yaml falls back to a minimal default at the current pins and the
         // result says so, instead of a "Missing required parameter" dead end.
@@ -2136,8 +2281,10 @@ class CheckDappProjectStrategy : BaseToolStrategy() {
 }
 
 class CheckFt4ImportsStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val rellFiles = extractStringMap(args, "rell")
             ?: throw IllegalArgumentException("Missing required parameter: rell")
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
@@ -2148,8 +2295,10 @@ class CheckFt4ImportsStrategy : BaseToolStrategy() {
 }
 
 class TranslateErrorStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val error = requireParameter(args, "error")
         val context = extractString(args, "context")
         return toolSuccessResult(ErrorTranslator.translate(error, context).toJson())
@@ -2157,60 +2306,80 @@ class TranslateErrorStrategy : BaseToolStrategy() {
 }
 
 class ChromiaRellLanguageHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellLanguageHelp.toJson())
     }
 }
 
 class ChromiaFt4QueriesHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaFt4QueriesHelp.toJson())
     }
 }
 
 class ChromiaIntegrationsHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaIntegrationsHelp.toJson())
     }
 }
 
 class ChromiaVectorSearchHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaVectorSearchHelp.toJson())
     }
 }
 
 class ChromiaRellTypesHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellTypesHelp.toJson())
     }
 }
 
 class ChromiaRellExpressionsHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellExpressionsHelp.toJson())
     }
 }
 
 class ChromiaRellStatementsHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellStatementsHelp.toJson())
     }
 }
 
 class ChromiaRellDatabaseHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellDatabaseHelp.toJson())
     }
 }
 
 class ChromiaRellSystemlibHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellSystemlibHelp.toJson())
     }
 }
 
 class ChromiaRellPracticesHelpStrategy : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         return toolSuccessResult(ChromiaRellPracticesHelp.toJson())
     }
@@ -2227,8 +2396,10 @@ class OnboardingNextStepStrategy(
      */
     private val registeredTools: () -> Set<String> = { McpTools.enabledToolNames() }
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val state = OnboardingNextStep.State(
             hasProject = extractBoolean(args, "hasProject") ?: false,
             compiles = extractBoolean(args, "compiles") ?: false,
@@ -2260,11 +2431,13 @@ class VerifyDeploymentStrategy(
      */
     deadlineMs: Long? = null
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     private val deadlineMs: Long =
         VerifyDeployment.clampDeadlineMs(deadlineMs ?: VerifyDeployment.configuredDeadlineMs())
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val brid = VerifyDeployment.parseBrid(requireParameter(args, "brid"))
         val network = extractString(args, "network")?.takeIf { it.isNotBlank() } ?: "testnet"
         val waitMs = VerifyDeployment.clampWaitMs(extractWaitMs(args))
@@ -2419,12 +2592,14 @@ class DeploymentPreflightStrategy(
      */
     deadlineMs: Long? = null
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
     private val probeDeadlineMs: Long = ProbeBudget.clampDeadlineMs(
         deadlineMs ?: ProbeBudget.configuredDeadlineMs(ProbeBudget.PREFLIGHT_DEADLINE_ENV)
     )
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val yaml = requireParameter(args, "yaml")
         val target = requireParameter(args, "target")
         // Same shape as check_dapp_project's `rell`: one source string

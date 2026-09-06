@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -21,7 +22,7 @@ class ChromiaHelpGatewayTest {
     private val executor = ToolExecutor(RecordingRepository(), PromptManager())
 
     private fun call(arguments: kotlinx.serialization.json.JsonObject) = runBlocking {
-        executor.executeTool(CallToolRequest(name = "chromia_help", arguments = arguments))
+        executor.executeTool(callToolRequest(name = "chromia_help", arguments = arguments))
     }
 
     @Test

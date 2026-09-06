@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -332,12 +333,12 @@ class ProvisioningToolsTest {
         delayFn = { /* no waiting in tests */ }
     )
 
-    private fun call(name: String, args: JsonObject) = CallToolRequest(name = name, arguments = args)
+    private fun call(name: String, args: JsonObject) = callToolRequest(name = name, arguments = args)
 
-    private fun resultJson(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult): JsonObject =
+    private fun resultJson(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): JsonObject =
         result.structuredContent!!.jsonObject
 
-    private fun resultText(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult): String =
+    private fun resultText(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): String =
         Json.encodeToString(JsonObject.serializer(), result.structuredContent!!.jsonObject)
 
     // ---- provision: dry run -------------------------------------------------

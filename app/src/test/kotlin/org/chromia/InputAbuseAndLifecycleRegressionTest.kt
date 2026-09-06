@@ -1,8 +1,11 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -40,7 +43,7 @@ class InputAbuseAndLifecycleRegressionTest {
     )
 
     private fun call(tool: String, args: JsonObject): CallToolResult = runBlocking {
-        executor.executeTool(CallToolRequest(name = tool, arguments = args))
+        executor.executeTool(callToolRequest(name = tool, arguments = args))
     }
 
     private fun text(result: CallToolResult): String = (result.content.first() as TextContent).text.orEmpty()
@@ -183,7 +186,7 @@ class InputAbuseAndLifecycleRegressionTest {
 
         // Every declared argument of every tool passes the check by construction.
         org.chromia.tools.McpTools.allTools().forEach { tool ->
-            assertNull(executor.unknownArgumentsError(tool.name, tool.inputSchema.properties.keys), tool.name)
+            assertNull(executor.unknownArgumentsError(tool.name, tool.inputSchema.propertiesOrEmpty.keys), tool.name)
         }
     }
 

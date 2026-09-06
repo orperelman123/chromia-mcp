@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -106,7 +107,7 @@ class DappBuildToolsTest {
     @Test
     fun scaffoldYmlValidatesThroughTool() = runBlocking {
         val result = ValidateChromiaYmlStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "validate_chromia_yml",
                 arguments = buildJsonObject { put("yaml", goodYml()) }
             ),
@@ -200,7 +201,7 @@ class DappBuildToolsTest {
               rellVersion: 0.16.1
         """.trimIndent()
         val result = ValidateChromiaYmlStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "validate_chromia_yml",
                 arguments = buildJsonObject { put("yaml", yaml) }
             ),
@@ -232,7 +233,7 @@ class DappBuildToolsTest {
     @Test
     fun ft4ModuleArgsNeverEmitsAdminOrRasOpen() = runBlocking {
         val result = Ft4ModuleArgsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "ft4_module_args",
                 arguments = buildJsonObject {
                     put("name", "wallet")
@@ -350,7 +351,7 @@ class DappBuildToolsTest {
     @Test
     fun chrBuildHelpReturnsOfficialCommands() = runBlocking {
         val result = ChrBuildHelpStrategy().execute(
-            CallToolRequest(name = "chr_build_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_build_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -447,7 +448,7 @@ class DappBuildToolsTest {
     @Test
     fun chrReplHelpIsOfficialFlags() = runBlocking {
         val result = ChrReplHelpStrategy().execute(
-            CallToolRequest(name = "chr_repl_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_repl_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -498,7 +499,7 @@ class DappBuildToolsTest {
     @Test
     fun chrToolsHelpIsOfficialFlags() = runBlocking {
         val result = ChrToolsHelpStrategy().execute(
-            CallToolRequest(name = "chr_tools_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_tools_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -552,7 +553,7 @@ class DappBuildToolsTest {
     @Test
     fun chrSeederHelpIsOfficialFlags() = runBlocking {
         val result = ChrSeederHelpStrategy().execute(
-            CallToolRequest(name = "chr_seeder_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_seeder_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -599,7 +600,7 @@ class DappBuildToolsTest {
     @Test
     fun blockchainPropertiesHelpIsOfficialKeys() = runBlocking {
         val result = BlockchainPropertiesHelpStrategy().execute(
-            CallToolRequest(name = "blockchain_properties_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "blockchain_properties_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -648,7 +649,7 @@ class DappBuildToolsTest {
     @Test
     fun chrEifHelpIsOfficialFlags() = runBlocking {
         val result = ChrEifHelpStrategy().execute(
-            CallToolRequest(name = "chr_eif_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_eif_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -699,7 +700,7 @@ class DappBuildToolsTest {
     @Test
     fun chromiaYmlDefinitionsHelpIsOfficialExamples() = runBlocking {
         val result = ChromiaYmlDefinitionsHelpStrategy().execute(
-            CallToolRequest(name = "chromia_yml_definitions_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_yml_definitions_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -750,7 +751,7 @@ class DappBuildToolsTest {
     @Test
     fun chrCompletionHelpIsOfficialFlags() = runBlocking {
         val result = ChrCompletionHelpStrategy().execute(
-            CallToolRequest(name = "chr_completion_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_completion_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -833,7 +834,7 @@ class DappBuildToolsTest {
     @Test
     fun chromiaProjectStructureHelpIsOfficialLayouts() = runBlocking {
         val result = ChromiaProjectStructureHelpStrategy().execute(
-            CallToolRequest(name = "chromia_project_structure_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chromia_project_structure_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -884,7 +885,7 @@ class DappBuildToolsTest {
     @Test
     fun chrMultiSignatureHelpIsReadOnlyView() = runBlocking {
         val result = ChrMultiSignatureHelpStrategy().execute(
-            CallToolRequest(name = "chr_multi_signature_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_multi_signature_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -1126,7 +1127,7 @@ class DappBuildToolsTest {
     @Test
     fun writeDeploymentConfigTestnetShape() = runBlocking {
         val result = WriteDeploymentConfigStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "write_deployment_config",
                 arguments = buildJsonObject {
                     put("network", "testnet")
@@ -1188,7 +1189,7 @@ class DappBuildToolsTest {
     @Test
     fun writeDeploymentConfigMainnetShape() = runBlocking {
         val result = WriteDeploymentConfigStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "write_deployment_config",
                 arguments = buildJsonObject { put("network", "MAINNET") }
             ),
@@ -1243,7 +1244,7 @@ class DappBuildToolsTest {
     @Test
     fun writeDeploymentConfigUnknownNetworkIsError() = runBlocking {
         val result = WriteDeploymentConfigStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "write_deployment_config",
                 arguments = buildJsonObject { put("network", "devnet") }
             ),
@@ -1343,7 +1344,7 @@ class DappBuildToolsTest {
     @Test
     fun chrDeployHelpReturnsOfficialFlags() = runBlocking {
         val result = ChrDeployHelpStrategy().execute(
-            CallToolRequest(name = "chr_deploy_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_deploy_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -1722,7 +1723,7 @@ class DappBuildToolsTest {
     @Test
     fun chrNodeHelpReturnsOfficialFlags() = runBlocking {
         val result = ChrNodeHelpStrategy().execute(
-            CallToolRequest(name = "chr_node_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_node_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -1797,7 +1798,7 @@ class DappBuildToolsTest {
     @Test
     fun chrQueryHelpIsReadOnlyOfficialFlags() = runBlocking {
         val result = ChrQueryHelpStrategy().execute(
-            CallToolRequest(name = "chr_query_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "chr_query_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -1881,7 +1882,7 @@ class DappBuildToolsTest {
     @Test
     fun vaultLeaseHelpUsesOfficialDirectoryBridsOnly() = runBlocking {
         val result = VaultLeaseHelpStrategy().execute(
-            CallToolRequest(name = "vault_lease_help", arguments = buildJsonObject {}),
+            callToolRequest(name = "vault_lease_help", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         assertTrue(result.isError != true)
@@ -2037,7 +2038,7 @@ class DappBuildToolsTest {
                 error("check_dapp_project must not load RagStore")
             }
         ).executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject {
                     put("yaml", files.getValue("chromia.yml"))
@@ -2063,7 +2064,7 @@ class DappBuildToolsTest {
     @Test
     fun checkFt4ImportsToolFlagsForbiddenAndIgnoresComments() = runBlocking {
         val result = CheckFt4ImportsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_ft4_imports",
                 arguments = buildJsonObject {
                     put(

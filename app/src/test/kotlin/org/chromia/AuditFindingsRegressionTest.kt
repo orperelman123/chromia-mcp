@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -93,7 +94,7 @@ class AuditFindingsRegressionTest {
     fun securityCheckCompileGatePassesRecommendedLayout() {
         val result = runBlocking {
             RellSecurityCheckStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "rell_security_check",
                     arguments = buildJsonObject {
                         put(
@@ -279,7 +280,7 @@ class AuditFindingsRegressionTest {
     fun bareStringRellIsCompiledAndSecurityChecked() = runBlocking {
         val yaml = DappScaffold.files("hello_dapp").getValue("chromia.yml")
         val result = org.chromia.tools.CheckDappProjectStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "check_dapp_project",
                 arguments = buildJsonObject {
                     put("yaml", yaml)
@@ -440,22 +441,22 @@ class AuditFindingsRegressionTest {
             put("main.rell", "module;")
             put("bad.rell", buildJsonObject { put("content", "module;") })
         }
-        listOf<Pair<String, suspend () -> io.modelcontextprotocol.kotlin.sdk.CallToolResult>>(
+        listOf<Pair<String, suspend () -> io.modelcontextprotocol.kotlin.sdk.types.CallToolResult>>(
             "rell_check" to {
                 RellCheckStrategy().execute(
-                    CallToolRequest(name = "rell_check", arguments = buildJsonObject { put("files", badFiles) }),
+                    callToolRequest(name = "rell_check", arguments = buildJsonObject { put("files", badFiles) }),
                     repo
                 )
             },
             "rell_security_check" to {
                 RellSecurityCheckStrategy().execute(
-                    CallToolRequest(name = "rell_security_check", arguments = buildJsonObject { put("files", badFiles) }),
+                    callToolRequest(name = "rell_security_check", arguments = buildJsonObject { put("files", badFiles) }),
                     repo
                 )
             },
             "run_rell_tests" to {
                 RunRellTestsStrategy().execute(
-                    CallToolRequest(name = "run_rell_tests", arguments = buildJsonObject { put("files", badFiles) }),
+                    callToolRequest(name = "run_rell_tests", arguments = buildJsonObject { put("files", badFiles) }),
                     repo
                 )
             }

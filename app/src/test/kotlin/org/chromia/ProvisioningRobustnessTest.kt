@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -83,9 +84,9 @@ class ProvisioningRobustnessTest {
         TxOutcome("00".repeat(32), false, "test poster must not be reached")
     }
 
-    private fun call(name: String, args: JsonObject) = CallToolRequest(name = name, arguments = args)
+    private fun call(name: String, args: JsonObject) = callToolRequest(name = name, arguments = args)
 
-    private fun errorText(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult): String =
+    private fun errorText(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): String =
         result.structuredContent!!.jsonObject["error"]?.jsonPrimitive?.contentOrNull
             ?: result.structuredContent!!.jsonObject.toString()
 

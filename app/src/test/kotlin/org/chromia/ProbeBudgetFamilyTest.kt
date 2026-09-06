@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -71,7 +72,7 @@ class ProbeBudgetFamilyTest {
 
     private fun dappCall(deadlineMs: Long?, network: String? = "mainnet") = runBlocking {
         DappInteractionStrategy(deadlineMs = deadlineMs).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
                     put("blockchainRid", hexBrid)
@@ -140,7 +141,7 @@ class ProbeBudgetFamilyTest {
 
     private fun preflightCall(deadlineMs: Long?, urls: List<String>) = runBlocking {
         DeploymentPreflightStrategy(deadlineMs = deadlineMs).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "deployment_preflight",
                 arguments = buildJsonObject {
                     put("yaml", preflightYaml(urls))

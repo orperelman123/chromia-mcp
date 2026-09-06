@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -32,7 +33,7 @@ import org.junit.jupiter.api.Test
 
 class ToolExecutorRemainingToolsTest {
 
-    private fun textOf(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult): String =
+    private fun textOf(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): String =
         (result.content.first() as TextContent).text!!
 
     private suspend fun executeSuccess(
@@ -42,7 +43,7 @@ class ToolExecutorRemainingToolsTest {
         repo: RecordingRepository = RecordingRepository()
     ): Pair<RecordingRepository, String> {
         repo.next = NetworkResult.Success(buildJsonObject { put("ok", name) })
-        val result = strategy.execute(CallToolRequest(name = name, arguments = arguments), repo)
+        val result = strategy.execute(callToolRequest(name = name, arguments = arguments), repo)
         return repo to textOf(result)
     }
 
@@ -137,7 +138,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject { put("network", "mainnet") }
                     ),
@@ -171,7 +172,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 BlockchainAnalyticsStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_blockchain_analytics",
                         arguments = buildJsonObject { put("network", "mainnet") }
                     ),
@@ -208,7 +209,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 MonthlyActiveAccountsPerChainStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_monthly_active_accounts_per_chain",
                         arguments = buildJsonObject { put("network", "mainnet") }
                     ),
@@ -273,7 +274,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AssetBlockchainsStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_blockchains",
                         arguments = buildJsonObject { put("network", "mainnet") }
                     ),
@@ -305,7 +306,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 SignerBlockchainsStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_signer_blockchains",
                         arguments = buildJsonObject { put("network", "mainnet") }
                     ),
@@ -337,7 +338,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AccountBlockchainsStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_account_blockchains",
                         arguments = buildJsonObject { put("network", "mainnet") }
                     ),
@@ -371,7 +372,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 NodeUnavailabilityStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_node_unavailability",
                         arguments = buildJsonObject {
                             put("startTimestamp", "1736373600000")
@@ -390,7 +391,7 @@ class ToolExecutorRemainingToolsTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 NodeUnavailabilityStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_node_unavailability",
                         arguments = buildJsonObject {
                             put("pubkey", "02DDAEA3")

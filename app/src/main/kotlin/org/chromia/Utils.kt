@@ -16,6 +16,7 @@ import io.ktor.http.isSuccess
 import io.ktor.http.takeFrom
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import org.chromia.App.Companion.logger
+import org.chromia.tools.ToolProfiles
 import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.createTempFile
@@ -23,10 +24,18 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.outputStream
 
 const val USAGE_HELP = """
-    Usage: program [--sse --host <host> --port <port> | --stdio | --generate-embeddings | --generate-embeddings-no-upload]
-      --sse                    Start SSE server (127.0.0.1:3001)
+    Usage: program [--sse|--http --host <host> --port <port> --profile <name> | --stdio | --generate-embeddings | --generate-embeddings-no-upload]
+      --sse                    Start the HTTP server (127.0.0.1:3001). Serves BOTH the
+                               root SSE endpoints (GET / + POST /?sessionId=...) and
+                               Streamable HTTP at /mcp, plus /health.
+      --http                   Alias for --sse, for clients that only know the newer name.
       --sse --host <host>        Custom host (default: 127.0.0.1)
       --sse --port <port>       Custom port (default: 3001)
+      --sse --profile <name>    Tool profile: full (default) or public. `public` disables
+                               every tool that acts on this machine or uses a key -
+                               local_chain_up, provision_testnet_container,
+                               claim_testnet_tchr, deploy_testnet_chain - and is what you
+                               want behind a no-auth connector URL. Also CHROMIA_MCP_PROFILE.
       --stdio                  Start stdio server (default)
       --generate-embeddings    Fetch docs, create embeddings, persist locally, upload to GitLab packages
       --generate-embeddings-no-upload  Fetch docs, create embeddings, persist to local embeddings.json (no upload)
@@ -43,7 +52,7 @@ const val USAGE_HELP = """
       --sse --host 0.0.0.0 --port 8080  # All interfaces:8080
 """
 
-data class SseOption(val host: String, val port: Int)
+data class SseOption(val host: String, val port: Int, val profile: String = ToolProfiles.FULL)
 
 fun parseSseArgs(args: List<String>): SseOption {
     require(args.size % 2 == 0) { "Arguments must be in [--key value] pairs" }
@@ -52,9 +61,9 @@ fun parseSseArgs(args: List<String>): SseOption {
     }
     // Unknown keys used to be silently ignored: `--sse --prot 8080` started on
     // the default port 3001 with no warning (audit F5). Fail startup instead.
-    val unknown = options.keys - setOf("host", "port")
+    val unknown = options.keys - setOf("host", "port", "profile")
     require(unknown.isEmpty()) {
-        "Unknown option(s): ${unknown.joinToString(", ") { "--$it" }}. Valid options: --host, --port"
+        "Unknown option(s): ${unknown.joinToString(", ") { "--$it" }}. Valid options: --host, --port, --profile"
     }
     val host = options["host"] ?: "127.0.0.1"
     val port = try {
@@ -63,8 +72,12 @@ fun parseSseArgs(args: List<String>): SseOption {
         throw IllegalArgumentException("Invalid port: ${options["port"]}")
     }
     require(port in 1..65535) { "Port must be between 1-65535" }
+    // ToolProfiles.resolve rejects an unknown name rather than quietly falling
+    // back to the full toolset - the whole point of --profile public is that a
+    // typo must not publish local_chain_up to the internet.
+    val profile = ToolProfiles.resolve(flag = options["profile"])
 
-    return SseOption(host, port)
+    return SseOption(host, port, profile)
 }
 
 fun getResourcePath(pathStr: String) = object {}.javaClass.classLoader.getResource(pathStr)?.path

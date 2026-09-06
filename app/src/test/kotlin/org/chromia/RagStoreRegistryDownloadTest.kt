@@ -11,8 +11,9 @@ import io.ktor.client.plugins.pluginOrNull
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -61,7 +62,7 @@ class RagStoreRegistryDownloadTest {
 
         val deferred = CompletableDeferred(ragStore)
         val search = SearchDocsStrategy(deferred).execute(
-            CallToolRequest(name = "search", arguments = buildJsonObject { put("query", "FT4 tokens") }),
+            callToolRequest(name = "search", arguments = buildJsonObject { put("query", "FT4 tokens") }),
             ChromiaRepositoryImpl()
         )
         // Unavailable index is an explicit, retryable error - not silent emptiness (audit F5).
@@ -72,7 +73,7 @@ class RagStoreRegistryDownloadTest {
         assertFalse(searchText.contains("docs.chromia.com"))
 
         val fetch = FetchDocumentStrategy(deferred).execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "https://docs.chromia.com") }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "https://docs.chromia.com") }),
             ChromiaRepositoryImpl()
         )
         assertEquals(true, fetch.isError)
@@ -82,7 +83,7 @@ class RagStoreRegistryDownloadTest {
         assertFalse(fetchText.contains("Documentation not found"), fetchText)
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
-            CallToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "FT4 tokens") }),
+            callToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "FT4 tokens") }),
             ChromiaRepositoryImpl()
         )
         assertEquals(true, fetchDocs.isError)

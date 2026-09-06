@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
@@ -24,7 +25,7 @@ class RellCheckToolTest {
 
     private fun run(arguments: kotlinx.serialization.json.JsonObject) = runBlocking {
         RellCheckStrategy().execute(
-            CallToolRequest(name = "rell_check", arguments = arguments),
+            callToolRequest(name = "rell_check", arguments = arguments),
             repo
         )
     }

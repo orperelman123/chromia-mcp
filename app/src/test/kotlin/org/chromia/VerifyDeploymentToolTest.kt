@@ -1,7 +1,10 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -120,7 +123,7 @@ class VerifyDeploymentToolTest {
 
     private fun call(args: kotlinx.serialization.json.JsonObject) = runBlocking {
         ToolExecutor(repo, PromptManager())
-            .executeTool(CallToolRequest(name = "verify_deployment", arguments = args))
+            .executeTool(callToolRequest(name = "verify_deployment", arguments = args))
     }
 
     @Test
@@ -299,7 +302,7 @@ class VerifyDeploymentToolTest {
     private fun callWithDeadline(deadlineMs: Long, args: kotlinx.serialization.json.JsonObject) =
         runBlocking {
             VerifyDeploymentStrategy(deadlineMs = deadlineMs)
-                .execute(CallToolRequest(name = "verify_deployment", arguments = args), repo)
+                .execute(callToolRequest(name = "verify_deployment", arguments = args), repo)
         }
 
     @Test
@@ -417,7 +420,7 @@ class VerifyDeploymentToolTest {
         repo.heightQueue.addAll(listOf(NetworkResult.Success(1L), NetworkResult.Success(2L)))
         runBlocking {
             strategy.execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "verify_deployment",
                     arguments = buildJsonObject { put("brid", hexBrid); put("waitMs", 10_000) }
                 ),
@@ -510,9 +513,9 @@ class VerifyDeploymentToolTest {
         assertEquals("verify_deployment", tool.name)
         assertEquals(listOf("brid"), tool.inputSchema.required)
         listOf("brid", "network", "query", "arguments", "waitMs")
-            .forEach { assertNotNull(tool.inputSchema.properties[it], "inputSchema missing $it") }
+            .forEach { assertNotNull(tool.inputSchema.propertiesOrEmpty[it], "inputSchema missing $it") }
         val out = tool.outputSchema!!
         listOf("live", "brid", "blockHeight", "heightProgressing", "queryResult", "notes")
-            .forEach { assertNotNull(out.properties[it], "outputSchema missing $it") }
+            .forEach { assertNotNull(out.propertiesOrEmpty[it], "outputSchema missing $it") }
     }
 }
