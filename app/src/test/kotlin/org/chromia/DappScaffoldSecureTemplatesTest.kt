@@ -1547,16 +1547,27 @@ class DappScaffoldSecureTemplatesTest {
         // left [100%, 105%) live, and at 102.5% backing the same liquidation moved twelve
         // tokens on transaction order with seven of them out of a party to nothing.
         assertTrue(
-            liquidate.contains("collateral_value(system.total_collateral, price) * BPS\n            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)"),
+            liquidate.contains("collateral_value(system.backing_collateral, price) * BPS\n            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)"),
             "liquidation must be refused unless the system is worth its coin PLUS the bonus it is about to pay"
         )
         assertTrue(
-            liquidate.contains("collateral_value(system.total_collateral - seize, price) * BPS\n                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS)"),
+            liquidate.contains("collateral_value(backing_after, price) * BPS\n                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS)"),
             "and refused when it would LEAVE the system inside the bonus of insolvency"
+        )
+        // ROUND 14: the ratio is over the collateral that BACKS the coin, and a seizure
+        // that retires a position's whole debt takes what is left of it out of the
+        // backing too - it is a depositor's collateral from that block on.
+        assertTrue(
+            liquidate.contains("val backing_after = system.backing_collateral - seize\n            - (if (t.debt == stable_in) t.collateral - seize else 0);"),
+            "a liquidation that clears a position's debt must take that position out of the backing"
         )
         assertFalse(
             liquidate.contains("collateral_value(system.total_collateral, price) >= system.total_debt\n"),
             "round 12: a floor at 100% is a live band up to the bonus rate"
+        )
+        assertFalse(
+            liquidate.contains("collateral_value(system.total_collateral,"),
+            "round 14: a floor over EVERY locked token counts collateral settlement hands straight back"
         )
         assertTrue(
             liquidate.contains("\"system is under-backed - settle instead of liquidating\""),
@@ -1568,10 +1579,31 @@ class DappScaffoldSecureTemplatesTest {
         // rate; and it stops everything else.
         val settle = opBody(code, "settle")
         assertTrue(
-            settle.contains("val short = collateral_value(system.total_collateral, price) < system.total_debt;"),
-            "a solvent system must not be freezable"
+            settle.contains("val short = backing < system.total_debt;") &&
+                settle.contains("val backing = collateral_value(system.backing_collateral, price);"),
+            "a solvent system must not be freezable, and solvency is measured on the collateral that BACKS the coin"
         )
         assertTrue(settle.contains("require(short, \"system is solvent\");"), "and the refusal must be that test and nothing else")
+        // ROUND 14, WHO MAY VOID. The void branch was read BEFORE the window check and
+        // keyed on 100%, so the debtor who caused the shortfall deposited six tokens
+        // (206 * 34 = 7004 against 7000) and the opening was gone in the block it landed,
+        // with a debt-free depositor's ten-token exit gone with it.
+        assertTrue(
+            settle.indexOf("require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS,") <
+                settle.indexOf("settlement.open = false;"),
+            "an opening may be resolved only at or after its window - the void branch must not be read before it"
+        )
+        assertTrue(
+            settle.contains("if (backing * BPS >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)) {"),
+            "and it may be voided only by a system back OVER the bonus line, where withdrawal and liquidation work again"
+        )
+        // ROUND 14, THE PRICE. The window is only informative if what it prices is fixed
+        // when it opens: one honest -20% post inside a window moved seven of a holder's
+        // 71 surplus tokens, because phase two priced at whatever was fresh at the close.
+        assertTrue(
+            settle.contains("settlement.price = price;") && settle.contains("val settle_price = settlement.price;"),
+            "phase one must RECORD the price and phase two must settle at it"
+        )
         // ROUND 13, THE RACE. settle() was permissionless, instant and irreversible, so a
         // debtor whose position was HEALTHY - who could have burned at par against her own
         // debt and walked out whole - was frozen into a pool paying under par by somebody
@@ -1602,8 +1634,20 @@ class DappScaffoldSecureTemplatesTest {
         // at a fresh price, with no exception for a debt-free position.
         val withdrawBody = opBody(code, "withdraw_collateral")
         assertTrue(
-            withdrawBody.contains("collateral_value(system.total_collateral - amount, price) * BPS"),
+            withdrawBody.contains("collateral_value(system.backing_collateral - amount, price) * BPS"),
             "a withdrawal must read the SYSTEM's backing, not only the position's ratio"
+        )
+        // ROUND 14: and that floor is over the collateral that BACKS the coin, so a
+        // position with NO DEBT is outside it - it is on neither side of the ratio.
+        // The no-exception version froze a debt-free depositor's ten tokens behind
+        // somebody else's 54%-backed position for as long as the price stayed in a 5% band.
+        assertTrue(
+            withdrawBody.contains("val price = current_price();\n    if (c.debt > 0) {"),
+            "a debt-free withdrawal still reads a fresh price (round 13) and still skips the system floor (round 14)"
+        )
+        assertTrue(
+            withdrawBody.indexOf("if (c.debt > 0) {") < withdrawBody.indexOf("\"withdrawal would take the system under its backing floor\""),
+            "the system floor must sit inside the has-debt branch"
         )
         assertTrue(withdrawBody.contains("\"withdrawal would take the system under its backing floor\""))
         assertTrue(
@@ -1614,7 +1658,7 @@ class DappScaffoldSecureTemplatesTest {
             Regex("if \\(c\\.debt > 0\\) \\{\\s*val price = current_price\\(\\);").containsMatchIn(main),
             "round 13: a debt-free position must not walk out without reading the oracle"
         )
-        assertTrue(settle.contains("val owed = min(c.collateral, c.debt * PRICE_SCALE / price);"))
+        assertTrue(settle.contains("val owed = min(c.collateral, c.debt * PRICE_SCALE / settle_price);"))
         assertTrue(settle.contains("settlement.settled = true;"))
         listOf("deposit_collateral", "mint_stable", "burn_stable", "withdraw_collateral", "liquidate", "settle", "set_price").forEach { op ->
             assertTrue(opBody(code, op).contains("live();"), "$op must refuse to run after settlement")
@@ -1635,8 +1679,24 @@ class DappScaffoldSecureTemplatesTest {
             main.contains("the band that matters starts at 105% BACKING, NOT AT 100%"),
             "the residual must name the window the guard actually opens, which round 12 measured"
         )
-        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the stablecoin header must state its guard count")
-        assertEquals(9, guardCount(main), "round 12: this header said six and listed seven")
+        assertTrue(main.contains("Ten guards are STRUCTURAL"), "the stablecoin header must state its guard count")
+        assertEquals(10, guardCount(main), "round 12: this header said six and listed seven")
+        // ROUND 14, THE PROSE. The netting rejection cited a third-party holder in round
+        // 13's fixture; that fixture has two parties and both are debtors, and this module
+        // ships no transfer, so such a holder cannot exist in it. The reasoning stands
+        // without the number, and the number is gone.
+        assertFalse(
+            main.contains("in round 13's own fixture it pays the two debtors 100 each"),
+            "round 14: the netting rejection cited a measurement its fixture cannot produce"
+        )
+        assertTrue(
+            main.contains("this module ships no transfer operation"),
+            "and it must say why the fixture cannot produce it"
+        )
+        assertTrue(
+            main.contains("query backing_matches_positions(): boolean {"),
+            "a stored backing counter must be recomputed from the rows by an invariant query"
+        )
     }
 
     /**
@@ -1969,7 +2029,10 @@ class DappScaffoldSecureTemplatesTest {
             "test_r12_settling_the_47_00_fixture_pays_the_same_three_numbers",
             "test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail",
             "test_r13_burning_first_reaches_the_same_place",
-            "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail"
+            "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
+            "test_r14_a_debt_free_depositor_is_not_frozen_by_someone_elses_debt_must_fail",
+            "test_r14_a_failing_position_cannot_void_the_settlement_must_fail",
+            "test_r14_the_settlement_price_is_the_openings_price_must_fail"
         )
     )
 
@@ -2290,17 +2353,17 @@ class DappScaffoldSecureTemplatesTest {
     fun subscriptionR14ReplayGoesRedWhenATopUpBuysTimeAlreadyGone() = assertGuardMutationRedensExploitTest(
         "subscription",
         listOf(
-            "            if (now >= s.funded_until) {",
-            "                update s (",
-            "                    .accrual_start = s.accrual_start + (now - s.funded_until),",
-            "                    .funded_until = now + bought,",
-            "                    .escrow = s.escrow + amount",
-            "                );",
-            "            } else {",
-            "                update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
-            "            }"
+            "    if (now >= s.funded_until) {",
+            "        update s (",
+            "            .accrual_start = s.accrual_start + (now - s.funded_until),",
+            "            .funded_until = now + bought,",
+            "            .escrow = s.escrow + amount",
+            "        );",
+            "    } else {",
+            "        update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
+            "    }"
         ).joinToString("\n"),
-        "            update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
+        "    update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
         "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
         "no such subscription",
         attackLanded
@@ -2317,7 +2380,7 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun subscriptionR14ReplayGoesRedWithoutTheFeeAgainstPeriodFloor() = assertGuardRemovalRedensExploitTest(
         "subscription",
-        "            require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, \"fee too large for this period\");",
+        "    require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, \"fee too large for this period\");",
         "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail",
         "fee out of range"
     )
@@ -2439,8 +2502,8 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun stablecoinSettlementTestGoesRedWhenASolventSystemCanBeSettled() = assertGuardMutationRedensExploitTest(
         "stablecoin",
-        "val short = collateral_value(system.total_collateral, price) < system.total_debt;",
-        "val short = collateral_value(system.total_collateral, price) < system.total_debt or true;",
+        "val short = backing < system.total_debt;",
+        "val short = backing < system.total_debt or true;",
         "test_round9_settlement_shares_the_shortfall_in_any_order",
         "price feed is stale",
         attackLanded
@@ -2460,17 +2523,33 @@ class DappScaffoldSecureTemplatesTest {
         "stablecoin",
         listOf(
             "    if (not settlement.open) {",
+            "        require(short, \"system is solvent\");",
             "        settlement.open = true;",
             "        settlement.opened_at = now;",
+            "        settlement.price = price;",
             "        return;",
             "    }"
         ).joinToString("\n"),
-        "",
+        // The solvency test and the recorded price stay - phase two divides by the latter,
+        // and a mutant that aborts on a division by zero proves nothing about the window.
+        // What goes is the STOP: settle() now runs straight through to phase two in the
+        // block it is called, which is exactly the template round 13 attacked.
+        listOf(
+            "    require(short, \"system is solvent\");",
+            "    settlement.price = price;"
+        ).joinToString("\n"),
         "test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail",
         "system is solvent",
         "system is settled",
         alsoRemove = listOf(
-            "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");"
+            "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");",
+            listOf(
+                "    if (now - settlement.opened_at > MAX_PRICE_AGE_MS) {",
+                "        settlement.opened_at = now;",
+                "        settlement.price = price;",
+                "        return;",
+                "    }"
+            ).joinToString("\n")
         )
     )
 
@@ -2485,14 +2564,97 @@ class DappScaffoldSecureTemplatesTest {
     fun stablecoinR13ReplayGoesRedWithoutTheSystemBackingFloorOnWithdrawal() = assertGuardRemovalRedensExploitTest(
         "stablecoin",
         listOf(
+            "        require(",
+            "            collateral_value(system.backing_collateral - amount, price) * BPS",
+            "                >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),",
+            "            \"withdrawal would take the system under its backing floor\"",
+            "        );"
+        ).joinToString("\n"),
+        "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
+        "under the collateral ratio"
+    )
+
+    /**
+     * ROUND 14, THE DEBT-FREE DEPOSITOR. Put the no-exception floor back over EVERY locked
+     * token - the exact shape round 13 shipped - and alice, who owes nothing and holds ten
+     * tokens of collateral, cannot take ONE of them out: 199 * 36 = 7164 against a floor of
+     * 7000 * 1.05 = 7350. The withdrawal the replay REQUIRES to succeed is refused, and
+     * that refusal IS the attack landing - the whole finding is that collateral backing no
+     * debt was frozen by somebody else's. The position ratio check is left standing and
+     * cannot be what changed, because she has no debt for it to test.
+     */
+    @Test
+    fun stablecoinR14ReplayGoesRedWithTheNoExceptionWithdrawalFloor() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        listOf(
+            "    if (c.debt > 0) {",
+            "        require(meets_ratio(c.collateral - amount, c.debt, price), \"under the collateral ratio\");",
+            "        require(",
+            "            collateral_value(system.backing_collateral - amount, price) * BPS",
+            "                >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),",
+            "            \"withdrawal would take the system under its backing floor\"",
+            "        );",
+            "        system.backing_collateral -= amount;",
+            "    }"
+        ).joinToString("\n"),
+        listOf(
+            "    if (c.debt > 0) {",
+            "        require(meets_ratio(c.collateral - amount, c.debt, price), \"under the collateral ratio\");",
+            "        system.backing_collateral -= amount;",
+            "    }",
             "    require(",
             "        collateral_value(system.total_collateral - amount, price) * BPS",
             "            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),",
             "        \"withdrawal would take the system under its backing floor\"",
             "    );"
         ).joinToString("\n"),
-        "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
-        "under the collateral ratio"
+        "test_r14_a_debt_free_depositor_is_not_frozen_by_someone_elses_debt_must_fail",
+        "under the collateral ratio",
+        "withdrawal would take the system under its backing floor"
+    )
+
+    /**
+     * ROUND 14, WHO MAY VOID. Put the void branch back in FRONT of the window check and
+     * key it on 100% backing over every locked token - round 14's exact shape - and
+     * trudy's sixth token (206 * 34 = 7004 against 7000) closes the opening in the block it
+     * lands. The settle() call the replay REQUIRES to be refused "settlement window is
+     * still open" goes through, so run_must_fail reports that the transaction did not fail,
+     * and alice's ten-token exit is gone with it. The window check itself is left in place
+     * behind the new branch, so it cannot be what changed.
+     */
+    @Test
+    fun stablecoinR14ReplayGoesRedWhenTheVoidBranchIsReadBeforeTheWindow() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");",
+        listOf(
+            "    if (collateral_value(system.total_collateral, price) >= system.total_debt) {",
+            "        settlement.open = false;",
+            "        settlement.opened_at = 0;",
+            "        settlement.price = 0;",
+            "        return;",
+            "    }",
+            "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");"
+        ).joinToString("\n"),
+        "test_r14_a_failing_position_cannot_void_the_settlement_must_fail",
+        "system is solvent",
+        attackLanded
+    )
+
+    /**
+     * ROUND 14, THE WINDOW'S PRICE. Settle at whatever is fresh when the window is closed
+     * instead of at the price the opening recorded, and the closing call is a choice worth
+     * money again: one honest -20% post inside the window takes bob from 71 surplus tokens
+     * to 64, and the replay's 71 assertion trips. Nothing else moves - the same window, the
+     * same void rule, the same pooling.
+     */
+    @Test
+    fun stablecoinR14ReplayGoesRedWhenPhaseTwoPricesAtTheClose() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "    val settle_price = settlement.price;",
+        "    val settle_price = price;",
+        "test_r14_the_settlement_price_is_the_openings_price_must_fail",
+        "system is solvent",
+        "expected"
     )
 
     /** Without the health check a healthy position can be liquidated for the bonus. */
@@ -2523,9 +2685,9 @@ class DappScaffoldSecureTemplatesTest {
      */
     private val STABLECOIN_SYSTEM_BACKING_GUARD = listOf(
         "    require(",
-        "        collateral_value(system.total_collateral, price) * BPS",
+        "        collateral_value(system.backing_collateral, price) * BPS",
         "            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)",
-        "            and collateral_value(system.total_collateral - seize, price) * BPS",
+        "            and collateral_value(backing_after, price) * BPS",
         "                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS),",
         "        \"system is under-backed - settle instead of liquidating\"",
         "    );"
@@ -2534,8 +2696,8 @@ class DappScaffoldSecureTemplatesTest {
     /** The same guard as round 11 shipped it: a floor at 100%, with the bonus at 105%. */
     private val STABLECOIN_ROUND11_100PCT_FLOOR = listOf(
         "    require(",
-        "        collateral_value(system.total_collateral, price) >= system.total_debt",
-        "            and collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in,",
+        "        collateral_value(system.backing_collateral, price) >= system.total_debt",
+        "            and collateral_value(backing_after, price) >= system.total_debt - stable_in,",
         "        \"system is under-backed - settle instead of liquidating\"",
         "    );"
     ).joinToString("\n")
