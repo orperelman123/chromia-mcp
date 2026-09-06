@@ -2044,10 +2044,9 @@ object McpTools {
             test_not_found, replacement_rejected, also_remove_overlaps_guard.
             ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass to
             run_rell_tests. Nothing is deployed and it says nothing about guards you did not name.
-            The tool proves exactly TWO test shapes - one must-fail statement on the guard's
-            declaration, or one must-hold statement plus an assertion - and answers
-            ambiguous_refusal for any other shape. What each verdict means and the two shapes in
-            full: describe_tool{tool:"verify_guards"}.
+            It proves TWO test shapes only (one must-fail statement on the guard's declaration;
+            one must-hold statement plus an assertion); any other shape is ambiguous_refusal.
+            Verdicts and shapes in full: describe_tool{tool:"verify_guards"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
