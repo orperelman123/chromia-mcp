@@ -281,4 +281,144 @@ class VerifyGuardsProbeTest {
         assertEquals("still_refused", verdict(r), r.toString())
         assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content)
     }
+
+    // =====================================================================
+    // ROUND 12. The round-11 fix guards the SEARCH (comments and strings are
+    // masked, duplicates refused, test ownership follows the runner) and the
+    // ERROR (the guard's own message outranks any caller fragment). Nothing
+    // guards the SUBSTITUTION, and nothing requires alsoRemove to be disjoint
+    // from the guard. Three false verdicts came out of that, two of them
+    // ok:true. The probes and their raw verdicts are in
+    // exploit-corpus/realworld/adversary-round12/vg/.
+    // =====================================================================
+
+    private val LF = "\n"
+    private val CRLF = "\r\n"
+
+    /**
+     * Two guards and an audit comment: the size check is VACUOUS for an
+     * overdraft of 11, the balance check is the real one, and the comment
+     * supplies a block-comment terminator for a replacement to run to.
+     */
+    private val p7Main = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(amount > 0, "amount must be positive");
+            require(p.balance >= amount, "insufficient");
+            /* AUDIT 2026-09: the two checks above are the withdrawal guards. */
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    // ---- P7: the REPLACEMENT's own message ---------------------------------
+    /**
+     * Round 12. Identical to
+     * theGuardsOwnMessageInTheErrorIsARefusalWhateverFragmentIsSupplied except
+     * for the words inside the replacement's require(). The guard is replaced by
+     * a STRICTER one, a legitimate take of 5 from a balance of 10 is refused, no
+     * overdraft happens - and because the refusal message is the REPLACEMENT's
+     * rather than the guard's, the round-11 rule does not see it and the
+     * caller-supplied attackLanded is believed instead. Round 12 measured
+     * verdict=load_bearing, ok:true. The refusal messages have to be read from
+     * the replacement as well as from the guard.
+     */
+    @Test
+    fun p7AReplacementThatRefusesInItsOwnWordsIsStillARefusal() {
+        val r = run(
+            mapOf("main.rell" to p4Main, "main_test.rell" to tests),
+            guard(
+                bal,
+                "test_small_take_succeeds",
+                replacement = "require(p.balance >= amount * 10, \"vault is closed\");",
+                attackLanded = "vault is closed"
+            )
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content)
+    }
+
+    // ---- P8: the replacement is a comment opener ---------------------------
+    /**
+     * Round 12. maskRellSource runs over the SUBMITTED text before the search;
+     * the replacement is substituted raw afterwards. A replacement that opens a
+     * block comment at a vacuous guard's site runs to the next terminator in the
+     * file and comments the REAL guard out on the way, so the overdraft lands
+     * and the vacuous guard is credited with it. Round 12 measured
+     * verdict=load_bearing, ok:true - round 11's P2 (a block comment's
+     * terminator named as a "guard") rebuilt out of the one input the fix does
+     * not look at.
+     */
+    @Test
+    fun p8AReplacementCannotCommentOutTheRealGuard() {
+        val r = run(
+            mapOf("main.rell" to p7Main, "main_test.rell" to tests),
+            guard(pos, "test_overdraft_must_fail", replacement = "/*")
+        )
+        assertEquals("vacuous", verdict(r), r.toString())
+    }
+
+    /** Control: the same guard DELETED rather than replaced is correctly vacuous today. */
+    @Test
+    fun p8bControlDeletingTheSameGuardIsVacuous() {
+        val r = run(mapOf("main.rell" to p7Main, "main_test.rell" to tests), guard(pos, "test_overdraft_must_fail"))
+        assertEquals("vacuous", verdict(r), r.toString())
+    }
+
+    // ---- P9: alsoRemove that contains the guard ----------------------------
+    /**
+     * Round 12. The control run strips ONLY alsoRemove and requires the test to
+     * still pass, "or the named guard proved nothing". Nothing requires
+     * alsoRemove to be disjoint from the guard, so an entry that CONTAINS the
+     * guard strips the guard in the control too, the control goes red, and a
+     * genuinely load-bearing guard is reported vacuous - with evidence reading
+     * "the lines in alsoRemove are what the test measures, not this guard" while
+     * the guard was one of those lines. Round 12 measured verdict=vacuous; the
+     * control below shows the same guard is load_bearing.
+     */
+    @Test
+    fun p9AlsoRemoveOverlappingTheGuardCannotMakeItVacuous() {
+        val r = run(
+            mapOf("main.rell" to p7Main, "main_test.rell" to tests),
+            guard(bal, "test_overdraft_must_fail", alsoRemove = listOf(pos + LF + "    " + bal))
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /** Control: the same guard, no alsoRemove. Correctly load_bearing today. */
+    @Test
+    fun p9bControlWithoutAlsoRemoveIsLoadBearing() {
+        val r = run(mapOf("main.rell" to p7Main, "main_test.rell" to tests), guard(bal, "test_overdraft_must_fail"))
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    // ---- P10: CRLF. Probed in round 12 and NOT broken ----------------------
+    /**
+     * Windows line endings in the submitted files, with the guard typed using LF
+     * as an agent types it into JSON. A single-line guard is found and verified
+     * correctly; a guard spanning two lines is not found, which is a refusal
+     * rather than a wrong answer. Pinned so a future offset or masking change
+     * cannot quietly turn either of them into a verdict.
+     */
+    @Test
+    fun p10CrlfSingleLineGuardIsStillLoadBearing() {
+        val r = run(
+            mapOf("main.rell" to p4Main.replace(LF, CRLF), "main_test.rell" to tests.replace(LF, CRLF)),
+            guard(bal, "test_overdraft_must_fail")
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    @Test
+    fun p10bCrlfTwoLineGuardIsNotFoundNotGuessed() {
+        val r = run(
+            mapOf("main.rell" to p7Main.replace(LF, CRLF), "main_test.rell" to tests.replace(LF, CRLF)),
+            guard(pos + LF + "    " + bal, "test_overdraft_must_fail")
+        )
+        assertEquals("guard_not_found", verdict(r), r.toString())
+    }
 }
