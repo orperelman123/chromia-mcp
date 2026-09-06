@@ -739,17 +739,29 @@ open class RagStore(
             index.asSequence()
                 .filter { it.lowerText.contains(matcher.lower) }
                 .map { it.segment to matcher.score(it.segment.text()) }
-                .sortedByDescending { it.second }
+                // Score first, then the kind of file: a page that names the
+                // identifier as often as a source file is the better answer (F15).
+                .sortedWith(compareByDescending<Pair<TextSegment, Int>> { it.second }
+                    .thenBy { segmentTier(it.first) })
                 .take(LEXICAL_HITS_PER_TOKEN)
                 .map { it.first }
                 .toList()
         }
     }
 
-    /** Lexical hits first (the name the agent asked about), then semantic, deduplicated, capped at [MAX_HITS]. */
+    /**
+     * Lexical hits first (the name the agent asked about), then semantic,
+     * deduplicated, capped at [MAX_HITS] - and inside each of those two blocks,
+     * DOCS FIRST ([segmentTier]). Audit F15 (2026-09-06) graded ten basic Rell
+     * questions and the refreshed index answered two of them out of a Kotlin unit
+     * test of the compiler; the exact-name boost that round 10 added is still
+     * ahead of the semantic tail, but a prose page now outranks a source file at
+     * the same relevance.
+     */
     internal fun mergeHits(lexical: List<TextSegment>, semantic: List<TextSegment>): List<TextSegment> {
         val seen = HashSet<String>()
-        return (lexical + semantic).filter { seen.add(segmentId(it)) }.take(MAX_HITS)
+        val ordered = lexical.sortedBy { segmentTier(it) } + semantic.sortedBy { segmentTier(it) }
+        return ordered.filter { seen.add(segmentId(it)) }.take(MAX_HITS)
     }
 
     internal fun rememberQueryHits(segments: List<TextSegment>) {
@@ -849,6 +861,30 @@ open class RagStore(
         }
     }
 }
+
+/**
+ * Retrieval tier of a segment, by the kind of file it came from. Lower wins.
+ * Audit F15: the corpus mixes prose documentation with the compiler's own
+ * sources, and dense retrieval has no idea which one an agent asking "how do I
+ * declare module_args?" wants. It wants the page.
+ *
+ *   0  prose documentation - md, mdx, rst, adoc
+ *   1  plain text - release notes, changelogs: right content, wrong shape
+ *   2  Rell - the language being asked about; a definition is an answer
+ *   3  configuration - yml, json, xml, html, properties
+ *   4  host-language sources - kt, ts, js, py, java (TEST files are not indexed)
+ */
+internal fun segmentTier(segment: TextSegment): Int =
+    when (segmentMetadataValue(segment, "file_name")?.lowercase()?.substringAfterLast('.', "")) {
+        "md", "mdx", "rst", "adoc" -> 0
+        "txt" -> 1
+        "rell" -> 2
+        "yml", "yaml", "json", "xml", "html", "properties" -> 3
+        else -> 4
+    }
+
+/** True when [segment] came from a prose documentation page (tier 0). */
+internal fun isDocsSegment(segment: TextSegment): Boolean = segmentTier(segment) == 0
 
 internal fun segmentTitle(segment: TextSegment): String {
     return segmentMetadataValue(segment, "file_name")

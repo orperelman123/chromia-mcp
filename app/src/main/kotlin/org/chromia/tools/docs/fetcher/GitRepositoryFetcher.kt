@@ -133,11 +133,39 @@ internal object IngestPathFilter {
         "api", "fbs", "g4"
     )
 
+    /**
+     * Host-language sources that document behaviour by BEING the implementation.
+     * Their TEST siblings do not: audit F15 graded the refreshed index worse than
+     * the stale one on ten basic Rell questions because `ReplDefinitionTest.kt`
+     * and `LibRellTestBlockClockTest.kt` outranked the `.md` pages that answer
+     * them. Rell, docs and config files are never excluded by this rule.
+     */
+    internal val testSourceExtensions = setOf("kt", "kts", "java", "ts", "js", "py")
+
+    /** `FooTest.kt`, `FooTests.kt`, `FooTestCase.kt`, `FooSpec.kt`. */
+    private val testFileSuffixes = listOf("test", "tests", "testcase", "spec")
+
+    /** `src/test/...`, `src/testFixtures/...` - a docs page under `docs/tests/` stays. */
+    private val testDirectorySegments = setOf(
+        "test", "tests", "testfixtures", "testfixture", "androidtest", "integrationtest", "testresources"
+    )
+
     fun accept(path: Path): Boolean {
         val name = path.fileName?.toString() ?: return false
         if (name.startsWith(".")) return false
         val ext = name.substringAfterLast('.', "").lowercase()
-        return ext in allowedExtensions
+        if (ext !in allowedExtensions) return false
+        return !isTestSource(path)
+    }
+
+    /** True for a host-language TEST source - excluded from the corpus (F15). */
+    internal fun isTestSource(path: Path): Boolean {
+        val name = path.fileName?.toString() ?: return false
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (ext !in testSourceExtensions) return false
+        val base = name.substringBeforeLast('.').lowercase()
+        if (testFileSuffixes.any { base.length > it.length && base.endsWith(it) }) return true
+        return path.any { segment -> segment.toString().lowercase() in testDirectorySegments }
     }
 
     fun pathMatcher(): java.nio.file.PathMatcher = java.nio.file.PathMatcher { path -> accept(path) }
