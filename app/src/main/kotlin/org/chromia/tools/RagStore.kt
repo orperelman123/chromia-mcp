@@ -207,9 +207,14 @@ open class RagStore(
             private val definition = Regex("""(?im)^\s*(?:$DEFINITION_KEYWORDS)\s+${Regex.escape(token)}\b""")
             private val mention = Regex(Regex.escape(token), RegexOption.IGNORE_CASE)
 
+            /** True when [text] DEFINES the token, not merely mentions it. */
+            fun definesIn(text: String): Boolean = definition.containsMatchIn(text)
+
+            /** How often [text] names the token. */
+            fun mentions(text: String): Int = mention.findAll(text).count()
+
             /** Definition sites outrank mentions; more mentions outrank fewer. */
-            fun score(text: String): Int =
-                (if (definition.containsMatchIn(text)) 1000 else 0) + mention.findAll(text).count()
+            fun score(text: String): Int = (if (definesIn(text)) 1000 else 0) + mentions(text)
         }
 
         internal fun lexicalScore(text: String, token: String): Int = TokenMatcher(token).score(text)
@@ -738,11 +743,20 @@ open class RagStore(
             val matcher = TokenMatcher(token)
             index.asSequence()
                 .filter { it.lowerText.contains(matcher.lower) }
-                .map { it.segment to matcher.score(it.segment.text()) }
-                // Score first, then the kind of file: a page that names the
-                // identifier as often as a source file is the better answer (F15).
-                .sortedWith(compareByDescending<Pair<TextSegment, Int>> { it.second }
-                    .thenBy { segmentTier(it.first) })
+                .map { entry ->
+                    val text = entry.segment.text()
+                    Triple(entry.segment, matcher.definesIn(text), matcher.mentions(text))
+                }
+                // A DEFINITION site first - round 10, the reason this hybrid
+                // exists. Among the rest, the kind of file decides before the
+                // mention count: audit F15 found `big_integer` answered from the
+                // compiler's own Kotlin source because it says the name more
+                // often than the page that explains it.
+                .sortedWith(
+                    compareByDescending<Triple<TextSegment, Boolean, Int>> { it.second }
+                        .thenBy { segmentTier(it.first) }
+                        .thenByDescending { it.third }
+                )
                 .take(LEXICAL_HITS_PER_TOKEN)
                 .map { it.first }
                 .toList()
@@ -760,7 +774,10 @@ open class RagStore(
      */
     internal fun mergeHits(lexical: List<TextSegment>, semantic: List<TextSegment>): List<TextSegment> {
         val seen = HashSet<String>()
-        val ordered = lexical.sortedBy { segmentTier(it) } + semantic.sortedBy { segmentTier(it) }
+        // The lexical block keeps its own order (definition site first); the
+        // semantic tail is re-ordered docs-first, which is where F15's wrong
+        // answers came from.
+        val ordered = lexical + semantic.sortedBy { segmentTier(it) }
         return ordered.filter { seen.add(segmentId(it)) }.take(MAX_HITS)
     }
 

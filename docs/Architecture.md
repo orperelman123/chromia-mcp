@@ -39,7 +39,7 @@ Chromia MCP Server follows a layered architecture pattern with clear separation 
 - `installMcpJson()`: server `ContentNegotiation` with the SDK's `McpJson` - the Streamable HTTP transport answers a POST through `call.respond(<JSONRPCMessage>)` and MCP needs `explicitNulls = false` / `encodeDefaults = true`.
 - `installHealthEndpoint()`: Adds `/health` endpoint for monitoring (same JSON as `chromia://server/health`)
 - Health / MCP `Implementation.version` is Gradle `project.version` via generated `BuildInfo` (not hardcoded). `gradle.properties` holds this fork's release version (`0.5.0`) as the local-build fallback. CI overrides with `-Pversion="$(git describe --tags --always)"` and the release workflow with the tag.
-- MCP capabilities: `tools` (`listChanged=false` — static registered set, no update notifications) and `resources` (`subscribe=false`, `listChanged=false` — static snapshots). `prompts` is not advertised; the catalog is the `get_prompts` tool plus `chromia://config/prompt-catalog`.
+- MCP capabilities: `tools` (`listChanged=false` — static registered set, no update notifications), `prompts` (`listChanged=false` — the static `prompt_templates.json` catalogue, served over `prompts/list` + `prompts/get`; audit F8) and `resources` (`subscribe=false`, `listChanged=false` — static snapshots). The same catalogue is also the `get_prompts` tool and `chromia://config/prompt-catalog`.
 
 **Why it matters:** Centralizes server configuration and transport layer setup. Single entry point for stdio and for the HTTP server that carries both HTTP transports - one process, one port, one `/health`, one auth interceptor.
 

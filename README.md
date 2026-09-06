@@ -956,7 +956,7 @@ Specify the network parameter in your queries to target the appropriate environm
 
 This server is primarily a **query / documentation expert**. The only tools that sign and send transactions are the three [testnet provisioning](#testnet-provisioning-agent-headless) tools — TESTNET only, dryRun by default, funded by a server-held key that never reaches any output. Nothing here touches mainnet funds, acts as a general wallet, or executes arbitrary transactions: `chromia_dapp_query` stays read-only, transaction *inspection* (`get_all_transactions`) is supported, arbitrary transaction *execution* is not. There is no OpenAPI spec.
 
-MCP resources are the existing health JSON, `docs-repositories.json`, and `prompt_templates.json` (not a generated library). Prompt templates are the `get_prompts` tool; the server does not advertise MCP `prompts`.
+MCP resources are the existing health JSON, `docs-repositories.json`, and `prompt_templates.json` (not a generated library). The prompt catalogue is served three ways: MCP `prompts/list` + `prompts/get` (the capability is advertised), the `get_prompts` tool, and `chromia://config/prompt-catalog`.
 
 ## Local extras
 

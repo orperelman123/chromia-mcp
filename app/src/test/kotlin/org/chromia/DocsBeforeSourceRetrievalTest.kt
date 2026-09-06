@@ -24,8 +24,9 @@ import kotlin.io.path.Path
  *
  * Two fixes, pinned here:
  *  - the corpus drops host-language TEST sources ([IngestPathFilter]);
- *  - retrieval ranks a hit by the kind of file it came from ([segmentTier]),
- *    inside the lexical block and inside the semantic block.
+ *  - retrieval ranks a hit by the kind of file it came from ([segmentTier]): it
+ *    breaks the score tie among exact-name hits, and re-orders the semantic tail
+ *    docs-first. A DEFINITION site still comes first - that is round 10.
  *
  * The ten questions themselves are re-asked out of band against the real index
  * by `scripts/rag-audit-ten.mjs`, whose result is recorded in
@@ -85,7 +86,7 @@ class DocsBeforeSourceRetrievalTest {
     }
 
     @Test
-    fun mergedHitsPutDocsFirstInsideEachBlock() {
+    fun mergedHitsPutDocsFirstInTheSemanticTail() {
         val store = RagStore(loadFromRegistry = false)
         val kt = segment("rt_primitive_types.kt")
         val ts = segment("transaction-builder.ts")
@@ -97,10 +98,10 @@ class DocsBeforeSourceRetrievalTest {
             listOf("simple-types.md", "module.rell", "rt_primitive_types.kt"),
             store.mergeHits(emptyList(), listOf(kt, rell, md)).map { it.metadata().getString("file_name") }
         )
-        // Exact-name (lexical) hits still come before the semantic tail - round 10 -
-        // but the page outranks the client source inside that block too.
+        // Exact-name (lexical) hits still come first in their own order - round
+        // 10 - and the docs preference applies to the semantic tail behind them.
         assertEquals(
-            listOf("module.rell", "transaction-builder.ts", "simple-types.md"),
+            listOf("transaction-builder.ts", "module.rell", "simple-types.md"),
             store.mergeHits(listOf(ts, rell), listOf(md)).map { it.metadata().getString("file_name") }
         )
     }
