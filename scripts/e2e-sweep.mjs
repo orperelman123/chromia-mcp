@@ -461,18 +461,43 @@ await check('onboarding_next_step: 3-step walk to testnet', async () => {
 
 const blocking = j => (j.findings || []).filter(f => f.severity === 'BLOCKER' || f.severity === 'HIGH');
 
+// A minimal but COMPLETE chromia.yml: write_deployment_config merges its
+// deployments block into this, and deployment_preflight needs the blockchains
+// section - a deployments block on its own has nothing to deploy.
+const BASE_CHROMIA_YML = [
+  'blockchains:',
+  '  sweep_dapp:',
+  '    module: main',
+  'compile:',
+  '  rellVersion: 0.16.1',
+  'database:',
+  '  schema: sweep_dapp',
+  '',
+].join(String.fromCharCode(10));
+
 await check('preflight: files alias gates flawed rell (shipped-bug regression)', async () => {
   // The bug that shipped silently: `files` (the rell_check/run_rell_tests
   // param name) was dropped, the source gate never ran, and a testnet target
   // with flawed code reported ready:true. The alias must run the gate.
-  const cfg = JSON.parse(text(await call('write_deployment_config', { network: 'testnet', name: 'sweep_dapp' })));
-  const yaml = cfg.chromia_yml.replace('<containerIID>', 'abc123containerlease');
+  const cfg = JSON.parse(text(await call('write_deployment_config', {
+    network: 'testnet', name: 'sweep_dapp', yaml: BASE_CHROMIA_YML,
+  })));
+  // Given an existing chromia.yml the tool MERGES and answers with the whole
+  // config as `chromia_yml`; without one it renders the deployments block alone
+  // as `yaml` (the name audit F10 made canonical), and a config with no
+  // `blockchains:` has nothing to preflight. Reading only `chromia_yml` used to
+  // crash this check with "Cannot read properties of undefined".
+  const yaml = (cfg.chromia_yml ?? cfg.yaml).replace('<containerIID>', 'abc123containerlease');
   const insecure = 'module;\nentity vault { key owner: text; mutable amount: integer; }\n' +
     'operation transfer(owner: text, amount: integer) { update vault @ { .owner == owner } ( .amount -= amount ); }';
   const j = JSON.parse(text(await call('deployment_preflight', { yaml, target: 'testnet', files: { 'main.rell': insecure } }, 240000)));
   expect((j.findings || []).some(f => f.check === 'security' && /unauthenticated-mutation/.test(f.message)),
     'security finding missing - the aliased source gate did not run: ' + JSON.stringify(j.findings).slice(0, 200));
-  expect((j.notes || '').includes('`files` was accepted as an alias'), 'alias note missing: ' + (j.notes || '').slice(0, 200));
+  // Audit F10 deleted the deprecating "`files` was accepted as an alias -
+  // prefer `rell`" note: `files` is a first-class name on every code-taking
+  // tool now. What this check proves is that the aliased source gate RAN.
+  expect(!/prefer `?rell`? in future calls/.test(j.notes || ''),
+    'the deprecating alias note is back: ' + (j.notes || '').slice(0, 200));
   expect(!(j.notes || '').includes('Source gate SKIPPED'), 'source gate reported as skipped despite the alias');
   // Broken code through the alias must flip ready to false via a source BLOCKER
   // (on a testnet target security findings are warnings by design - they only
@@ -486,8 +511,15 @@ await check('preflight: files alias gates flawed rell (shipped-bug regression)',
 }, 'deployment_preflight');
 
 await check('preflight: clean testnet config is ready with the chr command', async () => {
-  const cfg = JSON.parse(text(await call('write_deployment_config', { network: 'testnet', name: 'sweep_dapp' })));
-  const yaml = cfg.chromia_yml.replace('<containerIID>', 'abc123containerlease');
+  const cfg = JSON.parse(text(await call('write_deployment_config', {
+    network: 'testnet', name: 'sweep_dapp', yaml: BASE_CHROMIA_YML,
+  })));
+  // Given an existing chromia.yml the tool MERGES and answers with the whole
+  // config as `chromia_yml`; without one it renders the deployments block alone
+  // as `yaml` (the name audit F10 made canonical), and a config with no
+  // `blockchains:` has nothing to preflight. Reading only `chromia_yml` used to
+  // crash this check with "Cannot read properties of undefined".
+  const yaml = (cfg.chromia_yml ?? cfg.yaml).replace('<containerIID>', 'abc123containerlease');
   const j = JSON.parse(text(await call('deployment_preflight', {
     yaml, target: 'testnet', rell: { 'main.rell': 'module;\n\nquery hello_world() = "hello";\n' },
   }, 240000)));
