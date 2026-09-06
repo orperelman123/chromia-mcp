@@ -630,9 +630,31 @@ abstract class BaseToolStrategy : ToolStrategy {
         }
     }
 
-    protected fun requireParameter(arguments: Map<String, Any>, key: String): String {
-        return extractString(arguments, key)?.takeIf { it.isNotBlank() }
-            ?: throw IllegalArgumentException("Missing required parameter: $key")
+    /**
+     * The canonical name first, then any aliases, and BLANK COUNTS AS MISSING at
+     * every position. The F10 alias chains were written as
+     * `extractString(args, "brid") ?: extractString(args, "rid") ?: requireParameter(args, "brid")`,
+     * which reads the blank check out of the code entirely: `{"rid": "   "}` made
+     * an earlier arm return a present-but-blank string, so the require arm never
+     * ran and a blank chain id reached the repository as if it were real
+     * (ToolExecutorTest.executeToolBlankRidIsMissingRequiredParameterAndIsError,
+     * ToolExecutorStrategiesTest.getBlockchainDetailsBlankRidThrows). Passing the
+     * aliases here keeps one blank check for the whole chain, and the failure
+     * message names the canonical spelling first so an agent learns it, while
+     * still listing the aliases so the name the caller actually typed appears.
+     */
+    protected fun requireParameter(
+        arguments: Map<String, Any>,
+        key: String,
+        vararg aliases: String
+    ): String {
+        for (name in listOf(key) + aliases) {
+            val value = extractString(arguments, name)?.takeIf { it.isNotBlank() }
+            if (value != null) return value
+        }
+        val alsoAccepted =
+            if (aliases.isEmpty()) "" else " (also accepted: ${aliases.joinToString(", ")})"
+        throw IllegalArgumentException("Missing required parameter: $key$alsoAccepted")
     }
 
     /**
@@ -914,9 +936,7 @@ class BlockchainDetailsStrategy : BaseToolStrategy() {
         val args = request.argumentsOrEmpty as Map<String, Any>
         // AUDIT F10: `brid` is the canonical chain id on this server (the name
         // verify_deployment and chromia.yml both use); `rid` still works.
-        val rid = extractString(args, "brid")
-            ?: extractString(args, "rid")
-            ?: requireParameter(args, "brid")
+        val rid = requireParameter(args, "brid", "rid")
         val network = extractString(args, "network")
 
         val result = repository.getBlockchainDetails(rid, network)
@@ -1179,9 +1199,7 @@ class DappInteractionStrategy(
         val args = request.argumentsOrEmpty as Map<String, Any>
         val network = extractString(args, "network")
         // AUDIT F10: `brid` is the canonical chain id; `blockchainRid` still works.
-        val blockchainRid = extractString(args, "brid")
-            ?: extractString(args, "blockchainRid")
-            ?: requireParameter(args, "brid")
+        val blockchainRid = requireParameter(args, "brid", "blockchainRid")
         val queryName = extractString(args, "query")
         val arguments = extractArgumentsMap(args, "arguments")
 
@@ -2751,9 +2769,7 @@ class DeploymentPreflightStrategy(
         // `target` is the alias, accepted with no warning. The output keeps both
         // - `target` echoes what was asked for, `network` is the mainnet/testnet/
         // custom classification derived from it.
-        val target = extractString(args, "network")
-            ?: extractString(args, "target")
-            ?: requireParameter(args, "network")
+        val target = requireParameter(args, "network", "target")
         // Same shape as check_dapp_project's `rell`: one source string
         // (checked as main.rell) or a map of path -> source. `files` is
         // accepted as an alias (same pattern as CheckDappProjectStrategy):
