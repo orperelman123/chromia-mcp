@@ -2849,9 +2849,13 @@ object DappScaffold {
         //                   weight with it, pro rata from the stakes that were backing it
         //                   (retire_stake_backing), PRO RATA BY LARGEST REMAINDER: every
         //                   staker's share is floored, and the points the floors leave over
-        //                   go one each to the largest fractional remainders, ties by
-        //                   owner. Every staker is within ONE POINT of exact pro rata and
-        //                   the odd point falls on whoever is owed most of it - round 14
+        //                   go one each to the largest fractional remainders AMONG THE
+        //                   STAKERS THAT POINT DOES NOT EMPTY, ties by owner. Every staker
+        //                   is within ONE POINT of exact pro rata, the odd point falls on
+        //                   whoever is owed most of it, and no payout smaller than the
+        //                   whole treasury empties one staker while another stands - round
+        //                   15 measured the version without that last clause emptying a
+        //                   one-point staker with a payout of 501 out of 1001 - round 14
         //                   drained the version that rounded UP in owner order and stopped
         //                   when the amount was covered, where the head of the sort paid
         //                   every rounding point (ten one-point payouts: 10 / 0 / 0) and a
@@ -3069,12 +3073,28 @@ object DappScaffold {
         // The caller is execute_proposal and there is no other: this is the only place any
         // stake is ever reduced, which is why there is no unstake operation.
         // RETIREMENT IS PRO RATA, BY LARGEST REMAINDER. Each staker's share is FLOORED
-        // first - nobody is charged a point they do not owe, and no payout can take a
-        // staker's whole holding unless it takes everyone's - and the points the floors
+        // first - nobody is charged a point they do not owe - and the points the floors
         // leave over, always FEWER THAN THE NUMBER OF STAKERS, are handed out ONE EACH to
-        // the largest fractional remainders. So every staker's retirement is within one
-        // point of exact pro rata, and WHO PAYS THE ODD POINT is whoever is owed most of
-        // it: it moves with the stakes rather than sitting on one account.
+        // the largest fractional remainders AMONG THE STAKERS THAT POINT DOES NOT EMPTY.
+        // Two things follow, and they are the whole of what this rule guarantees:
+        //   - EVERY STAKER IS WITHIN ONE POINT OF EXACT PRO RATA, and WHO PAYS THE ODD
+        //     POINT moves with the stakes rather than sitting on one account.
+        //   - NO PAYOUT SMALLER THAN THE WHOLE TREASURY EMPTIES A STAKER while leaving
+        //     another one standing. The floor alone can never empty anybody, because
+        //     floor(stake * amount / backing) is strictly below the stake whenever amount
+        //     is below backing; the leftover point is the only thing that can, and it is
+        //     given to a staker who survives it whenever one exists.
+        // Round 15 measured what plain largest remainder does without that last clause,
+        // at exactly the shape round 14 used to price the OLD bug: stakes of 1000 and 1
+        // against a backing of 1001, and a payout of 501 - 50.05% of the treasury. The
+        // one-point staker's exact share is 0.5005 of a point, which is the LARGEST
+        // remainder of the two, so the odd point fell on them and took 100% of their
+        // holding while taking 50.0% of the other's. There is deliberately no unstake, so
+        // what they lost was not refundable, and the genesis window is shut, so no
+        // operation could give them weight again. The same payout now retires 501 from the
+        // large staker and nothing from the small one: the large staker is one point WORSE
+        // than exact pro rata, which is the price, and it is paid by the party that has
+        // 999 points left rather than by the party that would have none.
         //
         // Round 14 measured the version that rounded UP in @sort .owner order and stopped
         // the moment `remaining` reached zero. Rounding up is not a rounding - the shares
@@ -3109,15 +3129,37 @@ object DappScaffold {
             // non-zero has floored strictly below their own stake.
             var leftover = amount - floored;
             while (leftover > 0) {
+                // THE ODD POINT GOES TO THE LARGEST REMAINDER IT DOES NOT EMPTY. Round 15
+                // measured plain largest remainder at its own boundary: with stakes of
+                // 1000 and 1 against a backing of 1001, a payout of 501 owes the one-point
+                // staker 0.5005 of a point - the LARGEST remainder - so the odd point took
+                // 100% of their holding out of a payout that took 50.0% of everyone
+                // else's, and there is no unstake to get it back. A FLOOR can never empty
+                // anybody: floor(stake * amount / backing) is strictly below the stake
+                // whenever the payout is smaller than the treasury, and when it is not,
+                // everybody is emptied together. So the leftover point is the ONLY way one
+                // staker is emptied while others are not, and it is handed to the largest
+                // remainder among the stakers who SURVIVE it. Only when every candidate
+                // would be emptied by it does it fall on the largest remainder outright,
+                // and that is a payout taking the treasury down to less than one point per
+                // staker - it is taking everyone's.
                 var pick: byte_array? = null;
                 var best = 0;
+                var fallback: byte_array? = null;
+                var fallback_best = 0;
                 for (owner in owners) {
-                    if (remainder[owner] > best) {
-                        best = remainder[owner];
+                    val r = remainder[owner];
+                    if (r > fallback_best) {
+                        fallback_best = r;
+                        fallback = owner;
+                    }
+                    val m = member @ { .owner == owner };
+                    if (r > best and owed[owner] + 1 < m.stake) {
+                        best = r;
                         pick = owner;
                     }
                 }
-                val chosen = require(pick, "stake retirement did not balance");
+                val chosen = require(pick ?: fallback, "stake retirement did not balance");
                 owed[chosen] = owed[chosen] + 1;
                 // Awarded: nobody takes a second leftover point, and a staker with no
                 // remainder is never charged one at all.
@@ -4257,6 +4299,48 @@ object DappScaffold {
             assert_equals(main.treasury_balance(), 2990);
             assert_conserved();
             assert_equals(main.staked_points(), main.total_stake());
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, at the boundary round 14's own fix created. With
+        // stakes of 1000 and 1 against a backing of 1001, a payout of 501 - 50.05% of the
+        // treasury - owes the one-point staker 0.5005 of a point, which is the LARGEST
+        // remainder of the two. Plain largest remainder therefore handed them the odd
+        // point and took 100% of their holding, while taking 50.0% of the other's; there
+        // is no unstake and the genesis window is shut, so the point was gone for good.
+        // The odd point now goes to the largest remainder that SURVIVES it.
+        function test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            close_genesis_window();
+
+            // Alice stakes her whole allocation; bob stakes ONE point.
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1));
+            assert_equals(main.total_stake(), 1001);
+            assert_equals(main.get_stake(bob.account.id), 1);
+
+            // An ordinary, honest, quorate proposal: pay 501 to alice.
+            signed(alice.keypair, main.create_proposal("half the treasury", alice.account.id, 501));
+            val p = proposal_titled("half the treasury");
+            signed(alice.keypair, main.cast_vote(p, true));
+            close_voting_window();
+            signed(alice.keypair, main.execute_proposal(p));
+
+            // THE LINE THE MUTANT REDDENS: bob still holds the point he staked, so he
+            // still has a voice in the DAO. Round 15 measured him at zero here.
+            signed(bob.keypair, main.create_proposal("bob still has a voice", bob.account.id, 1));
+            assert_equals(main.get_stake(bob.account.id), 1);
+            // ...and the odd point is paid by the staker who can afford it: alice is ONE
+            // POINT worse than exact pro rata (500.5 owed, 501 retired), which is the
+            // price of the rule and is stated in the header.
+            assert_equals(main.get_stake(alice.account.id), 499);
+            assert_equals(main.total_stake(), 500);
+            assert_equals(main.treasury_balance(), 500);
+            assert_conserved();
         }
 
         // EXPLOIT MUST FAIL. The same defect as a takeover. Round 14: with stakes of
@@ -7694,10 +7778,11 @@ object DappScaffold {
         //     neither field is mutable. Every other operation READS
         //     op_context.last_block_time and compares. A deadline no counterparty can push
         //     is the whole of what "with a timeout" was asked for.
-        //   THE MAKER'S LEG IS ESCROWED WHEN THE SWAP IS CREATED, and the taker's is taken
-        //     in the very operation that delivers it, so there is never a block in which
-        //     one party has parted with value and the other has not. Nothing settles
-        //     half-way: one operation debits and credits both sides.
+        //   BOTH LEGS IN ONE OPERATION - the maker's leg is escrowed when the swap is
+        //     created, and the taker's is taken in the very operation that delivers it, so
+        //     there is never a block in which one party has parted with value and the
+        //     other has not. Nothing settles half-way: one operation debits and credits
+        //     both sides.
         //   THE OFFER IS REVOCABLE, IN ANY BLOCK - cancel_swap needs no deadline and no
         //     counterparty. That is round 15's second drain: an offer the maker cannot
         //     withdraw is a free option for whoever may take it, and the longer the window

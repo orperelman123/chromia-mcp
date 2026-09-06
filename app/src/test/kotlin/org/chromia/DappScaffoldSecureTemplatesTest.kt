@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -116,7 +116,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow"), DappScaffold.templates)
+        assertEquals("escrow", DappScaffold.toJson("otc", template = "escrow").getValue("template").toString().trim('"'), "the class round 15 drained must scaffold its own template")
         assertEquals("bridge", DappScaffold.toJson("wrapped", template = "bridge").getValue("template").toString().trim('"'), "the class round 14 drained must scaffold its own template")
         assertEquals("subscription", DappScaffold.toJson("plan", template = "subscription").getValue("template").toString().trim('"'), "the class round 13 drained must scaffold its own template")
         assertEquals("exchange", DappScaffold.toJson("book", template = "exchange").getValue("template").toString().trim('"'), "the class round 12 drained must scaffold its own template")
@@ -2016,6 +2017,120 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("A THRESHOLD OF RELAYERS IS THE TRUST ROOT"), "the header must admit what no guard here can fix")
     }
 
+    /**
+     * THE FOURTEENTH TEMPLATE. Adversary round 15 asked for "an OTC swap escrow
+     * between two parties with a timeout", was answered `template=amm` because
+     * `swap` is in that keyword list, and drained the pool-shaped build twice -
+     * both times out of the advice: the immutable-row-deleted-whole discipline
+     * re-created a partial fill's remainder with a FRESH timeout (94 of the
+     * maker's 100 units still escrowed at hour six), and only one leg was
+     * escrowed, so the window was an option she wrote for free.
+     */
+    @Test
+    fun escrowGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("otc", template = "escrow").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // TWO PARTIES, NAMED: the counterparty is a field, not a matcher.
+        val swapEntity = main.substringAfter("entity swap {").substringBefore("\n}")
+        listOf("index maker: byte_array;", "index taker: byte_array;").forEach {
+            assertTrue(swapEntity.contains(it), "a swap is between two NAMED parties: $it")
+        }
+        assertTrue(opBody(code, "settle_swap").contains("require(s.taker == account.id, \"this swap names another counterparty\");"))
+        // THE TERMS ARE WRITTEN ONCE: one mutable field, and it is the status.
+        assertEquals(
+            listOf("status"),
+            Regex("mutable (\\w+)").findAll(swapEntity).map { it.groupValues[1] }.toList(),
+            "the swap row's only mutable field is its status: \$swapEntity"
+        )
+        listOf("qty_a: integer;", "qty_b: integer;", "opened_at: timestamp;", "deadline: timestamp;").forEach {
+            assertTrue(swapEntity.contains(it), "what the parties rely on must be immutable: \$it")
+        }
+        // ALL OR NOTHING - round 15's first drain, made unwritable. There is no
+        // remainder, so there is no second row and no second clock.
+        assertTrue(code.contains("require(qty_a == s.qty_a, \"a swap settles in full or not at all\");"))
+        assertEquals(1, Regex("create swap\\(").findAll(code).count(), "a swap row is created in exactly ONE place")
+        assertTrue(opBody(code, "open_swap").contains("create swap("), "...and that place is the one that escrows the maker's leg")
+        assertFalse(code.contains("delete swap"), "an escrow row is never deleted: it is the record of what happened")
+        // NO OPERATION WRITES A TIMESTAMP: opened_at and deadline are written by
+        // open_swap and by nothing else, and neither field is mutable.
+        assertEquals(1, Regex("deadline = ").findAll(code).count(), "the deadline is written in exactly one place")
+        assertEquals(1, Regex("opened_at = ").findAll(code).count(), "the clock is written in exactly one place")
+        assertTrue(opBody(code, "open_swap").contains("deadline = op_context.last_block_time + SWAP_WINDOW_MS"))
+        assertFalse(Regex("mutable \\w+: timestamp").containsMatchIn(code), "no timestamp on this row is mutable")
+        // THE OFFER IS REVOCABLE IN ANY BLOCK - round 15's second drain. cancel_swap
+        // reads no clock at all, which is what makes the counterparty's free look
+        // worth one block instead of the whole window.
+        assertFalse(
+            opBody(code, "cancel_swap").contains("op_context.last_block_time"),
+            "a cancel that waits for a deadline is the free option round 15 measured"
+        )
+        assertTrue(opBody(code, "cancel_swap").contains("require(s.maker == account.id, \"not your swap\");"))
+        // AFTER THE DEADLINE THE LEG GOES HOME TO ITS OWNER, never to the caller.
+        assertTrue(opBody(code, "expire_swap").contains("require(op_context.last_block_time >= s.deadline, \"the swap has not expired yet\");"))
+        assertTrue(opBody(code, "expire_swap").contains("val maker = trader_of(s.maker);") &&
+            opBody(code, "expire_swap").contains("update maker ( .asset_a += s.qty_a );"))
+        assertFalse(opBody(code, "expire_swap").contains("trader_of(account.id)"), "the caller is not paid for closing a swap")
+        // ONE EXIT, ONCE: every path out checks the same status and moves it.
+        listOf("settle_swap", "cancel_swap", "expire_swap").forEach {
+            assertTrue(
+                opBody(code, it).contains("require(s.status == STATUS_OPEN, \"this swap is no longer open\");"),
+                "\$it must refuse a swap that has already ended"
+            )
+        }
+        assertEquals(1, Regex("STATUS_SETTLED \\);").findAll(code).count())
+        assertEquals(2, Regex("STATUS_RETURNED \\);").findAll(code).count())
+        // BOUNDED BY WHAT IT COSTS.
+        assertTrue(code.contains("val MAX_LIVE_SWAPS ="), "a maker's open offers must be bounded")
+        assertTrue(opBody(code, "open_swap").contains("\"too many open swaps\""))
+        // CONSERVATION ACROSS BOTH ASSETS - a swap that conserves one leg has lost
+        // the other one.
+        assertTrue(main.contains("query a_in_circulation(): integer") && main.contains("query b_in_circulation(): integer"))
+        assertTrue(
+            main.substringAfter("query a_in_circulation(): integer").substringBefore("\n}")
+                .contains("for (s in swap @* { .status == STATUS_OPEN } ( .qty_a )) total += s;"),
+            "asset A in circulation must count what is escrowed behind an OPEN swap"
+        )
+        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the escrow header must state its guard count")
+        assertEquals(9, guardCount(main), "the escrow header's stated count must be the number of guards it lists")
+        assertTrue(
+            main.contains("A DEADLINE IS AN OPTION FOR WHOEVER MAY TAKE IT"),
+            "the header must admit what no guard here can fix"
+        )
+    }
+
+    /**
+     * THE REDIRECT ROUND 15 DRAINED. `swap` alone still means the constant-product
+     * pool - that is what most people mean by it - but an OTC swap, an escrow, a
+     * p2p trade or an atomic swap is a two-party trade and must reach the template
+     * for that class. And the amm's own answer, which is where this ask used to
+     * land, has to name it.
+     */
+    @Test
+    fun anOtcSwapEscrowAskIsRoutedToItsOwnTemplate() {
+        listOf(
+            "an OTC swap escrow between two parties with a timeout",
+            "otc desk",
+            "escrow",
+            "a p2p trade with a deadline",
+            "atomic swap",
+            "a two-party swap",
+            "a swap between two parties"
+        ).forEach { ask ->
+            val note = DappScaffold.closestTemplateNote(ask)
+            assertTrue(note.contains("`template=escrow`"), "'\$ask' must be routed to the escrow template: \$note")
+        }
+        // ...and `swap` on its own still means the pool.
+        val pool = DappScaffold.closestTemplateNote("a swap pool")
+        assertTrue(pool.contains("`template=amm`"), pool)
+        assertTrue(
+            pool.contains("`template=escrow`"),
+            "the amm answer must name the two-party template, because that ask reaches it: \$pool"
+        )
+        val out = DappScaffold.toJson("otc", template = "escrow")
+        assertEquals("escrow", out.getValue("template").toString().trim('"'), "template=escrow must resolve to the escrow template")
+        assertEquals("[]", out.getValue("warnings").toString(), "escrow is a shipped template, not a redirect")
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -2205,7 +2320,8 @@ class DappScaffoldSecureTemplatesTest {
             "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
             "test_r13_a_payout_retires_the_stake_that_backed_it",
             "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
-            "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail"
+            "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail",
+            "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail"
         )
     )
 
@@ -2341,6 +2457,18 @@ class DappScaffoldSecureTemplatesTest {
             "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
             "test_r14_the_shortest_period_lapse_is_not_billable_either_must_fail",
             "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail"
+        )
+    )
+
+    @Test
+    fun escrowShippedTestsRunGreen() = assertShippedGreen(
+        "escrow",
+        setOf(
+            "test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
+            "test_r15_otc2_the_window_is_not_a_free_option_must_fail",
+            "test_a_swap_settles_both_legs_or_neither_and_conserves",
+            "test_only_the_named_counterparty_settles_and_only_before_the_deadline_must_fail",
+            "test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail"
         )
     )
 
@@ -2622,6 +2750,30 @@ class DappScaffoldSecureTemplatesTest {
      * function that does not compile, and a mutant that fails to build proves nothing, so
      * each is replaced by the unbounded expression instead.
      */
+    /**
+     * ROUND 15: PLAIN LARGEST REMAINDER EMPTIES THE SMALL STAKER. Drop the survival
+     * filter on the leftover point and the odd point goes to the largest remainder
+     * outright - which at stakes of 1000 and 1 against a backing of 1001 is the
+     * ONE-POINT staker, whose exact share is 0.5005 of a point. A payout of 501
+     * then takes 100% of their holding and 50.0% of the other's, and there is no
+     * unstake. The replay goes red on the line where the emptied staker tries to
+     * propose: "only members with stake may propose" IS the attack landing here,
+     * because the attack is a staker losing their voice to a payout that left
+     * everyone else standing.
+     */
+    @Test
+    fun governanceR15ReplayGoesRedWhenTheOddPointEmptiesTheSmallStaker() = assertGuardMutationRedensExploitTest(
+        "governance",
+        "            val m = member @ { .owner == owner };
+" +
+            "            if (r > best and owed[owner] + 1 < m.stake) {",
+        "            if (r > best) {",
+        "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail",
+        // Wrong reason: the payout refused outright, which would prove nothing.
+        "stake retirement did not balance",
+        "only members with stake may propose"
+    )
+
     @Test
     fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardMutationRedensExploitTest(
         "subscription",
@@ -4263,6 +4415,71 @@ class DappScaffoldSecureTemplatesTest {
         "test_round9_dust_pool_deposit_is_refused_not_haircut",
         "deposit must match the pool ratio",
         attackLanded
+    )
+
+    /**
+     * ROUND 15, DRAIN 1: give the swap PARTIAL FILLS the amm's way - delete the row
+     * whole and re-create the remainder - and the remainder's deadline starts NOW,
+     * so a one-unit fill 59 minutes into a one-hour offer buys the taker another
+     * hour of the maker's asset at the maker's stale price. The replay's must-fail
+     * one-unit settle succeeds, so the case goes red because the attack landed.
+     */
+    @Test
+    fun escrowR15ReplayGoesRedWhenAPartialFillReCreatesTheOfferWithAFreshClock() = assertGuardMutationRedensExploitTest(
+        "escrow",
+        "    require(qty_a == s.qty_a, \"a swap settles in full or not at all\");\n" +
+            "    require(taker.asset_b >= s.qty_b, \"insufficient asset B\");\n" +
+            "    val maker = trader_of(s.maker);\n" +
+            "    update taker ( .asset_b -= s.qty_b, .asset_a += s.qty_a );\n" +
+            "    update maker ( .asset_b += s.qty_b );\n" +
+            "    update s ( .status = STATUS_SETTLED );",
+        "    require(qty_a > 0 and qty_a <= s.qty_a, \"quantity out of range\");\n" +
+            "    val cost_b = qty_a * s.qty_b / s.qty_a;\n" +
+            "    require(taker.asset_b >= cost_b, \"insufficient asset B\");\n" +
+            "    val maker = trader_of(s.maker);\n" +
+            "    val left = s.qty_a - qty_a;\n" +
+            "    update taker ( .asset_b -= cost_b, .asset_a += qty_a );\n" +
+            "    update maker ( .asset_b += cost_b );\n" +
+            "    update s ( .status = STATUS_SETTLED );\n" +
+            "    if (left > 0) {\n" +
+            "        create swap(\n" +
+            "            id = book.next_id,\n" +
+            "            maker = s.maker,\n" +
+            "            taker = s.taker,\n" +
+            "            qty_a = left,\n" +
+            "            qty_b = s.qty_b * left / s.qty_a,\n" +
+            "            opened_at = op_context.last_block_time,\n" +
+            "            deadline = op_context.last_block_time + SWAP_WINDOW_MS\n" +
+            "        );\n" +
+            "        book.next_id += 1;\n" +
+            "    }",
+        "test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
+        "a swap settles in full or not at all",
+        attackLanded
+    )
+
+    /**
+     * ROUND 15, DRAIN 2: lock the maker in for the window - make cancel_swap wait
+     * for the deadline, which is the shape the amm-derived build had - and the
+     * window becomes an option the taker holds for nothing. The replay reddens on
+     * the maker's own cancel, and THAT refusal is the attack landing: she is
+     * locked, which is the drain.
+     */
+    @Test
+    fun escrowR15ReplayGoesRedWhenTheMakerIsLockedInForTheWindow() = assertGuardMutationRedensExploitTest(
+        "escrow",
+        "    require(s.maker == account.id, \"not your swap\");\n" +
+            "    require(s.status == STATUS_OPEN, \"this swap is no longer open\");\n" +
+            "    val me = trader_of(account.id);",
+        "    require(s.maker == account.id, \"not your swap\");\n" +
+            "    require(s.status == STATUS_OPEN, \"this swap is no longer open\");\n" +
+            "    require(op_context.last_block_time >= s.deadline, \"the swap has not expired yet\");\n" +
+            "    val me = trader_of(account.id);",
+        "test_r15_otc2_the_window_is_not_a_free_option_must_fail",
+        // Wrong reason: the taker's late settle still refused, which would mean the
+        // maker got out and the option never existed.
+        "this swap is no longer open",
+        "the swap has not expired yet"
     )
 
     /**
