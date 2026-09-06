@@ -41,7 +41,14 @@ payer funded, the fee accrues PRO RATA so nothing is billed in advance and no
 boundary is worth straddling, and either party may ALWAYS cancel - there is no
 `cancellable` term, because a pull authorisation that cannot be revoked is a
 standing claim on a person rather than a right over a sum. Both drains ship as
-must-fail tests with mutants.
+must-fail tests with mutants. Round 14 attacked that template the round it
+shipped and found two more, both closed the same way: funding bought time that
+had ALREADY PASSED, so a top-up after eleven unfunded months paid for the eleven
+months in the block it landed (funding now buys time FORWARD); and the boundary
+step is `amount_per_period * block_ms / period_ms` and not the streaming header's
+one unit - measured at 2778 units, 27.8% of the funding, on the largest fee and
+shortest period the module used to accept - so the fee is now bounded against the
+period at one unit per second of it.
 
 `exchange` / `order book` / `limit order` / `matching engine`.
 That row was the top of this table and its answer was the drain: it said no

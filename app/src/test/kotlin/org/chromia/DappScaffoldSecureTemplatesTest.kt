@@ -472,6 +472,21 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(retire.contains("dao.total_stake -= amount;"), "the retirement must lower the DAO's total weight")
         assertTrue(retire.contains("update m ( .stake -= share );"), "the retirement must lower the stakers' own weight")
         assertTrue(retire.contains("( @sort .owner )"), "the rounding must fall in a canonical order - an unsorted at-expression is not a consensus rule")
+        // LARGEST REMAINDER - round 14. Rounding UP in owner order is not a rounding: the
+        // shares overshoot, so the loop stopped as soon as the amount was covered and the
+        // tail of the sort paid nothing. Ten one-point payouts across three EQUAL stakes
+        // took ten points from the member who sorts first and none from the other two, and
+        // a two-point payout took 100% of a one-point staker while the 1000-point holder
+        // who sorted last paid nothing. Floor first, then hand the leftover points one
+        // each to the largest remainders.
+        assertFalse(retire.contains("+ backing - 1"), "rounding UP exempts the tail of the sort order - round 14")
+        assertTrue(retire.contains("owed[owner] = exact / backing;"), "every share must be FLOORED first")
+        assertTrue(retire.contains("remainder[owner] = exact % backing;"), "and its fractional remainder kept, because that is what decides the odd point")
+        assertTrue(retire.contains("var leftover = amount - floored;"), "the points the floors leave over are what is distributed")
+        assertTrue(
+            retire.contains("if (remainder[owner] > best) {"),
+            "the leftover points go to the LARGEST remainders, ties to the first owner in the canonical order"
+        )
         assertEquals(
             1,
             Regex("dao\\.total_stake -= ").findAll(code).count(),
@@ -522,6 +537,37 @@ class DappScaffoldSecureTemplatesTest {
             "the fee must accrue PRO RATA across the period"
         )
         assertFalse(Regex("/ s\\.period_ms \\+ 1").containsMatchIn(code), "a whole period falling due at its start is round 13's step")
+        // FUNDING BUYS TIME FORWARD - round 14. The billable stretch is FUNDED time that
+        // has elapsed, so the ceiling on it is a timestamp the payer bought and not the
+        // current funding: `periods_funded = funded(s) / amount_per_period + 1` let a
+        // top-up after eleven unfunded months pay for the eleven months in the block it
+        // landed (alice 10000 -> 0, trudy 10000 -> 20000).
+        assertTrue(code.contains("val billable_to = min(at, s.funded_until);"), "accrual must be bounded by the time the escrow REACHES, not by the current funding")
+        assertFalse(Regex("periods_funded").containsMatchIn(code), "a ceiling on time derived from the current funding is round 14's lapse ratchet")
+        val fund = opBody(code, "fund_subscription")
+        assertTrue(
+            fund.contains("if (now >= s.funded_until) {") && fund.contains(".accrual_start = s.accrual_start + (now - s.funded_until),"),
+            "a payment that lands after the escrow ran out must step the accrual anchor OVER the unfunded gap"
+        )
+        assertEquals(
+            1,
+            Regex("\\.accrual_start = ").findAll(code).count(),
+            "the accrual anchor may be moved by exactly one operation, and it is the one only the PAYER may call"
+        )
+        assertEquals(
+            2,
+            Regex("\\.funded_until = ").findAll(code).count(),
+            "and so may the funded horizon - both branches of fund_subscription and nothing else"
+        )
+        // A BOUNDED STEP AT THE BOUNDARY - round 14's prose defect. The step is
+        // amount_per_period * block_ms / period_ms, not the "ONE UNIT" this header claimed:
+        // measured at 2778 units, 27.8% of the funding, on MAX_AMOUNT over MIN_PERIOD_MS.
+        assertTrue(main.contains("val MIN_MS_PER_UNIT ="), "the fee must be bounded against the period, not described")
+        assertTrue(
+            opBody(code, "open_subscription").contains("require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, \"fee too large for this period\");"),
+            "open_subscription must refuse a fee larger than one unit per second of its period"
+        )
+        assertFalse(main.contains("staircase of"), "the header must not borrow streaming's one-unit bound: round 14 measured 2778")
         assertTrue(code.contains("require(owed > 0, \"nothing is due\");"), "a merchant must not be paid for time that has not elapsed")
         // ALWAYS CANCELLABLE. There is no term that can say otherwise: in a pull model an
         // authorisation that cannot be revoked is a standing claim on a person.
@@ -539,8 +585,12 @@ class DappScaffoldSecureTemplatesTest {
         listOf("amount_per_period: integer;", "period_ms: integer;", "started_at: timestamp;").forEach {
             assertTrue(entity.contains(it), "a subscription's terms must be immutable: $it")
         }
-        assertEquals(2, Regex("mutable ").findAll(entity).count(), "the only mutable fields are the two monotone counters")
+        assertEquals(4, Regex("mutable ").findAll(entity).count(), "the only mutable fields are the two monotone counters and the two billing clocks")
         assertTrue(entity.contains("mutable escrow: integer = 0;") && entity.contains("mutable charged: integer = 0;"))
+        assertTrue(
+            entity.contains("mutable accrual_start: timestamp;") && entity.contains("mutable funded_until: timestamp;"),
+            "the two billing clocks are fields, so the lapse is recorded rather than recomputed from the funding"
+        )
         assertEquals(1, Regex("started_at = op_context").findAll(code).count(), "the accrual clock must be written exactly once, by open_subscription")
         assertEquals(1, Regex("create subscription\\(").findAll(code).count())
         // Bounds, and the operation list: no operation names a party it was not authorised by.
@@ -555,9 +605,13 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(code.contains("require(merchant != acct.id, \"cannot subscribe to yourself\");"))
         assertTrue(code.contains("require(amount_per_period >= MIN_FEE and amount_per_period <= MAX_AMOUNT"), "the fee must be bounded at both ends")
         // The header COUNTS its guards.
-        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the subscription header must state its guard count")
-        assertTrue(main.contains("val MIN_FEE ="), "a fee below one whole unit accrues nothing - it must have a real floor")
-        assertEquals(8, guardCount(main), "the subscription header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the subscription header must state its guard count")
+        assertTrue(main.contains("val MIN_FEE ="), "a fee below one whole unit accrues nothing, and a fee of zero divides by zero in ms_bought()")
+        assertFalse(
+            main.contains("unbounded-voting-period"),
+            "round 14: a constant may not justify itself by keeping a name-keyed advisory quiet - the rule is what is wrong"
+        )
+        assertEquals(9, guardCount(main), "the subscription header's stated count must be the number of guards it lists")
         assertTrue(
             main.contains("A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE"),
             "the header must admit what the escrow costs"
@@ -1493,16 +1547,27 @@ class DappScaffoldSecureTemplatesTest {
         // left [100%, 105%) live, and at 102.5% backing the same liquidation moved twelve
         // tokens on transaction order with seven of them out of a party to nothing.
         assertTrue(
-            liquidate.contains("collateral_value(system.total_collateral, price) * BPS\n            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)"),
+            liquidate.contains("collateral_value(system.backing_collateral, price) * BPS\n            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)"),
             "liquidation must be refused unless the system is worth its coin PLUS the bonus it is about to pay"
         )
         assertTrue(
-            liquidate.contains("collateral_value(system.total_collateral - seize, price) * BPS\n                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS)"),
+            liquidate.contains("collateral_value(backing_after, price) * BPS\n                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS)"),
             "and refused when it would LEAVE the system inside the bonus of insolvency"
+        )
+        // ROUND 14: the ratio is over the collateral that BACKS the coin, and a seizure
+        // that retires a position's whole debt takes what is left of it out of the
+        // backing too - it is a depositor's collateral from that block on.
+        assertTrue(
+            liquidate.contains("val backing_after = system.backing_collateral - seize\n        - (if (t.debt == stable_in) t.collateral - seize else 0);"),
+            "a liquidation that clears a position's debt must take that position out of the backing"
         )
         assertFalse(
             liquidate.contains("collateral_value(system.total_collateral, price) >= system.total_debt\n"),
             "round 12: a floor at 100% is a live band up to the bonus rate"
+        )
+        assertFalse(
+            liquidate.contains("collateral_value(system.total_collateral,"),
+            "round 14: a floor over EVERY locked token counts collateral settlement hands straight back"
         )
         assertTrue(
             liquidate.contains("\"system is under-backed - settle instead of liquidating\""),
@@ -1514,10 +1579,31 @@ class DappScaffoldSecureTemplatesTest {
         // rate; and it stops everything else.
         val settle = opBody(code, "settle")
         assertTrue(
-            settle.contains("val short = collateral_value(system.total_collateral, price) < system.total_debt;"),
-            "a solvent system must not be freezable"
+            settle.contains("val short = backing < system.total_debt;") &&
+                settle.contains("val backing = collateral_value(system.backing_collateral, price);"),
+            "a solvent system must not be freezable, and solvency is measured on the collateral that BACKS the coin"
         )
         assertTrue(settle.contains("require(short, \"system is solvent\");"), "and the refusal must be that test and nothing else")
+        // ROUND 14, WHO MAY VOID. The void branch was read BEFORE the window check and
+        // keyed on 100%, so the debtor who caused the shortfall deposited six tokens
+        // (206 * 34 = 7004 against 7000) and the opening was gone in the block it landed,
+        // with a debt-free depositor's ten-token exit gone with it.
+        assertTrue(
+            settle.indexOf("require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS,") <
+                settle.indexOf("settlement.open = false;"),
+            "an opening may be resolved only at or after its window - the void branch must not be read before it"
+        )
+        assertTrue(
+            settle.contains("if (backing * BPS >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)) {"),
+            "and it may be voided only by a system back OVER the bonus line, where withdrawal and liquidation work again"
+        )
+        // ROUND 14, THE PRICE. The window is only informative if what it prices is fixed
+        // when it opens: one honest -20% post inside a window moved seven of a holder's
+        // 71 surplus tokens, because phase two priced at whatever was fresh at the close.
+        assertTrue(
+            settle.contains("settlement.price = price;") && settle.contains("val settle_price = settlement.price;"),
+            "phase one must RECORD the price and phase two must settle at it"
+        )
         // ROUND 13, THE RACE. settle() was permissionless, instant and irreversible, so a
         // debtor whose position was HEALTHY - who could have burned at par against her own
         // debt and walked out whole - was frozen into a pool paying under par by somebody
@@ -1548,8 +1634,20 @@ class DappScaffoldSecureTemplatesTest {
         // at a fresh price, with no exception for a debt-free position.
         val withdrawBody = opBody(code, "withdraw_collateral")
         assertTrue(
-            withdrawBody.contains("collateral_value(system.total_collateral - amount, price) * BPS"),
+            withdrawBody.contains("collateral_value(system.backing_collateral - amount, price) * BPS"),
             "a withdrawal must read the SYSTEM's backing, not only the position's ratio"
+        )
+        // ROUND 14: and that floor is over the collateral that BACKS the coin, so a
+        // position with NO DEBT is outside it - it is on neither side of the ratio.
+        // The no-exception version froze a debt-free depositor's ten tokens behind
+        // somebody else's 54%-backed position for as long as the price stayed in a 5% band.
+        assertTrue(
+            withdrawBody.contains("val price = current_price();\n    if (c.debt > 0) {"),
+            "a debt-free withdrawal still reads a fresh price (round 13) and still skips the system floor (round 14)"
+        )
+        assertTrue(
+            withdrawBody.indexOf("if (c.debt > 0) {") < withdrawBody.indexOf("\"withdrawal would take the system under its backing floor\""),
+            "the system floor must sit inside the has-debt branch"
         )
         assertTrue(withdrawBody.contains("\"withdrawal would take the system under its backing floor\""))
         assertTrue(
@@ -1560,7 +1658,7 @@ class DappScaffoldSecureTemplatesTest {
             Regex("if \\(c\\.debt > 0\\) \\{\\s*val price = current_price\\(\\);").containsMatchIn(main),
             "round 13: a debt-free position must not walk out without reading the oracle"
         )
-        assertTrue(settle.contains("val owed = min(c.collateral, c.debt * PRICE_SCALE / price);"))
+        assertTrue(settle.contains("val owed = min(c.collateral, c.debt * PRICE_SCALE / settle_price);"))
         assertTrue(settle.contains("settlement.settled = true;"))
         listOf("deposit_collateral", "mint_stable", "burn_stable", "withdraw_collateral", "liquidate", "settle", "set_price").forEach { op ->
             assertTrue(opBody(code, op).contains("live();"), "$op must refuse to run after settlement")
@@ -1581,8 +1679,24 @@ class DappScaffoldSecureTemplatesTest {
             main.contains("the band that matters starts at 105% BACKING, NOT AT 100%"),
             "the residual must name the window the guard actually opens, which round 12 measured"
         )
-        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the stablecoin header must state its guard count")
-        assertEquals(9, guardCount(main), "round 12: this header said six and listed seven")
+        assertTrue(main.contains("Ten guards are STRUCTURAL"), "the stablecoin header must state its guard count")
+        assertEquals(10, guardCount(main), "round 12: this header said six and listed seven")
+        // ROUND 14, THE PROSE. The netting rejection cited a third-party holder in round
+        // 13's fixture; that fixture has two parties and both are debtors, and this module
+        // ships no transfer, so such a holder cannot exist in it. The reasoning stands
+        // without the number, and the number is gone.
+        assertFalse(
+            main.contains("in round 13's own fixture it pays the two debtors 100 each"),
+            "round 14: the netting rejection cited a measurement its fixture cannot produce"
+        )
+        assertTrue(
+            main.contains("this module ships no transfer operation"),
+            "and it must say why the fixture cannot produce it"
+        )
+        assertTrue(
+            main.contains("query backing_matches_positions(): boolean {"),
+            "a stored backing counter must be recomputed from the rows by an invariant query"
+        )
     }
 
     /**
@@ -1602,8 +1716,9 @@ class DappScaffoldSecureTemplatesTest {
         // which is what forced the recreate; carrying created_at through the recreate
         // instead is the other pinned drain (r9-amm-position-transfer-sells-the-jit).
         val orderEntity = main.substringAfter("entity order {").substringBefore("\n}")
-        assertEquals(1, Regex("mutable ").findAll(orderEntity).count(), "an order row must have exactly ONE mutable field: $orderEntity")
+        assertEquals(2, Regex("mutable ").findAll(orderEntity).count(), "an order row's only mutable fields are the fill counter and the maker's own cancel flag: $orderEntity")
         assertTrue(orderEntity.contains("mutable filled: integer = 0;"), orderEntity)
+        assertTrue(orderEntity.contains("mutable cancelled: boolean = false;"), orderEntity)
         listOf("is_buy: boolean;", "price: integer;", "qty: integer;", "created_at: timestamp;").forEach {
             assertTrue(orderEntity.contains(it), "an order's terms must be immutable: $it")
         }
@@ -1617,7 +1732,7 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(code.contains(".filled = new_filled, .created_at"), "a fill must not touch the maker's clock")
         // NO CALLER NAMES A COUNTERPARTY: there is no fill_order(id) at all.
         assertEquals(
-            listOf("register_trader", "place_order", "cancel_order"),
+            listOf("register_trader", "place_order", "cancel_order", "withdraw_escrow"),
             Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
             "the template must ship exactly these operations - an operation that names a resting order is the ordering problem handed to the caller"
         )
@@ -1628,12 +1743,37 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("if (a.created_at != b.created_at) return a.created_at < b.created_at;"), "then the order that has rested longest")
         assertTrue(main.contains("return a.id < b.id;"), "then the lowest id")
         assertTrue(main.contains(".maker != taker"), "the matcher must skip a taker's own orders - round 13 moved this into the where-clause, so the runner skips them")
-        // RESTED CANCEL, measured from the clock nothing writes twice.
+        assertTrue(main.contains(".cancelled == false"), "and a pulled quote must leave the matcher's where-clause in the block it is pulled")
+        // ROUND 14: MIN_RESTING_MS binds the ESCROW, not the quote. Refusing the CANCEL was
+        // a cost only a one-account maker paid - `.maker != taker` is per ACCOUNT and
+        // register_trader() is a free FT4 registration, so a maker with two keys removed a
+        // resting order in the block she placed it by crossing it from the other one, and
+        // the same stale bid cost the one-account maker 500 points and her nothing.
         val cancel = opBody(code, "cancel_order")
         assertTrue(cancel.contains("require(o.maker == account.id, \"not your order\");"))
-        assertTrue(cancel.contains("op_context.last_block_time - o.created_at >= MIN_RESTING_MS"))
+        assertTrue(cancel.contains("update o ( .cancelled = true );"), "a cancel must take the quote off the market in the block it lands")
+        assertFalse(cancel.contains("MIN_RESTING_MS"), "round 14: a delay on the cancel binds only a maker with one account")
+        assertFalse(cancel.contains("delete o;"), "and it must NOT return the escrow - that is what the clock is for")
+        val withdraw = opBody(code, "withdraw_escrow")
+        assertTrue(withdraw.contains("require(o.maker == account.id, \"not your escrow\");"))
+        assertTrue(withdraw.contains("require(o.cancelled, \"cancel the order first\");"), "the escrow comes back only once the quote is off the market")
+        assertTrue(withdraw.contains("op_context.last_block_time - o.created_at >= MIN_RESTING_MS"), "and only an hour after the order was PLACED - the clock nothing but place_order writes")
+        assertTrue(withdraw.contains("delete o;"))
         assertTrue(main.contains("val MIN_RESTING_MS ="), "the resting period must be a named constant")
         assertFalse(Regex("operation\\s+place_order\\s*\\([^)]*resting").containsMatchIn(main), "the resting period must not be a parameter")
+        // ROUND 14, THE BOOK'S BOUND. MAX_RESTING_ORDERS bounds rows per TRADER and a
+        // trader is a free FT4 registration, so it bounded nothing that mattered: dust
+        // priced AT THE MARKET crosses every taker's limit and costs its author nothing,
+        // and 100 such rows on five registrations took ten honest trades from 2.8s to 16.6s.
+        assertTrue(main.contains("val MIN_NOTIONAL ="), "a resting order must be worth something the attacker pays for")
+        assertTrue(
+            opBody(code, "place_order").contains("require(price * left >= MIN_NOTIONAL, \"order notional too small\");"),
+            "the notional floor applies to what RESTS - a taker's own small order is still a trade"
+        )
+        assertFalse(
+            Regex("operation\\s+place_order\\s*\\([^)]*notional").containsMatchIn(main),
+            "the notional floor is a constant, never a parameter"
+        )
         // ESCROWED AT REST, and derived from the terms.
         assertTrue(main.contains("function escrow_of(o: order): integer =\n    if (o.is_buy) o.price * remaining(o) else remaining(o);"))
         assertTrue(opBody(code, "place_order").contains("update me ( .points -= escrow );") && opBody(code, "place_order").contains("update me ( .units -= escrow );"))
@@ -1643,7 +1783,27 @@ class DappScaffoldSecureTemplatesTest {
         }
         assertTrue(main.contains("Nine guards are STRUCTURAL"), "the exchange header must state its guard count")
         assertEquals(9, guardCount(main), "the exchange header's stated count must be the number of guards it lists")
-        assertTrue(main.contains("A RESTING ORDER IS A FREE OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS"), "the header must admit what the cancel delay costs")
+        // ROUND 14, THE PROSE. Two header sentences were false. "A RESTING ORDER IS A FREE
+        // OPTION WRITTEN TO THE MARKET FOR MIN_RESTING_MS. The cancel delay is what makes
+        // the quote a commitment" was a cost only a one-account maker paid; and "the book
+        // is bounded by the traders in it rather than by what one welcome grant can buy"
+        // was not a bound, because a trader is a free registration.
+        assertFalse(
+            main.contains("The cancel delay is what makes the quote a commitment"),
+            "round 14: the cancel delay bound only a maker with one account"
+        )
+        assertFalse(
+            main.contains("so the book is bounded by the traders in it rather than by what one welcome grant can"),
+            "round 14: a trader is a free FT4 registration, so a per-trader cap is not a bound"
+        )
+        assertTrue(
+            main.contains("A QUOTE IS NOT FIRM"),
+            "the header must state what dropping the cancel delay costs"
+        )
+        assertTrue(
+            main.contains("are NOT served by that index"),
+            "the header must say which of the matcher's where-clause terms the index actually serves"
+        )
     }
 
     @Test
@@ -1811,7 +1971,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_r12_first_claimant_cannot_shut_the_genesis_window_must_fail",
             "test_r12_a_re_proposal_does_not_buy_a_fresh_window",
             "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
-            "test_r13_a_payout_retires_the_stake_that_backed_it"
+            "test_r13_a_payout_retires_the_stake_that_backed_it",
+            "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
+            "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail"
         )
     )
 
@@ -1913,7 +2075,10 @@ class DappScaffoldSecureTemplatesTest {
             "test_r12_settling_the_47_00_fixture_pays_the_same_three_numbers",
             "test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail",
             "test_r13_burning_first_reaches_the_same_place",
-            "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail"
+            "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
+            "test_r14_a_debt_free_depositor_is_not_frozen_by_someone_elses_debt_must_fail",
+            "test_r14_a_failing_position_cannot_void_the_settlement_must_fail",
+            "test_r14_the_settlement_price_is_the_openings_price_must_fail"
         )
     )
 
@@ -1926,7 +2091,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_round12_a_maker_is_never_left_resting_beside_a_better_price_must_fail",
             "test_matching_is_price_then_time_and_no_caller_chooses",
             "test_bounds_and_ownership",
-            "test_round13_dust_book_cannot_tax_every_place_order_must_fail"
+            "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
+            "test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail",
+            "test_r14_market_priced_dust_is_refused_must_fail"
         )
     )
 
@@ -1938,7 +2105,10 @@ class DappScaffoldSecureTemplatesTest {
             "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
             "test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail",
             "test_terms_and_ownership",
-            "test_cancellation_pays_the_merchant_first"
+            "test_cancellation_pays_the_merchant_first",
+            "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
+            "test_r14_the_shortest_period_lapse_is_not_billable_either_must_fail",
+            "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail"
         )
     )
 
@@ -2194,24 +2364,73 @@ class DappScaffoldSecureTemplatesTest {
     )
 
     /**
-     * ROUND 13, THE CLAIM. Take the escrow cap off the accrual and a pull authorisation is
-     * a claim that grows for ever again - the shape round 13 drained, where charge() took
+     * ROUND 13, THE CLAIM. Take the bound off the accrual and a pull authorisation is a
+     * claim that grows for ever again - the shape round 13 drained, where charge() took
      * `min(owed, payer.balance)` and one call eighty-three years later took all 9990
-     * points the payer held. The replay requires the charge after those years to be
-     * refused "nothing is due"; without the cap it is owed a fee for time the payer never
-     * funded, so run_must_fail reports that the transaction did not fail.
+     * points the payer held. Since round 14 the accrual has TWO bounds and both come off
+     * here: the funded horizon (a timestamp the payer bought) and the escrow cap behind
+     * it. The replay requires the charge after those years to be refused "nothing is due";
+     * unbounded it is owed a fee for time the payer never funded, so run_must_fail reports
+     * that the transaction did not fail. Deleting either line outright would leave a
+     * function that does not compile, and a mutant that fails to build proves nothing, so
+     * each is replaced by the unbounded expression instead.
      */
     @Test
     fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardMutationRedensExploitTest(
         "subscription",
-        "    return min(total_funded, earned);",
-        // Deleting the line would leave a function with no return on that path, which
-        // would not compile - a mutant that fails to build proves nothing. So the cap is
-        // taken off and the accrual is left: exactly the shape round 13 drained.
-        "    return earned;",
+        "    val billable_to = min(at, s.funded_until);",
+        "    val billable_to = at;",
         "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
         "insufficient balance",
+        attackLanded,
+        alsoReplace = listOf("    return min(total_funded, earned);" to "    return earned;")
+    )
+
+    /**
+     * ROUND 14, THE LAPSE RATCHET. Put back the funding that buys time BACKWARDS - a
+     * top-up that extends the funded horizon from where the escrow ran out even when that
+     * was months ago, which is what the old `periods_funded = funded(s) / amount_per_period
+     * + 1` ceiling did - and the eleven unfunded months become billable again the moment
+     * the payer funds. The replay requires the charge in the block after the top-up to be
+     * refused "nothing is due" (round 14 measured 10000 taken there, alice 10000 -> 0 and
+     * trudy 10000 -> 20000), so the mutant makes run_must_fail report that the transaction
+     * did not fail. The escrow cap is untouched and cannot be what changed: the drain is
+     * inside the cap, because the payer funded that money.
+     */
+    @Test
+    fun subscriptionR14ReplayGoesRedWhenATopUpBuysTimeAlreadyGone() = assertGuardMutationRedensExploitTest(
+        "subscription",
+        listOf(
+            "    if (now >= s.funded_until) {",
+            "        update s (",
+            "            .accrual_start = s.accrual_start + (now - s.funded_until),",
+            "            .funded_until = now + bought,",
+            "            .escrow = s.escrow + amount",
+            "        );",
+            "    } else {",
+            "        update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
+            "    }"
+        ).joinToString("\n"),
+        "    update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
+        "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
+        "no such subscription",
         attackLanded
+    )
+
+    /**
+     * ROUND 14, THE PROSE. The header used to bound the boundary step at "a staircase of
+     * ONE UNIT"; the height is amount_per_period * block_ms / period_ms, and on the largest
+     * fee and shortest period open_subscription used to accept that is 2778 units - 27.8%
+     * of everything either subscriber funded. Strip the fee-against-period floor and that
+     * configuration is writable again: the open the replay REQUIRES to be refused goes
+     * through, so run_must_fail reports that the transaction did not fail.
+     */
+    @Test
+    fun subscriptionR14ReplayGoesRedWithoutTheFeeAgainstPeriodFloor() = assertGuardRemovalRedensExploitTest(
+        "subscription",
+        "    require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, \"fee too large for this period\");",
+        "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail",
+        "fee out of range"
     )
 
     /**
@@ -2230,6 +2449,45 @@ class DappScaffoldSecureTemplatesTest {
         "test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail",
         "no such subscription",
         attackLanded
+    )
+
+    /**
+     * ROUND 14, THE ROUNDING. Put ceil-in-owner-order back - each staker's share rounded
+     * UP and the walk stopped the moment `remaining` reached zero - and the shares
+     * overshoot again, so the head of the sort order pays every rounding point and the
+     * tail pays none. The replay REQUIRES ten ordinary one-point payouts across three
+     * EQUAL stakes to land 996 / 997 / 997; with the mutant they land 990 / 1000 / 1000,
+     * which is what round 14 measured, and the first assertion trips. Nothing else moves:
+     * the same @sort, the same total, the same conservation - only WHO PAYS.
+     */
+    @Test
+    fun governanceR14ReplayGoesRedWhenTheRoundingIsCeilInSortOrder() = assertGuardMutationRedensExploitTest(
+        "governance",
+        listOf(
+            "    for (owner in owners) {",
+            "        val m = member @ { .owner == owner };",
+            "        val exact = m.stake * amount;",
+            "        owed[owner] = exact / backing;",
+            "        remainder[owner] = exact % backing;",
+            "        floored += exact / backing;",
+            "    }"
+        ).joinToString("\n"),
+        listOf(
+            "    var remaining = amount;",
+            "    for (owner in owners) {",
+            "        val m = member @ { .owner == owner };",
+            "        var share = (m.stake * amount + backing - 1) / backing;",
+            "        if (share > m.stake) share = m.stake;",
+            "        if (share > remaining) share = remaining;",
+            "        owed[owner] = share;",
+            "        remainder[owner] = 0;",
+            "        remaining -= share;",
+            "    }",
+            "    floored = amount;"
+        ).joinToString("\n"),
+        "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
+        "stake retirement did not balance",
+        "expected"
     )
 
     /** The approval cannot be parked either: strip the window and the expiry replay goes red. */
@@ -2292,8 +2550,8 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun stablecoinSettlementTestGoesRedWhenASolventSystemCanBeSettled() = assertGuardMutationRedensExploitTest(
         "stablecoin",
-        "val short = collateral_value(system.total_collateral, price) < system.total_debt;",
-        "val short = collateral_value(system.total_collateral, price) < system.total_debt or true;",
+        "val short = backing < system.total_debt;",
+        "val short = backing < system.total_debt or true;",
         "test_round9_settlement_shares_the_shortfall_in_any_order",
         "price feed is stale",
         attackLanded
@@ -2313,17 +2571,33 @@ class DappScaffoldSecureTemplatesTest {
         "stablecoin",
         listOf(
             "    if (not settlement.open) {",
+            "        require(short, \"system is solvent\");",
             "        settlement.open = true;",
             "        settlement.opened_at = now;",
+            "        settlement.price = price;",
             "        return;",
             "    }"
         ).joinToString("\n"),
-        "",
+        // The solvency test and the recorded price stay - phase two divides by the latter,
+        // and a mutant that aborts on a division by zero proves nothing about the window.
+        // What goes is the STOP: settle() now runs straight through to phase two in the
+        // block it is called, which is exactly the template round 13 attacked.
+        listOf(
+            "    require(short, \"system is solvent\");",
+            "    settlement.price = price;"
+        ).joinToString("\n"),
         "test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail",
         "system is solvent",
         "system is settled",
         alsoRemove = listOf(
-            "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");"
+            "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");",
+            listOf(
+                "    if (now - settlement.opened_at > MAX_PRICE_AGE_MS) {",
+                "        settlement.opened_at = now;",
+                "        settlement.price = price;",
+                "        return;",
+                "    }"
+            ).joinToString("\n")
         )
     )
 
@@ -2338,14 +2612,97 @@ class DappScaffoldSecureTemplatesTest {
     fun stablecoinR13ReplayGoesRedWithoutTheSystemBackingFloorOnWithdrawal() = assertGuardRemovalRedensExploitTest(
         "stablecoin",
         listOf(
+            "        require(",
+            "            collateral_value(system.backing_collateral - amount, price) * BPS",
+            "                >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),",
+            "            \"withdrawal would take the system under its backing floor\"",
+            "        );"
+        ).joinToString("\n"),
+        "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
+        "under the collateral ratio"
+    )
+
+    /**
+     * ROUND 14, THE DEBT-FREE DEPOSITOR. Put the no-exception floor back over EVERY locked
+     * token - the exact shape round 13 shipped - and alice, who owes nothing and holds ten
+     * tokens of collateral, cannot take ONE of them out: 199 * 36 = 7164 against a floor of
+     * 7000 * 1.05 = 7350. The withdrawal the replay REQUIRES to succeed is refused, and
+     * that refusal IS the attack landing - the whole finding is that collateral backing no
+     * debt was frozen by somebody else's. The position ratio check is left standing and
+     * cannot be what changed, because she has no debt for it to test.
+     */
+    @Test
+    fun stablecoinR14ReplayGoesRedWithTheNoExceptionWithdrawalFloor() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        listOf(
+            "    if (c.debt > 0) {",
+            "        require(meets_ratio(c.collateral - amount, c.debt, price), \"under the collateral ratio\");",
+            "        require(",
+            "            collateral_value(system.backing_collateral - amount, price) * BPS",
+            "                >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),",
+            "            \"withdrawal would take the system under its backing floor\"",
+            "        );",
+            "        system.backing_collateral -= amount;",
+            "    }"
+        ).joinToString("\n"),
+        listOf(
+            "    if (c.debt > 0) {",
+            "        require(meets_ratio(c.collateral - amount, c.debt, price), \"under the collateral ratio\");",
+            "        system.backing_collateral -= amount;",
+            "    }",
             "    require(",
             "        collateral_value(system.total_collateral - amount, price) * BPS",
             "            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),",
             "        \"withdrawal would take the system under its backing floor\"",
             "    );"
         ).joinToString("\n"),
-        "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
-        "under the collateral ratio"
+        "test_r14_a_debt_free_depositor_is_not_frozen_by_someone_elses_debt_must_fail",
+        "under the collateral ratio",
+        "withdrawal would take the system under its backing floor"
+    )
+
+    /**
+     * ROUND 14, WHO MAY VOID. Put the void branch back in FRONT of the window check and
+     * key it on 100% backing over every locked token - round 14's exact shape - and
+     * trudy's sixth token (206 * 34 = 7004 against 7000) closes the opening in the block it
+     * lands. The settle() call the replay REQUIRES to be refused "settlement window is
+     * still open" goes through, so run_must_fail reports that the transaction did not fail,
+     * and alice's ten-token exit is gone with it. The window check itself is left in place
+     * behind the new branch, so it cannot be what changed.
+     */
+    @Test
+    fun stablecoinR14ReplayGoesRedWhenTheVoidBranchIsReadBeforeTheWindow() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");",
+        listOf(
+            "    if (collateral_value(system.total_collateral, price) >= system.total_debt) {",
+            "        settlement.open = false;",
+            "        settlement.opened_at = 0;",
+            "        settlement.price = 0;",
+            "        return;",
+            "    }",
+            "    require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, \"settlement window is still open\");"
+        ).joinToString("\n"),
+        "test_r14_a_failing_position_cannot_void_the_settlement_must_fail",
+        "system is solvent",
+        attackLanded
+    )
+
+    /**
+     * ROUND 14, THE WINDOW'S PRICE. Settle at whatever is fresh when the window is closed
+     * instead of at the price the opening recorded, and the closing call is a choice worth
+     * money again: one honest -20% post inside the window takes bob from 71 surplus tokens
+     * to 64, and the replay's 71 assertion trips. Nothing else moves - the same window, the
+     * same void rule, the same pooling.
+     */
+    @Test
+    fun stablecoinR14ReplayGoesRedWhenPhaseTwoPricesAtTheClose() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "    val settle_price = settlement.price;",
+        "    val settle_price = price;",
+        "test_r14_the_settlement_price_is_the_openings_price_must_fail",
+        "system is solvent",
+        "expected"
     )
 
     /** Without the health check a healthy position can be liquidated for the bonus. */
@@ -2376,9 +2733,9 @@ class DappScaffoldSecureTemplatesTest {
      */
     private val STABLECOIN_SYSTEM_BACKING_GUARD = listOf(
         "    require(",
-        "        collateral_value(system.total_collateral, price) * BPS",
+        "        collateral_value(system.backing_collateral, price) * BPS",
         "            >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS)",
-        "            and collateral_value(system.total_collateral - seize, price) * BPS",
+        "            and collateral_value(backing_after, price) * BPS",
         "                >= (system.total_debt - stable_in) * (BPS + LIQUIDATION_BONUS_BPS),",
         "        \"system is under-backed - settle instead of liquidating\"",
         "    );"
@@ -2387,8 +2744,8 @@ class DappScaffoldSecureTemplatesTest {
     /** The same guard as round 11 shipped it: a floor at 100%, with the bonus at 105%. */
     private val STABLECOIN_ROUND11_100PCT_FLOOR = listOf(
         "    require(",
-        "        collateral_value(system.total_collateral, price) >= system.total_debt",
-        "            and collateral_value(system.total_collateral - seize, price) >= system.total_debt - stable_in,",
+        "        collateral_value(system.backing_collateral, price) >= system.total_debt",
+        "            and collateral_value(backing_after, price) >= system.total_debt - stable_in,",
         "        \"system is under-backed - settle instead of liquidating\"",
         "    );"
     ).joinToString("\n")
@@ -2497,6 +2854,7 @@ class DappScaffoldSecureTemplatesTest {
             "the limit must be a where-clause term on both sides of the book"
         )
         assertTrue(matcher.contains(".maker != taker"), "and so must the self-dealing rule")
+        assertTrue(matcher.contains(".cancelled == false"), "and a pulled quote must be out of the matcher's reach in the block it is pulled")
         assertTrue(main.contains("index is_buy, price;"), "the index the matcher's where-clause needs must exist on the order row")
         // A book nobody walks is still a book somebody pays to store, and round 13 bought
         // 10000 permanent rows with one free registration. So it is BOUNDED as well.
@@ -2509,6 +2867,12 @@ class DappScaffoldSecureTemplatesTest {
             Regex("operation\\s+place_order\\([^)]*max_resting").containsMatchIn(main.lowercase()),
             "the cap is a constant, never a parameter"
         )
+        // ...and round 14: the cap alone is not a bound, because a trader is free.
+        assertTrue(main.contains("val MIN_NOTIONAL ="), "the book must be bounded by something the attacker pays for")
+        assertTrue(
+            opBody(code, "place_order").contains("\"order notional too small\""),
+            "place_order must refuse a resting order worth less than MIN_NOTIONAL"
+        )
     }
 
     @Test
@@ -2518,8 +2882,51 @@ class DappScaffoldSecureTemplatesTest {
         "update o ( .filled = new_filled, .created_at = op_context.last_block_time );",
         "test_round12_partial_fill_cannot_reset_the_makers_clock_must_fail",
         "not your order",
-        "the order has not rested long enough",
+        "the escrow has not rested long enough",
         alsoReplace = listOf("created_at: timestamp;" to "mutable created_at: timestamp;")
+    )
+
+    /**
+     * ROUND 14, THE SECOND KEY. Put the cancel delay back - the shape this template
+     * shipped, where a maker could not pull her own quote for MIN_RESTING_MS - and the
+     * one-account maker is held to a commitment the two-key maker walked out of in the
+     * block she placed it. The cancel the replay REQUIRES to succeed is refused "the order
+     * has not rested long enough", and that refusal IS the attack landing: the whole
+     * finding is that the delay was a cost only a maker with one account paid, priced at
+     * 500 points against nothing on the same stale quote. The escrow clock is untouched, so
+     * it cannot be what changed.
+     */
+    @Test
+    fun exchangeR14ReplayGoesRedWhenTheCancelIsDelayedAgain() = assertGuardMutationRedensExploitTest(
+        "exchange",
+        "    require(o.maker == account.id, \"not your order\");",
+        listOf(
+            "    require(o.maker == account.id, \"not your order\");",
+            "    require(",
+            "        op_context.last_block_time - o.created_at >= MIN_RESTING_MS,",
+            "        \"the order has not rested long enough\"",
+            "    );"
+        ).joinToString("\n"),
+        "test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail",
+        "not your escrow",
+        "the order has not rested long enough"
+    )
+
+    /**
+     * ROUND 14, THE DUST. Strip the notional floor and a one-unit sell AT THE MARKET PRICE
+     * is writable again - it crosses every taker's limit, is walked by every one of them,
+     * and costs its author nothing, which is how five free registrations put 100 rows in
+     * front of ten honest trades and took them from 2.8 seconds to 16.6. The order the
+     * replay REQUIRES to be refused is accepted, so run_must_fail reports that the
+     * transaction did not fail. The per-trader cap is left standing and cannot be what
+     * changed - round 14's whole point is that a trader is free.
+     */
+    @Test
+    fun exchangeR14ReplayGoesRedWithoutTheNotionalFloor() = assertGuardRemovalRedensExploitTest(
+        "exchange",
+        "        require(price * left >= MIN_NOTIONAL, \"order notional too small\");",
+        "test_r14_market_priced_dust_is_refused_must_fail",
+        "too many resting orders"
     )
 
     /**
@@ -2544,7 +2951,7 @@ class DappScaffoldSecureTemplatesTest {
             "        );"
         ).joinToString("\n"),
         "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
-        "insufficient points"
+        "insufficient units"
     )
 
     @Test
