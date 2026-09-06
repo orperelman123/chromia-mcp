@@ -714,7 +714,7 @@ class ProvisioningToolsTest {
 
     private fun deployYml(container: String = "or_container_42", chain: String = "my_dapp"): String {
         val spec = WriteDeploymentConfig.resolveNetwork("testnet")!!
-        return WriteDeploymentConfig.chromiaYml(spec, chain).replace("<containerIID>", container)
+        return WriteDeploymentConfig.chromiaYml(spec, chain, DappScaffold.defaultChromiaYml()).replace("<containerIID>", container)
     }
 
     private class FakeRunner(
@@ -1393,7 +1393,7 @@ class ProvisioningToolsTest {
         // The adaptive pin must also pass the shipped validator (older than
         // the default pin is a warning, never an error).
         val spec = WriteDeploymentConfig.resolveNetwork("testnet")!!
-        val adapted = WriteDeploymentConfig.chromiaYml(spec, "my_dapp")
+        val adapted = WriteDeploymentConfig.chromiaYml(spec, "my_dapp", DappScaffold.defaultChromiaYml())
             .replace("rellVersion: ${DappScaffold.RELL_VERSION}", "rellVersion: 0.15.0")
             .replace("<containerIID>", "or_container_42")
         val validated = ChromiaYmlValidator.validate(adapted)

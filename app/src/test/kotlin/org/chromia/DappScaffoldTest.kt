@@ -1,5 +1,6 @@
 package org.chromia
 
+import org.chromia.tools.propertiesOrEmpty
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import org.chromia.tools.callToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
@@ -140,7 +141,7 @@ class DappScaffoldTest {
         // compilable, guard-free `hello` skeleton to that refusal is how an
         // agent builds the wrong thing and passes every gate. It is still
         // declared, and `ok` / `template` are what a caller must always get.
-        assertNotNull(schema!!.properties["files"])
+        assertNotNull(schema!!.propertiesOrEmpty["files"])
         assertFalse(schema.required.orEmpty().contains("files"))
         assertTrue(schema.required.orEmpty().contains("ok"))
         assertTrue(schema.required.orEmpty().contains("template"))
