@@ -1,9 +1,10 @@
 package org.chromia
 
+import org.chromia.tools.propertiesOrEmpty
 import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.segment.TextSegment
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
@@ -72,17 +73,17 @@ class StaleIndexOnAllDocsToolsTest {
     }
 
     private suspend fun search(store: RagStore) = SearchDocsStrategy(CompletableDeferred(store)).execute(
-        CallToolRequest(name = "search", arguments = buildJsonObject { put("query", "module_args") }),
+        callToolRequest(name = "search", arguments = buildJsonObject { put("query", "module_args") }),
         ChromiaRepositoryImpl()
     )
 
     private suspend fun fetch(store: RagStore) = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-        CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", segmentId(segment)) }),
+        callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", segmentId(segment)) }),
         ChromiaRepositoryImpl()
     )
 
     private suspend fun fetchDocs(store: RagStore) = FetchDocsStrategy(CompletableDeferred(store)).execute(
-        CallToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "module_args") }),
+        callToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "module_args") }),
         ChromiaRepositoryImpl()
     )
 
@@ -140,7 +141,7 @@ class StaleIndexOnAllDocsToolsTest {
     @Test
     fun aFetchMissStillCarriesTheStalenessOfTheIndexThatMissed() = runBlocking {
         val result = FetchDocumentStrategy(CompletableDeferred(stale())).execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "deadbeef") }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "deadbeef") }),
             ChromiaRepositoryImpl()
         )
         val structured = result.structuredContent!!.jsonObject
@@ -152,7 +153,7 @@ class StaleIndexOnAllDocsToolsTest {
     @Test
     fun allThreeSchemasDeclareTheIndexTheyNowReturn() {
         listOf(McpTools.fetchDocsTool(), McpTools.searchTool(), McpTools.fetchTool()).forEach { tool ->
-            val props = tool.outputSchema!!.properties
+            val props = tool.outputSchema!!.propertiesOrEmpty
             assertNotNull(props["index"], "${tool.name} returns `index` and must declare it")
             assertNotNull(props["index_note"], "${tool.name} returns `index_note` and must declare it")
         }

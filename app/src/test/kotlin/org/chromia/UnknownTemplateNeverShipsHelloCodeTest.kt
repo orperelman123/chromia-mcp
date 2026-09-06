@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import org.chromia.tools.propertiesOrEmpty
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -52,7 +53,7 @@ class UnknownTemplateNeverShipsHelloCodeTest {
 
     private fun scaffold(template: String) = runBlocking {
         executor.executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "scaffold_dapp",
                 arguments = buildJsonObject { put("name", "my_dapp"); put("template", template) }
             )
@@ -169,7 +170,7 @@ class UnknownTemplateNeverShipsHelloCodeTest {
         assertTrue(enumDescription.contains("SCAFFOLDS the closest shipped template"), enumDescription.takeLast(400))
         assertTrue(enumDescription.contains("NOTHING is scaffolded"), enumDescription.takeLast(400))
         val out = tool.outputSchema!!
-        assertNotNull(out.properties["ok"])
+        assertNotNull(out.propertiesOrEmpty["ok"])
         assertTrue(out.required.orEmpty().contains("ok"))
         assertTrue(out.required.orEmpty().contains("template"))
         assertFalse(

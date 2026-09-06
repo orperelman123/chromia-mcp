@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import org.chromia.tools.propertiesOrEmpty
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -63,7 +64,7 @@ class ScaffoldToGreenTestsFirstRunTest {
     private val executor = ToolExecutor(RecordingRepository(), PromptManager())
 
     private fun call(name: String, args: JsonObject) = runBlocking {
-        executor.executeTool(CallToolRequest(name = name, arguments = args))
+        executor.executeTool(callToolRequest(name = name, arguments = args))
     }
 
     private fun scaffold(template: String): JsonObject {
@@ -195,7 +196,7 @@ class ScaffoldToGreenTestsFirstRunTest {
         files.forEach { (path, content) -> if (path.endsWith(".rell")) put(path, content) }
     }
 
-    private fun assertGreen(result: io.modelcontextprotocol.kotlin.sdk.CallToolResult, what: String) {
+    private fun assertGreen(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult, what: String) {
         val s = result.structuredContent!!
         assertTrue(
             s["ok"]!!.jsonPrimitive.boolean,

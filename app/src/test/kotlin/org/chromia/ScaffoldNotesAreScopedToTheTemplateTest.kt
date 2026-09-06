@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import org.chromia.tools.propertiesOrEmpty
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -46,7 +47,7 @@ class ScaffoldNotesAreScopedToTheTemplateTest {
 
     private fun scaffold(template: String, notesFor: String? = null): JsonObject = runBlocking {
         executor.executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "scaffold_dapp",
                 arguments = buildJsonObject {
                     put("name", "my_dapp")
@@ -156,7 +157,7 @@ class ScaffoldNotesAreScopedToTheTemplateTest {
         // The alias spelling an agent will also try.
         val viaAlias = runBlocking {
             executor.executeTool(
-                CallToolRequest(
+                callToolRequest(
                     name = "scaffold_dapp",
                     arguments = buildJsonObject {
                         put("name", "my_dapp"); put("template", "hello"); put("notes_for", "amm")

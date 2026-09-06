@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import org.chromia.tools.propertiesOrEmpty
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -48,7 +49,7 @@ class ArgumentVocabularyTest {
     private val executor = ToolExecutor(RecordingRepository(), PromptManager())
 
     private fun call(name: String, args: kotlinx.serialization.json.JsonObject) = runBlocking {
-        executor.executeTool(CallToolRequest(name = name, arguments = args))
+        executor.executeTool(callToolRequest(name = name, arguments = args))
     }
 
     @Test

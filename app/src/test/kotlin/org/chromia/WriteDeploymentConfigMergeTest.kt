@@ -1,6 +1,7 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import org.chromia.tools.propertiesOrEmpty
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -52,7 +53,7 @@ class WriteDeploymentConfigMergeTest {
     private val executor = ToolExecutor(RecordingRepository(), PromptManager())
 
     private fun call(name: String, args: JsonObject) = runBlocking {
-        executor.executeTool(CallToolRequest(name = name, arguments = args))
+        executor.executeTool(callToolRequest(name = name, arguments = args))
     }
 
     private val ft4Yml = DappScaffold.files("fee_token", template = "ft4").getValue("chromia.yml")

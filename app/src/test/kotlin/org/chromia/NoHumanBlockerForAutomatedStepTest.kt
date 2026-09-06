@@ -1,6 +1,6 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -167,7 +167,7 @@ class NoHumanBlockerForAutomatedStepTest {
 
     private fun preflight(yaml: String, target: String) = runBlocking {
         ToolExecutor(RecordingRepository(), PromptManager()).executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "deployment_preflight",
                 arguments = buildJsonObject {
                     put("yaml", yaml)
