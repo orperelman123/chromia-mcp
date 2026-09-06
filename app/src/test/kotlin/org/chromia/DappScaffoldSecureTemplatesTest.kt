@@ -2045,8 +2045,7 @@ class DappScaffoldSecureTemplatesTest {
                 code.contains("val u = period_mint_cap() / MAX_MINTS_PER_PERIOD;"),
             "a row of the window's budget must be worth a share of the period cap"
         )
-        val mintAgainst = code.substringAfter("function mint_against").substringBefore("
-}")
+        val mintAgainst = code.substringAfter("function mint_against").substringBefore("\n}")
         assertTrue(
             mintAgainst.contains("if (claim.amount >= min_row_units()) {") &&
                 mintAgainst.contains("mint_event @? { .dust_open == true }"),
