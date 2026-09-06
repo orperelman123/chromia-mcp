@@ -1947,19 +1947,19 @@ object McpTools {
         name = "local_chain_up",
         description = """
             Stand up a REAL local Chromia chain from Rell sources - in-process, zero keys, zero funds,
-            zero human steps. Compiles the sources into a blockchain configuration and runs it on the
-            embedded Postchain engine (the engine `chr node start` wraps) against the server's
-            PostgreSQL, then serves a subset of the Postchain REST API on 127.0.0.1.
+            zero human steps. Compiles the sources into a blockchain configuration, runs it on the
+            embedded Postchain engine against the server's PostgreSQL, and then
+            serves a subset of the Postchain REST API on 127.0.0.1:
+            GET /brid/iid_0, GET+POST /query/{brid}, POST /query_gtv/{brid}, POST /tx/{brid},
+            and GET /tx/{brid}/{txRid}/status - block and confirmation-proof endpoints are NOT served.
             Last step of the agent loop: rell_check -> rell_security_check -> run_rell_tests ->
-            verify_guards -> local_chain_up (it runs against a live chain).
-            Returns the BRID and apiUrl; query with POST {apiUrl}/query/{brid}
-            {"type":"rell.get_app_structure"} and submit transactions with any postchain client signed
-            with the public Chromia CLI dev key (privkey 42 repeated 32 times - local only, never a
-            secret). actions: "up" (default; requires `files`), "status", "down".
-            Bounded by design: one chain at a time, auto-stops after ttlSeconds (default 1800, max
-            7200), in a dedicated PostgreSQL schema wiped on every start. Needs PostgreSQL via
-            CHROMIA_TEST_DATABASE_URL on the server (or `databaseUrl`).
-            Which REST endpoints are served, and restart semantics: describe_tool{tool:"local_chain_up"}.
+            verify_guards -> local_chain_up. Returns the BRID and apiUrl.
+            actions: "up" (default; requires `files`), "status", "down". One chain at a time, auto-stops
+            after ttlSeconds, in a dedicated PostgreSQL schema wiped on every start; calling up again
+            with identical inputs returns the running chain, and a change to the sources,
+            moduleArgs, or databaseUrl restarts it.
+            Needs PostgreSQL via CHROMIA_TEST_DATABASE_URL (or `databaseUrl`).
+            How to query it and submit transactions: describe_tool{tool:"local_chain_up"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -3551,11 +3551,12 @@ object McpTools {
             (4) the source gate when `rell` is supplied - it must compile, and for MAINNET targets
             CRITICAL/HIGH security findings are blockers (warnings for testnet);
             (5) the production pins (rellVersion, merkle_hash_version).
-            Returns {ready, target, network, findings, blockers, nextAction, notes}; ready=true only
-            with zero blockers, and any skipped gate is called out in notes - nothing skipped is
-            silently vouched for. When ready, nextAction is the exact chr deployment command.
+            Returns {ready, target, network, findings, blockers, nextAction, notes}; ready=true only with
+            zero blockers - a MAINNET target without `rell` stays blocked until the source gate runs,
+            while other targets can be ready with the skipped source gate explicitly called out in notes.
+            When ready, nextAction is the exact chr deployment command.
             Read-only: no keys, no signing, no network writes.
-            Per-check detail and the probe deadline envs: describe_tool{tool:"deployment_preflight"}.
+            Per-check detail: describe_tool{tool:"deployment_preflight"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(

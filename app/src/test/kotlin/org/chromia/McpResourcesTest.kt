@@ -1,11 +1,12 @@
 package org.chromia
 
+import org.chromia.tools.McpPrompts
 import org.chromia.tools.McpResources
 import org.chromia.tools.McpTools
+import org.chromia.tools.PromptManager
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -21,8 +22,12 @@ class McpResourcesTest {
         assertEquals(false, resources!!.subscribe)
         assertEquals(false, resources.listChanged)
 
-        // Catalog is get_prompts + chromia://config/prompt-catalog, not MCP prompts/list.
-        assertNull(App.SERVER_CAPABILITIES.prompts)
+        // Audit F8: prompts/list used to answer -32601 and the capability was
+        // absent, so a client that speaks only the prompts protocol saw nothing.
+        // The catalogue is now served three ways - prompts/list + prompts/get,
+        // the get_prompts tool, and chromia://config/prompt-catalog.
+        assertNotNull(App.SERVER_CAPABILITIES.prompts)
+        assertEquals(false, App.SERVER_CAPABILITIES.prompts?.listChanged)
     }
 
     @Test
@@ -36,7 +41,12 @@ class McpResourcesTest {
             ),
             server.resources.keys
         )
-        assertTrue(server.prompts.isEmpty())
+        assertEquals(
+            McpPrompts.catalogue(PromptManager()).map { it.name }.toSet(),
+            server.prompts.keys,
+            "the whole prompt catalogue must be registered (audit F8)"
+        )
+        assertEquals(McpPrompts.FLAGSHIP, server.prompts.keys.first())
         assertEquals(
             McpTools.allTools().map { it.name }.toSet(),
             server.tools.keys
