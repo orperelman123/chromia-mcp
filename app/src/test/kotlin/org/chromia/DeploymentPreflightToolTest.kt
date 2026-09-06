@@ -431,8 +431,13 @@ class DeploymentPreflightToolTest {
     fun toolSchemaDeclaresRequiredInputsAndOutputShape() {
         val tool = McpTools.deploymentPreflightTool()
         assertEquals("deployment_preflight", tool.name)
-        assertEquals(listOf("yaml", "target"), tool.inputSchema.required)
-        listOf("yaml", "target", "rell", "files", "strict")
+        // AUDIT F10: "deployment target `target` (deployment_preflight) vs
+        // `network` (22 tools)" - the canonical name is the one the majority
+        // already used, so the REQUIRED input is `network` and `target` stays a
+        // declared alias (no required parameter may be an alias of a canonical
+        // name). The alias is still asserted present below.
+        assertEquals(listOf("yaml", "network"), tool.inputSchema.required)
+        listOf("yaml", "network", "target", "rell", "files", "strict")
             .forEach { assertNotNull(tool.inputSchema.propertiesOrEmpty[it], "inputSchema missing $it") }
         val out = tool.outputSchema!!
         listOf("ready", "target", "network", "findings", "blockers", "nextAction", "notes")
@@ -487,16 +492,21 @@ class DeploymentPreflightToolTest {
             buildJsonObject {
                 put("yaml", testnetYaml)
                 put("target", "testnet")
-                put("rell", buildJsonObject { put("main.rell", cleanRell) })
-                // The alias carries uncompilable code - it must be ignored.
-                put("files", buildJsonObject { put("main.rell", "module; query broken(") })
+                // AUDIT F10: "`files` for Rell sources" is the canonical name -
+                // the one eight other code-taking tools already use - and `rell`
+                // is the alias. So the canonical map is the one that is compiled;
+                // the ALIAS is what carries uncompilable code and must be ignored.
+                // (This test kept the old direction after F10 renamed it: it put
+                // the broken source in `files` and expected `rell` to win.)
+                put("files", buildJsonObject { put("main.rell", cleanRell) })
+                put("rell", buildJsonObject { put("main.rell", "module; query broken(") })
             }
         )
         assertTrue(result.isError != true)
         val s = result.structuredContent!!
         assertTrue(s["ready"]!!.jsonPrimitive.boolean, s.toString())
         assertTrue(blockers(s).isEmpty(), s.toString())
-        // No alias note: `rell` was used, `files` ignored.
+        // No alias note: `files` was used, `rell` ignored.
         val notes = s["notes"]!!.jsonPrimitive.content
         assertFalse(notes.contains("alias"), notes)
     }

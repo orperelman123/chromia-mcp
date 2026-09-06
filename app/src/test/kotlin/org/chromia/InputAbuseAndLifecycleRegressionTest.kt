@@ -108,7 +108,13 @@ class InputAbuseAndLifecycleRegressionTest {
             }
         )
         assertEquals(true, q.isError, text(q))
-        assertTrue(text(q).contains("`brid` (did you mean `blockchainRid`?)"), text(q))
+        // AUDIT F10: "chain identifier ... the canonical name is the one the
+        // majority already used - `brid`". chromia_dapp_query now DECLARES
+        // `brid`, so it is no longer an unknown name to be guessed at; the
+        // guess would have been a rename, and the mapping never renames a
+        // caller's argument. `blockchainRid` survives as the declared alias.
+        assertFalse(text(q).contains("`brid` (did you mean"), text(q))
+        assertTrue(text(q).contains("declared arguments: arguments, blockchainRid, brid"), text(q))
         assertTrue(text(q).contains("`args` (did you mean `arguments`?)"), text(q))
         assertTrue(text(q).contains("`url` (did you mean `network`?)"), text(q))
 

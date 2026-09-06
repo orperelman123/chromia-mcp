@@ -89,7 +89,12 @@ class ProbeImprovementsRegressionTest {
     @Test
     fun checkDappProjectSchemaNoLongerRequiresYaml() {
         val schema = McpTools.checkDappProjectTool().inputSchema
-        assertEquals(listOf("rell"), schema.required)
+        // The point of this pin is that `yaml` is NOT required. AUDIT F10 made
+        // `files` the canonical Rell-sources name ("`files` for Rell sources" -
+        // the spelling eight other code-taking tools already use) with `rell`
+        // still read as an alias, so the one required input is now `files`.
+        assertEquals(listOf("files"), schema.required)
+        assertTrue("rell" in schema.propertiesOrEmpty.keys, schema.propertiesOrEmpty.keys.toString())
         assertTrue("allowAdminModules" in schema.propertiesOrEmpty.keys, schema.propertiesOrEmpty.keys.toString())
     }
 
