@@ -124,7 +124,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -179,6 +179,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to exchangeMainRell(),
                 "src/test/main_test.rell" to exchangeTestRell()
+            )
+            "subscription" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to subscriptionMainRell(),
+                "src/test/main_test.rell" to subscriptionTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -236,8 +241,8 @@ object DappScaffold {
             crash and require both to fail). NOT an "exchange" - that word used to be answered
             here, and it is how adversary round 8 came to build a drainable AMM: a vault covers
             a reserve and a price FEED, never a CURVE. A swap pool or DEX pair is template=amm,
-            and an ORDER BOOK - resting orders that something has to match - has no template at
-            all, which the redirect will tell you plainly if you ask for one. The vault's oracle key is a module arg: its tests need
+            and an ORDER BOOK - resting orders that something has to match - is
+            template=exchange, which round 12's drain bought. The vault's oracle key is a module arg: its tests need
             main.oracle_pubkey from chromia.yml test.moduleArgs in the module_args you pass to
             run_rell_tests, and you must set main.oracle_pubkey under blockchains.<name>.moduleArgs
             before `chr build` - it is deliberately absent so no placeholder key can ship.
@@ -246,9 +251,11 @@ object DappScaffold {
             pool, the clock releases at most what the pool holds, every credit is a pool debit in the
             same operation, unstaking has a cooldown; the shipped tests replay the round-4
             stake-times-elapsed-times-rate mint from an empty pool and require it to fail). For a
-            payment to ONE NAMED beneficiary metered by the clock - payroll, a subscription, a
-            vesting grant, a drip - use template=streaming instead: that is a different exploit
-            class and it has its own template.
+            payment to ONE NAMED beneficiary metered by the clock - payroll, a vesting grant,
+            a drip - use template=streaming instead: that is a different exploit class and it
+            has its own template. If a MERCHANT collects from a payer period after period,
+            that is recurring pull billing and it is template=subscription, which is a third
+            class again: streaming is prepaid and a pull authorisation is not.
             Building an NFT marketplace, a listing/auction board, or anything with a buy button and
             creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
             to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
@@ -287,9 +294,11 @@ object DappScaffold {
             pool for years, and a fixed percentage step is sized by the attacker. Net the step into
             the priced state so it accrues CONTINUOUSLY; for a moving RATE that means the
             CHECKPOINTED INDEX the template ships.
-            Building a payment stream, payroll, a subscription, a vesting grant, a drip or any
-            other payout METERED BY THE CLOCK to one named beneficiary: start from
-            template=streaming. Round 7 drained an un-templated one built with only this server's
+            Building a payment stream, payroll, a vesting grant, a drip or any other payout
+            METERED BY THE CLOCK to one named beneficiary, PREPAID by the payer: start from
+            template=streaming. If the payer does NOT prepay and a merchant collects against
+            a standing authorisation - a subscription, a membership, an allowance - that is
+            template=subscription: round 13 drained a build that used this template for it. Round 7 drained an un-templated one built with only this server's
             guidance, gate silent and ok:true with zero findings: what was owed was measured from a
             MUTABLE ANCHOR advanced by every settlement, so a stranger with nothing at stake settled
             faster than one whole unit of entitlement, released zero each time, moved the anchor
@@ -414,7 +423,41 @@ object DappScaffold {
             shipped tests replay round 12's grind and its setup as must-fail tests, and what
             the guards do NOT close ships in the header: a resting order is a free option
             written to the market for MIN_RESTING_MS, and a trader who posts both sides of a
-            crossing market arbitrages themselves.
+            crossing market arbitrages themselves. Round 13 added the half that is not
+            about who gets filled: the matcher SELECTS the orders that cross - side and
+            price are where-clause terms served by an index - and a trader may stand at
+            most MAX_RESTING_ORDERS quotes at once. Before that it read the whole order
+            table on every place_order and nothing bounded the book, so ten one-unit trades
+            went from 1.8 seconds to 26.3 behind 150 resting bids at price 1 and were
+            abandoned at 90 seconds behind 400, bought with one free registration.
+
+            Building RECURRING PULL BILLING - a subscription, a membership, an allowance, a
+            direct debit, anything where a MERCHANT COLLECTS period after period against one
+            authorisation the payer signed once: start from template=subscription, NOT
+            template=streaming. Streaming is PREPAID to one named beneficiary and every
+            guard it has rests on the money already being escrowed; reverse it into a pull
+            model and its safest-looking term becomes the drain. Adversary round 13 built
+            exactly that from this server's own redirect, which answered both
+            template=subscription and template=allowance with "use template=streaming". The
+            author carried over every structural guard that CAN be carried - no operation
+            writes a timestamp, all terms immutable, one monotone counter, permissionless
+            collection, pay before you close, cancellable fixed at creation - and the gate
+            said ok:true. The one guard that does not carry over is the one the whole
+            template rests on, PREPAID, and nothing in the guidance named a substitute: the
+            claim was on the payer's ACCOUNT rather than on an escrow, so a plan at 10
+            points a month, signed as non-cancellable and therefore unendable BY EITHER
+            PARTY, took all 9990 points she held in a single charge() eighty-three years
+            later, still owed 20, and took every point that arrived afterwards in the block
+            it landed. Its period boundary was a whole fee, not the "staircase of one unit"
+            the streaming header bounds it at: two identical subscribers cancelling ten
+            minutes either side of a boundary in a thirty-day period paid 1000 and 2000.
+            The template makes both unwritable: A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE
+            PAYER FUNDED - accrual is capped at it and charge() never touches a balance -
+            THE FEE ACCRUES PRO RATA so nothing is ever billed in advance and no boundary
+            is worth straddling, and EITHER PARTY MAY ALWAYS CANCEL, because a pull
+            authorisation that cannot be revoked is a standing claim on a person rather
+            than a right over a sum. There is deliberately no cancellable term. Both drains
+            ship as must-fail tests with mutants.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -520,8 +563,33 @@ object DappScaffold {
                     "vault's bounded oracle, over-collateralisation, a liquidation threshold with " +
                     "a close factor and bonus, and the minimum-first-deposit guard that kills " +
                     "ERC-4626 share inflation - with the round-6 drain as a must-fail test."
-            has("stream", "payroll", "salary", "subscription", "drip", "annuity", "allowance",
-                "installment", "stipend", "wage", "unlock") || (has("vest") && !has("harvest")) ->
+            has("subscription", "subscribe", "recurring", "billing", "allowance", "membership",
+                "direct_debit", "direct debit", "auto_renew", "autorenew", "installment",
+                "instalment", "annuity", "stipend", "pull_payment", "saas") ->
+                "Use `template=subscription`: RECURRING PULL BILLING has its own template, " +
+                    "and it is NOT `streaming`. This server used to answer this ask with " +
+                    "`template=streaming`, and adversary round 13 drained the build that " +
+                    "followed it. Streaming is PREPAID to one named beneficiary and every " +
+                    "guard it has rests on the money already being escrowed; reversed into " +
+                    "a pull model the same terms become an IRREVOCABLE, UNCAPPED, " +
+                    "UNESCROWED CLAIM ON EVERYTHING THE PAYER WILL EVER HOLD. Measured: a " +
+                    "plan at 10 points a month, signed with streaming's `cancellable = " +
+                    "false` - which there means a vesting grant that cannot be clawed back, " +
+                    "and here meant NEITHER PARTY COULD END IT - took all 9990 points the " +
+                    "payer held in one permissionless charge() eighty-three years later, " +
+                    "still owed 20, and took every point that arrived afterwards in the " +
+                    "block it landed. Its period boundary was a WHOLE FEE rather than the " +
+                    "one-unit staircase the streaming header bounds it at: two identical " +
+                    "subscribers cancelling ten minutes either side of a boundary in a " +
+                    "thirty-day period paid 1000 and 2000. The template makes both " +
+                    "unwritable: A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE PAYER FUNDED, " +
+                    "THE FEE ACCRUES PRO RATA so nothing is billed in advance and no " +
+                    "boundary is worth straddling, and EITHER PARTY MAY ALWAYS CANCEL - " +
+                    "there is no `cancellable` term, because a pull authorisation that " +
+                    "cannot be revoked is a standing claim on a person rather than a right " +
+                    "over a sum. Both drains ship as must-fail tests with mutants."
+            has("stream", "payroll", "salary", "drip", "wage", "unlock") ||
+                (has("vest") && !has("harvest")) ->
                 "Use `template=streaming`: it is the template for this class, and this class is what " +
                     "adversary round 7 drained WITH NO TEMPLATE AT ALL. A hand-built payment stream " +
                     "measured what was owed from a MUTABLE ANCHOR - the block of the last settlement - " +
@@ -600,23 +668,28 @@ object DappScaffold {
                 "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
                     "releases at most what the pool holds, every credit is a pool debit in the same " +
                     "operation, and unstaking has a cooldown. If instead you are paying ONE named " +
-                    "beneficiary over time - payroll, a subscription, a vesting grant, a drip - that " +
-                    "is `template=streaming`, a different exploit class with its own template."
+                    "beneficiary over time - payroll, a vesting grant, a drip - that is " +
+                    "`template=streaming`, a different exploit class with its own template; and if " +
+                    "a MERCHANT collects from a payer period after period, that is " +
+                    "`template=subscription`, a third one."
             has("token", "ft4", "asset", "coin", "transfer", "wallet", "payment") ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics."
             else ->
-                "No shipped template covers that name. The nine hardened ones are `governance` " +
+                "No shipped template covers that name. The ten hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
                     "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
                     "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
                     "that moves), `streaming` (a clock-metered payout to one named beneficiary - " +
-                    "payroll, subscriptions, vesting, drips), `amm` (a constant-product swap " +
+                    "payroll, vesting, drips - PREPAID), `amm` (a constant-product swap " +
                     "pool: exact-quoted-reserve swaps and term-committed liquidity positions), " +
                     "`stablecoin` (a coin minted against locked collateral: ratio-checked mints, " +
                     "pro-rata liquidation, shared settlement, no redemption at par) and " +
                     "`exchange` (an ORDER BOOK: immutable resting orders whose partial fill writes " +
-                    "one monotone counter, and matching no caller can reorder); " +
+                    "one monotone counter, and matching no caller can reorder) and " +
+                    "`subscription` (RECURRING PULL BILLING: a merchant's whole claim is the " +
+                    "escrow the payer funded, the fee accrues pro rata so nothing is billed in " +
+                    "advance, and either party may always cancel); " +
                     "`ft4` is the plain token skeleton with " +
                     "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +
@@ -1143,7 +1216,7 @@ object DappScaffold {
         import lib.ft4.accounts;
 
         // Governance template: a member-funded treasury that pays out only by
-        // stake-weighted vote. Nine guards are STRUCTURAL - they live in the entities,
+        // stake-weighted vote. Ten guards are STRUCTURAL - they live in the entities,
         // the constants and the configuration, not in a require() a future operation can
         // forget:
         //   WEIGHT IS NOT - registration mints NOTHING. Voting weight exists only as a
@@ -1185,12 +1258,22 @@ object DappScaffold {
         //                   every later one is refused, because the vintage it was created
         //                   against is spent. It is O(1), it needs no scan, and it holds
         //                   however many proposers, sybils or proposals there are.
-        //   COMMITTED     - and a reservation at CREATION, so two APPROVALS are never sold
-        //     TREASURY      the same money and a proposer cannot park two claims on it: an
-        //                   APPROVED, unexecuted proposal inside its execution window
+        //   COMMITTED     - a reservation at CREATION that binds what it can bind: an
+        //     TREASURY      APPROVED, unexecuted proposal inside its execution window
         //                   reserves its amount against everybody, and a proposer's own
         //                   UNDECIDED proposals reserve against that proposer. A proposal
         //                   that LOST reserves NOTHING - losing a vote is not executing.
+        //                   WHAT IT DOES NOT DO, because round 13 measured it: two
+        //                   DIFFERENT proposers are each sold the whole treasury before
+        //                   either has won. Nothing is approved at creation, so nothing is
+        //                   reserved against the other, and both can win - two proposals
+        //                   of 2000 against a treasury of 2000, both approved, and the
+        //                   second refused only at EXECUTION by "treasury cannot cover the
+        //                   proposal" and by the vintage rule. So the guarantee is: an
+        //                   approval already won cannot be spent out from under it, and no
+        //                   proposer parks two claims on the same points. It is NOT that
+        //                   two approvals are never sold the same money - they are, and
+        //                   the loser finds out when they try to execute.
         //                   Round 12 measured what the previous rule (every row that is
         //                   `not .executed`) cost: ONE POINT of stake out of 2001 - 0.05%,
         //                   and the smallest holding require(proposer.stake > 0) admits -
@@ -1222,6 +1305,28 @@ object DappScaffold {
         //                   make it configurable, floor it: require(period >= VOTING_PERIOD_MS).
         //   STAKE WEIGHT  - a vote weighs what the voter had locked in the treasury. A
         //                   member with nothing at stake cannot propose and weighs zero.
+        //                   There is deliberately NO unstake: the only way a point leaves
+        //                   the treasury is a vote that spends it, so what you can lose
+        //                   really is what you may decide over.
+        //   ONE POCKET AT - a point is voting weight in ONE place at a time, and the DAO's
+        //     A TIME        whole voting weight IS the treasury: fund_treasury locks a
+        //                   point and mints a point of weight together, and every point
+        //                   execute_proposal pays OUT of the treasury retires a point of
+        //                   weight with it, pro rata from the stakes that were backing it
+        //                   (retire_stake_backing). dao.total_stake == dao.treasury_balance
+        //                   at every block, and the shipped conservation test asserts it,
+        //                   so total voting weight can never exceed what genesis allocated.
+        //                   Round 13 measured what the missing half cost: a payout retired
+        //                   NOTHING, so fund 1000 -> vote it out to yourself -> fund it
+        //                   again was a ratchet on weight. Four turns of it turned one
+        //                   member's 1000 allocated points into 4000 of permanent voting
+        //                   weight with her balance back where it started; she then took
+        //                   two honest members' entire 2000 of stake over their unanimous
+        //                   NO, 5000 yes to 2000 no against a bar of 3500 fixed from 7000
+        //                   of stake that only 3000 of points had ever backed. Every
+        //                   invariant the template shipped was exact throughout and the
+        //                   gate reported zero findings: the arithmetic was consistent,
+        //                   and the weight was still counterfeit.
         //   EXECUTED ONCE - `executed` flips in the same operation that pays.
         // The single-account drain (zero-stake proposer pays itself, votes 1-0,
         // executes after a 1 ms window) is refused at every step - it cannot propose,
@@ -1243,8 +1348,13 @@ object DappScaffold {
         // calls close_genesis() leaves a DAO that can never stake, never propose and never
         // pay - nothing is at risk, because nothing was ever staked, but the chain is dead
         // until that key signs. close_genesis() is a DEPLOYMENT STEP, not an option.
-        // To give somebody weight AFTER genesis, pay them by proposal - the DAO voting to
-        // fund a member is a vote like any other. Never re-open the mint.
+        // To give somebody SPENDABLE POINTS after genesis, pay them by proposal - the DAO
+        // voting to fund a member is a vote like any other. That is not a way to hand out
+        // WEIGHT, and round 13 drained the build whose author read it as one: the points a
+        // payout moves were weighing for the members who funded the treasury, so paying
+        // them out RETIRES that weight instead of copying it (ONE POCKET AT A TIME). The
+        // only thing that ever increased the DAO's total voting weight is the genesis
+        // allocation. Never re-open the mint.
 
         // The founder key: configuration, exactly like the vault's oracle. It signs the
         // genesis allocation and nothing else, and the production chromia.yml deliberately
@@ -1267,6 +1377,10 @@ object DappScaffold {
         // hold at every block.
         object dao {
             mutable treasury_balance: integer = 0;
+            // The whole of the DAO's voting weight, and always EXACTLY treasury_balance:
+            // fund_treasury raises both and execute_proposal lowers both. That equality is
+            // the one-pocket rule written as arithmetic - a point weighs while it is in
+            // the treasury and never after - and the shipped tests assert it at every step.
             mutable total_stake: integer = 0;
             // Points handed out by the genesis allocation so far - the ONLY place points
             // are created, so this is the whole supply in existence.
@@ -1321,7 +1435,13 @@ object DappScaffold {
         // took a 7000 treasury with four registrations when it was.
         val WELCOME_POINTS = 1000;
         // The whole supply of voting weight this DAO will ever have. Nothing mints past
-        // it, the founder included, and the allocation closes at the first stake anyway.
+        // it, the founder included, and nothing else ever raises the total: a payout
+        // retires the weight it moves (ONE POCKET AT A TIME). The window closes when the
+        // FOUNDER calls close_genesis() and at no other moment - round 12's window shut on
+        // the first member's stake, which is the drain that fix removed, and staking is
+        // refused while the window is open, so there is no first stake to shut anything.
+        // An author who believes otherwise never calls close_genesis(), which this header
+        // calls a DEPLOYMENT STEP.
         val GENESIS_POINTS = 100 * WELCOME_POINTS;
         // Three days. A constant: there is no parameter that shortens it.
         val VOTING_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
@@ -1394,6 +1514,37 @@ object DappScaffold {
             return false;
         }
 
+        // A PAYOUT RETIRES THE WEIGHT THAT BACKED IT, and this is the whole of round 13's
+        // fix. The treasury and the voting weight are the SAME points - fund_treasury locks
+        // a point and mints a point of weight in one operation - so a point that leaves the
+        // treasury must stop weighing, or the same point can be funded, voted out to its
+        // own owner and funded again for ever. Each staker gives up a share pro rata to
+        // what they had locked, rounded UP so the shares always cover the payment and the
+        // DAO never eats the rounding, and clamped by what is left to retire so the total
+        // is exactly the amount paid. O(members with stake), once per payout.
+        // The caller is execute_proposal and there is no other: this is the only place any
+        // stake is ever reduced, which is why there is no unstake operation.
+        function retire_stake_backing(amount: integer) {
+            val backing = dao.total_stake;
+            require(backing >= amount, "the treasury is not backed by stake");
+            var remaining = amount;
+            // Sorted by owner, because the rounding decides which staker pays the odd
+            // point and every node must decide it the same way: an at-expression with no
+            // @sort has no defined row order, and a consensus rule may not depend on one.
+            for (owner in member @* { .stake > 0 } ( @sort .owner )) {
+                if (remaining > 0) {
+                    val m = member @ { .owner == owner };
+                    var share = (m.stake * amount + backing - 1) / backing;
+                    if (share > m.stake) share = m.stake;
+                    if (share > remaining) share = remaining;
+                    update m ( .stake -= share );
+                    remaining -= share;
+                }
+            }
+            require(remaining == 0, "stake retirement did not balance");
+            dao.total_stake -= amount;
+        }
+
         // Membership is open and WORTH NOTHING BY ITSELF: a new member can be paid by the
         // DAO and can be a proposal's beneficiary, and has no points and no vote until the
         // genesis allocation gives them some - which, once the founder has closed that
@@ -1437,7 +1588,10 @@ object DappScaffold {
         }
 
         // Lock points in the treasury. Stake is voting weight: what you can lose
-        // is what you may decide over. It is refused while the genesis window is open,
+        // is what you may decide over - and it is only true because the two are the same
+        // points and a payout retires them together. There is no unstake: a point comes
+        // back out of the treasury by winning a vote or not at all, and when it does the
+        // weight it carried goes with it. It is refused while the genesis window is open,
         // which is the other half of round 12's fix: staking is what used to shut that
         // window, so the two phases are now strictly ordered instead of racing.
         operation fund_treasury(amount: integer) {
@@ -1563,6 +1717,10 @@ object DappScaffold {
             update p ( .executed = true );
             dao.treasury_balance -= p.amount;
             dao.paid_total += p.amount;
+            // ONE POCKET AT A TIME: the money that leaves the treasury stops voting. Round
+            // 13's ratchet is exactly this line missing - four turns of fund, vote, execute
+            // turned 1000 points into 4000 of weight, and the payee's balance never moved.
+            retire_stake_backing(p.amount);
             update b ( .balance += p.amount );
         }
 
@@ -1697,6 +1855,11 @@ object DappScaffold {
         function assert_conserved() {
             assert_equals(main.points_in_circulation(), main.allocated_points());
             assert_equals(main.staked_points(), main.total_stake());
+            // ONE POCKET AT A TIME: the DAO's whole voting weight IS the treasury, so a
+            // point can never weigh in two places and the total can never pass what
+            // genesis allocated. Round 13's ratchet broke exactly this equality - 7000 of
+            // weight against a treasury of 3000 - while every other line here stayed exact.
+            assert_equals(main.total_stake(), main.treasury_balance());
             // The two monotone counters the vintage rule is made of, checked against the
             // balance they are supposed to describe: nothing leaves the treasury except
             // through execute_proposal, and nothing enters it except through fund_treasury.
@@ -1832,6 +1995,10 @@ object DappScaffold {
 
             assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS - 400 + 300);
             assert_equals(main.treasury_balance(), 700);
+            // ...and the 300 that left the treasury stopped voting: each staker gave up
+            // their pro-rata share of it, 180 of alice's 600 and 120 of bob's 400.
+            assert_equals(main.get_stake(alice.account.id), 420);
+            assert_equals(main.get_stake(bob.account.id), 280);
             // Executed once: a replay is refused and moves nothing.
             signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal already executed");
             assert_equals(main.treasury_balance(), 700);
@@ -1932,8 +2099,11 @@ object DappScaffold {
             // it: 1000 of her weight against a bar of 1500.
             signed(trudy.keypair, main.create_proposal("pay me the rest", trudy.account.id, 2000));
             val pid2 = proposal_titled("pay me the rest");
-            assert_equals(main.get_proposal(pid2).stake_at_creation, 3000);
-            assert_equals(main.get_proposal(pid2).quorum_weight, 1500);
+            // 2000, not 3000: the 1000 just paid out retired the weight that was backing
+            // it (round 13). Her own weight fell with everyone else's, and it is still
+            // nowhere near the bar.
+            assert_equals(main.get_proposal(pid2).stake_at_creation, 2000);
+            assert_equals(main.get_proposal(pid2).quorum_weight, 1000);
             signed(trudy.keypair, main.cast_vote(pid2, true));
             close_voting_window();
             signed_must_fail(trudy.keypair, main.execute_proposal(pid2), "quorum not reached");
@@ -2286,6 +2456,137 @@ object DappScaffold {
             assert_equals(main.get_balance(trudy.account.id), main.WELCOME_POINTS - 1);
             assert_conserved();
         }
+
+        // One turn of round 13's ratchet: fund 1000, vote it out to yourself, and see
+        // whether the stake it bought survives the payout. It does not, and that is the
+        // fix - under the template round 13 attacked, every turn added 1000 of permanent
+        // voting weight for nothing.
+        function ratchet_turn(alice: rell.test.keypair, alice_id: byte_array, title: text) {
+            signed(alice, main.fund_treasury(1000));
+            signed(alice, main.create_proposal(title, alice_id, 1000));
+            val p = proposal_titled(title);
+            signed(alice, main.cast_vote(p, true));
+            close_voting_window();
+            signed(alice, main.execute_proposal(p));
+        }
+
+        // EXPLOIT MUST FAIL. Round 13: the stake ratchet. execute_proposal moved points
+        // OUT of the treasury and retired no stake at all - neither member.stake nor
+        // dao.total_stake was decremented anywhere in the module, and there is no unstake -
+        // so the SAME 1000 points could be funded, voted out to their own owner and funded
+        // again, and every turn bought 1000 more of permanent voting weight. Measured:
+        // alice, one of three equal members with 1000 allocated points, ran the cycle four
+        // times and held 4000 of weight with her balance exactly where the founder left it.
+        // The honest two then staked 1000 each; she proposed 2000 to herself against a bar
+        // of 3500 fixed from 7000 of stake, voted 5000 yes to their 2000 no, and took their
+        // entire stake. Every invariant the template shipped was exact throughout and the
+        // gate reported zero findings - the arithmetic was consistent and the weight was
+        // counterfeit anyway.
+        //
+        // Here the same four turns leave her weight at exactly the 1000 she has locked,
+        // because a payout retires the stake that was backing it, and the 2000-point vote
+        // is refused by the honest majority it was designed to overrule.
+        function test_r13_restaked_payout_cannot_compound_voting_weight_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            claim(trudy.keypair);
+            assert_equals(main.allocated_points(), 3000);
+            close_genesis_window();
+            assert_conserved();
+
+            // FOUR TURNS, and nothing is asserted between them on purpose: the first
+            // thing in this test that may differ is the refusal at the end, so a mutant
+            // that strips the retirement reddens on the ATTACK LANDING and not on an
+            // assertion. What each turn does to the ledger is pinned next door, in
+            // test_r13_a_payout_retires_the_stake_that_backed_it.
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 1");
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 2");
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 3");
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 4");
+
+            // The honest members arrive and everybody puts up what they have.
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+            signed(trudy.keypair, main.fund_treasury(1000));
+            assert_equals(main.treasury_balance(), 3000);
+
+            // THE DRAIN. Round 13: 5000 of weight against a bar of 3500, and bob and
+            // trudy's entire stake gone over their unanimous NO.
+            signed(alice.keypair, main.create_proposal("pay me", alice.account.id, 2000));
+            val p = proposal_titled("pay me");
+            signed(alice.keypair, main.cast_vote(p, true));
+            signed(bob.keypair, main.cast_vote(p, false));
+            signed(trudy.keypair, main.cast_vote(p, false));
+            close_voting_window();
+            signed_must_fail(alice.keypair, main.execute_proposal(p), "proposal was not approved");
+
+            // Round 13's numbers, beside the ones this template produces.
+            assert_equals(main.get_stake(alice.account.id), 1000);       // round 13: 5000
+            assert_equals(main.total_stake(), 3000);                     // round 13: 7000
+            assert_equals(main.get_proposal(p).quorum_weight, 1500);     // round 13: 3500
+            assert_equals(main.get_proposal(p).yes_weight, 1000);        // round 13: 5000
+            assert_equals(main.get_proposal(p).no_weight, 2000);
+            assert_equals(main.treasury_balance(), 3000);
+            assert_equals(main.get_balance(bob.account.id), 0);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_equals(main.funded_total(), 7000);
+            assert_equals(main.paid_total(), 4000);
+            assert_conserved();
+        }
+
+        // THE PROPERTY, one turn at a time: a point is voting weight in ONE place, and
+        // the DAO's whole weight IS the treasury. Round 13's ratchet is what this
+        // arithmetic forbids - there, turn one left 1000 of stake standing against an
+        // empty treasury, and every later turn added another 1000.
+        function test_r13_a_payout_retires_the_stake_that_backed_it() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            close_genesis_window();
+
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 1");
+            // The 1000 points are back in her balance and the weight they bought went
+            // with them: round 13 measured 1000 of stake still standing here.
+            assert_equals(main.get_stake(alice.account.id), 0);
+            assert_equals(main.get_balance(alice.account.id), 1000);
+            assert_equals(main.total_stake(), 0);
+            assert_equals(main.treasury_balance(), 0);
+            assert_conserved();
+
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 2");
+            // Two turns: round 13 measured 2000. Turning the handle costs a voting window
+            // and buys nothing at all.
+            assert_equals(main.get_stake(alice.account.id), 0);
+            assert_equals(main.total_stake(), 0);
+            assert_equals(main.funded_total(), 2000);
+            assert_equals(main.paid_total(), 2000);
+            assert_conserved();
+
+            // And a payout shared between two stakers retires both their weights pro
+            // rata: 1500 of a 2000 treasury takes 750 from each of two equal stakes.
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+            signed(alice.keypair, main.create_proposal("pay bob", bob.account.id, 1500));
+            val p = proposal_titled("pay bob");
+            signed(alice.keypair, main.cast_vote(p, true));
+            signed(bob.keypair, main.cast_vote(p, true));
+            close_voting_window();
+            signed(bob.keypair, main.execute_proposal(p));
+            assert_equals(main.get_stake(alice.account.id), 250);
+            assert_equals(main.get_stake(bob.account.id), 250);
+            assert_equals(main.total_stake(), 500);
+            assert_equals(main.treasury_balance(), 500);
+            assert_conserved();
+        }
     """.trimIndent() + "\n"
 
     // ---- vault template: every credit is a reserve debit; prices are bounded and time-checked ----
@@ -2321,7 +2622,7 @@ object DappScaffold {
         // against locked collateral priced by an oracle. This is NOT the vault - a CDP's
         // coin is not paid out of a reserve, it is a LIABILITY of a position whose backing
         // moves with a price - and adversary round 9 built it on the vault's advice and
-        // drained it. Seven guards are STRUCTURAL:
+        // drained it. Nine guards are STRUCTURAL:
         //   RESERVE-BACKED  - locked collateral is a row of the same entity as users'
         //                     balances, keyed by the chain's own id; every collateral move
         //                     debits one row and credits another in the same operation.
@@ -2372,9 +2673,17 @@ object DappScaffold {
         //                     is why the number in the guard is the bonus and not a round
         //                     figure. THE TRADE, STATED: a position that goes bad while the
         //                     system is backed under 105% is closed by NOBODY, and settle()
-        //                     does not open until backing falls under 100%, so [100%, 105%)
-        //                     is a band in which nothing happens at all. That is the price of
-        //                     an exit no one can race for. The alternative - paying the
+        //                     does not open until backing falls under 100%, so in the band
+        //                     [100%, 105%) no position is CLOSED at all. Round 13 called an
+        //                     earlier draft of this sentence - "a band in which nothing
+        //                     happens at all" - false, and it was: the two operations that
+        //                     RAISE backing run throughout that band and are the way out of
+        //                     it. deposit_collateral takes the ratio up directly and
+        //                     burn_stable retires coin at par against its own debt, and
+        //                     both are open to every debtor at every backing level, pending
+        //                     settlement included. What is closed in that band is every
+        //                     operation that takes value OUT: liquidation, withdrawal and
+        //                     minting. That is the price of an exit no one can race for. The alternative - paying the
         //                     liquidator only the system's AVERAGE backing - keeps the
         //                     operation alive, but then every liquidation is priced off
         //                     positions the liquidator has nothing to do with, and its
@@ -2384,6 +2693,40 @@ object DappScaffold {
         //                     tokens and the three parties still settle 97 / 117 / 85 against
         //                     89 / 124 / 86, because par beats what the pool pays once the
         //                     price falls again.
+        //   BACKED          - EVERY operation that takes value OUT of the system reads the
+        //     WITHDRAWAL       SYSTEM and not only the position. withdraw_collateral is
+        //                      refused if it would leave the total collateral worth less
+        //                      than the coin outstanding plus the liquidation bonus -
+        //                      the same floor liquidate() clears, at the same fresh price,
+        //                      and a debt-free position is no exception. Round 13 measured
+        //                      the version that read the position's own ratio alone: a
+        //                      whale holding 100 tokens against 10 of coin withdrew 99 of
+        //                      them, her own position never leaving 150%, and settled IN
+        //                      THE SAME BLOCK. Three positions, 300 tokens at 48.00 against
+        //                      9676 of coin - 149% backed, with settle() refused "system is
+        //                      solvent" to everybody - became 201 tokens worth 9648 against
+        //                      9676: INSOLVENT ON DEMAND, with no price move, no oracle
+        //                      touched and no other party given a block to act in. The
+        //                      honest position at 160% was frozen into the pool and
+        //                      redeemed 88 where burning at par would have returned 100,
+        //                      and the whale walked out with every token she came in with.
+        //   SETTLEMENT IS   - opening settlement and closing it are two calls of settle(),
+        //     TWO PHASES      SETTLEMENT_WINDOW_MS apart. While it is pending, the only
+        //                     operations that still run are the two that RAISE the system's
+        //                     backing - deposit_collateral and burn_stable - so a debtor
+        //                     whose position is sound always has a block in which to take
+        //                     the par exit, and if enough of them do, the shortfall is gone
+        //                     and the opening is VOID: calling settle() on a system that
+        //                     has recovered closes it and freezes nothing. Round 13
+        //                     measured the one-phase version, which was permissionless,
+        //                     instant and irreversible: at 48.00 a position at 72% settled
+        //                     first and the party at 160% - who was the reason nothing was
+        //                     wrong with her own position, who could not even be liquidated
+        //                     ("position is healthy") and who could have burned at par and
+        //                     been made whole - redeemed 88 against her 100. ELEVEN TOKENS
+        //                     on transaction order, all of them out of the best
+        //                     collateralised party. Whoever moved first won, and that is
+        //                     what a window removes.
         //   NO REDEMPTION   - there is NO operation that pays a coin holder par out of
         //     AT PAR          somebody else's position. That was round 9's drain: 13332 of
         //                     coin against collateral worth 10240, and whoever redeemed first
@@ -2402,10 +2745,16 @@ object DappScaffold {
         //                     coin at a fresh price, anyone may settle: every position's
         //                     surplus goes back to its owner, the rest of the collateral is
         //                     one pool, and every coin redeems for the SAME pro-rata share of
-        //                     it in any order. A shortfall is shared, never raced for - and
-        //                     since round 11 that covers the WHOLE shortfall, because the one
-        //                     operation that could take a slice of the pool ahead of
-        //                     settlement is refused for as long as the shortfall exists.
+        //                     it in any order. A shortfall is shared, never raced for. Read
+        //                     that WITH the two-phase rule above and not on its own: round
+        //                     11 closed the one operation that could take a slice of the
+        //                     pool ahead of settlement, and round 13 found the race one
+        //                     level up - not for the pool, but for the moment settlement
+        //                     happens at all. Sharing a shortfall pro rata is only fair
+        //                     between parties who are all in it; an instant settlement put
+        //                     a party at 160% into the pool before she could take the par
+        //                     exit that was hers, and cost her eleven tokens for being on
+        //                     the wrong side of one transaction's ordering.
         // The oracle is the ONE key in chain_context.args.oracle_pubkey - configured, never
         // a parameter, never in source.
         // What no template can fix: a price that falls faster than liquidators act still
@@ -2416,8 +2765,12 @@ object DappScaffold {
         // wrong window: the band that matters starts at 105% BACKING, NOT AT 100%. From the
         // block the system's backing falls under 105%, NOTHING closes a bad position; and
         // settle() is refused "system is solvent" until backing falls under 100%, so in that
-        // band the holders who are about to lose have no move at all and "settle promptly"
-        // is not advice they can take. Below 100% settle() opens, and it freezes every
+        // band a holder who is not also a debtor has no move at all and "settle promptly" is
+        // not advice they can take. A holder who IS a debtor has two, and they are the two
+        // that fix the band rather than exit it: deposit collateral, or burn coin against
+        // their own debt. Round 13 measured what a holder-who-is-a-debtor lost when
+        // settlement could close in the block it opened and took the second of those away:
+        // 88 tokens where burning first returned 100. Below 100% settle() opens, and it freezes every
         // position at whatever price is fresh when it is finally called. Watch the system
         // ratio against 105%, not against 100%. The second residual is narrower and is not
         // an ordering defect: a liquidator paid 105% of par while the system is comfortably
@@ -2425,6 +2778,18 @@ object DappScaffold {
         // then falls far enough. That is a price forecast, not a choice of transaction
         // order - the guard binds only what the liquidation itself does to the system's
         // backing - and no template closes it. Size LIQUIDATION_BONUS_BPS accordingly.
+        // THE THIRD RESIDUAL, and it is round 13's: SETTLEMENT_WINDOW_MS is a window, not
+        // an oracle. A debtor who is not watching the chain when somebody opens a
+        // settlement still ends in the pool at the pool's rate, and that is worse for her
+        // than the par exit she did not take. The window makes the par exit AVAILABLE in
+        // every ordering; it cannot make her use it. The alternative was considered and
+        // rejected: crediting each debtor's own coin against their own debt INSIDE
+        // settlement would remove the residual, and it would also subordinate every holder
+        // who is not a debtor - in round 13's own fixture it pays the two debtors 100 each
+        // and a third-party holder nothing, because the whole reserve is somebody's
+        // collateral. A stablecoin whose coin is worthless to anyone who bought it is not
+        // a stablecoin, so the pool stays, the shortfall stays shared, and the window is
+        // what makes the ordering not matter. Size it against how fast your holders act.
 
         struct module_args {
             oracle_pubkey: pubkey;
@@ -2466,6 +2831,11 @@ object DappScaffold {
         // Written once, by settle(). After that only redeem_settled and the queries run.
         object settlement {
             mutable settled: boolean = false;
+            // PHASE ONE: somebody has shown the system short at a fresh price. Nothing is
+            // frozen yet and nothing is pooled; what changes is that the operations which
+            // take value OUT stop until this is resolved, one way or the other.
+            mutable open: boolean = false;
+            mutable opened_at: timestamp = 0;
             mutable price: integer = 0;
             mutable pool: integer = 0;     // collateral set aside for coin holders
             mutable supply: integer = 0;   // coin outstanding when the system settled
@@ -2492,6 +2862,12 @@ object DappScaffold {
         val LIQUIDATION_BONUS_BPS = 500;
         // The one-time welcome grant is the ONLY place collateral is created.
         val WELCOME_TOKENS = 100;
+        // How long a pending settlement stays open before anyone may close it. It is the
+        // window in which a debtor may still burn at par against their own position, so it
+        // is the whole of round 13's fix: size it against how fast your holders can act,
+        // and never make it a parameter - a settler who chooses zero has chosen the
+        // one-phase settlement that raced a healthy debtor out of eleven tokens.
+        val SETTLEMENT_WINDOW_MS = 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this default.
@@ -2527,6 +2903,14 @@ object DappScaffold {
         // Every operation that moves value while the system is live starts here.
         function live() {
             require(not settlement.settled, "system is settled");
+        }
+
+        // ...and every operation that takes value OUT of the system also starts here.
+        // While a settlement is pending the only two operations that run are the ones that
+        // RAISE the system's backing, deposit_collateral and burn_stable: a shortfall that
+        // somebody has already shown at a fresh price is not the moment to let value leave.
+        function not_pending() {
+            require(not settlement.open, "settlement is pending - deposit or burn until it closes");
         }
 
         function current_price(): integer {
@@ -2597,6 +2981,7 @@ object DappScaffold {
         // WHOLE debt, so slicing the mint gains nothing.
         operation mint_stable(amount: integer) {
             live();
+            not_pending();
             val account = auth.authenticate();
             val me = stable_of(account.id);
             require(amount > 0, "amount must be positive");
@@ -2630,15 +3015,31 @@ object DappScaffold {
         // Unlock collateral: the ratio is re-checked at a fresh price, exactly as at mint.
         operation withdraw_collateral(amount: integer) {
             live();
+            not_pending();
             val account = auth.authenticate();
             val me = tokens_of(account.id);
             require(amount > 0, "amount must be positive");
+            require(amount <= MAX_AMOUNT, "amount too large");
             val c = cdp_of(account.id);
             require(c.collateral >= amount, "not that much collateral");
+            // A FRESH PRICE, ALWAYS - even for a debt-free position, which used to walk
+            // out without reading the oracle at all. It is needed for the system floor
+            // below, and the system floor has no exceptions.
+            val price = current_price();
             if (c.debt > 0) {
-                val price = current_price();
                 require(meets_ratio(c.collateral - amount, c.debt, price), "under the collateral ratio");
             }
+            // THE SYSTEM, not only the position - round 13. mint prices its new debt at
+            // 150% and so can only raise the average; liquidate and settle read the system
+            // outright; this was the one value-moving operation that read neither, so a
+            // whale withdrew 99 of her own 100 tokens against 10 of coin, stayed over 150%
+            // in her own position, and took the system from 149% backed to insolvent in
+            // the block she chose - then settled in the same one.
+            require(
+                collateral_value(system.total_collateral - amount, price) * BPS
+                    >= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),
+                "withdrawal would take the system under its backing floor"
+            );
             val reserve = collateral_reserve();
             require(reserve.balance >= amount, "vault cannot cover the withdrawal");
             update c ( .collateral -= amount );
@@ -2655,6 +3056,7 @@ object DappScaffold {
         // leaves it alone, never down. Nobody is paid par out of somebody else's shortfall.
         operation liquidate(target: byte_array, stable_in: integer) {
             live();
+            not_pending();
             val account = auth.authenticate();
             require(target != account.id, "cannot liquidate your own position");
             val my_stable = stable_of(account.id);
@@ -2723,10 +3125,26 @@ object DappScaffold {
             live();
             auth.authenticate();
             val price = current_price();
-            require(
-                collateral_value(system.total_collateral, price) < system.total_debt,
-                "system is solvent"
-            );
+            val now = op_context.last_block_time;
+            val short = collateral_value(system.total_collateral, price) < system.total_debt;
+            // THE OPENING IS VOID once the shortfall is gone. Anyone may say so, and
+            // nothing is frozen: this is the branch a debtor's par exit reaches through.
+            if (settlement.open and not short) {
+                settlement.open = false;
+                settlement.opened_at = 0;
+                return;
+            }
+            require(short, "system is solvent");
+            // PHASE ONE. Show the shortfall and stop; value stops leaving the system and
+            // the debtors get their window.
+            if (not settlement.open) {
+                settlement.open = true;
+                settlement.opened_at = now;
+                return;
+            }
+            // PHASE TWO, a window later, and only if the shortfall is still there at a
+            // price that is still fresh.
+            require(now - settlement.opened_at >= SETTLEMENT_WINDOW_MS, "settlement window is still open");
             val reserve = collateral_reserve();
             var pool = 0;
             for (c in cdp @* { .collateral > 0 }) {
@@ -2742,6 +3160,7 @@ object DappScaffold {
             }
             system.total_collateral = pool;
             settlement.settled = true;
+            settlement.open = false;
             settlement.price = price;
             settlement.pool = pool;
             settlement.supply = system.total_debt;
@@ -2790,6 +3209,10 @@ object DappScaffold {
             val c = cdp @? { .owner == owner };
             return if (c != null) (collateral = c.collateral, debt = c.debt) else null;
         }
+
+        query settlement_pending(): boolean = settlement.open;
+
+        query settlement_opened_at(): timestamp = settlement.opened_at;
 
         query get_system() = (
             total_collateral = system.total_collateral,
@@ -2905,6 +3328,19 @@ object DappScaffold {
             assert_true(main.debt_matches_supply());
         }
 
+        // SETTLEMENT IS TWO CALLS a window apart - round 13's fix. Anyone may OPEN it at
+        // a fresh insolvent price and anyone may CLOSE it once SETTLEMENT_WINDOW_MS has
+        // passed and the shortfall is still there; in between, the two operations that
+        // RAISE backing still run, so a debtor whose position is sound can still burn at
+        // par against it. This helper does both, which is what these tests mean by
+        // "settle" - and the assertion in the middle is why they are not the same call.
+        function settle_by(keypair: rell.test.keypair) {
+            signed(keypair, main.settle());
+            assert_true(main.settlement_pending());
+            after(main.SETTLEMENT_WINDOW_MS + 1000);
+            signed(keypair, main.settle());
+        }
+
         val HOUR = 60 * 60 * 1000;
         // 100.00 cash per token at PRICE_SCALE 1000000.
         val PAR = 100000000;
@@ -2918,6 +3354,9 @@ object DappScaffold {
         // system one and a half percent short instead of twenty-three percent short.
         val P4 = 52000000;
         val P5 = 45000000;
+        // Round 13's last post: 48.00, -7.7% from 52.00, an hour later, the same honest
+        // oracle. It leaves the system 0.7% short - and ONE position is the whole reason.
+        val P7 = 48000000;
 
         // Round 9's setup, verbatim: two identical users each lock 100 tokens (worth 10000
         // at par) and mint 6666 - exactly what the 150% ratio allows - then the price falls
@@ -2971,7 +3410,7 @@ object DappScaffold {
 
             // The exit, attacker first: 6666 * 200 / 13332 = 100, for her and for the
             // honest holder alike, and the position she wanted is untouched by her.
-            signed(attacker.keypair, main.settle());
+            settle_by(attacker.keypair);
             signed(attacker.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(attacker.account.id), 100);
             signed(honest.keypair, main.redeem_settled(6666));
@@ -2989,7 +3428,7 @@ object DappScaffold {
 
             signed_must_fail(honest.keypair, main.liquidate(attacker.account.id, 5120),
                 "system is under-backed - settle instead of liquidating");
-            signed(honest.keypair, main.settle());
+            settle_by(honest.keypair);
             signed(honest.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(honest.account.id), 100);
             signed(attacker.keypair, main.redeem_settled(6666));
@@ -3050,7 +3489,7 @@ object DappScaffold {
 
             // Settlement is the exit, and it is the settle-first column of round 11's
             // table: pool 256 against a supply of 13756, and 89 / 124 / 86.
-            signed(trudy.keypair, main.settle());
+            settle_by(trudy.keypair);
             assert_equals(main.get_system().settlement_pool, 256);
             assert_equals(main.get_system().settlement_supply, 13756);
             signed(trudy.keypair, main.redeem_settled(3000));
@@ -3072,7 +3511,7 @@ object DappScaffold {
             val trudy = register_trudy();
             crash_r11(alice.keypair, bob.keypair, trudy.keypair);
 
-            signed(alice.keypair, main.settle());
+            settle_by(alice.keypair);
             signed_must_fail(trudy.keypair, main.liquidate(bob.account.id, 3000), "system is settled");
             signed(bob.keypair, main.redeem_settled(4090));
             signed(alice.keypair, main.redeem_settled(6666));
@@ -3095,7 +3534,7 @@ object DappScaffold {
             val attacker = register_trudy();
             crash(honest.keypair, attacker.keypair);
 
-            signed(attacker.keypair, main.settle());
+            settle_by(attacker.keypair);
             assert_true(main.get_system().settled);
             assert_equals(main.get_system().settlement_pool, 200);
             assert_equals(main.get_system().settlement_supply, 13332);
@@ -3148,7 +3587,7 @@ object DappScaffold {
             // 185 tokens * 32.768 = 6062 against 6666.
             after(HOUR); post_price(40960000);
             after(HOUR); post_price(32768000);
-            signed(alice.keypair, main.settle());
+            settle_by(alice.keypair);
             // Bob owes 1000 = 30 tokens at 32.768; his other 70 come straight back.
             assert_equals(main.get_tokens(bob.account.id), 85);
             assert_equals(main.get_cdp(bob.account.id)!!.collateral, 30);
@@ -3200,6 +3639,161 @@ object DappScaffold {
 
         // Mint and withdraw are checked against the ratio at a FRESH price, and a stale or
         // missing price halts them.
+        // Round 13's fixture. ONE position is the reason the system is short, and the
+        // other is the best collateralised party in it: alice locks 100 tokens and mints
+        // 3000 (160% at the end of the fall), trudy locks 100 and mints 6666 (72%). The
+        // oracle is honest throughout - 100.00, 80.00, 64.00, 52.00, 48.00, an hour apart,
+        // every post inside MAX_PRICE_MOVE_BPS - and it stops with 200 tokens worth 9600
+        // against 9666 of coin.
+        function crash_r13(alice: rell.test.keypair, trudy: rell.test.keypair) {
+            post_price(PAR);
+            signed(alice, main.deposit_collateral(100));
+            signed(alice, main.mint_stable(3000));
+            signed(trudy, main.deposit_collateral(100));
+            signed(trudy, main.mint_stable(6666));
+            after(HOUR);
+            post_price(P1);
+            after(HOUR);
+            post_price(P2);
+            after(HOUR);
+            post_price(P4);
+            after(HOUR);
+            post_price(P7);
+            assert_equals(main.get_system().total_collateral, 200);
+            assert_equals(main.get_system().total_debt, 9666);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13: settlement raced a healthy debtor's par exit.
+        // settle() was permissionless, instant and irreversible, and it took collateral
+        // from a HEALTHY position - everything up to that position's own debt at the
+        // settlement price - into a pool paying under par, while that debtor could have
+        // burned at par against her own debt and walked out whole. Measured at 48.00:
+        // trudy at 72% settled first and the two redeemed 111 and 88; alice burning first
+        // gave 100 and 100. ELEVEN TOKENS on transaction order, all of them out of the
+        // party at 160% who was party to nothing and could not even be liquidated.
+        //
+        // Settlement is now two calls a window apart, and while it is pending the two
+        // operations that RAISE backing still run. So the attack buys nothing: alice takes
+        // her par exit inside the window, the shortfall goes with it, and the opening is
+        // void. Her outcome is the same in both orders - the sibling test does it the
+        // other way round and lands on the same two numbers.
+        function test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            crash_r13(alice.keypair, trudy.keypair);
+
+            // alice cannot be reached by a liquidation: she is the only reason the system
+            // has any backing at all. Round 13 took 62 of her 100 tokens anyway.
+            signed_must_fail(trudy.keypair, main.liquidate(alice.account.id, 3000), "position is healthy");
+
+            // THE ATTACK, in the block the price arrives.
+            signed(trudy.keypair, main.settle());
+            // NOTHING IS FROZEN, and alice's par exit is still open: burning her own coin
+            // against her own debt is one of the two operations a pending settlement
+            // leaves running, and it is what ends the shortfall. This line is deliberately
+            // the FIRST thing after the attack, so a mutant that lets settlement close in
+            // the block it opened reddens HERE, on "system is settled", and not on an
+            // assertion about a flag.
+            signed(alice.keypair, main.burn_stable(3000));
+            assert_true(main.settlement_pending());
+            assert_false(main.get_system().settled);
+            // ...and while it is pending, value cannot leave the system.
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(1), "settlement is pending");
+            after(main.SETTLEMENT_WINDOW_MS + 1000);
+            // So the close finds a solvent system and the opening is VOID.
+            signed(trudy.keypair, main.settle());
+            assert_false(main.get_system().settled);
+            assert_false(main.settlement_pending());
+
+            // And what alice may now take out is bounded by the SYSTEM and not by her own
+            // debt-free position: 146 tokens must stay to keep 6666 of coin over the 105%
+            // floor, so 54 may leave and 55 may not.
+            signed_must_fail(alice.keypair, main.withdraw_collateral(55), "withdrawal would take the system under its backing floor");
+            signed(alice.keypair, main.withdraw_collateral(54));
+            assert_equals(main.get_tokens(alice.account.id), 54);
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 46);
+            assert_equals(main.get_cdp(alice.account.id)!!.debt, 0);
+            assert_equals(main.get_tokens(trudy.account.id), 0);
+            assert_conserved();
+        }
+
+        // THE CONTROL, the other order: alice burns first and trudy's settlement never
+        // opens at all. The same two numbers, 54 out and 46 still hers, so the order the
+        // transactions arrive in is worth nothing to either party. Round 13's columns were
+        // 111/88 one way and 100/100 the other.
+        function test_r13_burning_first_reaches_the_same_place() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            crash_r13(alice.keypair, trudy.keypair);
+
+            signed(alice.keypair, main.burn_stable(3000));
+            signed_must_fail(trudy.keypair, main.settle(), "system is solvent");
+            signed_must_fail(alice.keypair, main.withdraw_collateral(55), "withdrawal would take the system under its backing floor");
+            signed(alice.keypair, main.withdraw_collateral(54));
+            assert_equals(main.get_tokens(alice.account.id), 54);
+            assert_equals(main.get_cdp(alice.account.id)!!.collateral, 46);
+            assert_equals(main.get_tokens(trudy.account.id), 0);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13, the other half: the whale withdrawal. withdraw was
+        // the ONE value-moving operation that read the position's ratio and never the
+        // system's, so a party comfortably over-collateralised could take their own excess
+        // out and put the system under water whenever they chose - no price move, no
+        // oracle touched. Measured: three positions, 300 tokens at 48.00 against 9676 of
+        // coin, 149% backed and settle() refused "system is solvent" to everybody; trudy
+        // withdrew 99 of her own 100 tokens, keeping her own position over 150%, and
+        // settled IN THE SAME BLOCK. Here the withdrawal is refused, and so is the
+        // settlement it was meant to open.
+        function test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            post_price(PAR);
+            // The whale: 100 tokens against 10 of coin, so her own 150% floor would let
+            // her withdraw down to a single token.
+            signed(trudy.keypair, main.deposit_collateral(100));
+            signed(trudy.keypair, main.mint_stable(10));
+            signed(bob.keypair, main.deposit_collateral(100));
+            signed(bob.keypair, main.mint_stable(6666));
+            signed(alice.keypair, main.deposit_collateral(100));
+            signed(alice.keypair, main.mint_stable(3000));
+            after(HOUR);
+            post_price(P1);
+            after(HOUR);
+            post_price(P2);
+            after(HOUR);
+            post_price(P4);
+            after(HOUR);
+            post_price(P7);
+            assert_equals(main.get_system().total_collateral, 300);
+            assert_equals(main.get_system().total_debt, 9676);
+            // 300 tokens at 48.00 is 14400 against 9676 of coin: 149% backed, and nobody
+            // can settle.
+            signed_must_fail(trudy.keypair, main.settle(), "system is solvent");
+            signed_must_fail(alice.keypair, main.settle(), "system is solvent");
+
+            // THE ATTACK. Her own position stays over 150% at every step of it.
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(99), "withdrawal would take the system under its backing floor");
+            // The floor is the SYSTEM's: 212 tokens must stay to keep 9676 of coin over
+            // 105%, so 88 may leave and 89 may not - and none of it opens a settlement.
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(89), "withdrawal would take the system under its backing floor");
+            signed(trudy.keypair, main.withdraw_collateral(88));
+            signed_must_fail(trudy.keypair, main.settle(), "system is solvent");
+            assert_equals(main.get_tokens(trudy.account.id), 88);
+            assert_equals(main.get_system().total_collateral, 212);
+            assert_false(main.get_system().settled);
+            assert_conserved();
+        }
+
         function test_mint_and_withdraw_are_ratio_checked_at_a_fresh_price() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
@@ -3222,6 +3816,12 @@ object DappScaffold {
             signed_must_fail(alice.keypair, main.withdraw_collateral(1), "price feed is stale");
             // Burning needs no price: the debtor can always retire debt at par.
             signed(alice.keypair, main.burn_stable(3333));
+            // ...but taking collateral OUT does, and since round 13 that is true even with
+            // no debt left: the floor withdraw_collateral clears is the SYSTEM's backing,
+            // and a debt-free position is no exception to it. This used to leave without
+            // reading the oracle at all.
+            signed_must_fail(alice.keypair, main.withdraw_collateral(50), "price feed is stale");
+            post_price(PAR);
             signed(alice.keypair, main.withdraw_collateral(50));
             assert_equals(main.get_tokens(alice.account.id), 100);
             assert_conserved();
@@ -3306,7 +3906,7 @@ object DappScaffold {
             // 300 * 45 = 13500 against 13756. Settlement is the exit, and it pays the
             // round-11 numbers - the pool the attack shrank to 190 is 256 here.
             after(HOUR); post_price(P5);
-            signed(trudy.keypair, main.settle());
+            settle_by(trudy.keypair);
             assert_equals(main.get_system().settlement_pool, 256);
             assert_equals(main.get_system().settlement_supply, 13756);
             signed(trudy.keypair, main.redeem_settled(3000));
@@ -3329,7 +3929,7 @@ object DappScaffold {
             crash_r12(alice.keypair, bob.keypair, trudy.keypair);
 
             after(HOUR); post_price(P5);
-            signed(alice.keypair, main.settle());
+            settle_by(alice.keypair);
             signed_must_fail(trudy.keypair, main.liquidate(bob.account.id, 3000), "system is settled");
             signed(bob.keypair, main.redeem_settled(4090));
             signed(alice.keypair, main.redeem_settled(6666));
@@ -3355,6 +3955,542 @@ object DappScaffold {
     // clock by taking one unit - and a maker who rested 100 units at 10 beside a standing
     // bid of 20 ended with 1000 points where an uninterrupted maker ends with 2000.
 
+    private fun subscriptionMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Subscription template: RECURRING PULL BILLING. A payer signs one authorisation
+        // and a merchant collects against it, period after period, without the payer
+        // signing again. This is NOT the streaming template, and until round 13 the ask
+        // for it was answered with `template=streaming`: streaming is PREPAID to ONE
+        // NAMED BENEFICIARY and every guard it has rests on the money already being
+        // escrowed. Reverse that into a pull model and the same terms become an
+        // irrevocable, uncapped, unescrowed claim on everything the payer will ever hold -
+        // which is what round 13 built from that redirect, and drained.
+        // Eight guards are STRUCTURAL - they live in the entities and the accrual
+        // function, not in a require() a future operation can forget:
+        //   THE CLAIM IS   - a merchant can NEVER be paid a point the payer did not put
+        //     THE ESCROW     into THIS subscription. `escrow` is what the payer has put in
+        //                    and nobody has taken, `charged` is every point the merchant has
+        //                    ever taken, and their sum is everything this authorisation was
+        //                    ever funded with. Accrual is capped at that sum, and charge()
+        //                    DEBITS the escrow in the same operation that credits the
+        //                    merchant - it touches no balance the payer owns.
+        //                    A payer who wants the claim to stop simply stops funding it.
+        //                    THIS is the guard that does not carry over from streaming and
+        //                    that nothing in the old guidance replaced: round 13's build
+        //                    took `min(owed, payer.balance)` straight out of the payer's
+        //                    account, so one charge() eighty-three years later took all
+        //                    9990 points she had, she still owed 20 and counting, and every
+        //                    point that ever arrived afterwards was taken in the block it
+        //                    landed - because charge() is permissionless and the claim was
+        //                    on her, not on an escrow.
+        //   NEVER IN       - the fee ACCRUES ACROSS the period rather than falling due at
+        //     ADVANCE        its start: due(now) is what has elapsed, never what is to
+        //                    come, so in the first block nothing is due and a merchant can
+        //                    never be paid for time that has not happened. Round 13's build
+        //                    billed `elapsed / period + 1` whole periods, so the first
+        //                    charge took a whole month before a day of it existed - and
+        //                    that is also where its boundary step came from.
+        //   NO STEP AT     - because accrual is pro rata, cancelling one block either side
+        //     THE PERIOD     of a period boundary differs by ONE BLOCK'S worth of fee and
+        //     BOUNDARY       not by a period's. Round 13 measured the whole-period version:
+        //                    two identical subscribers on identical 1000-a-month terms, one
+        //                    cancelling in the last block before the boundary and one in the
+        //                    first block after it, TEN MINUTES apart in a thirty-day period,
+        //                    paid 1000 and 2000 - a full period's fee on the timing of one
+        //                    block, with the merchant the party who reads the boundary best.
+        //                    The streaming header bounds this residual at "a staircase of
+        //                    ONE UNIT"; that bound is only true of a pro-rata accrual, and
+        //                    it is true here. What is left is integer truncation: a
+        //                    subscription whose fee is small in whole units has wide steps,
+        //                    so denominate in the asset's smallest unit.
+        //   ALWAYS         - EITHER PARTY MAY CANCEL, ALWAYS, and there is no term that
+        //     CANCELLABLE    says otherwise. There is deliberately no `cancellable` field
+        //                    here, and that is the deepest difference from streaming: there,
+        //                    cancellable = false is a VESTING GRANT - the money is already
+        //                    escrowed, so what the term protects is the PAYEE's earned
+        //                    claim on money that has left the payer for good. In a pull
+        //                    model the same word reverses: nothing is escrowed beyond the
+        //                    current funding, so an authorisation that cannot be revoked is
+        //                    a standing claim on a person, not a right over a sum. Round 13
+        //                    signed one and could not leave - "this subscription is not
+        //                    cancellable" - and neither could the merchant, so NOBODY could
+        //                    end it. A pull authorisation is revocable by construction or it
+        //                    is not an authorisation.
+        //   IMMUTABLE      - amount_per_period, period_ms and the payer and merchant are
+        //     TERMS          written once, by the payer, and no operation rewrites any of
+        //                    them. Repricing is cancel and re-authorise, which the payer
+        //                    has to sign; a merchant who could raise the fee would need no
+        //                    other exploit.
+        //   ONE CLOCK,     - started_at is written ONCE, by open_subscription, and no
+        //     WRITTEN ONCE   operation writes a timestamp at all - cancellation DELETES the
+        //                    row rather than stamping it. The two mutable fields are
+        //                    monotone counters. Round 12's exchange drain and round 8's
+        //                    streaming grief were both a clock a second party could move;
+        //                    there is no such field here to move.
+        //   PAID BEFORE    - cancel_subscription pays the merchant everything accrued up to
+        //     REFUNDED       the cancelling block FIRST and refunds the payer only what is
+        //                    left, in one operation. THE ORDER IS THE GUARD: swap the two
+        //                    and the payer takes back income the merchant has already
+        //                    earned, which is how round 7's streaming drain ended.
+        //   PAIRED         - every point that moves is debited from somewhere in the same
+        //     SETTLEMENT     operation, and nothing is created after the one-time welcome
+        //                    grant. points_in_circulation() sums balances AND live escrow,
+        //                    and the shipped conservation test asserts it at every step.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE. The escrow is the
+        //     merchant's claim: fund one period at a time and the most a merchant who stops
+        //     delivering can take is the period you are in. Funding a year in advance is
+        //     your choice and it is exactly as safe as prepaying a year, which is to say it
+        //     is not a payment schedule any more.
+        //   - COLLECTION IS PERMISSIONLESS, deliberately: anyone may call charge(), and it
+        //     can only ever move accrued escrow to the merchant it was authorised for. A
+        //     merchant who never collects leaves the money escrowed, and the payer gets it
+        //     back on cancellation. Nobody can direct a point anywhere else.
+        //   - TRUNCATION FAVOURS THE PAYER. accrued() rounds down, so the merchant is
+        //     never paid for a fraction of a unit. Over many periods that is at most one
+        //     unit per collection.
+
+        entity account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // A PULL AUTHORISATION. Every term is written once, by the payer who signed it.
+        // The two mutable fields are counters that only go up, and their difference is the
+        // escrow this subscription holds - it is not a stored field, so it cannot drift.
+        entity subscription {
+            key id: integer;
+            index payer: byte_array;
+            index merchant: byte_array;
+            amount_per_period: integer;   // the fee for one whole period - never changes
+            period_ms: integer;           // never changes
+            started_at: timestamp;        // the accrual clock - written ONCE
+            mutable escrow: integer = 0;  // what the payer has put in and nobody has taken
+            mutable charged: integer = 0; // MONOTONE: every point the merchant has taken
+        }
+
+        object book {
+            mutable next_id: integer = 1;
+        }
+
+        val WELCOME_POINTS = 10000;
+        val MAX_AMOUNT = 1000000;
+        // A period is a real billing period: an hour at the shortest, a year at the
+        // longest. A period of one millisecond is a fee per millisecond, and the payer
+        // signing it would not read it as one.
+        val MIN_PERIOD_MS = 60 * 60 * 1000;
+        // A fee of at least one whole unit. Accrual truncates DOWN, so a fee below one
+        // unit a period accrues nothing at all and the subscription is free - and the
+        // gate's unbounded-voting-period advisory fires on any `_period` parameter that
+        // is only compared against zero, which this one was.
+        val MIN_FEE = 1;
+        val MAX_PERIOD_MS = 365 * 24 * 60 * 60 * 1000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this default.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function account_of(owner: byte_array): account =
+            require(account @? { .owner == owner }, "register an account first");
+
+        // What the payer has ever put into this subscription: what is still escrowed plus
+        // what the merchant has already taken. THE CEILING ON EVERYTHING THE MERCHANT CAN
+        // EVER BE PAID, and the reason a pull authorisation here is a claim on a sum rather
+        // than on a person.
+        function funded(s: subscription): integer = s.escrow + s.charged;
+
+        // WHAT HAS BEEN EARNED, and the whole of the billing model. It is PRO RATA across
+        // the period - elapsed time, never a whole period in advance - and it is CAPPED AT
+        // THE ESCROW, which is what makes a pull authorisation a claim on a sum rather than
+        // on a person.
+        function accrued(s: subscription, at: timestamp): integer {
+            if (at <= s.started_at) return 0;
+            // Bounded BEFORE it is multiplied. Rell integers are 64-bit and an overflow
+            // aborts, and the escrow is the ceiling anyway, so time past the point where
+            // the escrow is exhausted is the same number as time at it: a subscription
+            // nobody collected on for eighty years must not become an abort.
+            val total_funded = funded(s);
+            val periods_funded = total_funded / s.amount_per_period + 1;
+            val bounded = min(at - s.started_at, periods_funded * s.period_ms);
+            val whole = bounded / s.period_ms;
+            val part = bounded % s.period_ms;
+            val earned = s.amount_per_period * whole + s.amount_per_period * part / s.period_ms;
+            return min(total_funded, earned);
+        }
+
+        function due(s: subscription, at: timestamp): integer = accrued(s, at) - s.charged;
+
+        // Queries have no op_context, so they read the clock the same way the streaming
+        // template does. Nothing WRITES a timestamp anywhere in this module.
+        function latest_block_time(): timestamp {
+            val t = block @? {} ( @max .timestamp );
+            return if (t != null) t else 0;
+        }
+
+        operation register_account() {
+            val acct = auth.authenticate();
+            require(account @? { .owner == acct.id } == null, "already registered");
+            create account(owner = acct.id, balance = WELCOME_POINTS);
+        }
+
+        // THE AUTHORISATION, and the only operation the payer must sign. Every term is
+        // fixed here; the initial funding is the merchant's whole claim until the payer
+        // chooses to add to it.
+        operation open_subscription(merchant: byte_array, amount_per_period: integer, period_ms: integer, funding: integer) {
+            // 1. AUTHENTICATE - and it is the PAYER who signs an authorisation to pull.
+            val acct = auth.authenticate();
+            val payer = account_of(acct.id);
+            // 2. AUTHORIZE / VALIDATE - each input separately, and bounded before it is
+            //    multiplied by anything.
+            require(merchant != acct.id, "cannot subscribe to yourself");
+            require(account @? { .owner == merchant } != null, "merchant is not registered");
+            require(amount_per_period >= MIN_FEE and amount_per_period <= MAX_AMOUNT, "fee out of range");
+            require(period_ms >= MIN_PERIOD_MS and period_ms <= MAX_PERIOD_MS, "period out of range");
+            require(funding > 0 and funding <= MAX_AMOUNT, "funding out of range");
+            require(payer.balance >= funding, "insufficient balance");
+            // 3. ESCROW IN THE SAME OPERATION THAT CREATES THE ROW.
+            update payer ( .balance -= funding );
+            create subscription(
+                id = book.next_id,
+                payer = acct.id,
+                merchant = merchant,
+                amount_per_period = amount_per_period,
+                period_ms = period_ms,
+                started_at = op_context.last_block_time,
+                escrow = funding
+            );
+            book.next_id += 1;
+        }
+
+        // Top up the escrow. ONLY THE PAYER, and it is the only way the merchant's claim
+        // ever grows: there is no operation by which a merchant reaches anything else.
+        operation fund_subscription(subscription_id: integer, amount: integer) {
+            val acct = auth.authenticate();
+            val s = require(subscription @? { .id == subscription_id }, "no such subscription");
+            require(s.payer == acct.id, "not your subscription");
+            require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
+            require(funded(s) + amount <= MAX_AMOUNT, "subscription escrow cap reached");
+            val payer = account_of(acct.id);
+            require(payer.balance >= amount, "insufficient balance");
+            update payer ( .balance -= amount );
+            update s ( .escrow += amount );
+        }
+
+        // COLLECTION, permissionless like the streaming template's: anybody may call it and
+        // it can only move accrued escrow to the merchant this subscription names. What it
+        // cannot do is touch the payer's balance - that is the whole of round 13's drain.
+        operation charge(subscription_id: integer) {
+            auth.authenticate();
+            val s = require(subscription @? { .id == subscription_id }, "no such subscription");
+            val owed = due(s, op_context.last_block_time);
+            require(owed > 0, "nothing is due");
+            val merchant = account_of(s.merchant);
+            // THE ESCROW PAYS, and it is debited in the same operation that credits the
+            // merchant: a credit with no debit beside it is a mint, whatever the counter
+            // next to it is called.
+            update s ( .escrow -= owed, .charged += owed );
+            update merchant ( .balance += owed );
+        }
+
+        // CANCELLATION, available to both parties at every moment of the subscription's
+        // life. It PAYS BEFORE IT REFUNDS, in one operation, and then the authorisation is
+        // gone: the merchant is paid everything accrued to this block, the payer takes back
+        // the rest of the escrow, and no timestamp is written anywhere.
+        operation cancel_subscription(subscription_id: integer) {
+            val acct = auth.authenticate();
+            val s = require(subscription @? { .id == subscription_id }, "no such subscription");
+            require(s.payer == acct.id or s.merchant == acct.id, "not your subscription");
+            val owed = due(s, op_context.last_block_time);
+            val merchant = account_of(s.merchant);
+            val payer = account_of(s.payer);
+            val refund = s.escrow - owed;
+            // THE ORDER IS THE GUARD: the merchant's earned fee first, the payer's
+            // unearned remainder second, both inside this operation.
+            update merchant ( .balance += owed );
+            update payer ( .balance += refund );
+            delete s;
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_balance(owner: byte_array): integer {
+            val a = account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_subscription(subscription_id: integer) {
+            val s = subscription @? { .id == subscription_id };
+            return if (s != null)
+                (payer = s.payer, merchant = s.merchant, amount_per_period = s.amount_per_period,
+                 period_ms = s.period_ms, started_at = s.started_at, funded = funded(s),
+                 charged = s.charged, escrow = s.escrow)
+            else null;
+        }
+
+        // What a merchant could collect in this block, and it is never more than the
+        // escrow: the number a payer should read before signing.
+        query outstanding(subscription_id: integer): integer {
+            val s = subscription @? { .id == subscription_id };
+            return if (s != null) due(s, latest_block_time()) else 0;
+        }
+
+        query account_count(): integer = account @* {} ( .owner ).size();
+
+        // INVARIANT: every point is in a balance or in a live subscription's escrow, and
+        // nothing is created after the one-time welcome grant.
+        query points_in_circulation(): integer {
+            var total = 0;
+            for (b in account @* {} ( .balance )) total += b;
+            for (s in subscription @* {}) total += s.escrow;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun subscriptionTestRell(): String = """
+        @test module;
+
+        // The subscription template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_round13_* functions replay adversary round 13's pull-billing drains
+        // and REQUIRE them to fail. There, an authorisation built from the
+        // `template=subscription` redirect (which answered `template=streaming`) was
+        // non-cancellable by BOTH parties and its claim was on the payer's balance rather
+        // than on an escrow, so one charge() eighty-three years later took all 9990 points
+        // she held and every point that arrived afterwards; and the fee fell due a whole
+        // period at a time, so two identical subscribers cancelling ten minutes apart
+        // across a boundary paid 1000 and 2000.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        // Nothing is created after the welcome grant: every point is in a balance or in a
+        // live subscription's escrow.
+        function assert_conserved() {
+            assert_equals(main.points_in_circulation(), main.account_count() * main.WELCOME_POINTS);
+        }
+
+        val MONTH = 30 * 24 * 60 * 60 * 1000;
+        val TEN_MINUTES = 10 * 60 * 1000;
+
+        // The happy path: a payer authorises, the merchant collects period after period,
+        // and both sides can see what is owed before it is taken.
+        function test_charge_accrues_and_never_exceeds_the_escrow() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+            assert_equals(main.get_balance(alice.account.id), 8000);
+            assert_equals(main.get_subscription(1)!!.escrow, 2000);
+
+            // NEVER IN ADVANCE: in the block it is signed, nothing has been earned.
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            after(MONTH);
+            assert_equals(main.outstanding(1), 1000);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 11000);
+            assert_equals(main.get_subscription(1)!!.escrow, 1000);
+            assert_conserved();
+
+            // The second period, and the escrow is spent exactly.
+            after(MONTH);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 12000);
+            assert_equals(main.get_subscription(1)!!.escrow, 0);
+            // ...and a third period buys the merchant NOTHING, because the payer has not
+            // funded one. This is the whole difference from round 13's build.
+            after(MONTH);
+            assert_equals(main.outstanding(1), 0);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.get_balance(alice.account.id), 8000);
+            assert_conserved();
+
+            // The payer decides to continue, and only the payer can.
+            signed_must_fail(trudy.keypair, main.fund_subscription(1, 1000), "not your subscription");
+            signed(alice.keypair, main.fund_subscription(1, 1000));
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 13000);
+            assert_equals(main.get_balance(alice.account.id), 7000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13, drain one: a non-cancellable pull authorisation is
+        // an irrevocable, uncapped, unescrowed claim on everything the payer will ever
+        // hold. Measured on a running chain: alice signed a discounted plan at 10 points a
+        // month, tried to leave in month two and was refused "this subscription is not
+        // cancellable" - and so was the merchant, so NOBODY could end it. Eighty-three
+        // years later one charge() took all 9990 points she had, she still owed 20 and
+        // counting, and every point that arrived afterwards was taken in the block it
+        // landed, because charge() is permissionless. The conservation invariant the
+        // guidance told the author to write was exact at every step.
+        //
+        // Here the merchant's whole claim is the escrow the payer funded, and the payer
+        // can always leave.
+        function test_round13_a_pull_authorisation_cannot_take_everything_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // The same discounted plan: 10 points a month, and she funds one month of it.
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 10, MONTH, 10));
+            after(MONTH);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 10010);
+            assert_equals(main.get_balance(alice.account.id), 9990);
+
+            // EIGHTY-THREE YEARS. Round 13 measured 10010 owed at this point and took
+            // every point she had; here the claim is what she escrowed and it is spent.
+            after(1000 * MONTH);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.outstanding(1), 0);
+            assert_equals(main.get_balance(alice.account.id), 9990);
+
+            // Nor can the claim reach money that arrives later: round 13 took every point
+            // that landed in her account in the block it landed.
+            val bob = register_bob();
+            signed(bob.keypair, main.register_account());
+            signed(bob.keypair, main.open_subscription(alice.account.id, 1000, MONTH, 5000));
+            after(MONTH);
+            signed(alice.keypair, main.charge(2));
+            assert_equals(main.get_balance(alice.account.id), 10990);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.get_balance(alice.account.id), 10990);
+
+            // ...and the payer can ALWAYS end it. Round 13 refused both parties for ever.
+            signed(alice.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_subscription(1), null);
+            assert_equals(main.get_balance(alice.account.id), 10990);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13, drain two: the period boundary was a WHOLE FEE
+        // step, not the "staircase of ONE UNIT" the streaming header bounds it at. Its
+        // build billed `elapsed / period + 1` whole periods, so two identical subscribers
+        // on identical 1000-a-month terms, one cancelling in the last block before the
+        // boundary and one in the first block after it - TEN MINUTES apart in a thirty-day
+        // period - paid 1000 and 2000, and the merchant is the party who reads the
+        // boundary best. Here the fee accrues across the period, so what separates them is
+        // ten minutes of it.
+        function test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+            signed(bob.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+
+            // NEVER IN ADVANCE, and it is the same guard: round 13's whole-period accrual
+            // made a whole month fall due in the block the plan was signed.
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+
+            // alice leaves ten minutes before the boundary...
+            after(MONTH - TEN_MINUTES);
+            signed(alice.keypair, main.cancel_subscription(1));
+            // ...and bob ten minutes after it.
+            after(2 * TEN_MINUTES);
+            signed(bob.keypair, main.cancel_subscription(2));
+
+            val alice_paid = main.WELCOME_POINTS - main.get_balance(alice.account.id);
+            val bob_paid = main.WELCOME_POINTS - main.get_balance(bob.account.id);
+            // Round 13 measured 1000 and 2000 here. Neither pays more than the period they
+            // were in, and what separates them is twenty minutes of a thirty-day period -
+            // under one point of a 1000-point fee, so the step they straddled is not worth
+            // straddling.
+            assert_true(alice_paid <= 1000);
+            assert_true(bob_paid <= 1001);
+            assert_true(bob_paid - alice_paid <= 2);
+            assert_equals(main.get_balance(trudy.account.id), 10000 + alice_paid + bob_paid);
+            assert_conserved();
+        }
+
+        // TERMS, OWNERSHIP AND BOUNDS. Everything the payer signed is immutable, only the
+        // two parties may cancel, only the payer may fund, and every input is bounded.
+        function test_terms_and_ownership() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+
+            signed_must_fail(alice.keypair, main.open_subscription(alice.account.id, 10, MONTH, 10), "cannot subscribe to yourself");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 0, MONTH, 10), "fee out of range");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 10, 1, 10), "period out of range");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 10, MONTH, 0), "funding out of range");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 10, MONTH, 10001), "insufficient balance");
+
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 1000));
+            assert_equals(main.get_subscription(1)!!.amount_per_period, 1000);
+            assert_equals(main.get_subscription(1)!!.period_ms, MONTH);
+            val started = main.get_subscription(1)!!.started_at;
+
+            // A stranger can neither fund it, nor end it, nor be paid by it.
+            signed_must_fail(bob.keypair, main.fund_subscription(1, 1), "not your subscription");
+            signed_must_fail(bob.keypair, main.cancel_subscription(1), "not your subscription");
+            signed_must_fail(bob.keypair, main.charge(99), "no such subscription");
+
+            // Collection is permissionless and pays the merchant it names, whoever asks.
+            after(MONTH);
+            signed(bob.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 11000);
+            // The clock never moved: nothing in this module writes a timestamp.
+            assert_equals(main.get_subscription(1)!!.started_at, started);
+            assert_conserved();
+
+            // THE MERCHANT MAY CANCEL TOO - neither side can hold the other hostage.
+            signed(trudy.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_subscription(1), null);
+            assert_equals(main.get_balance(alice.account.id), 9000);
+            assert_conserved();
+        }
+
+        // CANCELLATION PAYS BEFORE IT REFUNDS. The merchant keeps what accrued up to the
+        // cancelling block and the payer takes back the rest, in one operation - and a
+        // payer who cancels mid-period cannot take back what has already been earned.
+        function test_cancellation_pays_the_merchant_first() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+            // Half a period in, half the fee is earned and half the escrow is not.
+            after(MONTH / 2);
+            assert_equals(main.outstanding(1), 500);
+            signed(alice.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_balance(trudy.account.id), 10500);
+            assert_equals(main.get_balance(alice.account.id), 9500);
+            assert_equals(main.get_subscription(1), null);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
     private fun exchangeMainRell(): String = """
         module;
 
@@ -3365,7 +4501,7 @@ object DappScaffold {
         // partial fills and cancellation. This is NOT the amm: a constant-product pool
         // prices every trade off two reserves, and an order book has to decide WHICH
         // resting order is filled and in what order, which is the hard half and the one
-        // adversary round 12 drained. Eight guards are STRUCTURAL - they live in the
+        // adversary round 12 drained. Nine guards are STRUCTURAL - they live in the
         // entities and the matching function, not in a require() a future operation can
         // forget:
         //   IMMUTABLE     - a resting order's TERMS never change. maker, side, price, the
@@ -3415,6 +4551,29 @@ object DappScaffold {
         //                   "An order that can be pulled in the block it would have been
         //                   filled in is not a commitment at all" - and the clock that
         //                   enforces it is the maker's own, not one a stranger can restart.
+        //   BOUNDED BOOK  - the matcher SELECTS the orders that cross: side, price and the
+        //                   taker's own id are where-clause terms, served by
+        //                   `index is_buy, price`, so an order that does not cross this
+        //                   limit costs a place_order nothing. And a trader may stand at
+        //                   most MAX_RESTING_ORDERS quotes at once, so the book is bounded
+        //                   by the traders in it rather than by what one welcome grant can
+        //                   buy. Round 13 measured the unfiltered, unbounded version:
+        //                   best_resting was `for (o in order @* {})` - the whole table,
+        //                   filtered in Rell afterwards - so the header's own advice,
+        //                   "index price and side", could not be followed, because a select
+        //                   with no where-clause has nothing for an index to serve. The
+        //                   SAME ten one-unit trades between two honest traders took 1.8s
+        //                   behind an empty book, 7.4s behind 50 resting bids at price 1,
+        //                   26.3s behind 150, and were ABANDONED at the runner's 90-second
+        //                   cap behind 400. Nothing was stolen: the venue stopped working,
+        //                   the dust cost one point of escrow a row out of the 10000-point
+        //                   welcome grant register_trader mints to every new account, and
+        //                   the maker simply never cancelled. THE COST OF THE CAP, stated
+        //                   because a defence's price belongs in this list: a market maker
+        //                   who wants more than MAX_RESTING_ORDERS live quotes must cancel
+        //                   one to post one, or trade from more than one account - and a
+        //                   cancel is refused for MIN_RESTING_MS, so the two constants have
+        //                   to be sized together.
         //   PAIRED        - every fill debits one side and credits the other in the same
         //     SETTLEMENT    operation, and nothing creates a point or a unit after the
         //                   one-time welcome grant. The conservation queries sum balances
@@ -3430,9 +4589,13 @@ object DappScaffold {
         //     Self-dealing is refused, so their own two orders sit locked until somebody
         //     else takes them, and that somebody takes both. It is their own money and the
         //     matcher will not spend it for them.
-        //   - MATCHING IS O(BOOK) PER FILL. It is a template: it walks the orders and picks
-        //     the best. Index price and side before your book is large, and keep the
-        //     ordering rule - price, then time, then id - exactly as it is.
+        //   - MATCHING WALKS THE ORDERS THAT CROSS, NOT THE BOOK, and it walks them once
+        //     per fill. The filtering is a where-clause the runner serves, not a loop in
+        //     this module, so a book full of orders nobody's limit reaches is free. What
+        //     IS O(book) is the pair of conservation queries at the bottom: they sum every
+        //     row on purpose, and they are queries rather than operations, so nobody pays
+        //     for them inside a transaction. Keep the ordering rule - price, then time,
+        //     then id - exactly as it is.
 
         entity trader {
             key owner: byte_array;
@@ -3450,6 +4613,9 @@ object DappScaffold {
             qty: integer;                // the size committed - never changes
             created_at: timestamp;       // the maker's cancel clock - written ONCE
             mutable filled: integer = 0; // monotone, and always < qty while the row lives
+            // What the matcher's where-clause needs: a taker asks for one side at one
+            // limit, so the runner can answer from this instead of reading the book.
+            index is_buy, price;
         }
 
         object book {
@@ -3463,6 +4629,12 @@ object DappScaffold {
         // A resting order is a commitment: a maker may withdraw it only after it has
         // stood for an hour. A constant, never a parameter.
         val MIN_RESTING_MS = 60 * 60 * 1000;
+        // A BOUNDED BOOK: the most quotes one trader may have standing at once. Rows are
+        // permanent until their maker cancels them, and nothing else limits how many a
+        // trader creates - round 13 filled the book with 1-point bids nobody would ever
+        // reach and made every place_order pay for them. Size it against how many price
+        // levels a real maker quotes; it is a constant, never a parameter.
+        val MAX_RESTING_ORDERS = 20;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this default.
@@ -3493,15 +4665,16 @@ object DappScaffold {
 
         // The one order a taker at this limit is entitled to. The caller passes a side, a
         // limit and their own id - never an order id - so no caller decides who is filled.
-        // O(book) per fill: index price and side before your book is large.
+        // THE RUNNER DOES THE FILTERING: the side, the limit and the self-dealing rule are
+        // all where-clause terms, so `index is_buy, price` serves them and what is walked
+        // here is the orders that CROSS. Round 13 measured the version that selected the
+        // whole table and filtered afterwards at O(book) per place_order whether or not
+        // anything matched - see BOUNDED BOOK in the header.
         function best_resting(want_buy: boolean, limit_price: integer, taker: byte_array): order? {
-            val side = list<order>();
-            for (o in order @* {}) {
-                if (o.maker != taker and o.is_buy == want_buy and o.qty > o.filled) {
-                    val reachable = if (want_buy) o.price >= limit_price else o.price <= limit_price;
-                    if (reachable) side.add(o);
-                }
-            }
+            val side = if (want_buy)
+                order @* { .is_buy == want_buy, .price >= limit_price, .maker != taker, .qty > .filled }
+            else
+                order @* { .is_buy == want_buy, .price <= limit_price, .maker != taker, .qty > .filled };
             if (side.size() == 0) return null;
             var best = side[0];
             for (o in side) {
@@ -3569,6 +4742,12 @@ object DappScaffold {
             // 5. REST what is left, escrowed in the same operation that creates the row.
             if (left > 0) {
                 val me = trader_of(account.id);
+                // A BOUNDED BOOK. A resting row is permanent until its maker cancels it,
+                // and round 13 bought 10000 of them with one free registration.
+                require(
+                    (order @* { .maker == account.id } ( .id )).size() < MAX_RESTING_ORDERS,
+                    "too many resting orders"
+                );
                 val escrow = if (is_buy) price * left else left;
                 if (is_buy) {
                     require(me.points >= escrow, "insufficient points");
@@ -3696,6 +4875,53 @@ object DappScaffold {
         }
 
         val HOUR = 60 * 60 * 1000;
+
+        // EXPLOIT MUST FAIL. Round 13: the dust book. best_resting() was
+        // `for (o in order @* {})` - the whole order table, filtered in Rell afterwards -
+        // so the header's own advice, "index price and side before your book is large",
+        // could not be followed: a select with no where-clause has nothing for an index to
+        // serve. The cost was O(book) per PLACE_ORDER whether or not anything matched, and
+        // nothing bounded the book either: register_trader mints WELCOME_POINTS, a resting
+        // bid at price 1 costs ONE point of escrow, and the maker never cancels. Measured
+        // on a running chain, the SAME ten one-unit trades between two honest traders took
+        // 1.8s behind an empty book, 7.4s behind 50 dust bids, 26.3s behind 150, and were
+        // ABANDONED at the runner's 90-second cap behind 400.
+        //
+        // A timing assertion is not a unit test, so this pins the two things that ARE
+        // decidable: the book is BOUNDED - a trader's 21st resting order is refused - and
+        // the dust that does rest is not on a crossing order's path, because it is not in
+        // the matcher's where-clause at all. The matcher's SHAPE is pinned in Kotlin, by
+        // exchangeMatcherQueriesTheBookRatherThanScanningIt.
+        function test_round13_dust_book_cannot_tax_every_place_order_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            // The attacker buys the cheapest rows there are, and never cancels.
+            var i = 0;
+            while (i < main.MAX_RESTING_ORDERS) {
+                signed(trudy.keypair, main.place_order(true, 1, 1));
+                i += 1;
+            }
+            // THE BOUND. Her welcome grant would pay for 10000 of these.
+            signed_must_fail(trudy.keypair, main.place_order(true, 1, 1), "too many resting orders");
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - main.MAX_RESTING_ORDERS);
+
+            // And the dust that IS resting is not on the path of a crossing order: alice
+            // sells 10 at 20 and bob buys 10 at 20 through a book full of bids at 1, which
+            // the matcher's where-clause never names.
+            signed(alice.keypair, main.place_order(false, 20, 10));
+            signed(bob.keypair, main.place_order(true, 20, 10));
+            assert_equals(main.get_points(alice.account.id), main.WELCOME_POINTS + 200);
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 10);
+            // Untouched: a bid at 1 is not reachable by a seller asking 20.
+            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS);
+            assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS - main.MAX_RESTING_ORDERS);
+            assert_conserved();
+        }
 
         // HAPPY PATH + CONSERVATION: a resting sell is escrowed, filled at the price it
         // showed, and a PARTIAL fill leaves the row alive with its escrow down by exactly

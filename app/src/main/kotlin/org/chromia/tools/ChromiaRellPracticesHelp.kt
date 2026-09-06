@@ -374,7 +374,7 @@ object ChromiaRellPracticesHelp {
             "Conservation, no-negative-balance, and non-owner-must-fail tests: scaffold_dapp " +
                 "template=ft4 ships runnable examples (src/test/main_test.rell) - run via run_rell_tests. " +
                 "DAO / treasury: template=governance (its founder key is a module arg, main.founder_pubkey - registration mints no weight); oracle-priced reserve or vault, NOT an exchange: template=vault; swap pool / DEX pair / AMM: template=amm; " +
-                "staking / rewards / emissions: template=staking; payroll / subscription / vesting / drip: template=streaming; NFT marketplace / listings / " +
+                "staking / rewards / emissions: template=staking; payroll / vesting / drip (PREPAID): template=streaming; subscription / recurring pull billing / allowance / membership: template=subscription, never streaming; NFT marketplace / listings / " +
                 "royalties: template=marketplace; lending pool / credit line / money market: " +
                 "template=lending; order book / limit orders / bids and asks / matching: template=exchange, never amm; " +
                 "stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
