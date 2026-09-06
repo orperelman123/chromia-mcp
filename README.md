@@ -83,7 +83,11 @@ weakens, via `replacement`) the guard, reruns only that test, and reads *why* it
 - `vacuous` — stayed green without the guard; the test does not exercise it
 - `still_refused` — something else refused the attack (name it in `alsoRemove`)
 - `environmental` — the mutant did not compile or lacked `moduleArgs`; proves nothing
-- `baseline_red` / `guard_not_found` / `test_not_found` — the inputs cannot be verified yet
+- `baseline_red` / `guard_not_found` / `guard_ambiguous` / `test_not_found` — the inputs cannot be verified yet
+- `replacement_rejected` / `also_remove_overlaps_guard` — the mutation itself is refused: a
+  replacement may change nothing outside the guard's own span (no opening a comment or a string),
+  and `alsoRemove` must be disjoint from the guard. Round 12 got three false verdicts through
+  those two inputs; the tool now refuses them instead of guessing.
 
 `ok` is true only when every named guard is `load_bearing`. It says nothing about guards you
 did not name, and it does not replace an audit — it turns the guards you did name from a

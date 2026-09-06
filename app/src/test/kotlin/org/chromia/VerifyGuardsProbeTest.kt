@@ -351,7 +351,11 @@ class VerifyGuardsProbeTest {
      * and the vacuous guard is credited with it. Round 12 measured
      * verdict=load_bearing, ok:true - round 11's P2 (a block comment's
      * terminator named as a "guard") rebuilt out of the one input the fix does
-     * not look at.
+     * not look at. The fix refuses the substitution: the masked file must be
+     * identical outside the replaced span, so a replacement that opens a
+     * comment or a string is `replacement_rejected` rather than judged - the
+     * guard IS vacuous (p8b), but a verdict read through a mutation that
+     * rewrote the rest of the file would be a guess wearing a verdict's name.
      */
     @Test
     fun p8AReplacementCannotCommentOutTheRealGuard() {
@@ -359,7 +363,8 @@ class VerifyGuardsProbeTest {
             mapOf("main.rell" to p7Main, "main_test.rell" to tests),
             guard(pos, "test_overdraft_must_fail", replacement = "/*")
         )
-        assertEquals("vacuous", verdict(r), r.toString())
+        assertEquals("replacement_rejected", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content)
     }
 
     /** Control: the same guard DELETED rather than replaced is correctly vacuous today. */
@@ -378,7 +383,9 @@ class VerifyGuardsProbeTest {
      * genuinely load-bearing guard is reported vacuous - with evidence reading
      * "the lines in alsoRemove are what the test measures, not this guard" while
      * the guard was one of those lines. Round 12 measured verdict=vacuous; the
-     * control below shows the same guard is load_bearing.
+     * control below shows the same guard is load_bearing. The fix refuses the
+     * input (`also_remove_overlaps_guard`) instead of guessing which of the two
+     * readings the caller meant: alsoRemove must be disjoint text from the guard.
      */
     @Test
     fun p9AlsoRemoveOverlappingTheGuardCannotMakeItVacuous() {
@@ -386,7 +393,8 @@ class VerifyGuardsProbeTest {
             mapOf("main.rell" to p7Main, "main_test.rell" to tests),
             guard(bal, "test_overdraft_must_fail", alsoRemove = listOf(pos + LF + "    " + bal))
         )
-        assertEquals("load_bearing", verdict(r), r.toString())
+        assertEquals("also_remove_overlaps_guard", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content)
     }
 
     /** Control: the same guard, no alsoRemove. Correctly load_bearing today. */

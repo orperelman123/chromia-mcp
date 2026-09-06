@@ -1947,7 +1947,15 @@ object McpTools {
               environmental          - the mutant is not a running dapp (compile error, missing
                                        module_args). A failure for that reason proves nothing.
               red_for_another_reason - red, but not the attack; read the error before counting it.
-              baseline_red / guard_not_found / test_not_found - the inputs cannot be verified yet.
+              baseline_red / guard_not_found / guard_ambiguous / test_not_found - the inputs
+                                       cannot be verified yet.
+              replacement_rejected   - the replacement would change code OUTSIDE the guard's span
+                                       (it opens or closes a comment or a string). A mutation may
+                                       alter only the line it names.
+              also_remove_overlaps_guard - an alsoRemove entry contains (or is contained by) the
+                                       guard; the two must be disjoint or the control run strips
+                                       the guard itself.
+            A replacement's own require() messages count as refusals exactly like the guard's.
             ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass
             to run_rell_tests. Nothing is deployed; sources run in a temp directory and are
             deleted afterwards. This does not replace an audit and says nothing about guards you

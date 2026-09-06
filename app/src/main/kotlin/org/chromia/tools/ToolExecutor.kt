@@ -1727,6 +1727,17 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             return out
         }
         for (r in alsoRemove) {
+            // Round 12: an alsoRemove entry that CONTAINS the guard (or is contained by
+            // it) would strip the guard itself in the control run and report a
+            // load-bearing guard as vacuous. The two must be disjoint text.
+            if (r.contains(guard) || guard.contains(r)) {
+                return@withContext verdict(
+                    "also_remove_overlaps_guard",
+                    "an alsoRemove entry overlaps the guard text - the control run strips alsoRemove with the guard KEPT, " +
+                        "so an entry that contains the guard would remove it and prove the wrong thing. Name lines that are " +
+                        "disjoint from the guard"
+                )
+            }
             if (files.keys.none { !isTest.getValue(it) && codeOccurrences(files.getValue(it), r).isNotEmpty() }) {
                 return@withContext verdict("guard_not_found", "alsoRemove entry not found verbatim in production code: $r")
             }
@@ -1772,7 +1783,22 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         val mutated = LinkedHashMap(files)
         val src = mutated.getValue(path)
         val at = offsets.single()
-        mutated[path] = src.substring(0, at) + replacement + src.substring(at + guard.length)
+        val mutatedSrc = src.substring(0, at) + replacement + src.substring(at + guard.length)
+        run {
+            val origMask = maskRellSource(src, maskStrings = true)
+            val mutMask = maskRellSource(mutatedSrc, maskStrings = true)
+            val prefixSame = origMask.substring(0, at) == mutMask.substring(0, at)
+            val suffixSame = origMask.substring(at + guard.length) == mutMask.substring(at + replacement.length)
+            if (!prefixSame || !suffixSame) {
+                return@withContext verdict(
+                    "replacement_rejected",
+                    "the replacement changes code OUTSIDE the guard's own span - it opens or closes a comment or a string, so " +
+                        "what every later line means has changed (round 12 used a replacement of \"/*\" to comment out the " +
+                        "real guard and have a vacuous one credited). A mutation may alter only the line it names"
+                )
+            }
+        }
+        mutated[path] = mutatedSrc
         val withAlso = if (alsoRemove.isEmpty()) mutated else (stripAll(mutated, alsoRemove) ?: mutated)
         val mutant = runOnly(withAlso).getOrElse {
             val m = it.message.orEmpty()
@@ -1792,7 +1818,13 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
 
         // 4. WHY did it fail. The guard's own message in the error is the guard
         //    REFUSING - no caller-supplied fragment outranks that.
-        val guardMessages = Regex("\"((?:[^\"\\\\]|\\\\.)*)\"").findAll(guard).map { it.groupValues[1] }.filter { it.isNotBlank() }.toList()
+        val literal = Regex("\"((?:[^\"\\\\]|\\\\.)*)\"")
+        // The replacement's own messages count as refusals too (round 12: a
+        // replacement that required ten times the balance and said "vault is
+        // closed" was reported as the attack landing because the caller named
+        // that very message as attackLanded).
+        val guardMessages = (literal.findAll(guard).map { it.groupValues[1] } + literal.findAll(replacement).map { it.groupValues[1] })
+            .filter { it.isNotBlank() }.toList()
         val refusedByGuard = guardMessages.firstOrNull { error.contains(it) }
         if (refusedByGuard != null) {
             return@withContext verdict(
