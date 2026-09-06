@@ -1734,9 +1734,9 @@ class DappScaffoldSecureTemplatesTest {
             Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
             "the template must ship exactly these operations"
         )
-        assertTrue(opBody(code, "enrol_relayer").contains("require_operator();"))
-        assertTrue(opBody(code, "close_relayer_set").contains("require_operator();"))
-        assertTrue(code.contains("require(op_context.is_signer(bridge_operator_pubkey()), \"the bridge operator must sign this\");"))
+        val operatorCheck = "require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), \"the bridge operator must sign this\");"
+        assertTrue(opBody(code, "enrol_relayer").contains(operatorCheck))
+        assertTrue(opBody(code, "close_relayer_set").contains(operatorCheck))
         assertTrue(opBody(code, "attest_burn").contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
         assertTrue(code.contains("if (op_context.is_signer(r.relayer_pubkey)) found = r;"), "a relayer key must be read from a row, never from an argument")
         assertFalse(opBody(code, "attest_burn").contains("pubkey"), "no caller may name its own signer")

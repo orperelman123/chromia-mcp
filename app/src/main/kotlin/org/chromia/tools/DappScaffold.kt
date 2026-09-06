@@ -453,10 +453,6 @@ object DappScaffold {
         function holding_of(owner: byte_array): holding =
             require(holding @? { .owner == owner }, "register an account first");
 
-        function require_operator() {
-            require(op_context.is_signer(bridge_operator_pubkey()), "the bridge operator must sign this");
-        }
-
         // Which ENROLLED relayer signed this transaction. The key is read from a row,
         // never from an argument, so nobody can present their own.
         function signing_relayer(): relayer {
@@ -497,7 +493,7 @@ object DappScaffold {
         // never afterwards, so the trust root of the bridge is fixed before the first
         // burn is attested.
         operation enrol_relayer(candidate: pubkey) {
-            require_operator();
+            require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is closed");
             require(candidate.size() == 33, "a relayer key must be a 33-byte compressed public key");
             require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
@@ -507,7 +503,7 @@ object DappScaffold {
 
         // Shut the set. One way, and nothing re-opens it.
         operation close_relayer_set() {
-            require_operator();
+            require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is already closed");
             require(
                 bridge_state.relayer_count >= relayer_threshold(),
