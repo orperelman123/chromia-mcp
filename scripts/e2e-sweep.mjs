@@ -438,14 +438,17 @@ await check('onboarding_next_step: 3-step walk to testnet', async () => {
   expect(s1.stage === 'scaffold_project' && s1.nextAction?.who === 'agent',
     JSON.stringify({ stage: s1.stage, who: s1.nextAction?.who }).slice(0, 150));
   expect((s1.blockers || []).length > 0, 'empty state must list the pending human steps as blockers');
-  // Built + keyed: next is the container lease, a HUMAN step that must carry
-  // the actual Vault/faucet URLs (an agent can only relay them).
+  // Built + keyed: next is the container lease - since audit F3 an AGENT step,
+  // because this server automates it (provision_testnet_container leases,
+  // claim_testnet_tchr funds) and must never claim a human blocker for a step
+  // a shipped tool performs. The step names the tool and the one condition it
+  // cannot meet (no registered funding key => dryRun).
   const built = { hasProject: true, compiles: true, securityClean: true, testsPass: true, hasTestnetKey: true };
   const s2 = JSON.parse(text(await call('onboarding_next_step', built)));
-  expect(s2.stage === 'testnet_container' && s2.nextAction?.who === 'human',
+  expect(s2.stage === 'testnet_container' && s2.nextAction?.who === 'agent',
     JSON.stringify({ stage: s2.stage, who: s2.nextAction?.who }).slice(0, 150));
-  expect(/https?:\/\//.test(s2.nextAction?.how ?? ''),
-    'human container step carries no URL: ' + (s2.nextAction?.how ?? '').slice(0, 120));
+  expect(/provision_testnet_container/.test(s2.nextAction?.how ?? ''),
+    'agent container step must name the tool that leases: ' + (s2.nextAction?.how ?? '').slice(0, 120));
   // Deployed: nothing remains; the closing action is verify_deployment.
   const s3 = JSON.parse(text(await call('onboarding_next_step', {
     ...built, hasTestnetContainer: true, hasDeploymentConfig: true, deployedTo: 'testnet',
@@ -453,7 +456,7 @@ await check('onboarding_next_step: 3-step walk to testnet', async () => {
   expect(s3.stage === 'done' && (s3.remainingSteps || []).length === 0 && (s3.blockers || []).length === 0,
     JSON.stringify({ stage: s3.stage, remaining: s3.remainingSteps }).slice(0, 150));
   expect(/verify_deployment/.test(s3.nextAction?.verify ?? ''), 'done stage must point at verify_deployment');
-  return 'scaffold_project -> testnet_container (human, with URLs) -> done';
+  return 'scaffold_project -> testnet_container (agent: provision_testnet_container) -> done';
 }, 'onboarding_next_step');
 
 const blocking = j => (j.findings || []).filter(f => f.severity === 'BLOCKER' || f.severity === 'HIGH');
