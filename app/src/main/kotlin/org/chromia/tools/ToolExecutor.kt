@@ -1173,7 +1173,18 @@ class SearchDocsStrategy(private val ragStoreDeferred: Deferred<RagStore>) : Bas
                     )
                 }
             }
-            val payload = buildJsonObject { put("results", results) }
+            // AUDIT F2: `search` and `fetch` are the ChatGPT-contract pair every
+            // agent reaches for first, and they used to return {id,title,url} with
+            // no word about the index behind them - so a 320-day-old fragment was
+            // quoted as current API. The one tool that told the truth (fetch_docs)
+            // is the one an agent is least likely to call. Same `index` object and
+            // the same STALE note, on all three.
+            val staleNote = ragStore.staleWarning()
+            val payload = buildJsonObject {
+                put("results", results)
+                if (staleNote != null) put("index_note", staleNote)
+                ragStore.provenance?.let { put("index", it.toJson()) }
+            }
             CallToolResult(
                 content = listOf(TextContent(Json.encodeToString(payload))),
                 structuredContent = payload
@@ -1210,17 +1221,24 @@ class FetchDocumentStrategy(private val ragStoreDeferred: Deferred<RagStore>) : 
                     isError = true
                 )
             }
+            val staleNote = ragStore.staleWarning()
             val payload = if (segment != null) {
                 buildJsonObject {
                     put("id", id)
                     put("title", segmentTitle(segment))
                     put("text", segment.text())
                     put("url", segmentUrl(segment))
+                    // AUDIT F2: the text an agent is about to quote carries the age
+                    // of the index it came from, in the same shape fetch_docs uses.
+                    if (staleNote != null) put("index_note", staleNote)
+                    ragStore.provenance?.let { put("index", it.toJson()) }
                 }
             } else {
                 buildJsonObject {
                     put("id", id)
                     put("error", "Documentation not found for requested id")
+                    if (staleNote != null) put("index_note", staleNote)
+                    ragStore.provenance?.let { put("index", it.toJson()) }
                 }
             }
             CallToolResult(

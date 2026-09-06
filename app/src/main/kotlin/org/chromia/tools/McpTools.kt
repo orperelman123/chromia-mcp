@@ -5,6 +5,41 @@ import kotlinx.serialization.json.*
 
 object McpTools {
 
+    /**
+     * Provenance of the documentation index an answer was drawn from - origin,
+     * generated_at, age_days, segments, stale. Declared identically on
+     * fetch_docs, search and fetch: audit F2 found that only fetch_docs said
+     * anything, so the ChatGPT-contract pair every agent reaches for first
+     * quoted a 320-day-old fragment as current API.
+     */
+    internal val DOCS_INDEX_PROPERTY = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("object"),
+            "description" to JsonPrimitive(
+                "Which documentation index answered: origin, generated_at, age_days, segments, and stale=true when it is past the freshness limit. Check `stale` before quoting a fragment as current."
+            ),
+            "properties" to JsonObject(
+                mapOf(
+                    "origin" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "generated_at" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "age_days" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "segments" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "stale" to JsonObject(mapOf("type" to JsonPrimitive("boolean")))
+                )
+            )
+        )
+    )
+
+    /** The human-readable half of [DOCS_INDEX_PROPERTY], present only on a stale index. */
+    internal val DOCS_INDEX_NOTE_PROPERTY = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("string"),
+            "description" to JsonPrimitive(
+                "Present only when the documentation index is older than its freshness limit: says when it was generated and that newer releases may be missing - confirm versions against GitLab tags."
+            )
+        )
+    )
+
     fun runDappQueriesTool() = Tool(
         name = "chromia_dapp_query",
         description = """
@@ -1304,14 +1339,8 @@ object McpTools {
                             )
                         )
                     ),
-                    "index_note" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive(
-                                "Present only when the documentation index is older than its freshness limit: says when it was generated and that newer releases may be missing - confirm versions against GitLab tags."
-                            )
-                        )
-                    )
+                    "index_note" to DOCS_INDEX_NOTE_PROPERTY,
+                    "index" to DOCS_INDEX_PROPERTY
                 )
             ),
             required = listOf("text", "hits")
@@ -1378,7 +1407,9 @@ object McpTools {
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Error message when the id is not found")
                         )
-                    )
+                    ),
+                    "index_note" to DOCS_INDEX_NOTE_PROPERTY,
+                    "index" to DOCS_INDEX_PROPERTY
                 )
             ),
             required = listOf("id")
@@ -1442,7 +1473,9 @@ object McpTools {
                                 )
                             )
                         )
-                    )
+                    ),
+                    "index_note" to DOCS_INDEX_NOTE_PROPERTY,
+                    "index" to DOCS_INDEX_PROPERTY
                 )
             ),
             required = listOf("results")
