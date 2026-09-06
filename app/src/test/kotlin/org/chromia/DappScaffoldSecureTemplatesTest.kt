@@ -2775,8 +2775,7 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun governanceR15ReplayGoesRedWhenTheOddPointEmptiesTheSmallStaker() = assertGuardMutationRedensExploitTest(
         "governance",
-        "            val m = member @ { .owner == owner };
-" +
+        "            val m = member @ { .owner == owner };\n" +
             "            if (r > best and owed[owner] + 1 < m.stake) {",
         "            if (r > best) {",
         "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail",
