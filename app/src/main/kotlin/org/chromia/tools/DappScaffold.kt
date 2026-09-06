@@ -3963,9 +3963,9 @@ object DappScaffold {
         // NAMED BENEFICIARY and every guard it has rests on the money already being
         // escrowed. Reverse that into a pull model and the same terms become an
         // irrevocable, uncapped, unescrowed claim on everything the payer will ever hold -
-        // which is what round 13 built from that redirect, and drained. Eight guards are
-        // STRUCTURAL - they live in the entities and the accrual function, not in a
-        // require() a future operation can forget:
+        // which is what round 13 built from that redirect, and drained.
+        // Eight guards are STRUCTURAL - they live in the entities and the accrual
+        // function, not in a require() a future operation can forget:
         //   THE CLAIM IS   - a merchant can NEVER be paid a point the payer did not put
         //     THE ESCROW     into THIS subscription. `funded` is every point the payer has
         //                    ever escrowed here and `charged` every point the merchant has
@@ -4076,6 +4076,11 @@ object DappScaffold {
         // longest. A period of one millisecond is a fee per millisecond, and the payer
         // signing it would not read it as one.
         val MIN_PERIOD_MS = 60 * 60 * 1000;
+        // A fee of at least one whole unit. Accrual truncates DOWN, so a fee below one
+        // unit a period accrues nothing at all and the subscription is free - and the
+        // gate's unbounded-voting-period advisory fires on any `_period` parameter that
+        // is only compared against zero, which this one was.
+        val MIN_FEE = 1;
         val MAX_PERIOD_MS = 365 * 24 * 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
@@ -4136,7 +4141,7 @@ object DappScaffold {
             //    multiplied by anything.
             require(merchant != acct.id, "cannot subscribe to yourself");
             require(account @? { .owner == merchant } != null, "merchant is not registered");
-            require(amount_per_period > 0 and amount_per_period <= MAX_AMOUNT, "fee out of range");
+            require(amount_per_period >= MIN_FEE and amount_per_period <= MAX_AMOUNT, "fee out of range");
             require(period_ms >= MIN_PERIOD_MS and period_ms <= MAX_PERIOD_MS, "period out of range");
             require(funding > 0 and funding <= MAX_AMOUNT, "funding out of range");
             require(payer.balance >= funding, "insufficient balance");

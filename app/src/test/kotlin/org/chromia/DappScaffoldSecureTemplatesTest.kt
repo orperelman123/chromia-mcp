@@ -258,7 +258,7 @@ class DappScaffoldSecureTemplatesTest {
         // own template now, and it must say what the class does to a streaming term
         // rather than only naming a template: a redirect that names a template without
         // its guard is the round-8 hazard again.
-        listOf("subscription", "allowance", "recurring billing", "membership", "direct debit", "saas billing").forEach { asked ->
+        listOf("allowance", "recurring billing", "membership", "direct debit", "saas billing").forEach { asked ->
             val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
             assertTrue(warning.contains("Use `template=subscription`"), "$asked must be routed to the pull-billing template: $warning")
             assertFalse(warning.contains("Use `template=streaming`"), "$asked must NOT still be sent to the prepaid template: $warning")
@@ -272,6 +272,12 @@ class DappScaffoldSecureTemplatesTest {
                 "...and what the template makes unwritable: $warning"
             )
         }
+        // ...and the word itself is a template name now, so it scaffolds rather than warns.
+        assertEquals("subscription", DappScaffold.toJson("x", template = "subscription").getValue("template").toString().trim('"'))
+        assertTrue(
+            DappScaffold.closestTemplateNote("a subscription").contains("Use `template=subscription`"),
+            "the redirect must name the pull-billing template for the word itself too"
+        )
         // ...and the prepaid class keeps its own template: the fix must not cost that.
         listOf("vesting", "payroll", "payment_stream").forEach { asked ->
             assertTrue(
@@ -543,8 +549,10 @@ class DappScaffoldSecureTemplatesTest {
             assertTrue(main.contains(it), "subscription must declare $it")
         }
         assertTrue(code.contains("require(merchant != acct.id, \"cannot subscribe to yourself\");"))
+        assertTrue(code.contains("require(amount_per_period >= MIN_FEE and amount_per_period <= MAX_AMOUNT"), "the fee must be bounded at both ends")
         // The header COUNTS its guards.
         assertTrue(main.contains("Eight guards are STRUCTURAL"), "the subscription header must state its guard count")
+        assertTrue(main.contains("val MIN_FEE ="), "a fee below one whole unit accrues nothing - it must have a real floor")
         assertEquals(8, guardCount(main), "the subscription header's stated count must be the number of guards it lists")
         assertTrue(
             main.contains("A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE"),
