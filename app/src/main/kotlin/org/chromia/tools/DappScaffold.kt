@@ -132,6 +132,13 @@ object DappScaffold {
 
     private val namePattern = Regex("^[a-z][a-z0-9_]{0,31}$")
 
+    /**
+     * One token of a template ask: a run of letters or digits. Everything else -
+     * spaces, hyphens, underscores, punctuation - is a boundary. Round 16's
+     * misroute was a substring test that had no boundaries at all.
+     */
+    private val TOKEN = Regex("[a-z0-9]+")
+
     fun normalizeName(raw: String?): String {
         val trimmed = raw?.trim()?.lowercase().orEmpty()
         return if (namePattern.matches(trimmed)) trimmed else DEFAULT_NAME
@@ -367,8 +374,9 @@ object DappScaffold {
         //   - THE PERIOD CAP WAS A FIXED WINDOW ANCHORED ON THE MINT THAT OPENED IT, so
         //     TWICE the cap crossed in TWO MILLISECONDS: one unit at T0+1 anchored the
         //     window, 99999 at T0+DAY filled it, and 100000 at T0+DAY+2 filled a fresh
-        //     one - 200000 units against a period cap of 100000, between block time
-        //     T0+DAY and block time T0+DAY+2.
+        //     one. The unit is OUTSIDE that interval, so what crossed between block time
+        //     T0+DAY and block time T0+DAY+2 is 199999 units against a period cap of
+        //     100000 - the whole two-millisecond total being 200000.
         //   - ONE RELAYER FROZE A BURN FOR EVER. The FIRST attestation opened the row
         //     and BOUND the payment, so a single relayer out of three, below a
         //     threshold of two, spoke first, named itself, and both honest relayers
@@ -405,13 +413,21 @@ object DappScaffold {
         //     ever, and that is the transaction that mints. Once a burn is paid no
         //     further attestation on it is accepted at all. There is no minted flag to
         //     test and none to forget.
-        //   A STALLED BURN CAN BE RE-ATTESTED - if the relayers disagree and NO tuple
-        //     reaches the threshold, any relayer may reopen the burn's attestation
-        //     ROUND once ATTESTATION_WINDOW_MS has passed, and they vote again. Nothing
-        //     is deleted and no timestamp is rewritten except the round's own opening;
-        //     the old votes stay as the record of who said what. A burn that cannot be
-        //     paid is a burn that can be tried again, which is what makes the freeze
-        //     impossible rather than merely visible.
+        //   A STALLED BURN CAN BE RE-ATTESTED, AND A REOPEN SILENCES NOBODY - if the
+        //     relayers disagree and NO tuple reaches the threshold, a relayer THAT HAS
+        //     ATTESTED THIS BURN may reopen its attestation ROUND once
+        //     ATTESTATION_WINDOW_MS has passed, and the set votes again. Being enrolled
+        //     says who is calling; it does not say the caller may walk this burn, and the
+        //     operation checks that (a round only stalls once relayers have DISAGREED in
+        //     it, and those relayers are exactly the ones it admits). A VOICE ALREADY
+        //     CAST STANDS ACROSS THE REOPEN: votes live on a relayer_voice keyed (burn,
+        //     relayer) with no round in it, so a new round lets a relayer RECAST its own
+        //     vote and lets nobody erase anyone else's. Round 16 measured the version
+        //     that keyed votes by ROUND: two DISTINCT honest relayers voted for one
+        //     payment - which IS the threshold of two - with one reopen between them, and
+        //     minted_total was still 0, for one transaction per window paid by the
+        //     dissenter. A burn that cannot be paid is a burn that can be tried again,
+        //     and the votes it has already collected are still there when it is.
         //   NO SINGLE KEY OWNS THE RELAYER SET - the operator enrols the GENESIS set
         //     and closes it, and after that it can neither add nor remove a relayer:
         //     every later change is voted through by relayer_threshold() of the
@@ -424,11 +440,21 @@ object DappScaffold {
         //     anchored on the mint that opened it. Each mint is a row, rows older than
         //     the window are dropped as they age out, and what is minted in the window
         //     is the sum of the rows still in it. THE COST, stated because a defence's
-        //     price belongs in this list: a mint reads and sums the mints of the last
-        //     period, so the cap is bounded twice - by the amount and by
-        //     MAX_MINTS_PER_PERIOD rows, which is what keeps that sum a bounded scan
-        //     and not an unbounded one. A period that fills stalls until the oldest
-        //     mint in it ages out.
+        //     price belongs in this list: a mint reads and sums the rows of the last
+        //     period, so the window is bounded twice - by the amount and by
+        //     MAX_MINTS_PER_PERIOD ROWS, which is what keeps that sum a bounded scan and
+        //     not an unbounded one. THE ROW BOUND IS CHARGED IN VALUE AND NOT IN
+        //     TRANSACTIONS, which is round 16's fix: a mint below min_row_units() -
+        //     period_mint_cap() / MAX_MINTS_PER_PERIOD, 1562 at the shipped 100000 over
+        //     64 - is added to the open DUST ROW rather than opening one of its own, so
+        //     at most one row in a window is below that share and reaching the row bound
+        //     costs 63 * 1562 = 98,406 units, 98.4% of the period cap. The version that
+        //     gave every mint a row was measured at 64 burns of ONE UNIT - 64 units, 128
+        //     transactions from the two relayers that make a threshold - refusing an
+        //     honest 50000 for a full MINT_PERIOD_MS: 64 units denying up to 99,936,
+        //     about 1:1561 on the lever this paragraph prices. A period that fills
+        //     stalls until the oldest mint in it ages out, and it now takes the cap's
+        //     worth of value to fill one either way.
         //   CAPPED IN TOTAL - a receiver can only ever owe what the source chain
         //     locked, so a mint is bounded against a total cap as well, and that one is
         //     never refreshed by waiting. A relayer majority that turns hostile is then
@@ -525,25 +551,50 @@ object DappScaffold {
         // and the one that reaches the threshold is the one that pays. recipient and
         // amount are in the KEY, so what a claim pays can never be rewritten.
         entity burn_claim {
-            key burn: processed_burn, recipient: byte_array, amount: integer, round: integer;
+            key burn: processed_burn, recipient: byte_array, amount: integer;
             opened_at: timestamp;
             mutable votes: integer = 0;
         }
 
-        // One relayer's voice on one burn, in one round. Keyed, so it cannot be repeated
-        // and cannot be split across two claims.
+        // One relayer's voice on one burn, in one round: the RECORD of who said what,
+        // written once and never rewritten or deleted. Keyed, so a relayer cannot repeat
+        // itself inside a round and cannot split one round's voice across two claims.
         entity attestation {
             key burn: processed_burn, witness: relayer, round: integer;
             claim: burn_claim;
             attested_at: timestamp;
         }
 
-        // ONE MINT, inside the rolling period window. Rows age out of the window and are
-        // dropped as they do, so the window's total is a bounded sum.
+        // ...AND THE VOICE THAT COUNTS, which is keyed by (burn, relayer) and by NOTHING
+        // ELSE - there is no round in this key, and that is round 16's fix. Votes used to
+        // be counted on a claim keyed by ROUND, so reopening a round discarded every voice
+        // cast before it: two DISTINCT honest relayers voted for one payment - which IS
+        // the threshold - with a reopen between them, and minted_total stayed 0, for one
+        // transaction per ATTESTATION_WINDOW_MS paid by the relayer that caused the
+        // disagreement. A new round is a chance for a relayer to CHANGE ITS MIND, never a
+        // chance for the set to forget what it already said: this row moves the relayer's
+        // voice from one claim to another, and a claim's `votes` is the number of relayers
+        // backing it right now.
+        entity relayer_voice {
+            key burn: processed_burn, witness: relayer;
+            mutable claim: burn_claim;
+            mutable round: integer;
+            mutable voiced_at: timestamp;
+        }
+
+        // ONE ROW OF THE ROLLING PERIOD WINDOW. Rows age out of the window and are
+        // dropped as they do, so the window's total is a bounded sum. A row is NOT a mint:
+        // a mint too small to be worth a row of the budget is added to the OPEN DUST ROW
+        // instead of opening one of its own (see mint_against), so the number of rows in
+        // a window is bounded by the VALUE in it and not by the number of transactions
+        // that put it there. `burn` is the burn that OPENED the row.
         entity mint_event {
             index burn: processed_burn;
-            amount: integer;
-            minted_at: timestamp;
+            mutable amount: integer;
+            mutable minted_at: timestamp;
+            // Exactly one row in the window is ever open, and it is the only row that may
+            // be below min_row_units().
+            mutable dust_open: boolean = false;
         }
 
         // A proposed change to the relayer set, voted by the EXISTING relayers. The epoch
@@ -589,13 +640,16 @@ object DappScaffold {
         // The window the per-period cap is measured over. A constant, never a
         // parameter: a caller who chooses the period chooses the cap.
         val MINT_PERIOD_MS = 24 * 60 * 60 * 1000;
-        // The most mints one rolling window may hold, so summing it is a bounded scan.
-        // A period that reaches this stalls exactly as a period that reaches the cap
-        // does, and for the same reason.
+        // The most ROWS one rolling window may hold, so summing it is a bounded scan.
+        // It is not a cap on the number of mints and must never be one again: round 16
+        // measured the version where every mint took a row, and 64 burns of ONE UNIT -
+        // 64 units, 128 transactions, from the two relayers that make a threshold -
+        // refused an honest 50000 for a full MINT_PERIOD_MS. See min_row_units().
         val MAX_MINTS_PER_PERIOD = 64;
-        // How long an attestation round stands before any relayer may reopen it. This is
-        // the answer to round 15's freeze: a burn the set could not agree on is tried
-        // again rather than lost.
+        // How long an attestation round stands before a relayer that ATTESTED the burn
+        // may reopen it. This is the answer to round 15's freeze: a burn the set could
+        // not agree on is tried again rather than lost. Nothing that was said in the old
+        // round is discarded by the new one - see relayer_voice.
         val ATTESTATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
@@ -624,6 +678,23 @@ object DappScaffold {
             val c = chain_context.args.period_mint_cap;
             require(c > 0 and c <= total_mint_cap(), "the period mint cap is out of range");
             return c;
+        }
+
+        // WHAT ONE ROW OF THE WINDOW'S ROW BUDGET IS WORTH. The rolling window is summed
+        // by scanning its rows, so the row count has to be bounded - and round 16 measured
+        // what happens when that bound is a count of TRANSACTIONS instead of a quantity of
+        // VALUE: the two relayers that make a threshold minted 64 burns of ONE UNIT, and
+        // an honest 50000, inside both caps, was then refused "too many mints in this
+        // period" for a full MINT_PERIOD_MS. Sixty-four units denied up to 99,936 - about
+        // 1:1561 against the lever this template actually prices - repeatable every
+        // period for 128 transactions a day. So a row is worth a SHARE OF THE PERIOD CAP,
+        // and a mint smaller than that does not get one. Filling the row budget now costs
+        // (MAX_MINTS_PER_PERIOD - 1) shares of the cap: at the shipped 100000 over 64
+        // that is 63 * 1562 = 98,406 units, 98.4% of the cap itself, so the row bound can
+        // no longer be reached more cheaply than the cap it exists to make computable.
+        function min_row_units(): integer {
+            val u = period_mint_cap() / MAX_MINTS_PER_PERIOD;
+            return if (u < 1) 1 else u;
         }
 
         function holding_of(owner: byte_array): holding =
@@ -670,7 +741,23 @@ object DappScaffold {
             update h ( .balance += claim.amount );
             bridge_state.minted_total += claim.amount;
             update burn ( .paid_amount = claim.amount );
-            create mint_event(burn = burn, amount = claim.amount, minted_at = now);
+            // THE WINDOW'S ROW BUDGET IS CHARGED IN VALUE, NOT IN TRANSACTIONS. A mint
+            // worth a whole row takes one. A mint below min_row_units() is added to the
+            // OPEN DUST ROW, whose timestamp moves to NOW so the window never understates
+            // what is still inside it, and which closes as soon as it is worth a row of
+            // its own. At most one row in a window is therefore below min_row_units(),
+            // and dust buys no rows at all.
+            if (claim.amount >= min_row_units()) {
+                create mint_event(burn = burn, amount = claim.amount, minted_at = now, dust_open = false);
+            } else {
+                val open_dust = mint_event @? { .dust_open == true };
+                if (open_dust == null) {
+                    create mint_event(burn = burn, amount = claim.amount, minted_at = now, dust_open = true);
+                } else {
+                    val merged = open_dust.amount + claim.amount;
+                    update open_dust ( .amount = merged, .minted_at = now, .dust_open = merged < min_row_units() );
+                }
+            }
         }
 
         operation register_account() {
@@ -817,24 +904,49 @@ object DappScaffold {
             //    honest majority had no way to say anything else. recipient and amount
             //    are in this row's KEY, so a claim still cannot be rewritten.
             val opened = burn_claim @? {
-                .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round
+                .burn == burn, .recipient == recipient, .amount == amount
             };
             if (opened == null) {
                 create burn_claim(
                     burn = burn,
                     recipient = recipient,
                     amount = amount,
-                    round = burn.round,
                     opened_at = now,
                     votes = 0
                 );
             }
             val claim = burn_claim @ {
-                .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round
+                .burn == burn, .recipient == recipient, .amount == amount
             };
-            // 6. ONE RELAYER, ONE VOICE - the key refuses a repeat AND a second tuple, so
-            //    the count below is a count of DISTINCT relayers and nothing else.
+            // 6. ONE RELAYER, ONE VOICE PER ROUND - the attestation key refuses a repeat
+            //    AND a second tuple inside one round, and the row is never rewritten, so
+            //    the attestations are the record of who said what in every round there
+            //    has been.
             create attestation(burn = burn, witness = witness, round = burn.round, claim = claim, attested_at = now);
+            // 7. AND THE VOICE IS CARRIED ACROSS A REOPEN. Round 16: votes lived on a
+            //    claim keyed by ROUND, so a reopen silenced every relayer that had
+            //    already spoken - two honest relayers voted for one payment either side
+            //    of one reopen, which IS the threshold, and nothing was minted. The vote
+            //    a relayer casts stands until that relayer itself recasts it; a new round
+            //    lets it change its mind and never lets anybody erase it.
+            val voice = relayer_voice @? { .burn == burn, .witness == witness };
+            if (voice == null) {
+                create relayer_voice(burn = burn, witness = witness, claim = claim, round = burn.round, voiced_at = now);
+                add_voice(claim);
+            } else if (voice.claim != claim) {
+                val previous = voice.claim;
+                update voice ( .claim = claim, .round = burn.round, .voiced_at = now );
+                update previous ( .votes -= 1 );
+                add_voice(claim);
+            } else {
+                update voice ( .round = burn.round, .voiced_at = now );
+            }
+        }
+
+        // ONE MORE DISTINCT RELAYER BEHIND THIS TUPLE, and the mint happens the moment the
+        // count EQUALS the threshold - so it happens in exactly one transaction, ever, and
+        // there is no minted flag to test or to forget.
+        function add_voice(claim: burn_claim) {
             val voices = claim.votes + 1;
             update claim ( .votes = voices );
             if (voices == relayer_threshold()) {
@@ -843,9 +955,12 @@ object DappScaffold {
         }
 
         // NOBODY IS STUCK WITH A BURN THE SET COULD NOT AGREE ON. If no tuple reached the
-        // threshold within ATTESTATION_WINDOW_MS, any relayer may open a fresh round and
-        // the set votes again. The old votes stay where they are; nothing is deleted and
-        // no payment is written by this.
+        // threshold within ATTESTATION_WINDOW_MS, a relayer THAT ALREADY ATTESTED THIS
+        // BURN may open a fresh round and the set votes again. Every voice already cast
+        // stands: a new round lets a relayer RECAST its own vote (relayer_voice moves it
+        // from one claim to another), and moves nobody else's. Nothing is deleted, no
+        // payment is written here, and round 16's boundary between two honest votes is
+        // unwritable rather than merely rate-limited.
         operation reopen_burn_attestation(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer) {
             val account = auth.authenticate();
             witness_of(account.id);
@@ -935,13 +1050,14 @@ object DappScaffold {
             return (attestation @* { .burn == b, .round == b.round } ( .attested_at )).size();
         }
 
-        // How many relayers have voted for one exact PAYMENT on this burn, in this round.
+        // How many relayers are backing one exact PAYMENT on this burn RIGHT NOW - across
+        // every round there has been, because a reopen does not silence anybody.
         query claim_votes(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer, recipient: byte_array, amount: integer): integer {
             val b = processed_burn @? {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
             if (b == null) return 0;
-            val c = burn_claim @? { .burn == b, .recipient == recipient, .amount == amount, .round == b.round };
+            val c = burn_claim @? { .burn == b, .recipient == recipient, .amount == amount };
             return if (c != null) c.votes else 0;
         }
 
@@ -1385,6 +1501,102 @@ object DappScaffold {
             assert_conserved();
         }
 
+        // EXPLOIT MUST FAIL. Round 16, drain one: the ROW CAP AS A DENIAL LEVER.
+        // mint_against applies two caps to the rolling window - the amount, which the
+        // header prices, and the ROW COUNT, which it introduced as bookkeeping ("what
+        // keeps that sum a bounded scan"). A period fills with ROWS far more cheaply
+        // than with VALUE. Measured on a running chain, with a threshold of two out of
+        // three: the two colluding relayers minted 64 burns of ONE UNIT - 64 units, 128
+        // attestation transactions - and an honest 50000, inside BOTH caps, was then
+        // refused "too many mints in this period" immediately and half a period later,
+        // and was paid only a full MINT_PERIOD_MS after the dust. SIXTY-FOUR UNITS DENIED
+        // UP TO 99,936 FOR 24 HOURS, about 1:1561 on the lever the header prices,
+        // repeatable every period. The row budget is charged in VALUE now: every one of
+        // those 64 mints is below min_row_units() and they share ONE row between them.
+        function test_r16_b1_dust_mints_cannot_stall_an_honest_burn_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+
+            // THE ATTACK, at round 16's numbers: 64 burns of one unit, paid to the
+            // attacker, 128 attestation transactions, 64 units of a 100000 period cap.
+            var i = 0;
+            while (i < 64) {
+                mint_burn(100 + i, trudy.account.id, 1);
+                i += 1;
+            }
+            assert_equals(main.minted_total(), 64);
+            assert_equals(main.get_balance(trudy.account.id), 64);
+            assert_conserved();
+
+            // THE LINE THE MUTANT REDDENS: the honest burn is paid in the block its
+            // threshold is crossed, in the SAME period, because sixty-four units of dust
+            // bought no rows at all. Round 16 measured "too many mints in this period"
+            // here, for a full day.
+            mint_burn(90, alice.account.id, 50000);
+            assert_equals(main.get_balance(alice.account.id), 50000);
+            assert_equals(main.minted_total(), 50064);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 16, drain two: A REOPEN PUT A ROUND BOUNDARY BETWEEN
+        // TWO HONEST VOICES. Votes used to be keyed by ROUND, so reopen_burn_attestation
+        // discarded every vote cast before it - and the callers it admits are the
+        // relayers that ATTESTED the burn, which includes the dissenter that caused the
+        // disagreement. Measured on a running chain: relayer 1 attested a tuple paying
+        // ITSELF, relayer 2 attested the honest tuple (one vote, minted_total 0); an
+        // ATTESTATION_WINDOW_MS later relayer 1 reopened and the honest tuple was back to
+        // ZERO votes; relayer 3 - honest, and the voice that had been missing - then
+        // voted for exactly relayer 2's tuple. TWO DISTINCT HONEST RELAYERS HAD VOTED FOR
+        // ONE PAYMENT, WHICH IS THE THRESHOLD, AND minted_total WAS STILL 0. Round 15's
+        // freeze cost one transaction for ever; that one cost one transaction per window,
+        // payable by the same party, so "impossible" was not the property the code had.
+        function test_r16_b2_a_reopen_cannot_silence_a_voice_already_cast_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+
+            // Alice burned 90000 on the source chain. Relayer 1 names ITSELF; relayer 2
+            // names the truth. One voice each, and nothing reaches the threshold.
+            attest(1, 20, trudy.account.id, 90000);
+            attest(2, 20, alice.account.id, 90000);
+            assert_equals(main.claim_votes(source_chain(), burn_tx(20), 0, alice.account.id, 90000), 1);
+            assert_equals(main.minted_total(), 0);
+
+            // THE ATTACK: the dissenter waits out its own window and reopens the round.
+            after(main.ATTESTATION_WINDOW_MS);
+            signed(relayer_keypair(1), main.reopen_burn_attestation(source_chain(), burn_tx(20), 0));
+            assert_equals(main.burn_round(source_chain(), burn_tx(20), 0), 2);
+
+            // THE LINE THE MUTANT REDDENS: relayer 2's voice is still on the honest
+            // tuple. Round 16 measured it back at zero here, which is what put a round
+            // boundary between two honest relayers who agreed.
+            assert_equals(main.claim_votes(source_chain(), burn_tx(20), 0, alice.account.id, 90000), 1);
+
+            // ...so the third honest relayer, arriving in the NEW round, is the second
+            // voice for that payment and it mints in the block it signs.
+            attest(3, 20, alice.account.id, 90000);
+            assert_equals(main.claim_votes(source_chain(), burn_tx(20), 0, alice.account.id, 90000), 2);
+            assert_equals(main.get_balance(alice.account.id), 90000);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_equals(main.minted_total(), 90000);
+            assert_conserved();
+
+            // ...and the dissenter's own claim never reached anybody: reopening again
+            // buys it nothing, because the burn is paid and a paid burn is final.
+            assert_equals(main.claim_votes(source_chain(), burn_tx(20), 0, trudy.account.id, 90000), 1);
+            signed_must_fail(
+                relayer_keypair(1),
+                main.reopen_burn_attestation(source_chain(), burn_tx(20), 0),
+                "this burn has already been paid"
+            );
+            assert_conserved();
+        }
+
         // EXPLOIT MUST FAIL. A receiver can only ever owe what the source chain locked,
         // so the mint is bounded twice - and the cost of a cap is that a burn waits,
         // which is what the header's residuals say out loud. The TOTAL cap is not a
@@ -1592,11 +1804,11 @@ object DappScaffold {
             bar read live at execution is a veto anybody can buy: round 11 killed an approved
             payout for ever by staking TWO POINTS after voting had closed. A proposal also
             RESERVES what it may spend at creation, which is how an approval bought while the DAO
-            was small is kept off money that arrived later without reading live stake at all. Building a vault or anything
-            priced by an ORACLE FEED: start from template=vault (every credit is paid out of a
-            reserve row in the same operation, price moves are bounded and rate-limited, stale
-            prices halt trading; the shipped tests replay round 1's unbacked mint and its price
-            crash and require both to fail). NOT an "exchange" - that word used to be answered
+            was small is kept off money that arrived later without reading live stake at all.
+            Building a vault or anything priced by an ORACLE FEED: start from template=vault
+            (every credit is paid out of a reserve row in the same operation, price moves are
+            bounded and rate-limited, stale prices halt trading; the shipped tests replay
+            round 1's unbacked mint and its price crash and require both to fail). NOT an "exchange" - that word used to be answered
             here, and it is how adversary round 8 came to build a drainable AMM: a vault covers
             a reserve and a price FEED, never a CURVE. A swap pool or DEX pair is template=amm,
             and an ORDER BOOK - resting orders that something has to match - is
@@ -1759,7 +1971,7 @@ object DappScaffold {
             vault's reserve discipline to the letter and REDEEMED THE COIN FOR COLLATERAL AT PAR out
             of a reserve that no longer covered it. Two identical positions, three honest -20% posts,
             13332 of coin against collateral worth 10240 - whoever redeemed first took 100 cents on
-            the dollar, the last holder was left with 3082 of a coin nothing backed, THIRTY TOKENS
+            the dollar, the last holder was left with 3092 of a coin nothing backed, THIRTY TOKENS
             moved on transaction order alone, and the gate said ok:true with zero findings while
             every conservation invariant held. A CDP's coin is a LIABILITY of a position, not a
             claim on a pool. The template has NO operation that pays a coin holder par out of
@@ -1877,7 +2089,40 @@ object DappScaffold {
      */
     internal fun closestTemplateNote(requested: String): String {
         val t = requested.lowercase()
-        fun has(vararg keys: String) = keys.any { it in t }
+        // ROUND 16, AUDIT F6: THESE TESTS USED TO BE UNANCHORED SUBSTRING TESTS, and one
+        // of them fired INSIDE AN UNRELATED WORD. `has("vest")` matched "in-VEST-ment",
+        // the streaming branch was read before the governance one, and
+        // `scaffold_dapp template="an investment DAO"` scaffolded the STREAMING template -
+        // ok:true, real files, the full confident prose of a covered class - whose guards
+        // are started_at immutability, PREPAID funding and cancellation, and which has no
+        // quorum, no voting window and no execute-once. That is round 8's
+        // `template=amm` -> `template=vault` hazard with the same consequences.
+        // So the ask is TOKENISED - every run of letters and digits is a token, every
+        // other character is a boundary - and a key matches WHOLE TOKENS, in order.
+        // Separators inside a key are boundaries too, so "cross_chain", "cross chain" and
+        // "cross-chain" are now ONE key written three ways rather than three tests.
+        // A key ending in `*` matches a token PREFIX on its LAST token, and that star is
+        // DELIBERATE, one stem at a time: "vest*" is vesting and vested and NOT
+        // investment, "govern*" is governance, "bid" has NO star because a payment
+        // channel is "bidirectional" and an auction is not what that ask wants.
+        val askTokens = TOKEN.findAll(t).map { it.value }.toList()
+        fun matchesKey(key: String): Boolean {
+            val prefix = key.endsWith("*")
+            val parts = TOKEN.findAll(if (prefix) key.dropLast(1) else key).map { it.value }.toList()
+            if (parts.isEmpty() || parts.size > askTokens.size) return false
+            for (start in 0..askTokens.size - parts.size) {
+                var ok = true
+                for (j in parts.indices) {
+                    val token = askTokens[start + j]
+                    val part = parts[j]
+                    val hit = if (prefix && j == parts.size - 1) token.startsWith(part) else token == part
+                    if (!hit) { ok = false; break }
+                }
+                if (ok) return true
+            }
+            return false
+        }
+        fun has(vararg keys: String) = keys.any { matchesKey(it) }
         return when {
             // AHEAD OF EVERYTHING, including the order-book branch: every realistic
             // phrasing of a bridge ask names a token, an asset or a transfer, so
@@ -1885,9 +2130,9 @@ object DappScaffold {
             // with no warning at all - the route audit of 2026-09-03 recorded that,
             // the TEMPLATE-GAPS row said this was the highest-severity class in the
             // file, and round 14 drained the build that followed the answer.
-            has("bridge", "cross_chain", "crosschain", "cross chain", "cross-chain",
-                "wrapped", "relayer", "attestation", "burn_proof", "burn proof",
-                "mint on proof", "teleport", "canonical token") ->
+            has("bridge*", "cross chain", "crosschain", "wrapped", "relayer*",
+                "attestation*", "burn proof", "mint on proof", "teleport*",
+                "canonical token*") ->
                 "Use `template=bridge`: it is the template for this class, and this class is what " +
                     "adversary round 14 drained WITH NO TEMPLATE AT ALL - from this very answer, " +
                     "which used to send a bridge ask to `template=ft4` and say only that it ships " +
@@ -1913,7 +2158,11 @@ object DappScaffold {
                     "balances against a counter the minting operation raises itself, and it was " +
                     "exact at every step of the 10x mint - so the template's invariant compares " +
                     "what was MINTED against the burns it ACCEPTED. Both round-14 drains ship as " +
-                    "must-fail tests with mutants."
+                    "must-fail tests with mutants. AND IF THE ASK IS COMPOUND - \"a cross-chain " +
+                    "DEX\", a bridged pool - build the RECEIVER from this template first and the " +
+                    "curve from `template=amm` beside it: the mint is the half that lost ten times " +
+                    "its backing, and a pool that prices off reserves is a different exploit class " +
+                    "with its own template rather than a feature of this one."
             // FIRST, ahead of every other branch, and the ordering is load-bearing.
             // "exchange" lives in the amm word list, so an order-book ask used to land
             // on a constant-product template - closer than the `vault` it landed on
@@ -1923,8 +2172,8 @@ object DappScaffold {
             // "an order book with bid/ask" matched THAT first and was answered with
             // listings and an auction. An order-book ask is specific enough that it
             // outranks every keyword another branch might also see.
-            has("order_book", "orderbook", "order book", "limit_order", "limitorder",
-                "matching_engine", "matching engine", "clob", "bid_ask", "order_matching") ->
+            has("order book*", "orderbook*", "limit order*", "limitorder*",
+                "matching engine*", "clob", "bid ask*", "order matching*") ->
                 "Use `template=exchange`: it is the template for this class, and this class is " +
                     "what adversary round 12 drained WITH NO TEMPLATE AT ALL - from this very " +
                     "answer, which used to say that nothing covered an order book and offer two " +
@@ -1953,8 +2202,8 @@ object DappScaffold {
             // Ahead of `lending` (which claims "debt") and of `vault` (which used to
             // claim "stablecoin" and answered round 9's build with a reserve-backed
             // exchange: the drain was written on that advice).
-            has("stablecoin", "stable_coin", "stable coin", "cdp", "collateralized_debt", "collateralised_debt",
-                "collateral_debt", "peg", "synthetic_asset", "syntheticasset") ->
+            has("stablecoin*", "stable*", "cdp*", "collateralized debt*", "collateralised debt*",
+                "collateral debt*", "peg*", "synthetic asset*", "syntheticasset*") ->
                 "Use `template=stablecoin`: it is the template for this class, and this class is what " +
                     "adversary round 9 drained WITH NO TEMPLATE AT ALL - the answer here used to be " +
                     "`template=vault`, and the vault's discipline (every credit paid out of a reserve " +
@@ -1962,7 +2211,7 @@ object DappScaffold {
                     "out of a reserve that no longer covered it. Two identical positions, three honest " +
                     "-20% price posts, both under water at 13332 of coin against collateral worth " +
                     "10240 - and whoever redeemed first took 100 cents on the dollar while the last " +
-                    "holder was left with 3082 of a coin nothing backed: THIRTY TOKENS moved on " +
+                    "holder was left with 3092 of a coin nothing backed: THIRTY TOKENS moved on " +
                     "transaction order alone, gate ok:true, zero findings, every conservation " +
                     "invariant exact. A CDP's coin is a LIABILITY of a position, not a claim on a " +
                     "pool, and the template is built on that: there is NO operation that pays a coin " +
@@ -1982,7 +2231,8 @@ object DappScaffold {
                     "shipped tests replay round 9 AND round 11 in both orders and require every " +
                     "party to end on the same numbers whichever order ran first, with conservation " +
                     "exact after every step. Its oracle key is a module arg exactly like the vault's."
-            has("lend", "borrow", "credit", "loan", "debt", "money_market", "moneymarket", "interest", "yield_farm") ->
+            has("lend*", "borrow*", "credit*", "loan*", "debt*", "money market*", "moneymarket*",
+                "interest*", "yield farm*") ->
                 "Use `template=lending`: it is the template for this class, and this class is what " +
                     "adversary round 6 drained. A hand-built pool accrued interest LAZILY (only " +
                     "inside the operations a borrower signs), so the price of a lender share was " +
@@ -1998,9 +2248,9 @@ object DappScaffold {
                     "vault's bounded oracle, over-collateralisation, a liquidation threshold with " +
                     "a close factor and bonus, and the minimum-first-deposit guard that kills " +
                     "ERC-4626 share inflation - with the round-6 drain as a must-fail test."
-            has("subscription", "subscribe", "recurring", "billing", "allowance", "membership",
-                "direct_debit", "direct debit", "auto_renew", "autorenew", "installment",
-                "instalment", "annuity", "stipend", "pull_payment", "saas") ->
+            has("subscri*", "recurring", "billing", "allowance*", "membership*",
+                "direct debit*", "auto renew*", "autorenew*", "installment*",
+                "instalment*", "annuit*", "stipend*", "pull payment*", "saas") ->
                 "Use `template=subscription`: RECURRING PULL BILLING has its own template, " +
                     "and it is NOT `streaming`. This server used to answer this ask with " +
                     "`template=streaming`, and adversary round 13 drained the build that " +
@@ -2022,9 +2272,27 @@ object DappScaffold {
                     "boundary is worth straddling, and EITHER PARTY MAY ALWAYS CANCEL - " +
                     "there is no `cancellable` term, because a pull authorisation that " +
                     "cannot be revoked is a standing claim on a person rather than a right " +
-                    "over a sum. Both drains ship as must-fail tests with mutants."
-            has("stream", "payroll", "salary", "drip", "wage", "unlock") ||
-                (has("vest") && !has("harvest")) ->
+                    "over a sum. Both drains ship as must-fail tests with mutants. A SPENDING " +
+                    "ALLOWANCE ON A WALLET IS THIS CLASS TOO - it is a standing authorisation to " +
+                    "PULL, which is exactly the thing that has to be capped, escrowed and " +
+                    "revocable; the token the allowance is denominated in is `template=ft4`."
+            // AHEAD OF THE STREAMING BRANCH (round 16, audit F6). A DAO ask must reach
+            // the DAO template, and the branch that used to take it first did so on a
+            // substring inside "in-VEST-ment". Tokenisation fixes that spelling; the
+            // ORDER is what makes it hold for the next one, because a treasury ask is a
+            // governance ask however else it is worded, and none of the classes below
+            // claims a word this list claims.
+            has("dao*", "govern*", "vot*", "treasur*", "proposal*", "quorum*") ->
+                "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
+                    "execute-once are structural there, and it ships the single-account drain as a " +
+                    "must-fail test. Two of its guards are the ones a DAO gets wrong: VOTING WEIGHT IS " +
+                    "NOT MINTABLE (registration credits nothing - adversary round 11 took a 7000 " +
+                    "treasury with four registrations of a permissionless 1000-point welcome grant, " +
+                    "4000 yes to 3000 no, every conservation invariant exact) and THE BAR IS FIXED " +
+                    "WHEN A PROPOSAL IS CREATED, weights included, because a bar read live at " +
+                    "execution is a veto anybody can buy - two points of stake, posted after voting " +
+                    "closed, killed an approved payout for ever. Both drains ship as must-fail tests."
+            has("stream*", "payroll*", "salar*", "drip*", "wage*", "unlock*", "vest*") ->
                 "Use `template=streaming`: it is the template for this class, and this class is what " +
                     "adversary round 7 drained WITH NO TEMPLATE AT ALL. A hand-built payment stream " +
                     "measured what was owed from a MUTABLE ANCHOR - the block of the last settlement - " +
@@ -2042,8 +2310,16 @@ object DappScaffold {
                     "timing can change what the payee is paid. The stream is PREPAID, cancellation " +
                     "pays the payee everything accrued BEFORE refunding the payer the unearned " +
                     "remainder, and `cancellable` is fixed at creation so a VESTING grant genuinely " +
-                    "cannot be clawed back. The round-7 grief ships as a must-fail test."
-            has("auction", "bid", "nft", "marketplace", "listing", "royalt", "collectible") ->
+                    "cannot be clawed back. The round-7 grief ships as a must-fail test. THIS IS " +
+                    "NOT THE DAO TEMPLATE: a treasury, a vote or an investment club is " +
+                    "`template=governance`, and until round 16 an ask for one reached THIS answer " +
+                    "because \"vest\" was tested as a substring and matched \"in-vest-ment\"."
+            // `bid` carries NO star, and that is the whole of round 16's other
+            // misroute: "a bidirectional payment channel" is not an auction ask, and
+            // an unanchored `bid` claimed it. The words that ARE this class are
+            // spelled out instead.
+            has("auction*", "bid", "bids", "bidding", "bidder*", "nft*", "marketplace*",
+                "listing*", "royalt*", "collectible*") ->
                 "Use `template=marketplace`: it ships listings with exact-price buys, escrowed " +
                     "offers, AND a timed ascending auction with no mutable bid field (the standing " +
                     "bid is its own immutable escrow row), plus the encumbrance helper every " +
@@ -2055,9 +2331,9 @@ object DappScaffold {
             // drained it twice. `swap` ALONE still means the pool - that is what most
             // people mean by it - but a swap that names two parties, an escrow, an OTC
             // trade or a timeout is this class and not that one.
-            has("escrow", "otc", "atomic swap", "atomic_swap", "p2p trade", "p2p_trade",
-                "peer to peer trade", "peer-to-peer trade", "swap between two parties",
-                "two party swap", "two-party swap", "counterparty swap", "swap with a timeout") ->
+            has("escrow*", "otc", "atomic swap*", "p2p trade*", "peer to peer trade*",
+                "swap between two parties", "two party swap*", "counterparty swap*",
+                "swap with a timeout") ->
                 "Use `template=escrow`: a TWO-PARTY OTC SWAP with a deadline, and it is the " +
                     "FOURTEENTH template because adversary round 15 asked this server for exactly " +
                     "this and was answered `template=amm` - a constant-product pool - since `swap` " +
@@ -2081,18 +2357,8 @@ object DappScaffold {
                     "their transaction lands - is in the header rather than hidden. If what you " +
                     "want is a POOL that prices off reserves, that is `template=amm`; if it is " +
                     "resting orders anyone may fill, that is `template=exchange`."
-            has("dao", "govern", "vot", "treasury", "proposal", "quorum") ->
-                "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
-                    "execute-once are structural there, and it ships the single-account drain as a " +
-                    "must-fail test. Two of its guards are the ones a DAO gets wrong: VOTING WEIGHT IS " +
-                    "NOT MINTABLE (registration credits nothing - adversary round 11 took a 7000 " +
-                    "treasury with four registrations of a permissionless 1000-point welcome grant, " +
-                    "4000 yes to 3000 no, every conservation invariant exact) and THE BAR IS FIXED " +
-                    "WHEN A PROPOSAL IS CREATED, weights included, because a bar read live at " +
-                    "execution is a veto anybody can buy - two points of stake, posted after voting " +
-                    "closed, killed an approved payout for ever. Both drains ship as must-fail tests."
-            has("amm", "dex", "swap", "liquidity", "constant_product", "constantproduct", "uniswap",
-                "market_maker", "marketmaker", "exchange", "pair") ->
+            has("amm*", "dex*", "swap*", "liquidity", "constant product*", "constantproduct*",
+                "uniswap*", "market maker*", "marketmaker*", "exchange*", "pair*") ->
                 "Use `template=amm`: it is the template for this class, and this class is what " +
                     "adversary round 8 drained WITH NO TEMPLATE AT ALL - it was built because this " +
                     "very answer used to say `template=vault`, and the vault covers a reserve and a " +
@@ -2128,7 +2394,7 @@ object DappScaffold {
                     "note for that ask and drained the pool-shaped build twice: the immutable row " +
                     "deleted whole re-created a partial fill's remainder with a fresh timeout, and " +
                     "escrowing only one leg made the window an option the maker wrote for free."
-            has("oracle", "vault", "redeem", "redemption", "price") ->
+            has("oracle*", "vault*", "redeem*", "redemption*", "price*", "pricing") ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
                     "ships the 100 -> 200,000,000 oracle mint as a must-fail test. If what you are " +
@@ -2139,7 +2405,7 @@ object DappScaffold {
                     "- a stablecoin, a CDP, a synthetic - that is `template=stablecoin`: this answer " +
                     "used to send it here too, and round 9 drained the result by redeeming at par " +
                     "out of a reserve that no longer covered the coin."
-            has("stak", "reward", "harvest", "emission", "farm", "airdrop") ->
+            has("stak*", "reward*", "harvest*", "emission*", "farm*", "airdrop*") ->
                 "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
                     "releases at most what the pool holds, every credit is a pool debit in the same " +
                     "operation, and unstaking has a cooldown. If instead you are paying ONE named " +
@@ -2147,7 +2413,7 @@ object DappScaffold {
                     "`template=streaming`, a different exploit class with its own template; and if " +
                     "a MERCHANT collects from a payer period after period, that is " +
                     "`template=subscription`, a third one."
-            has("token", "ft4", "asset", "coin", "transfer", "wallet", "payment") ->
+            has("token*", "ft4", "asset*", "coin*", "transfer*", "wallet*", "payment*") ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics. If what " +
                     "you are building MINTS on proof of something that happened on ANOTHER chain " +
@@ -3037,6 +3303,16 @@ object DappScaffold {
         val EXECUTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
         // Half of all stake must vote for a proposal to be decidable at all.
         val QUORUM_BPS = 5000;
+        // "NO CANDIDATE FOUND YET" when the leftover point is being placed, and it is -1
+        // rather than 0 for a measured reason. Round 16: this search started at 0 and
+        // tested `r > best`, so a staker whose REMAINDER IS ZERO could never be the
+        // leftover point's home however much room it had - and at stakes of 100 / 1 / 1
+        // against a backing of 102, a payout of 51 (exactly half the treasury) owes the
+        // hundred-point staker exactly 50 with remainder ZERO, so the only candidates left
+        // were the two one-point holders the point empties. One was retired to nothing
+        // while the other kept its whole point and the large staker kept fifty. A
+        // remainder of zero is a real remainder; the comparison must be able to see it.
+        val NO_CANDIDATE_YET = -1;
         val MAX_TITLE_LENGTH = 200;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags
@@ -3112,16 +3388,40 @@ object DappScaffold {
         // stake is ever reduced, which is why there is no unstake operation.
         // RETIREMENT IS PRO RATA, BY LARGEST REMAINDER. Each staker's share is FLOORED
         // first - nobody is charged a point they do not owe - and the points the floors
-        // leave over, always FEWER THAN THE NUMBER OF STAKERS, are handed out ONE EACH to
-        // the largest fractional remainders AMONG THE STAKERS THAT POINT DOES NOT EMPTY.
-        // Two things follow, and they are the whole of what this rule guarantees:
-        //   - EVERY STAKER IS WITHIN ONE POINT OF EXACT PRO RATA, and WHO PAYS THE ODD
-        //     POINT moves with the stakes rather than sitting on one account.
-        //   - NO PAYOUT SMALLER THAN THE WHOLE TREASURY EMPTIES A STAKER while leaving
-        //     another one standing. The floor alone can never empty anybody, because
-        //     floor(stake * amount / backing) is strictly below the stake whenever amount
-        //     is below backing; the leftover point is the only thing that can, and it is
-        //     given to a staker who survives it whenever one exists.
+        // leave over, always FEWER THAN THE NUMBER OF STAKERS, are handed to the largest
+        // fractional remainders AMONG THE STAKERS THAT POINT DOES NOT EMPTY.
+        // What this rule guarantees, in the order it gives things up - and rounds 14, 15
+        // and 16 were each an ABSOLUTE stated here that the arithmetic could not keep:
+        //   - THE LEFTOVER POINT IS NEVER PLACED WHERE IT EMPTIES A STAKER WHILE ANY
+        //     STAKER COULD HAVE ABSORBED IT. The floor alone can never empty anybody,
+        //     because floor(stake * amount / backing) is strictly below the stake whenever
+        //     amount is below backing; the leftover point is the only thing that can, and
+        //     it is offered first to the largest remainder that survives it and has taken
+        //     none, then - round 16 - to the largest remainder that survives it and has
+        //     ALREADY taken one. A ZERO REMAINDER IS A REAL CANDIDATE: the search starts
+        //     at NO_CANDIDATE_YET (-1) rather than 0, because it used to start at 0 and a
+        //     staker owed a whole number of points could not be the leftover point's home
+        //     however much room it had.
+        //   - WHO PAYS THE ODD POINT MOVES WITH THE STAKES rather than sitting on one
+        //     account, and on any payout whose leftover points can be spread one each over
+        //     stakers that survive them - which is every ordinary payout - EVERY STAKER IS
+        //     WITHIN ONE POINT OF EXACT PRO RATA. That bound is the one GIVEN UP when the
+        //     two conflict: a staker that can afford a second odd point pays it rather
+        //     than emptying a staker that cannot afford a first, because there is no
+        //     unstake and no second genesis, so a point lost is a voice lost for the life
+        //     of the chain while a point of rounding is a rounding.
+        //   - AND THE RESIDUAL, WHICH NO ALLOCATION OF INDIVISIBLE POINTS REMOVES: when
+        //     NO staker survives the leftover point - every one of them within one point
+        //     of empty - it falls on the largest remainder outright and empties somebody.
+        //     That is exactly the case where the treasury left after the payout is FEWER
+        //     POINTS THAN THERE ARE STAKERS, and it is the only case: a payout that takes
+        //     the DAO down to less than a point each cannot leave everybody a point.
+        //     Round 16 measured the version that had no second tier and could not see a
+        //     zero remainder: stakes of 100 / 1 / 1 against a backing of 102 and a payout
+        //     of 51 - EXACTLY HALF the treasury, seventeen points per staker left - fell
+        //     through to that last case and retired ONE one-point holder to nothing while
+        //     the other kept its whole point and the large staker kept fifty. Both halves
+        //     of that are now unwritable, and both replay as shipped tests.
         // Round 15 measured what plain largest remainder does without that last clause,
         // at exactly the shape round 14 used to price the OLD bug: stakes of 1000 and 1
         // against a backing of 1001, and a payout of 501 - 50.05% of the treasury. The
@@ -3130,9 +3430,10 @@ object DappScaffold {
         // holding while taking 50.0% of the other's. There is deliberately no unstake, so
         // what they lost was not refundable, and the genesis window is shut, so no
         // operation could give them weight again. The same payout now retires 501 from the
-        // large staker and nothing from the small one: the large staker is one point WORSE
-        // than exact pro rata, which is the price, and it is paid by the party that has
-        // 999 points left rather than by the party that would have none.
+        // large staker and nothing from the small one. EXACT pro rata for the large staker
+        // is 1000 * 501 / 1001 = 500.4995, so retiring 501 is HALF A POINT worse than
+        // exact - one point worse than its floor of 500 - and it is paid by the party that
+        // is left holding 499 rather than by the party that would have none.
         //
         // Round 14 measured the version that rounded UP in @sort .owner order and stopped
         // the moment `remaining` reached zero. Rounding up is not a rounding - the shares
@@ -3162,46 +3463,68 @@ object DappScaffold {
                 remainder[owner] = exact % backing;
                 floored += exact / backing;
             }
-            // Fewer leftover points than stakers with a remainder, so this terminates and
-            // every staker it touches has room for the point: a staker whose remainder is
-            // non-zero has floored strictly below their own stake.
+            // Fewer leftover points than stakers, so this terminates: every remainder is
+            // strictly below the backing, so their sum is strictly below stakers * backing
+            // and the leftover count is strictly below the number of stakers.
             var leftover = amount - floored;
+            // Who has already taken one leftover point. A second one is only ever given to
+            // a staker who can still afford it, and only when nobody who has taken none
+            // can - see the ladder below.
+            val awarded = set<byte_array>();
             while (leftover > 0) {
-                // THE ODD POINT GOES TO THE LARGEST REMAINDER IT DOES NOT EMPTY. Round 15
-                // measured plain largest remainder at its own boundary: with stakes of
-                // 1000 and 1 against a backing of 1001, a payout of 501 owes the one-point
-                // staker 0.5005 of a point - the LARGEST remainder - so the odd point took
-                // 100% of their holding out of a payout that took 50.0% of everyone
-                // else's, and there is no unstake to get it back. A FLOOR can never empty
-                // anybody: floor(stake * amount / backing) is strictly below the stake
-                // whenever the payout is smaller than the treasury, and when it is not,
-                // everybody is emptied together. So the leftover point is the ONLY way one
-                // staker is emptied while others are not, and it is handed to the largest
-                // remainder among the stakers who SURVIVE it. Only when every candidate
-                // would be emptied by it does it fall on the largest remainder outright,
-                // and that is a payout taking the treasury down to less than one point per
-                // staker - it is taking everyone's.
+                // THE ODD POINT GOES TO A STAKER IT DOES NOT EMPTY, AND EMPTYING NOBODY
+                // OUTRANKS BEING WITHIN ONE POINT OF PRO RATA. Round 15 measured plain
+                // largest remainder at its own boundary: with stakes of 1000 and 1 against
+                // a backing of 1001, a payout of 501 owes the one-point staker 0.5005 of a
+                // point - the LARGEST remainder - so the odd point took 100% of their
+                // holding out of a payout that took 50.0% of everyone else's, and there is
+                // no unstake to get it back. A FLOOR can never empty anybody:
+                // floor(stake * amount / backing) is strictly below the stake whenever the
+                // payout is smaller than the treasury, and when it is not, everybody is
+                // emptied together. So the leftover point is the ONLY way one staker is
+                // emptied while others are not, and it is placed in three tiers:
+                //   1. the largest remainder among stakers that SURVIVE the point and have
+                //      not taken one yet - the fair choice, and on an ordinary payout the
+                //      only tier that ever runs;
+                //   2. failing that, the largest remainder among stakers that survive the
+                //      point even though they have already taken one. ROUND 16: a staker
+                //      that can afford a SECOND point pays it rather than emptying a
+                //      staker that cannot afford a first. This is where the one-point
+                //      pro-rata bound is given up, deliberately, because being two points
+                //      light on a hundred is a rounding and losing your last point is
+                //      losing your vote for the life of the chain - there is no unstake;
+                //   3. only when NO staker survives the point at all does it fall on the
+                //      largest remainder outright and empty somebody. Every staker having
+                //      at most one point of slack means the treasury left after this
+                //      payout is FEWER POINTS THAN THERE ARE STAKERS - it is taking
+                //      essentially everyone's, and no allocation of indivisible points
+                //      avoids it.
                 var pick: byte_array? = null;
-                var best = 0;
+                var best = NO_CANDIDATE_YET;
+                var second: byte_array? = null;
+                var second_best = NO_CANDIDATE_YET;
                 var fallback: byte_array? = null;
-                var fallback_best = 0;
+                var fallback_best = NO_CANDIDATE_YET;
                 for (owner in owners) {
                     val r = remainder[owner];
+                    val m = member @ { .owner == owner };
+                    val survives = owed[owner] + 1 < m.stake;
                     if (r > fallback_best) {
                         fallback_best = r;
                         fallback = owner;
                     }
-                    val m = member @ { .owner == owner };
-                    if (r > best and owed[owner] + 1 < m.stake) {
+                    if (survives and r > second_best) {
+                        second_best = r;
+                        second = owner;
+                    }
+                    if (survives and not (owner in awarded) and r > best) {
                         best = r;
                         pick = owner;
                     }
                 }
-                val chosen = require(pick ?: fallback, "stake retirement did not balance");
+                val chosen = require(pick ?: second ?: fallback, "stake retirement did not balance");
                 owed[chosen] = owed[chosen] + 1;
-                // Awarded: nobody takes a second leftover point, and a staker with no
-                // remainder is never charged one at all.
-                remainder[chosen] = 0;
+                awarded.add(chosen);
                 leftover -= 1;
             }
             require(leftover == 0, "stake retirement did not balance");
@@ -4372,9 +4695,10 @@ object DappScaffold {
             // still has a voice in the DAO. Round 15 measured him at zero here.
             signed(bob.keypair, main.create_proposal("bob still has a voice", bob.account.id, 1));
             assert_equals(main.get_stake(bob.account.id), 1);
-            // ...and the odd point is paid by the staker who can afford it: alice is ONE
-            // POINT worse than exact pro rata (500.5 owed, 501 retired), which is the
-            // price of the rule and is stated in the header.
+            // ...and the odd point is paid by the staker who can afford it. EXACT pro rata
+            // for alice is 1000 * 501 / 1001 = 500.4995, so 501 retired is HALF A POINT
+            // worse than exact - one point worse than her floor - which is the price of
+            // the rule and is stated in the header.
             assert_equals(main.get_stake(alice.account.id), 499);
             assert_equals(main.total_stake(), 500);
             assert_equals(main.treasury_balance(), 500);
@@ -4418,6 +4742,78 @@ object DappScaffold {
             assert_equals(main.get_stake(order[2]), 999);
             assert_equals(main.total_stake(), 1999);
             assert_equals(main.treasury_balance(), 1999);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 16, the THIRD occurrence of this class, again at the
+        // boundary of the previous round's fix. Stakes of 100 / 1 / 1 against a backing
+        // of 102 and a payout of 51 - EXACTLY HALF the treasury - owe the hundred-point
+        // staker exactly 50, REMAINDER ZERO. The search for the leftover point's home
+        // started at `var best = 0` and tested `r > best`, so a zero remainder could
+        // never be the pick however much room it had, and the only positive remainders
+        // belonged to the two one-point holders the point EMPTIES. Measured on a running
+        // chain: treasury 51, alice 50, ONE holder retired to nothing while the OTHER
+        // kept its whole point - seventeen points per staker left, so nothing like the
+        // "taking everyone's" case the header used to name. There is no unstake and the
+        // genesis window is shut, so that voice was gone for the life of the chain.
+        function test_r16_half_the_treasury_cannot_empty_a_staker_while_an_equal_one_stands_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            for (k in [alice, bob, trudy]) signed(k.keypair, main.register_member());
+            for (k in [alice, bob, trudy]) claim(k.keypair);
+            close_genesis_window();
+
+            signed(alice.keypair, main.fund_treasury(100));
+            signed(bob.keypair, main.fund_treasury(1));
+            signed(trudy.keypair, main.fund_treasury(1));
+            assert_equals(main.total_stake(), 102);
+
+            // An ordinary, honest, quorate proposal: half the treasury to alice.
+            payout(alice.keypair, [alice.keypair], alice.account.id, 51, "half the treasury");
+
+            // THE LINES THE MUTANT REDDENS, and they are BOTH here because the fallback
+            // picks by remainder and the sort order decides which holder it lands on:
+            // each one-point holder still holds its point, so each still has a voice.
+            signed(bob.keypair, main.create_proposal("bob still has a voice", bob.account.id, 1));
+            signed(trudy.keypair, main.create_proposal("trudy still has a voice", trudy.account.id, 1));
+            assert_equals(main.get_stake(bob.account.id), 1);
+            assert_equals(main.get_stake(trudy.account.id), 1);
+            // ...and the leftover point falls on the staker that can afford it: alice is
+            // owed exactly 50 and retires 51, which is one point off her own floor.
+            assert_equals(main.get_stake(alice.account.id), 49);
+            assert_equals(main.total_stake(), 51);
+            assert_equals(main.treasury_balance(), 51);
+            assert_conserved();
+        }
+
+        // THE CONTROL, and ONE POINT OF HOLDING is the whole difference. The same three
+        // members and the same shape of payout with the two small stakes at TWO points:
+        // 100 / 2 / 2 against a backing of 104, paying 52. Every share is exact then -
+        // 50 / 1 / 1, all three remainders zero - so there is no leftover point to place
+        // at all and nobody is emptied under either rule. This case was green before
+        // round 16's fix and is green after it, which is what makes the test above a
+        // measurement of the placement rule rather than of the arithmetic around it.
+        function test_r16_control_a_two_point_staker_is_not_emptied() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            for (k in [alice, bob, trudy]) signed(k.keypair, main.register_member());
+            for (k in [alice, bob, trudy]) claim(k.keypair);
+            close_genesis_window();
+
+            signed(alice.keypair, main.fund_treasury(100));
+            signed(bob.keypair, main.fund_treasury(2));
+            signed(trudy.keypair, main.fund_treasury(2));
+            assert_equals(main.total_stake(), 104);
+
+            payout(alice.keypair, [alice.keypair], alice.account.id, 52, "the control payout");
+
+            assert_equals(main.get_stake(alice.account.id), 50);
+            assert_equals(main.get_stake(bob.account.id), 1);
+            assert_equals(main.get_stake(trudy.account.id), 1);
+            assert_equals(main.total_stake(), 52);
+            assert_equals(main.treasury_balance(), 52);
             assert_conserved();
         }
     """.trimIndent() + "\n"
@@ -4580,11 +4976,19 @@ object DappScaffold {
         //                      redeemed 88 where burning at par would have returned 100,
         //                      and the whale walked out with every token she came in with.
         //   SETTLEMENT IS   - opening settlement and closing it are two calls of settle(),
-        //     TWO PHASES      SETTLEMENT_WINDOW_MS apart. While it is pending, the only
-        //                     operations that still run are the two that CANNOT MOVE A
-        //                     TOKEN OUT OF THE RESERVE - deposit_collateral and
-        //                     burn_stable - so a debtor whose position is sound always has
-        //                     a block in which to take the par exit. Round 15 measured the
+        //     TWO PHASES      SETTLEMENT_WINDOW_MS apart. While it is pending, the three
+        //                     operations that MOVE VALUE OUT are refused and no others
+        //                     are: mint_stable, withdraw_collateral and liquidate all call
+        //                     not_pending(). What still runs is everything else -
+        //                     deposit_collateral and burn_stable, the two that cannot move
+        //                     a token out of the reserve, so a debtor whose position is
+        //                     sound always has a block in which to take the par exit, and
+        //                     also set_price (the oracle keeps posting, bounded and rate
+        //                     limited), register_account (which mints WELCOME_TOKENS of
+        //                     COLLATERAL to a newcomer and no coin) and settle() itself,
+        //                     which is how the window is ever closed. Round 16 corrected
+        //                     "the only operations that still run are the two" here: five
+        //                     run, and the claim that matters is the narrower one below. Round 15 measured the
         //                     sentence that used to stand here, "the two that RAISE the
         //                     system's backing", and it is FALSE of burn_stable: a debtor
         //                     who retires her LAST unit of debt stops backing the coin, so
@@ -4623,15 +5027,22 @@ object DappScaffold {
         //                     returned him a block earlier. The window is only informative
         //                     if what it prices is fixed when it opens; the closing call is
         //                     now worth nothing to whoever makes it. If nobody closes the
-        //                     window before the recorded price goes stale by the oracle's
-        //                     own rule, the next call RE-OPENS at a fresh price instead of
-        //                     settling at an old one. Round 13
+        //                     window in time, the next call RE-OPENS at a fresh price
+        //                     instead of settling at an old one - and READ THE TEST, which
+        //                     is `now - settlement.opened_at > MAX_PRICE_AGE_MS`: it is the
+        //                     age of the OPENING, not of the price the opening recorded.
+        //                     current_price() admits a feed up to MAX_PRICE_AGE_MS old, so
+        //                     the recorded price may already have been that old when it was
+        //                     written, and at the boundary phase two can settle at a price
+        //                     up to TWICE MAX_PRICE_AGE_MS - 48 hours at the shipped
+        //                     constant - behind the block it settles in. That is bounded
+        //                     and it is stated; it is not "the oracle's own rule". Round 13
         //                     measured the one-phase version, which was permissionless,
         //                     instant and irreversible: at 48.00 a position at 72% settled
         //                     first and the party at 160% - who was the reason nothing was
         //                     wrong with her own position, who could not even be liquidated
         //                     ("position is healthy") and who could have burned at par and
-        //                     been made whole - redeemed 88 against her 100. ELEVEN TOKENS
+        //                     been made whole - redeemed 88 against her 100. TWELVE TOKENS
         //                     on transaction order, all of them out of the best
         //                     collateralised party. Whoever moved first won, and that is
         //                     what a window removes.
@@ -4639,7 +5050,7 @@ object DappScaffold {
         //     AT PAR          somebody else's position. That was round 9's drain: 13332 of
         //                     coin against collateral worth 10240, and whoever redeemed first
         //                     took collateral at 100 cents while the last holder was left
-        //                     with 3082 of a coin nothing backed - THIRTY TOKENS moved on
+        //                     with 3092 of a coin nothing backed - THIRTY TOKENS moved on
         //                     transaction order alone. Here the peg is held by the debtor's
         //                     right to burn at par against their OWN debt, by liquidation
         //                     WHILE THE SYSTEM IS SOUND, and by settlement. Round 11
@@ -4661,7 +5072,7 @@ object DappScaffold {
         //                     happens at all. Sharing a shortfall pro rata is only fair
         //                     between parties who are all in it; an instant settlement put
         //                     a party at 160% into the pool before she could take the par
-        //                     exit that was hers, and cost her eleven tokens for being on
+        //                     exit that was hers, and cost her twelve tokens for being on
         //                     the wrong side of one transaction's ordering.
         // The oracle is the ONE key in chain_context.args.oracle_pubkey - configured, never
         // a parameter, never in source.
@@ -4792,7 +5203,7 @@ object DappScaffold {
         // window in which a debtor may still burn at par against their own position, so it
         // is the whole of round 13's fix: size it against how fast your holders can act,
         // and never make it a parameter - a settler who chooses zero has chosen the
-        // one-phase settlement that raced a healthy debtor out of eleven tokens.
+        // one-phase settlement that raced a healthy debtor out of twelve tokens.
         val SETTLEMENT_WINDOW_MS = 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
@@ -4832,10 +5243,15 @@ object DappScaffold {
         }
 
         // ...and every operation that takes value OUT of the system also starts here.
-        // While a settlement is pending the only two operations that run are the ones that
-        // CANNOT MOVE A TOKEN OUT OF THE RESERVE, deposit_collateral and burn_stable: a
-        // shortfall that somebody has already shown at a fresh price is not the moment to
-        // let value leave. NOT "the two that raise the system's backing" - that is what
+        // While a settlement is pending the three operations that could move a token out
+        // are refused - mint_stable, withdraw_collateral and liquidate, the three call
+        // sites of this function - because a shortfall somebody has already shown at a
+        // fresh price is not the moment to let value leave. The two that keep running and
+        // touch a position are the ones that CANNOT MOVE A TOKEN OUT OF THE RESERVE,
+        // deposit_collateral and burn_stable; set_price, register_account and settle()
+        // itself run too, and none of them takes a token out either. Round 16: this
+        // comment used to say those two were "the only two operations that run", and
+        // five do. NOT "the two that raise the system's backing" - that is what
         // this comment used to say and round 15 measured it false, because a FULL par exit
         // retires the debtor's last unit of debt and her collateral stops backing the coin
         // in the same block (99.3% -> 72.0% at 48.00). The ratio can fall here. What
@@ -5675,7 +6091,7 @@ object DappScaffold {
         // settlement price - into a pool paying under par, while that debtor could have
         // burned at par against her own debt and walked out whole. Measured at 48.00:
         // trudy at 72% settled first and the two redeemed 111 and 88; alice burning first
-        // gave 100 and 100. ELEVEN TOKENS on transaction order, all of them out of the
+        // gave 100 and 100. TWELVE TOKENS on transaction order, all of them out of the
         // party at 160% who was party to nothing and could not even be liquidated.
         //
         // Settlement is now two calls a window apart, and while it is pending the two
@@ -7055,8 +7471,15 @@ object DappScaffold {
         //                   resting order may find it cancelled in the block their own
         //                   transaction lands, and this template does not pretend
         //                   otherwise. What it guarantees is that quoting is never free -
-        //                   every live or cancelled row holds its escrow for the hour and
-        //                   counts against MAX_RESTING_ORDERS until it is withdrawn.
+        //                   a row that is still live, or cancelled and not yet withdrawn,
+        //                   holds its escrow for the hour and counts against
+        //                   MAX_RESTING_ORDERS the whole time. THE ONE WAY A SLOT IS FREED
+        //                   WITHOUT A WITHDRAWAL is a fill that takes the row to its full
+        //                   quantity: fill() deletes it in that block
+        //                   (`if (new_filled == o.qty) delete o;`) and it never reaches
+        //                   withdraw_escrow at all. That costs the maker nothing and it
+        //                   frees nothing an attacker wanted - a fully filled quote was
+        //                   not a bluff.
         //                   AND THE RESIDUAL, MEASURED: a two-key maker who self-crosses
         //                   still gets the capital back in the SAME BLOCK, because a fill
         //                   pays the taker at once, where the one-account maker who cancels
@@ -7107,8 +7530,11 @@ object DappScaffold {
         //                   stands a HUNDRED rows. THE BOUND, NOW, AND IT DOES NOT MOVE
         //                   WITH THE PRICE: WELCOME_POINTS / MIN_NOTIONAL rows on the bid
         //                   side (ten) and WELCOME_UNITS / MIN_ORDER_UNITS on the sell side
-        //                   (twenty, which is MAX_RESTING_ORDERS, so the cap binds there
-        //                   first). Size BOTH floors against what a grant - or, in
+        //                   (100 / 5 = twenty, and MAX_RESTING_ORDERS is also twenty, so
+        //                   on that side the two bind at exactly the same row and NEITHER
+        //                   is first - which is the same fact the constants below state,
+        //                   "neither constant is slack"). Size BOTH floors against what a
+        //                   grant - or, in
         //                   production, the cheapest funded account - can hold, and read
         //                   the CHEAPER side, because that is the one an attacker uses.
         //                   Round 13 measured the unfiltered, unbounded version:
@@ -7387,7 +7813,8 @@ object DappScaffold {
         // measured from the created_at written when the maker placed it. No fill touches
         // that field, so no stranger can push this out - and no SECOND ACCOUNT can pull it
         // in, which is the half round 14 found missing. The row lives, and holds its
-        // MAX_RESTING_ORDERS slot, until this runs.
+        // MAX_RESTING_ORDERS slot, until this runs OR until a fill takes it to its full
+        // quantity, which deletes it inside fill() and never comes here.
         operation withdraw_escrow(order_id: integer) {
             val account = auth.authenticate();
             val o = require(order @? { .id == order_id }, "no such order");
@@ -7995,11 +8422,24 @@ object DappScaffold {
         //     neither field is mutable. Every other operation READS
         //     op_context.last_block_time and compares. A deadline no counterparty can push
         //     is the whole of what "with a timeout" was asked for.
-        //   BOTH LEGS IN ONE OPERATION - the maker's leg is escrowed when the swap is
-        //     created, and the taker's is taken in the very operation that delivers it, so
-        //     there is never a block in which one party has parted with value and the
-        //     other has not. Nothing settles half-way: one operation debits and credits
-        //     both sides.
+        //   BOTH LEGS IN ONE SETTLEMENT - the taker's leg is taken in the very operation
+        //     that delivers the maker's, so a SETTLEMENT never happens half-way: one
+        //     transaction debits and credits both sides or neither of them moves. That is
+        //     the whole of what this guard says, and round 16 deleted the absolute that
+        //     used to stand beside it ("there is never a block in which one party has
+        //     parted with value and the other has not"), because it was false for the
+        //     whole window and the template's own GREEN test asserted the counterexample.
+        //     WHAT IS ACTUALLY TRUE, and it is asymmetric on purpose: only the MAKER'S
+        //     leg is escrowed. From the block a swap opens until it settles, is cancelled
+        //     or expires, exactly ONE party has parted with value - the maker, whose
+        //     qty_a leaves her balance inside open_swap - and the taker has parted with
+        //     nothing at all. Measured by the shipped tests: alice offers 100 of A for
+        //     1000 of B and stands at WELCOME_A - 100 = 900 for the whole hour while bob
+        //     is untouched at 1000 of A and WELCOME_B = 10000 of B, and if nobody
+        //     settles, expire_swap gives alice her 100 back having cost bob nothing.
+        //     WHAT THE MAKER GETS FOR THAT EXPOSURE IS REVOCABILITY, not symmetry: she
+        //     may cancel in any block, which is the next guard, and the first residual
+        //     says why escrowing both legs is not available to a template at all.
         //   THE OFFER IS REVOCABLE, IN ANY BLOCK - cancel_swap needs no deadline and no
         //     counterparty. That is round 15's second drain: an offer the maker cannot
         //     withdraw is a free option for whoever may take it, and the longer the window
@@ -8448,6 +8888,50 @@ object DappScaffold {
             after(HOUR + 1000);
             signed(bob.keypair, main.expire_swap(1));
             assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
+            assert_conserved();
+        }
+
+        // THE FIFTH GUARD'S SECOND HALF, MEASURED - round 16. The guard list used to end
+        // "so there is never a block in which one party has parted with value and the
+        // other has not", and an auditor places most trust in a guard list. It is false
+        // for the whole window, and test_round15_otc2 above already asserted both halves
+        // of the counterexample thirty minutes apart while staying green. This test says
+        // it outright, so the sentence cannot come back: ONE leg is escrowed, the maker's,
+        // and the taker has parted with nothing until the block he settles in.
+        function test_r16_e1_one_party_has_parted_with_value_for_the_whole_window() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            // The block the swap opens: alice's leg is gone, bob's is not.
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+            assert_equals(main.get_b(alice.account.id), main.WELCOME_B);
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
+            assert_conserved();
+
+            // ...and every ten minutes of the hour, the same two numbers. 900 and 10000.
+            var minutes = 0;
+            while (minutes < 60) {
+                after(10 * 60 * 1000);
+                minutes += 10;
+                assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+                assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
+                assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+                assert_conserved();
+            }
+
+            // The deadline returns her leg, and bob has paid nothing for the option he
+            // held - which is why the header prices the free look at ONE BLOCK on the
+            // maker's right to cancel, and not at zero.
+            signed(alice.keypair, main.expire_swap(1));
+            assert_equals(main.get_swap(1)!!.status, main.STATUS_RETURNED);
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(alice.account.id), main.WELCOME_B);
             assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
             assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
             assert_conserved();

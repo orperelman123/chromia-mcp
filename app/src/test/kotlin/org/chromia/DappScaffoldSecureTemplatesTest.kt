@@ -1921,8 +1921,15 @@ class DappScaffoldSecureTemplatesTest {
         )
         val claimEntity = main.substringAfter("entity burn_claim {").substringBefore("\n}")
         assertTrue(
-            claimEntity.contains("key burn: processed_burn, recipient: byte_array, amount: integer, round: integer;"),
+            claimEntity.contains("key burn: processed_burn, recipient: byte_array, amount: integer;"),
             "the payment a relayer votes for must be the claim's KEY: $claimEntity"
+        )
+        // ROUND 16: and the ROUND is NOT in that key. Votes keyed by round meant a reopen
+        // discarded every voice cast before it - two honest relayers voted for one payment
+        // either side of one reopen, which IS the threshold, and nothing was minted.
+        assertFalse(
+            claimEntity.contains("round"),
+            "a claim keyed by round is a claim a reopen empties: $claimEntity"
         )
         assertEquals(1, Regex("mutable ").findAll(claimEntity).count(), "a claim's only mutable field is its vote count: $claimEntity")
         assertTrue(claimEntity.contains("mutable votes: integer = 0;"), claimEntity)
@@ -1930,6 +1937,26 @@ class DappScaffoldSecureTemplatesTest {
         // relayers and a relayer cannot vote for two tuples on one burn.
         val attestationEntity = main.substringAfter("entity attestation {").substringBefore("\n}")
         assertTrue(attestationEntity.contains("key burn: processed_burn, witness: relayer, round: integer;"), attestationEntity)
+        // ...and the voice that COUNTS is keyed by (burn, relayer) with no round in it, so
+        // a new round lets a relayer recast its own vote and lets nobody erase another's.
+        val voiceEntity = main.substringAfter("entity relayer_voice {").substringBefore("\n}")
+        assertTrue(voiceEntity.contains("key burn: processed_burn, witness: relayer;"), voiceEntity)
+        assertEquals(
+            listOf("claim", "round", "voiced_at"),
+            Regex("mutable (\\w+)").findAll(voiceEntity).map { it.groupValues[1] }.toList(),
+            "a relayer's live voice moves between claims; nothing else about it does: $voiceEntity"
+        )
+        assertFalse(code.contains("delete relayer_voice"), "a reopen deletes no voice - that was round 16's drain")
+        assertFalse(
+            opBody(code, "reopen_burn_attestation").contains(".votes = 0"),
+            "a reopen may not zero a claim's votes: that is the round boundary between two honest voices"
+        )
+        // Moving a voice is what makes a reopen a change of mind rather than an erasure:
+        // the old claim loses exactly the one vote the new claim gains.
+        assertTrue(
+            opBody(code, "attest_burn").contains("update previous ( .votes -= 1 );"),
+            "recasting a vote must take it off the claim it was on"
+        )
         // THE MINT READS THE CLAIM, never the operation's arguments, and there is
         // exactly one place a unit is created.
         assertTrue(code.contains("function mint_against(claim: burn_claim)"))
@@ -2009,6 +2036,22 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(main.contains("\"the bridge's total mint cap is reached\"") && main.contains("\"the bridge's mint cap for this period is reached\""))
         assertTrue(main.contains("val MINT_PERIOD_MS ="), "the period must be a named constant")
         assertTrue(main.contains("val MAX_MINTS_PER_PERIOD ="), "the rolling window's scan must be bounded")
+        // ROUND 16: ...and that bound is charged in VALUE, never in transactions. 64 burns
+        // of ONE UNIT filled the row budget and refused an honest 50000 for a full
+        // MINT_PERIOD_MS - 64 units denying up to 99,936, about 1:1561 on the lever the
+        // header prices. A mint below one row's share of the period cap opens no row.
+        assertTrue(
+            code.contains("function min_row_units(): integer") &&
+                code.contains("val u = period_mint_cap() / MAX_MINTS_PER_PERIOD;"),
+            "a row of the window's budget must be worth a share of the period cap"
+        )
+        val mintAgainst = code.substringAfter("function mint_against").substringBefore("
+}")
+        assertTrue(
+            mintAgainst.contains("if (claim.amount >= min_row_units()) {") &&
+                mintAgainst.contains("mint_event @? { .dust_open == true }"),
+            "a mint below that share must join the open dust row instead of opening one: $mintAgainst"
+        )
         assertTrue(
             code.contains("delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };"),
             "the period window must roll with the block time, not be anchored on a mint"
@@ -2172,6 +2215,214 @@ class DappScaffoldSecureTemplatesTest {
         val out = DappScaffold.toJson("otc", template = "escrow")
         assertEquals("escrow", out.getValue("template").toString().trim('"'), "template=escrow must resolve to the escrow template")
         assertEquals("[]", out.getValue("warnings").toString(), "escrow is a shipped template, not a redirect")
+    }
+
+    /**
+     * ROUND 16, AUDIT F6 FALLOUT. `closestTemplateNote` was an ORDERED `when` of
+     * UNANCHORED SUBSTRING tests, and one of them fired inside an unrelated word:
+     * `has("vest") && !has("harvest")` matched "in-VEST-ment" and was evaluated
+     * before the governance branch, so `scaffold_dapp template="an investment DAO"`
+     * scaffolded the STREAMING template - ok:true, real files, the full confident
+     * prose of a covered class - whose guards are started_at immutability, PREPAID
+     * funding and cancellation, and which has no quorum, no voting window and no
+     * execute-once. That is round 8's `template=amm` -> `template=vault` hazard again.
+     *
+     * The ask is tokenised now and a key matches WHOLE TOKENS, or a token PREFIX where
+     * the `*` is deliberate and one stem at a time. These are the twelve ordinary asks
+     * Round16RedirectProbeTest recorded plus the phrasings round 16's brief named, and
+     * each is pinned to where it lands - including the ones whose honest answer is
+     * that nothing covers them.
+     */
+    @Test
+    fun ordinaryAsksReachTheTemplateForTheirExploitClass() {
+        fun noteFor(ask: String) = DappScaffold.closestTemplateNote(ask)
+        fun assertRoute(ask: String, template: String) =
+            assertEquals(template, DappScaffold.closestTemplate(ask), "'$ask' -> $template, got: ${noteFor(ask).take(120)}")
+
+        // A DAO ask reaches the DAO template, whatever else is in the sentence. The
+        // first of these is the misroute itself.
+        listOf(
+            "an investment DAO",
+            "an investment club with a treasury",
+            "a DAO",
+            "a governance token vote",
+            "a treasury with a quorum"
+        ).forEach { assertRoute(it, "governance") }
+        assertFalse(
+            noteFor("an investment DAO").contains("Use `template=streaming`"),
+            "the misroute round 16 measured: an investment DAO scaffolded the streaming template"
+        )
+        assertTrue(
+            noteFor("an investment DAO").contains("quorum, a fixed voting window"),
+            "...and it must arrive with the governance guards, not just the template name"
+        )
+
+        // `vest` is a deliberate STEM: vesting is streaming, investment is not.
+        listOf("vesting", "a vested grant", "payroll", "a salary drip").forEach { assertRoute(it, "streaming") }
+
+        // `bid` is NOT a stem, and that is round 16's other unanchored word: a
+        // bidirectional payment channel is not an auction. Nothing here covers a
+        // payment channel, so it lands on the token skeleton and not on a listing board.
+        assertRoute("a bidirectional payment channel", "ft4")
+        assertFalse(
+            noteFor("a bidirectional payment channel").contains("Use `template=marketplace`"),
+            "a payment channel is not a listing board - `bid` inside `bidirectional` used to say it was"
+        )
+        listOf("an auction", "a bid on a listing", "an NFT marketplace with royalties").forEach { assertRoute(it, "marketplace") }
+
+        // `harvest` reaches staking, and an ask that NAMES a template gets it.
+        assertRoute("a harvest vault", "vault")
+        assertRoute("a yield harvesting vault", "vault")
+        assertRoute("a yield harvesting strategy", "staking")
+
+        // The two-party trade class, by every name for it.
+        listOf("an OTC escrow swap", "escrow swap", "an atomic swap").forEach { assertRoute(it, "escrow") }
+
+        // A compound ask goes to the half that lost ten times its backing, and the
+        // answer names the other half rather than pretending the ask was simple.
+        assertRoute("a cross-chain DEX", "bridge")
+        assertTrue(
+            noteFor("a cross-chain DEX").contains("`template=amm`"),
+            "a compound cross-chain ask must be told where the curve half lives"
+        )
+
+        // A standing authorisation to PULL is the billing class, whatever it is called.
+        assertRoute("a wallet with a spending allowance", "subscription")
+        assertTrue(
+            noteFor("a wallet with a spending allowance").contains("A SPENDING ALLOWANCE ON A WALLET IS THIS CLASS TOO"),
+            "...and it must be told why, not just redirected"
+        )
+
+        // ...and where the honest answer is that nothing covers it, it still is. A
+        // redirect that always names SOMETHING is the round-8 hazard with better aim.
+        listOf(
+            "a raffle with on-chain randomness",
+            "an insurance pool with claims",
+            "a prediction market",
+            "a loyalty programme"
+        ).forEach { ask ->
+            assertNull(DappScaffold.closestTemplate(ask), "'$ask' has no template and must not be given one")
+            assertTrue(noteFor(ask).contains("No shipped template covers that name"), ask)
+        }
+
+        // AUDIT F6's other half: the vault paragraph began MID-LINE, so the block
+        // splitter never started a block for it - `template=vault` got "no per-class
+        // paragraph here" while `template=governance` got the vault's oracle paragraph
+        // bolted on. The only place that says main.oracle_pubkey must be set under
+        // blockchains.<name>.moduleArgs before `chr build` was unreachable from the
+        // vault's own note.
+        val vaultNotes = DappScaffold.notes("v", template = "vault")
+        assertFalse(vaultNotes.contains("has no per-class paragraph here"), "the vault must have its own block again")
+        assertTrue(vaultNotes.contains("start from template=vault"), vaultNotes.take(400))
+        assertTrue(
+            vaultNotes.contains("you must set main.oracle_pubkey under blockchains.<name>.moduleArgs"),
+            "the vault's note is the only place that says this: $vaultNotes"
+        )
+        val govNotes = DappScaffold.notes("g", template = "governance")
+        assertTrue(govNotes.contains("start from template=governance"), govNotes.take(400))
+        assertFalse(
+            govNotes.contains("Building a vault or anything priced by an ORACLE FEED"),
+            "the vault's paragraph used to be glued onto the governance block"
+        )
+    }
+
+    /**
+     * ROUND 16 found ELEVEN false or wrong-by-arithmetic sentences in the shipped
+     * headers - the place an auditor places most trust, and the top finding of three
+     * rounds running. Every number here was recomputed from the template's own
+     * constants; a green suite cannot see a false sentence, so this is the only thing
+     * that can.
+     */
+    @Test
+    fun roundSixteenProseDefectsAreCorrected() {
+        val gov = DappScaffold.files("dao", template = "governance").getValue("src/main.rell")
+        val bridge = DappScaffold.files("wrapped", template = "bridge").getValue("src/main.rell")
+        val escrow = DappScaffold.files("otc", template = "escrow").getValue("src/main.rell")
+        val exchange = DappScaffold.files("book", template = "exchange").getValue("src/main.rell")
+        val stable = DappScaffold.files("peg", template = "stablecoin").getValue("src/main.rell")
+        val stableTest = DappScaffold.files("peg", template = "stablecoin").getValue("src/test/main_test.rell")
+
+        // 1-3. GOVERNANCE. The absolute the leftover point cannot keep is gone, the
+        // structural property it CAN keep is stated, 1000 - 501 = 499, and exact pro
+        // rata is 1000 * 501 / 1001 = 500.4995 so 501 is HALF a point worse.
+        assertFalse(gov.contains("NO PAYOUT SMALLER THAN THE WHOLE TREASURY EMPTIES A STAKER"), "round 16: that absolute is false")
+        assertFalse(gov.contains("999 points left"), "1000 - 501 = 499")
+        assertFalse(gov.contains("one point WORSE"), "501 against 500.4995 is half a point")
+        assertTrue(
+            gov.contains("THE LEFTOVER POINT IS NEVER PLACED WHERE IT EMPTIES A STAKER WHILE ANY"),
+            "the header must state the property the code actually has"
+        )
+        assertTrue(gov.contains("500.4995") && gov.contains("HALF A POINT worse"), "the header must state the arithmetic it claims")
+        assertTrue(gov.contains("left holding 499"), "the party that pays the odd point holds 499")
+        assertTrue(gov.contains("val NO_CANDIDATE_YET = -1;"), "a zero remainder must be a real candidate")
+
+        // 4-5. BRIDGE. Of the three mints that sentence lists (1, 99999, 100000) only
+        // the last two fall between T0+DAY and T0+DAY+2, so what crossed in the
+        // interval it names is 199999; and reopening is not open to any relayer, which
+        // the code says three times over.
+        assertFalse(bridge.contains("200000 units against a period cap"), "1 + 99999 + 100000 is not what crossed in that interval")
+        assertTrue(bridge.contains("199999 units against a period cap"), "the interval the sentence names holds 199999")
+        assertFalse(bridge.contains("any relayer may reopen"), "the code requires the caller to have ATTESTED the burn")
+        assertFalse(bridge.contains("any relayer may open a fresh round"), "the same sentence, in the operation's own comment")
+        assertTrue(bridge.contains("A REOPEN SILENCES NOBODY"), "the guard list must say what a reopen does to the votes already cast")
+        assertTrue(bridge.contains("THE ROW BOUND IS CHARGED IN VALUE AND NOT IN"), "the row cap must be priced, not introduced as bookkeeping")
+        assertTrue(bridge.contains("98,406"), "the header must state the new cost of closing the bridge with rows")
+
+        // 6. ESCROW, in the list of NINE STRUCTURAL GUARDS - where an auditor places
+        // most trust. The absolute is gone, and what replaced it is what the template's
+        // own green test measures.
+        assertFalse(
+            escrow.contains("there is never a block in which one party has parted with value"),
+            "false for the whole window, and the shipped test asserts the counterexample"
+        )
+        assertTrue(escrow.contains("only the MAKER'S"), "what is true is the asymmetry, stated")
+        assertTrue(escrow.contains("WELCOME_A - 100 = 900"), "...pinned to the numbers the shipped test measures")
+
+        // 7-8. EXCHANGE. A fully filled row is deleted inside fill() and never reaches
+        // withdraw_escrow; and WELCOME_UNITS / MIN_ORDER_UNITS is 100 / 5 = 20, which is
+        // MAX_RESTING_ORDERS exactly, so neither binds before the other.
+        assertFalse(
+            exchange.contains("counts against MAX_RESTING_ORDERS until it is withdrawn"),
+            "a fully filled row is deleted by the fill"
+        )
+        assertTrue(exchange.contains("THE ONE WAY A SLOT IS FREED"), "the exception must be named where the claim is made")
+        assertFalse(exchange.contains("so the cap binds there"), "both numbers are twenty")
+        assertTrue(exchange.contains("100 / 5 = twenty, and MAX_RESTING_ORDERS is also twenty"), "state the arithmetic")
+        assertTrue(
+            exchange.contains("val WELCOME_UNITS = 100;") && exchange.contains("val MIN_ORDER_UNITS = 5;") &&
+                exchange.contains("val MAX_RESTING_ORDERS = 20;"),
+            "...against the constants it is computed from"
+        )
+
+        // 9-10. STABLECOIN. Five operations run while an opening is pending, not two;
+        // and the staleness test reads the OPENING's age, not the recorded price's, so
+        // the price phase two settles at can be twice MAX_PRICE_AGE_MS old.
+        assertFalse(stable.contains("operations that still run are the two"), "five run")
+        assertFalse(stable.contains("the only two operations that run"), "five run - the same sentence over not_pending()")
+        assertTrue(stable.contains("also set_price (the oracle keeps posting, bounded and rate"), "name them")
+        assertEquals(
+            3,
+            Regex("not_pending\\(\\);").findAll(withoutComments(stable)).count(),
+            "exactly three operations are refused while an opening is pending"
+        )
+        assertFalse(stable.contains("before the recorded price goes stale by the oracle's"), "the code tests the OPENING's age")
+        assertTrue(stable.contains("up to TWICE MAX_PRICE_AGE_MS"), "...and the bound that follows from that must be stated")
+
+        // 11. STABLECOIN arithmetic: 13332 - 10240 = 3092, and 100 - 88 = 12.
+        listOf(gov, bridge, escrow, exchange, stable, stableTest).forEach {
+            assertFalse(it.contains("3082"), "13332 - 10240 = 3092")
+            assertFalse(it.contains("ELEVEN TOKENS"), "88 against 100 is twelve tokens")
+            assertFalse(it.contains("eleven tokens"), "the same number, spelled out")
+        }
+        assertTrue(stable.contains("3092 of a coin nothing backed"), "the last holder was left with 3092")
+        assertTrue(stable.contains("TWELVE TOKENS"), "redeeming 88 against her 100 cost her twelve")
+
+        // ...and the same numbers wherever else this server repeats the same drain.
+        assertFalse(DappScaffold.notes("peg").contains("3082"), "the notes carry the same drain and the same arithmetic")
+        assertFalse(
+            DappScaffold.closestTemplateNote("cdp").contains("3082"),
+            "so does the redirect that sends a CDP ask to the template"
+        )
     }
 
     @Test
@@ -2364,7 +2615,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_r13_a_payout_retires_the_stake_that_backed_it",
             "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
             "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail",
-            "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail"
+            "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail",
+            "test_r16_half_the_treasury_cannot_empty_a_staker_while_an_equal_one_stands_must_fail",
+            "test_r16_control_a_two_point_staker_is_not_emptied"
         )
     )
 
@@ -2513,7 +2766,8 @@ class DappScaffoldSecureTemplatesTest {
             "test_round15_otc2_the_window_is_not_a_free_option_must_fail",
             "test_a_swap_settles_both_legs_or_neither_and_conserves",
             "test_only_the_named_counterparty_settles_and_only_before_the_deadline_must_fail",
-            "test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail"
+            "test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail",
+            "test_r16_e1_one_party_has_parted_with_value_for_the_whole_window"
         )
     )
 
@@ -2528,7 +2782,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_r15_b3_no_single_key_owns_the_relayer_set_must_fail",
             "test_mint_transfer_and_exit_conserve_against_attested_burns",
             "test_the_caps_bound_what_one_bridge_can_mint_must_fail",
-            "test_the_relayer_set_is_configuration_not_an_input_must_fail"
+            "test_the_relayer_set_is_configuration_not_an_input_must_fail",
+            "test_r16_b1_dust_mints_cannot_stall_an_honest_burn_must_fail",
+            "test_r16_b2_a_reopen_cannot_silence_a_voice_already_cast_must_fail"
         )
     )
 
@@ -2810,12 +3066,79 @@ class DappScaffoldSecureTemplatesTest {
     fun governanceR15ReplayGoesRedWhenTheOddPointEmptiesTheSmallStaker() = assertGuardMutationRedensExploitTest(
         "governance",
         "            val m = member @ { .owner == owner };\n" +
-            "            if (r > best and owed[owner] + 1 < m.stake) {",
-        "            if (r > best) {",
+            "            val survives = owed[owner] + 1 < m.stake;",
+        "            val survives = true;",
         "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail",
         // Wrong reason: the payout refused outright, which would prove nothing.
         "stake retirement did not balance",
         "only members with stake may propose"
+    )
+
+    /**
+     * ROUND 16: A ZERO REMAINDER COULD NOT BE THE LEFTOVER POINT'S HOME. The search
+     * started at `var best = 0` and tested `r > best`, so a staker owed a whole
+     * number of points was never a candidate however much room it had. At stakes of
+     * 100 / 1 / 1 against a backing of 102, a payout of 51 - EXACTLY HALF the
+     * treasury - owes the hundred-point staker exactly 50 with remainder zero, so the
+     * only candidates left were the two one-point holders the point empties: one was
+     * retired to nothing, the other kept its whole point, and the treasury was still
+     * at seventeen points per staker. Restoring that ONE constant to 0 restores both
+     * halves of the shape - the search and the second tier read the same value - and
+     * the replay reddens on the line where the emptied holder tries to propose,
+     * because losing your last point is losing your voice for the life of the chain.
+     */
+    @Test
+    fun governanceR16ReplayGoesRedWhenAZeroRemainderCannotTakeTheLeftoverPoint() = assertGuardMutationRedensExploitTest(
+        "governance",
+        "val NO_CANDIDATE_YET = -1;",
+        "val NO_CANDIDATE_YET = 0;",
+        "test_r16_half_the_treasury_cannot_empty_a_staker_while_an_equal_one_stands_must_fail",
+        // Wrong reason: the payout refused outright, which would prove nothing.
+        "stake retirement did not balance",
+        "only members with stake may propose"
+    )
+
+    /**
+     * ROUND 16, BRIDGE b1: THE ROW CAP AS A FREE DENIAL LEVER. Charge the window's row
+     * budget per MINT instead of per share of the period cap and 64 burns of ONE UNIT
+     * - 64 units, 128 transactions, from the two relayers that make a threshold - fill
+     * it. An honest 50000 inside both caps is then refused for a full MINT_PERIOD_MS:
+     * 64 units denying up to 99,936, about 1:1561 on the lever the header prices. The
+     * mutant is one comparison: every mint is worth a row again.
+     */
+    @Test
+    fun bridgeR16ReplayGoesRedWhenEveryMintTakesARowOfItsOwn() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    if (claim.amount >= min_row_units()) {",
+        "    if (claim.amount >= 0) {",
+        "test_r16_b1_dust_mints_cannot_stall_an_honest_burn_must_fail",
+        // Wrong reason: the VALUE cap refused it, which is the lever the header prices
+        // and not the one this test is about.
+        "the bridge's mint cap for this period is reached",
+        "too many mints in this period"
+    )
+
+    /**
+     * ROUND 16, BRIDGE b2: THE REOPEN PUT A ROUND BOUNDARY BETWEEN TWO HONEST VOICES.
+     * Votes lived on a claim keyed by ROUND, which is exactly this mutant: reopening
+     * zeroes every claim's votes and drops every voice. Two DISTINCT honest relayers
+     * then vote for one payment either side of one reopen - which IS the threshold -
+     * and minted_total stays 0, so the replay reddens on the assertion that relayer
+     * 2's voice survived the reopen. Priced at one transaction per
+     * ATTESTATION_WINDOW_MS, payable by the dissenter, for ever.
+     */
+    @Test
+    fun bridgeR16ReplayGoesRedWhenAReopenDiscardsTheVotesBeforeIt() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    update burn ( .round += 1, .round_opened_at = op_context.last_block_time );",
+        "    update burn ( .round += 1, .round_opened_at = op_context.last_block_time );\n" +
+            "    update burn_claim @* { .burn == burn } ( .votes = 0 );\n" +
+            "    delete relayer_voice @* { .burn == burn };",
+        "test_r16_b2_a_reopen_cannot_silence_a_voice_already_cast_must_fail",
+        // Wrong reason: the reopen itself refused, which would prove nothing about
+        // what a reopen does to the votes already cast.
+        "the attestation round is still open",
+        "expected"
     )
 
     @Test

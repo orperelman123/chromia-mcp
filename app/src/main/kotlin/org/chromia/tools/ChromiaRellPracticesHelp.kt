@@ -257,7 +257,7 @@ object ChromiaRellPracticesHelp {
         built one on the vault's advice, followed its reserve discipline to the letter, and was
         drained by REDEEMING THE COIN FOR COLLATERAL AT PAR out of a reserve that no longer
         covered it: 13332 of coin against collateral worth 10240 after three honest -20% posts,
-        and whoever redeemed first took 100 cents on the dollar while the last holder kept 3082 of
+        and whoever redeemed first took 100 cents on the dollar while the last holder kept 3092 of
         a coin nothing backed - thirty tokens moved on order alone, gate ok:true, zero findings.
         A CDP's coin is a LIABILITY of a position, not a claim on a pool, and the template has NO
         operation that pays a coin holder par out of somebody else's position: the peg is the
