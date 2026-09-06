@@ -1983,12 +1983,22 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             val n = path.replace('\\', '/').removePrefix("./").removePrefix("src/")
             return n.startsWith("test/") || n.startsWith("tests/") || n.contains("/test/") || n.contains("/tests/")
         }
+        // Module names the way the RUNNER derives them - relative to the Rell
+        // source root, so src/main.rell is `main`, never `src.main`. Round 16:
+        // every frame the runner emitted said `main:take` and the tool compared
+        // it with `src.main:take`, so under the scaffold's own layout a guard
+        // refused by its own operation was certified load_bearing, ok:true.
+        fun runnerModule(path: String, src: String) =
+            RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(path), src)
         val testModules = files.filterValues { RunRellTests.isTestModuleSource(it) }
-            .map { (path, content) -> RunRellTests.moduleNameForPath(path, content) }.toSet()
+            .map { (path, content) -> runnerModule(path, content) }.toSet()
         val isTest = files.mapValues { (path, src) ->
             RunRellTests.isTestModuleSource(src) || underTestDir(path) ||
-                RunRellTests.moduleNameForPath(path, src) in testModules
+                runnerModule(path, src) in testModules
         }
+        // Every module a test file lives in, for telling the runner's frames apart.
+        val testModuleNames = files.filter { (p, _) -> isTest.getValue(p) }
+            .map { (p, src) -> runnerModule(p, src) }.toSet()
 
         // A MATCH COUNTS ONLY IF IT STARTS IN CODE. The raw text is searched (so a
         // caller may disambiguate a line with its trailing comment), but a match
@@ -2175,7 +2185,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
 
         // 4a. THE GUARD'S OWN DECLARATIONS, module-qualified.
-        val guardModule = RunRellTests.moduleNameForPath(path, src)
+        val guardModule = runnerModule(path, src)
         val declRx = Regex("\\b(operation|query|function)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(")
         val guardDecl = declRx.findAll(maskRellSource(src, maskStrings = true)).lastOrNull { it.range.first < at }
             ?.let { it.groupValues[1] to it.groupValues[2] }
@@ -2188,13 +2198,15 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
         val ownNames = ownDeclarations.mapTo(mutableSetOf()) { it.substringAfterLast(':') }
 
-        // 4b. THE RUNNER'S FRAMES, split by whose file each one names.
-        val testBasenames = files.keys.filter { isTest.getValue(it) }.mapTo(mutableSetOf()) { baseName(it) }
+        // 4b. THE RUNNER'S FRAMES, split by the MODULE each one names - never by
+        //     a file's basename (round 16: a test module in a file called
+        //     main.rell erased every production frame, and the refusal it hid
+        //     became "the damage being noticed").
         val frames = FRAME_REGEX.findAll(error).map {
             Frame(it.groupValues[1], it.groupValues[2], baseName(it.groupValues[3]), it.groupValues[4].toIntOrNull() ?: 0)
         }.toList()
-        val productionFrames = frames.filter { it.file !in testBasenames }
-        val testFrame = frames.lastOrNull { it.file in testBasenames }
+        val productionFrames = frames.filter { it.module !in testModuleNames }
+        val testFrame = frames.lastOrNull { it.module in testModuleNames }
         val ownFrame = productionFrames.lastOrNull { "${it.module}:${it.declaration}" in ownDeclarations }
         val invocations = testStatementsInvoking(files, isTest, test, ownNames)
         val statements = invocations?.statements ?: emptyList()
@@ -2517,7 +2529,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         val queries = mutableListOf<Triple<String, String, String>>()
         files.forEach { (p, content) ->
             if (isTest.getValue(p)) return@forEach
-            val module = RunRellTests.moduleNameForPath(p, content)
+            val module = RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(p), content)
             declSpans(content).forEach { d ->
                 val body = content.substring(d.start, d.end)
                 when (d.kind) {
@@ -2583,7 +2595,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         files.forEach { (p, content) ->
             if (isTest.getValue(p)) return@forEach
             val masked = maskRellSource(content, maskStrings = true)
-            val module = RunRellTests.moduleNameForPath(p, content)
+            val module = RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(p), content)
             RellSecurityCheck.functionDefinitions(masked).forEach { d ->
                 bodies.getOrPut(d.name) { mutableListOf() }.add(d.body)
             }

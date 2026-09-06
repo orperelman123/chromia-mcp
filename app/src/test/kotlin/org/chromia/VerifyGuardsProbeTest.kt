@@ -1329,4 +1329,46 @@ class VerifyGuardsProbeTest {
         assertTrue(evidence(r).contains("main:payout"), evidence(r))
         assertTrue(evidence(r).contains("main_test.rell"), evidence(r))
     }
+
+    // ======================= ROUND 16 (the two systematic ones) ===============
+    // Both were ok:true on every scaffolded project. p11's fixture - a second
+    // require() in the SAME operation, the ordinary defence in depth - read as
+    // still_refused with flat paths (p11) and as load_bearing under src/: the
+    // tool derived the guard's module from its path as `src.main` while every
+    // frame the runner emitted said `main:take`, so the guard's own refusal was
+    // never recognised as its own. Modules are now derived the way the runner
+    // derives them (relative to the source root), and frames are split by
+    // module, never by a file's basename.
+
+    /** The scaffold's own layout. TRUE VERDICT: still_refused (p11 under src/). */
+    @Test
+    fun p16SrcLayoutASecondGuardInTheSameOperationIsStillRefused() {
+        val r = run(
+            mapOf("src/main.rell" to depthMain, "src/test/main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail", attackLanded = "negative")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
+    }
+
+    /** A test module whose FILE is called main.rell must not hide production frames. TRUE VERDICT: still_refused. */
+    @Test
+    fun p16ATestFileNamedLikeProductionDoesNotEraseProductionFrames() {
+        val r = run(
+            mapOf("src/main.rell" to depthMain, "src/test/main.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail", attackLanded = "negative")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
+    }
+
+    /** Control: the alsoRemove path is load-bearing under src/ exactly as with flat paths (p11d). */
+    @Test
+    fun p16ControlSrcLayoutWithTheSecondGuardInAlsoRemoveTheAttackReallyLands() {
+        val r = run(
+            mapOf("src/main.rell" to depthMain, "src/test/main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail", alsoRemove = listOf(depthSecond))
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
 }
