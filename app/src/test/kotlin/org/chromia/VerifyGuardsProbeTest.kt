@@ -54,7 +54,11 @@ class VerifyGuardsProbeTest {
     private val bal = "require(p.balance >= amount, \"insufficient\");"
     private val pos = "require(amount > 0, \"amount must be positive\");"
 
-    private fun run(files: Map<String, String>, guard: JsonObject): JsonObject {
+    private fun run(
+        files: Map<String, String>,
+        guard: JsonObject,
+        moduleArgs: Map<String, Map<String, Int>> = emptyMap()
+    ): JsonObject {
         assertNotNull(System.getenv(RunRellTests.DATABASE_URL_ENV), "verify_guards runs real tests and needs CHROMIA_TEST_DATABASE_URL")
         val result = runBlocking {
             VerifyGuardsStrategy().execute(
@@ -63,6 +67,16 @@ class VerifyGuardsProbeTest {
                     arguments = buildJsonObject {
                         put("files", buildJsonObject { files.forEach { (k, v) -> put(k, v) } })
                         put("guards", buildJsonArray { add(guard) })
+                        if (moduleArgs.isNotEmpty()) {
+                            put(
+                                "moduleArgs",
+                                buildJsonObject {
+                                    moduleArgs.forEach { (m, a) ->
+                                        put(m, buildJsonObject { a.forEach { (k, v) -> put(k, v) } })
+                                    }
+                                }
+                            )
+                        }
                     }
                 ),
                 repo
@@ -429,4 +443,226 @@ class VerifyGuardsProbeTest {
         )
         assertEquals("guard_not_found", verdict(r), r.toString())
     }
+
+    // ---- P11: DEFENCE IN DEPTH read as the attack landing -----------------
+    // ROUND 13, AND P11/P12 ARE RED ON PURPOSE. The tool is NOT fixed here: an
+    // adversary round pins the TRUE verdict and leaves the fix to the fix lane,
+    // so the two probes below fail against the shipped tool, and the failure
+    // message is the finding.
+    //
+    // Round 11's lesson was "an error that contains any string literal from the
+    // GUARD line is the guard REFUSING, whatever fragment the caller supplied";
+    // round 12 added the REPLACEMENT's literals for the same reason. Neither
+    // consults any OTHER production line. So when a second require() refuses the
+    // same attack - which is what defence in depth IS - its refusal message is
+    // free for a caller's attackLanded fragment to match, and the tool answers
+    // load_bearing with ok:true.
+    //
+    // The error shape says it outright. run_must_fail produced
+    //   "expected to contain <does not hold> but was
+    //    <[main:take(main.rell:9)] Operation 'main:take' failed:
+    //     the balance would go negative>"
+    // - the operation FAILED, so the attack did not land, and a transaction
+    // refused with a different message is the definition of still_refused. Only
+    // "Transaction did not fail" means the attack landed, which is why that is
+    // the DEFAULT attackLanded - and with the default this same probe correctly
+    // answers red_for_another_reason (p11c). Every false verdict in this class
+    // needs a caller-supplied fragment, exactly as round 11's did.
+    private val depthMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(amount <= p.balance, "the pot does not hold that much");
+            require(p.balance - amount >= 0, "the balance would go negative");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    // The expected fragment is a STRICT SUBSTRING of the guard's message, which
+    // is what an author writes: assert on the stable part of your own error.
+    // That is the whole difference from round 11's probe, where the fragment WAS
+    // the guard's entire message, so the guard's own literal landed in the
+    // mismatch text by accident of the fixture and the tool held for a reason
+    // that was not a guard.
+    private val depthTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run_must_fail("does not hold");
+        }
+    """.trimIndent()
+
+    private val depthGuard = "require(amount <= p.balance, \"the pot does not hold that much\");"
+    private val depthSecond = "require(p.balance - amount >= 0, \"the balance would go negative\");"
+
+    /** TRUE VERDICT: still_refused. The tool answers load_bearing, ok:true. */
+    @Test
+    fun p11ASecondGuardsRefusalIsNotTheAttackLanding() {
+        val r = run(
+            mapOf("main.rell" to depthMain, "main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail", attackLanded = "negative")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
+    }
+
+    /**
+     * The same shape with the refusing bound coming from module_args instead of
+     * from source, so the value that refuses is not in any file the tool can
+     * read. TRUE VERDICT: still_refused. The tool answers load_bearing, ok:true.
+     */
+    private val depthArgsMain = """
+        module;
+        struct module_args { daily_limit: integer; }
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(amount <= p.balance, "the pot does not hold that much");
+            require(amount <= chain_context.args.daily_limit, "over the negative-balance protection limit");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    @Test
+    fun p12AModuleArgsLimitRefusingTheAttackIsNotTheAttackLanding() {
+        val r = run(
+            mapOf("main.rell" to depthArgsMain, "main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail", attackLanded = "negative"),
+            moduleArgs = mapOf("main" to mapOf("daily_limit" to 10))
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
+    }
+
+    /**
+     * CONTROL 1: the same files and the same guard with the DEFAULT
+     * attackLanded. The tool is right here - the mismatch text does not contain
+     * "did not fail" - which is why every false verdict in this class needs a
+     * caller-supplied fragment. GREEN today.
+     */
+    @Test
+    fun p11cTheDefaultFragmentDoesNotMistakeTheSecondRefusal() {
+        val r = run(
+            mapOf("main.rell" to depthMain, "main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail")
+        )
+        assertEquals("red_for_another_reason", verdict(r), r.toString())
+    }
+
+    /**
+     * CONTROL 2: the honest call - the second guard named in alsoRemove, so both
+     * come out and the attack really does land. GREEN today, and it is what
+     * makes p11 a WRONG answer rather than a conservative one: the tool has a
+     * correct path to load_bearing for this guard and did not take it.
+     */
+    @Test
+    fun p11dWithTheSecondGuardInAlsoRemoveTheAttackReallyLands() {
+        val r = run(
+            mapOf("main.rell" to depthMain, "main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail", alsoRemove = listOf(depthSecond))
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    // ---- P13: the FILES MAP. Probed in round 13 and NOT broken -------------
+    private val caseLive = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(amount <= p.balance, "insufficient");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    /**
+     * Two production paths differing only in case, the guard in ONE of them.
+     * Most file systems the runner writes to treat them as the same file, so a
+     * verdict computed from the map could be about a file the run never
+     * compiled. The runner refuses the submission by name. Pinned so a future
+     * runner cannot start silently collapsing them.
+     */
+    @Test
+    fun p13CaseCollidingPathsAreRefusedNotGuessed() {
+        val dead = caseLive.replace("    require(amount <= p.balance, \"insufficient\");\n", "")
+        val r = run(
+            mapOf("src/Main.rell" to caseLive, "src/main.rell" to dead, "src/test/main_test.rell" to tests),
+            guard("require(amount <= p.balance, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("runner_error", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("Case-insensitive"), evidence(r))
+    }
+
+    /** A files-map key that walks out of the source root is refused by name. */
+    @Test
+    fun p13bAPathThatWalksOutOfTheSourceRootIsRefused() {
+        val r = run(
+            mapOf("../escaped.rell" to caseLive, "main_test.rell" to tests),
+            guard("require(amount <= p.balance, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("runner_error", verdict(r), r.toString())
+        assertTrue(evidence(r).contains(".."), evidence(r))
+    }
+
+    /**
+     * The SAME test name declared in two test modules. The tool must not answer
+     * about a test it cannot identify: it returns test_not_found naming both.
+     */
+    @Test
+    fun p13cTheSameTestNameInTwoModulesIsNotGuessed() {
+        val empty = "@test module;\nimport main;\nfunction test_overdraft_must_fail() {\n" +
+            "    rell.test.tx().op(main.seed(10)).run();\n}\n"
+        val r = run(
+            mapOf("main.rell" to caseLive, "a_test.rell" to tests, "b_test.rell" to empty),
+            guard("require(amount <= p.balance, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("test_not_found", verdict(r), r.toString())
+    }
+
+    /**
+     * A module.rell that declares the guard's own module a TEST module moves the
+     * production file onto test surface, and the tool says so rather than
+     * mutating a file the runner treats differently.
+     */
+    @Test
+    fun p13dAModuleRellThatRetypesTheGuardsModuleIsNamedNotMutated() {
+        val r = run(
+            mapOf(
+                "src/main.rell" to caseLive,
+                "src/main/module.rell" to "@test module;",
+                "src/test/main_test.rell" to tests
+            ),
+            guard("require(amount <= p.balance, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("guard_not_found", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("test code"), evidence(r))
+    }
+
+    /**
+     * A UTF-8 BOM in front of the module and a non-ASCII character inside the
+     * guard's own message: maskRellSource stays length-preserving through both,
+     * so the offset still maps back. Probed in round 13 and NOT broken.
+     */
+    @Test
+    fun p13eABomAndANonAsciiGuardMessageAreStillFound() {
+        val bom = "\uFEFF"
+        val main = bom + caseLive.replace("\"insufficient\"", "\"insufficient \u2013 the pot is short\"")
+        val r = run(
+            mapOf("main.rell" to main, "main_test.rell" to tests),
+            guard("require(amount <= p.balance, \"insufficient \u2013 the pot is short\");", "test_overdraft_must_fail")
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
 }
