@@ -1558,7 +1558,7 @@ class DappScaffoldSecureTemplatesTest {
         // that retires a position's whole debt takes what is left of it out of the
         // backing too - it is a depositor's collateral from that block on.
         assertTrue(
-            liquidate.contains("val backing_after = system.backing_collateral - seize\n            - (if (t.debt == stable_in) t.collateral - seize else 0);"),
+            liquidate.contains("val backing_after = system.backing_collateral - seize\n        - (if (t.debt == stable_in) t.collateral - seize else 0);"),
             "a liquidation that clears a position's debt must take that position out of the backing"
         )
         assertFalse(
