@@ -1068,7 +1068,7 @@ object DappScaffold {
                 "drained the build that went without it - is one call away: scaffold_dapp with " +
                 "notesFor=\"all\", or chromia_rell_practices_help."
         } else {
-            "Building something else? The per-class guidance for the other $others classes - what " +
+            "Need a different class? The per-class guidance for the other $others classes - what " +
                 "each template makes UNWRITABLE, and which adversary round drained the build that " +
                 "went without it - is one call away: scaffold_dapp with notesFor=\"all\" (or " +
                 "notesFor=\"<template>\" for one), or chromia_rell_practices_help."
