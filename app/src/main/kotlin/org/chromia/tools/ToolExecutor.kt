@@ -1301,7 +1301,15 @@ class ScaffoldDappStrategy : BaseToolStrategy() {
         val name = extractString(args, "name")
         val template = extractString(args, "template") ?: "hello"
         val payload = DappScaffold.toJson(name, template)
-        return toolSuccessResult(payload)
+        // AUDIT F6: an unknown template with no close shipped match scaffolds
+        // NOTHING, and says so the way every other tool here says it - ok:false
+        // AND isError, so an agent that checks either one stops.
+        val ok = (payload["ok"] as? JsonPrimitive)?.content != "false"
+        return CallToolResult(
+            content = listOf(TextContent(Json.encodeToString(payload))),
+            structuredContent = payload,
+            isError = if (ok) null else true
+        )
     }
 }
 

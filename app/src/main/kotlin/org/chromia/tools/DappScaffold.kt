@@ -1588,6 +1588,26 @@ object DappScaffold {
      * remains. "My-Peg App" -> "my_peg_app". Offered in the warning, never
      * applied silently: the name keys the deployments block.
      */
+    /**
+     * The shipped template [closestTemplateNote] routes an unknown name to, or
+     * null when its honest answer is "no shipped template covers that name".
+     *
+     * AUDIT F6 (2026-09-06): the schema promised "an unknown template name is
+     * answered with the closest shipped template and what it does NOT cover",
+     * and 18 of 18 names an agent would guess - dex, orderbook, order_book, nft,
+     * token, dao, allowance, escrow, crosschain, oracle, swap, auction, payroll,
+     * vesting, treasury, erc20, stable, Bridge - returned "template":"hello"
+     * with the hello query-only files, isError:false. The redirect TEXT was
+     * excellent; the code attached to it was a guard-free skeleton for a
+     * different problem, and it passed rell_check and rell_security_check
+     * cleanly. An agent that asked for `nft` built a marketplace on it.
+     */
+    internal fun closestTemplate(requested: String): String? {
+        val named = Regex("""^Use `template=([a-z0-9_]+)`""")
+            .find(closestTemplateNote(requested))?.groupValues?.get(1)
+        return named?.takeIf { it in templates }
+    }
+
     internal fun suggestName(raw: String): String? {
         val folded = raw.trim().lowercase()
             .replace(Regex("[^a-z0-9_]+"), "_")
@@ -1622,13 +1642,20 @@ object DappScaffold {
         val chain = normalizeName(name)
         // `Stablecoin`, ` amm ` - case and whitespace are not a different ask
         // (DX audit 2026-09-04: a capitalised template name fell back to hello).
-        val effectiveTemplate = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) } ?: "hello"
-        val fileMap = files(chain, effectiveTemplate)
+        val exact = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) }
+        // AUDIT F6: an unknown name is answered with the CLOSEST shipped template
+        // - the one closestTemplateNote already computes and names - and never
+        // with `hello` code for a problem `hello` does not solve. When nothing is
+        // close, nothing is scaffolded: ok:false and the note, with no files.
+        val redirect = if (exact == null) closestTemplate(template) else null
+        val effectiveTemplate = exact ?: redirect
+        val ok = effectiveTemplate != null
+        val fileMap = effectiveTemplate?.let { files(chain, it) }.orEmpty()
         // Never silently substitute what the agent asked for (QA finding):
         // surface every fallback as an explicit warning.
         val warnings = mutableListOf<String>()
         val requested = name?.trim().orEmpty()
-        if (requested.isNotEmpty() && requested.lowercase() != chain) {
+        if (ok && requested.isNotEmpty() && requested.lowercase() != chain) {
             val suggestion = suggestName(requested)?.takeIf { it != chain }
             warnings.add(
                 "Requested name '$requested' is not a valid chain name (must match [a-z][a-z0-9_]{0,31}); " +
@@ -1636,15 +1663,25 @@ object DappScaffold {
                     (if (suggestion != null) ", e.g. name=\"$suggestion\"." else ".")
             )
         }
-        if (!template.trim().equals(effectiveTemplate, ignoreCase = true)) {
+        if (exact == null) {
             warnings.add(
-                "Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the " +
-                    "'$effectiveTemplate' template. " + closestTemplateNote(template)
+                if (redirect != null) {
+                    "Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the " +
+                        "CLOSEST shipped template, '$redirect', and its files are what you have - not " +
+                        "'hello'. Read what it does NOT cover before you build on it. " +
+                        closestTemplateNote(template)
+                } else {
+                    "Unknown template '$template' (valid: ${templates.joinToString(", ")}); NOTHING was " +
+                        "scaffolded - there are no `files` in this response. Attaching a compilable, " +
+                        "guard-free skeleton for a different problem to this answer is how an agent " +
+                        "builds the wrong thing and passes every gate. " + closestTemplateNote(template)
+                }
             )
         }
         return buildJsonObject {
+            put("ok", ok)
             put("name", chain)
-            put("template", effectiveTemplate)
+            put("template", effectiveTemplate ?: "")
             put("warnings", buildJsonArray { warnings.forEach { add(JsonPrimitive(it)) } })
             put("rellVersion", RELL_VERSION)
             put("ft4Version", FT4_VERSION)
@@ -1667,17 +1704,28 @@ object DappScaffold {
                     forbiddenModules.forEach { add(JsonPrimitive(it)) }
                 }
             )
-            put(
-                "files",
-                buildJsonObject {
-                    fileMap.forEach { (path, content) -> put(path, content) }
-                }
-            )
-            // AUDIT F4: the merged moduleArgs as its own top-level field, so the
-            // next call is a copy of TWO fields and nothing has to be assembled
-            // by hand out of the yml. Empty for `hello`, which needs none.
-            put("moduleArgs", testModuleArgsJson(effectiveTemplate))
-            put("nextCall", nextCallNote(effectiveTemplate))
+            // No template, no code: `files` is absent, not an empty object an
+            // agent could read past (audit F6).
+            if (effectiveTemplate != null) {
+                put(
+                    "files",
+                    buildJsonObject {
+                        fileMap.forEach { (path, content) -> put(path, content) }
+                    }
+                )
+                // AUDIT F4: the merged moduleArgs as its own top-level field, so
+                // the next call is a copy of TWO fields and nothing has to be
+                // assembled by hand out of the yml. Empty for `hello`.
+                put("moduleArgs", testModuleArgsJson(effectiveTemplate))
+                put("nextCall", nextCallNote(effectiveTemplate))
+            } else {
+                put(
+                    "nextCall",
+                    "Nothing was scaffolded. Call scaffold_dapp again with one of: " +
+                        templates.joinToString(", ") + " - picking the one whose EXPLOIT class matches " +
+                        "yours, not the one whose name reads closest."
+                )
+            }
             put("notes", notes(chain))
         }
     }
