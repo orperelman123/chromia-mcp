@@ -367,8 +367,19 @@ internal fun extractRellSourcesArg(args: Map<String, Any>): Any? =
  * Every spelling of "the Rell sources", canonical first. The order is the
  * PRECEDENCE, and [rellSourceAliasConflict] makes sure it is never the thing
  * that decides what gets analysed.
+ *
+ * The SET comes from [ArgumentVocabulary], which round 16 found was "a
+ * schema-ordering lint and is not called at runtime" - so a spelling added
+ * there and forgotten here would be a silently discarded alias all over again.
+ * A name the vocabulary knows and this order does not is appended rather than
+ * dropped.
  */
-internal val RELL_SOURCE_ALIASES = listOf("files", "rell", "source", "src", "code")
+private val RELL_SOURCE_PRECEDENCE = listOf("files", "rell", "source", "src", "code")
+
+internal val RELL_SOURCE_ALIASES: List<String> = run {
+    val known = ArgumentVocabulary.RELL_SOURCES.all
+    RELL_SOURCE_PRECEDENCE.filter { it in known } + (known - RELL_SOURCE_PRECEDENCE.toSet()).sorted()
+}
 
 /**
  * TWO ALIASES WITH DIFFERENT CONTENT ARE AN ERROR, NOT A PRECEDENCE.

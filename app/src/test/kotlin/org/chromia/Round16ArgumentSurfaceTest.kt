@@ -150,6 +150,23 @@ class Round16ArgumentSurfaceTest {
     }
 
     @Test
+    fun `the conflict check covers every spelling the vocabulary knows`() {
+        // ROUND 16: "ArgumentVocabulary is a schema-ordering lint and is not
+        // called at runtime." A spelling added there and forgotten in the
+        // runtime chain is a silently discarded alias all over again.
+        assertEquals(
+            org.chromia.tools.ArgumentVocabulary.RELL_SOURCES.all,
+            org.chromia.tools.RELL_SOURCE_ALIASES.toSet(),
+            "every name the vocabulary calls a Rell-sources spelling must be read AND compared"
+        )
+        assertEquals(
+            org.chromia.tools.ArgumentVocabulary.RELL_SOURCES.canonical,
+            org.chromia.tools.RELL_SOURCE_ALIASES.first(),
+            "the canonical name is the one that wins when the contents agree"
+        )
+    }
+
+    @Test
     fun `deployment_preflight's comment no longer contradicts its own next line`() {
         val src = java.io.File("src/main/kotlin/org/chromia/tools/ToolExecutor.kt").readText()
         assertFalse(
