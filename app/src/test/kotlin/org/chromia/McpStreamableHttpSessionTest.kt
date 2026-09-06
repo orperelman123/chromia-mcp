@@ -2,6 +2,7 @@ package org.chromia
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
@@ -141,7 +142,11 @@ class McpStreamableHttpSessionTest {
     fun sessionIdIsMintedEchoedAndDeletable() = runBlocking {
         val app = McpTestSupport.testApp()
         val server = app.runSseMcpServer(host = "127.0.0.1", port = 0, wait = false)
-        val http = HttpClient(CIO)
+        val http = HttpClient(CIO) {
+            // No HttpTimeout means "wait forever", which in a 45-minute task budget
+            // turns one stalled endpoint into a deleted-results suite timeout.
+            install(HttpTimeout) { requestTimeoutMillis = 20_000 }
+        }
         try {
             val port = server.engine.resolvedConnectors().first().port
             val url = "http://127.0.0.1:$port/mcp"
@@ -209,7 +214,11 @@ class McpStreamableHttpSessionTest {
     fun healthStaysOpenBesideBothTransports() = runBlocking {
         val app = McpTestSupport.testApp()
         val server = app.runSseMcpServer(host = "127.0.0.1", port = 0, wait = false)
-        val http = HttpClient(CIO)
+        val http = HttpClient(CIO) {
+            // No HttpTimeout means "wait forever", which in a 45-minute task budget
+            // turns one stalled endpoint into a deleted-results suite timeout.
+            install(HttpTimeout) { requestTimeoutMillis = 20_000 }
+        }
         try {
             val port = server.engine.resolvedConnectors().first().port
 
@@ -243,7 +252,10 @@ class McpStreamableHttpSessionTest {
     ) {
         val app = McpTestSupport.testApp(engine = engine)
         val server = app.runSseMcpServer(host = "127.0.0.1", port = 0, wait = false)
-        val http = HttpClient(CIO) { install(SSE) }
+        val http = HttpClient(CIO) {
+            install(SSE)
+            install(HttpTimeout) { requestTimeoutMillis = 20_000 }
+        }
         try {
             val port = server.engine.resolvedConnectors().first().port
             val client = withTimeout(20_000) { http.mcpStreamableHttp("http://127.0.0.1:$port/mcp") }

@@ -2,6 +2,7 @@ package org.chromia
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -64,7 +65,11 @@ class StreamableHttpSessionLifetimeTest {
                 )
             }
         }.start(wait = false)
-        val http = HttpClient(CIO)
+        val http = HttpClient(CIO) {
+            // No HttpTimeout means "wait forever", which in a 45-minute task budget
+            // turns one stalled endpoint into a deleted-results suite timeout.
+            install(HttpTimeout) { requestTimeoutMillis = 20_000 }
+        }
         try {
             val port = server.engine.resolvedConnectors().first().port
             val url = "http://127.0.0.1:$port/mcp"
@@ -123,7 +128,11 @@ class StreamableHttpSessionLifetimeTest {
                 )
             }
         }.start(wait = false)
-        val http = HttpClient(CIO)
+        val http = HttpClient(CIO) {
+            // No HttpTimeout means "wait forever", which in a 45-minute task budget
+            // turns one stalled endpoint into a deleted-results suite timeout.
+            install(HttpTimeout) { requestTimeoutMillis = 20_000 }
+        }
         try {
             val port = server.engine.resolvedConnectors().first().port
             val url = "http://127.0.0.1:$port/mcp"
@@ -172,11 +181,14 @@ class StreamableHttpSessionLifetimeTest {
         assertEquals(0, app.reapIdleStreamableSessions(sessions, idleMillis = 60_000))
         assertEquals(2, sessions.size)
 
-        // A clock 61s later retires both; `touch()` on one keeps it.
+        // Both are touched, then judged against an explicit clock: at `now`
+        // neither is idle, 60s later both are. Passing nowMs keeps this a test of
+        // the rule rather than of how fast the machine runs.
         fresh.touch()
-        val now = System.currentTimeMillis()
         stale.touch()
+        val now = System.currentTimeMillis()
         assertEquals(0, app.reapIdleStreamableSessions(sessions, idleMillis = 60_000, nowMs = now))
+        assertEquals(2, sessions.size)
         assertEquals(2, app.reapIdleStreamableSessions(sessions, idleMillis = 60_000, nowMs = now + 60_001))
         assertTrue(sessions.isEmpty())
     }
