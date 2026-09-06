@@ -949,4 +949,301 @@ class VerifyGuardsProbeTest {
         )
         assertEquals("vacuous", verdict(r), r.toString())
     }
+
+    // =====================================================================
+    // ROUND 15: THE FRAME. Round 14 made the rule structural - the runner's
+    // failing frame ("Operation 'main:take' failed") is compared with the
+    // DECLARATION the guard lives in, and no string literal is consulted.
+    // These probes attack the three joins that comparison makes: a guard in a
+    // `function` matches ANY refusing operation; substringAfterLast(':')
+    // throws the MODULE away; and the frame says which DECLARATION refused,
+    // never which TRANSACTION. Plus the one shape that carries no frame at
+    // all - a query.
+    //
+    // Every probe below is pinned to the TRUE verdict, so it is RED until the
+    // tool is fixed. Raw verdicts and the runner's real error text are in
+    // exploit-corpus/realworld/adversary-round15/vg-frame/.
+    // =====================================================================
+
+    private val r15Clamp = "val paid = min(amount, p.balance);"
+    private val r15Unclamped = "val paid = amount;"
+
+    /**
+     * P15A. THE GUARD LIVES IN A FUNCTION. The clamp is factored into a helper
+     * - which is what every shipped template does (the bridge's mint_against,
+     * the subscription's accrued, the exchange's escrow_of). The attack lands
+     * in transaction 2 (the pot goes to -1) and audit() in transaction 3 is the
+     * damage being NOTICED, exactly as in p14a. Because guardDecl.first is
+     * "function", guardInFunction short-circuits the name comparison and ANY
+     * refusing operation counts as the guard's own.
+     * TRUE VERDICT: load_bearing.
+     */
+    private val r15FunctionMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        function clamp_payment(p: pot, amount: integer): integer {
+            val paid = min(amount, p.balance);
+            return paid;
+        }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = clamp_payment(p, amount);
+            update p ( .balance -= paid );
+        }
+        operation audit() {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= 0, "the pot has gone negative");
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    /** The same module with the clamp INLINE in the operation - p14a's shape. */
+    private val r15OperationMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        operation audit() {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= 0, "the pot has gone negative");
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private val r15AuditTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            rell.test.tx().op(main.audit()).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    @Test
+    fun p15aGuardInAFunctionIsNotRefusedByEveryOperation() {
+        val r = run(
+            mapOf("main.rell" to r15FunctionMain, "main_test.rell" to r15AuditTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /** The control: the same guard, the same attack, the same damage, inline. */
+    @Test
+    fun p15aControlTheSameGuardInTheOperation() {
+        val r = run(
+            mapOf("main.rell" to r15OperationMain, "main_test.rell" to r15AuditTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * P15B. THE MODULE IS THROWN AWAY. The operation that notices the damage
+     * lives in module `x` and happens to share the short name of the operation
+     * the guard lives in, so substringAfterLast(':') reads 'x:take' as the
+     * 'main:take' the guard is in. (@mount is needed only because Rell mounts
+     * an operation under its bare name; the FRAME is still 'x:take'.)
+     * TRUE VERDICT: load_bearing.
+     */
+    private val r15Store = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+    """.trimIndent()
+
+    private val r15CrossMain = """
+        module;
+        import store.*;
+        import x;
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private fun r15CrossX(name: String) = """
+        module;
+        import store.*;
+        @mount("x_$name")
+        operation $name() {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= 0, "the pot has gone negative");
+        }
+    """.trimIndent()
+
+    private fun r15CrossTests(name: String) = """
+        @test module;
+        import main;
+        import x;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            rell.test.tx().op(x.$name()).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    @Test
+    fun p15bAnotherModulesOperationOfTheSameNameIsNotThisGuard() {
+        val r = run(
+            mapOf(
+                "store.rell" to r15Store,
+                "main.rell" to r15CrossMain,
+                "x.rell" to r15CrossX("take"),
+                "main_test.rell" to r15CrossTests("take")
+            ),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /** The control: the same chain with that one identifier renamed. */
+    @Test
+    fun p15bControlTheSameOperationRenamedAudit() {
+        val r = run(
+            mapOf(
+                "store.rell" to r15Store,
+                "main.rell" to r15CrossMain,
+                "x.rell" to r15CrossX("audit"),
+                "main_test.rell" to r15CrossTests("audit")
+            ),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * P15C. THE GUARD'S OWN OPERATION, IN A LATER TRANSACTION. The attack lands
+     * in transaction 2 and transaction 3 is refused BY THE SAME OPERATION,
+     * because the damage is already done. The frame names the declaration and
+     * never the transaction, so this reads as the attack being refused.
+     * TRUE VERDICT: load_bearing.
+     */
+    private val r15LaterTxMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= 0, "the pot has gone negative");
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private val r15LaterTxTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            rell.test.tx().op(main.take(1)).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    @Test
+    fun p15cTheGuardsOwnOperationRefusingLaterIsNotTheAttackBeingRefused() {
+        val r = run(
+            mapOf("main.rell" to r15LaterTxMain, "main_test.rell" to r15LaterTxTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * P15E. A REFUSAL THAT CARRIES NO FRAME. When a QUERY refuses, the runner's
+     * whole error is the message - there is no "Query 'main:payout' failed"
+     * around it - so the refusal regex finds nothing, the frame comparison is
+     * skipped, and the red is read as the damage being noticed. Here the named
+     * guard is DEFENCE IN DEPTH: with the clamp gone, the query's own second
+     * guard refuses, so the clamp proves nothing.
+     * TRUE VERDICT: still_refused. The tool answers load_bearing, ok:true -
+     * the first verdict since round 11 in the dangerous direction.
+     */
+    private val r15QueryMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        query payout(amount: integer): integer {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            require(paid <= p.balance, "the pot is short");
+            return paid;
+        }
+    """.trimIndent()
+
+    private val r15QueryTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            assert_equals(main.payout(11), 10);
+        }
+    """.trimIndent()
+
+    /** The same two guards and the same attack, one keyword apart. */
+    private val r15QueryControlMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation payout(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            require(paid <= p.balance, "the pot is short");
+            update p ( .balance -= paid );
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private val r15QueryControlTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.payout(11)).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    @Test
+    fun p15eAQueryGuardStillRefusedIsNotLoadBearing() {
+        val r = run(
+            mapOf("main.rell" to r15QueryMain, "main_test.rell" to r15QueryTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+    }
+
+    @Test
+    fun p15eControlTheSamePairInAnOperation() {
+        val r = run(
+            mapOf("main.rell" to r15QueryControlMain, "main_test.rell" to r15QueryControlTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+    }
 }
