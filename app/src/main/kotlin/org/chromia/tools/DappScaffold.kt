@@ -261,7 +261,7 @@ object DappScaffold {
         )
 
     const val BRIDGE_TEST_THRESHOLD = 2
-    const val BRIDGE_TEST_TOTAL_CAP = 150000
+    const val BRIDGE_TEST_TOTAL_CAP = 250000
     const val BRIDGE_TEST_PERIOD_CAP = 100000
 
     /**
@@ -276,16 +276,31 @@ object DappScaffold {
             append("      # REQUIRED before `chr build` / deploy - the bridge's own configuration.\n")
             append("      # Deliberately NOT set here so the chain cannot be built with a placeholder,\n")
             append("      # and every line is a decision no default can make for you:\n")
-            append("      #   bridge_operator_pubkey - the key that enrols the relayer set and closes\n")
-            append("      #     it. It can do nothing else, and once close_relayer_set() is signed the\n")
-            append("      #     set is fixed for the life of the chain.\n")
-            append("      #   relayer_threshold - how many DISTINCT relayers must attest one burn\n")
-            append("      #     before it mints. At least two: a bridge whose threshold is one is a\n")
-            append("      #     bridge with one key, and this module refuses that.\n")
+            append("      #   bridge_operator_pubkey - the key that enrols the GENESIS relayer set\n")
+            append("      #     and closes it. Once close_relayer_set() is signed it can no longer add\n")
+            append("      #     or remove a relayer - every later change needs relayer_threshold() of\n")
+            append("      #     the EXISTING relayers to vote for it - and the one power it keeps can\n")
+            append("      #     only STOP the bridge: pause_bridge / resume_bridge, which mint nothing\n")
+            append("      #     and move nothing. An operator that pauses and never resumes leaves\n")
+            append("      #     every attested burn unpayable; that is the price of a stop button.\n")
+            append("      #   relayer_threshold - how many DISTINCT relayers must vote for one PAYMENT\n")
+            append("      #     before it mints, and how many must agree to any later change to the\n")
+            append("      #     set. At least two, because this module refuses one. But two is a count\n")
+            append("      #     of ENROLLED ACCOUNTS and no chain can tell two parties from one hand\n")
+            append("      #     with two keys: adversary round 15 minted this bridge's whole total cap\n")
+            append("      #     through a set the operator had enrolled itself. PUBLISH the genesis\n")
+            append("      #     set and who holds each key, check it against the chain configuration\n")
+            append("      #     before you trust the bridge, and size the caps below to what you can\n")
+            append("      #     afford to lose if that publication was a lie.\n")
             append("      #   total_mint_cap / period_mint_cap - what the source chain's locked supply\n")
-            append("      #     bounds, and the most that may cross in one MINT_PERIOD_MS. Size the\n")
-            append("      #     period cap to what you can afford to lose to a hostile relayer\n")
-            append("      #     majority in one period, not to what the source chain holds.\n")
+            append("      #     bounds, and the most that may cross in ANY MINT_PERIOD_MS-long interval,\n")
+            append("      #     wherever it starts: the period cap is a ROLLING window, because round 15\n")
+            append("      #     took twice a fixed window's cap across its boundary in two milliseconds.\n")
+            append("      #     Size the period cap to what you can afford to lose to a hostile relayer\n")
+            append("      #     majority in one period, not to what the source chain holds. Neither cap\n")
+            append("      #     is raised by any operation: a bridge that has reached its total cap\n")
+            append("      #     needs a configuration change, and there is no recovery path inside the\n")
+            append("      #     module.\n")
             append("      # main:\n")
             append("      #   bridge_operator_pubkey: x\"<your bridge operator public key>\"\n")
             append("      #   relayer_threshold: 3\n")
@@ -335,9 +350,27 @@ object DappScaffold {
         // TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT. A bridge's
         // invariant has to compare what was minted against something that was NOT
         // written by the mint, and the only such thing this chain can hold is the
-        // attested burn record - so that is what it compares against here.
+        // relayers' own votes - so that is what it compares against here.
         //
-        // Eight guards are STRUCTURAL - they live in the entities and their keys, not
+        // ROUND 15 ATTACKED THIS TEMPLATE AND TOOK THREE MORE, all of them at the
+        // boundaries of the guards round 14 had just written. Each is closed below and
+        // each ships as a must-fail test with a mutant:
+        //   - THE PERIOD CAP WAS A FIXED WINDOW ANCHORED ON THE MINT THAT OPENED IT, so
+        //     TWICE the cap crossed in TWO MILLISECONDS: one unit at T0+1 anchored the
+        //     window, 99999 at T0+DAY filled it, and 100000 at T0+DAY+2 filled a fresh
+        //     one - 200000 units against a period cap of 100000, between block time
+        //     T0+DAY and block time T0+DAY+2.
+        //   - ONE RELAYER FROZE A BURN FOR EVER. The FIRST attestation opened the row
+        //     and BOUND the payment, so a single relayer out of three, below a
+        //     threshold of two, spoke first, named itself, and both honest relayers
+        //     were refused - a day later, a year later. Alice's 100000 locked on the
+        //     source chain were unreachable for the life of the chain. The old header
+        //     presented that refusal as the safety property; it was how the set agreed
+        //     on the FIRST SPEAKER's payment.
+        //   - THE OPERATOR KEY WAS THE BRIDGE. It enrolled every relayer, so one key
+        //     minted 1000000 - the whole total cap - against ten fabricated source
+        //     transactions, with minted_total == attested_burn_total at every step.
+        // Ten guards are STRUCTURAL - they live in the entities and their keys, not
         // in a require() a later operation can forget:
         //   ONE BURN, ONE ROW - the processed-burns registry is keyed by the burn's
         //     identity on the source chain and by nothing else: (source_chain,
@@ -345,60 +378,100 @@ object DappScaffold {
         //     refused by the DATABASE and there is no check to omit. The log index is
         //     part of it because one transaction can carry several burns and they are
         //     different burns.
-        //   THE ROW BINDS WHAT THE BURN PAYS - recipient and amount are written ONCE,
-        //     by the attestation that opens the row, and neither is mutable. The mint
-        //     reads the ROW, never the operation's arguments, so nothing in a later
-        //     attestation can be substituted; one that disagrees with what is already
-        //     recorded is refused rather than counted, which is how a relayer set
-        //     agrees on a burn rather than on a payment.
-        //   ONE RELAYER, ONE VOICE - an attestation row is keyed (burn, witness), so a
-        //     relayer counts once per burn however many times it signs. A `key` again,
-        //     and not a check: the second attestation from the same relayer aborts.
-        //   THE THRESHOLD IS CROSSED ONCE - the counter rises by exactly one per
+        //   THE VOTE IS ON THE TUPLE - a relayer does not attest to a burn, it attests
+        //     to a PAYMENT: the tuple (burn, recipient, amount) is a burn_claim row, and
+        //     the claim that reaches the threshold is the one that pays. Round 15's
+        //     freeze is unwritable here rather than detectable: a relayer that names a
+        //     recipient nobody else names opens a claim of its own that never reaches
+        //     the threshold, and the honest majority pays the tuple THEY name without
+        //     ever having to agree with the first speaker. What a burn pays is still
+        //     immutable - the claim's recipient and amount are in its KEY - and the
+        //     mint still reads the ROW rather than the operation's arguments.
+        //   ONE RELAYER, ONE VOICE - an attestation row is keyed (burn, witness,
+        //     round), so a relayer counts once per burn however many times it signs AND
+        //     cannot vote for two different tuples on the same burn. A `key` again, and
+        //     not a check: the second attestation from the same relayer aborts.
+        //   THE THRESHOLD IS CROSSED ONCE - a claim's counter rises by exactly one per
         //     DISTINCT relayer, so it EQUALS the threshold in exactly one transaction,
-        //     ever, and that is the transaction that mints. There is no minted flag to
+        //     ever, and that is the transaction that mints. Once a burn is paid no
+        //     further attestation on it is accepted at all. There is no minted flag to
         //     test and none to forget.
-        //   THE RELAYER SET IS CONFIGURATION - relayers are enrolled by the configured
-        //     bridge operator key, and the set is CLOSED before any burn may be
-        //     attested; after that nothing adds, removes or replaces one. A relayer is
-        //     the AUTHENTICATED account looked up by its own id, so no operation takes
-        //     a signer as an argument and nobody can name their own (probe N5).
-        //   CAPPED IN TOTAL AND PER PERIOD - a receiver can only ever owe what the
-        //     source chain locked, so a mint is bounded twice, against a total cap and
-        //     against a per-period cap, both configuration. A relayer majority that
-        //     turns hostile is then a bounded and visible loss rather than the supply.
+        //   A STALLED BURN CAN BE RE-ATTESTED - if the relayers disagree and NO tuple
+        //     reaches the threshold, any relayer may reopen the burn's attestation
+        //     ROUND once ATTESTATION_WINDOW_MS has passed, and they vote again. Nothing
+        //     is deleted and no timestamp is rewritten except the round's own opening;
+        //     the old votes stay as the record of who said what. A burn that cannot be
+        //     paid is a burn that can be tried again, which is what makes the freeze
+        //     impossible rather than merely visible.
+        //   NO SINGLE KEY OWNS THE RELAYER SET - the operator enrols the GENESIS set
+        //     and closes it, and after that it can neither add nor remove a relayer:
+        //     every later change is voted through by relayer_threshold() of the
+        //     EXISTING relayers (vote_relayer_change), keyed one vote per relayer per
+        //     proposal. The operator key keeps exactly one power afterwards, and it can
+        //     only ever stop the bridge: pause_bridge / resume_bridge, which mint
+        //     nothing and move nothing.
+        //   A ROLLING PERIOD CAP - the per-period cap holds over EVERY
+        //     MINT_PERIOD_MS-long interval, wherever it starts, not over a window
+        //     anchored on the mint that opened it. Each mint is a row, rows older than
+        //     the window are dropped as they age out, and what is minted in the window
+        //     is the sum of the rows still in it. THE COST, stated because a defence's
+        //     price belongs in this list: a mint reads and sums the mints of the last
+        //     period, so the cap is bounded twice - by the amount and by
+        //     MAX_MINTS_PER_PERIOD rows, which is what keeps that sum a bounded scan
+        //     and not an unbounded one. A period that fills stalls until the oldest
+        //     mint in it ages out.
+        //   CAPPED IN TOTAL - a receiver can only ever owe what the source chain
+        //     locked, so a mint is bounded against a total cap as well, and that one is
+        //     never refreshed by waiting. A relayer majority that turns hostile is then
+        //     a bounded and visible loss rather than the supply.
         //   THE EXIT IS A RECORD - burn_for_exit destroys the wrapped units AND writes
         //     an exit_record in the same operation, so a holder can never burn without
         //     leaving the evidence the source chain releases against.
-        //   MINTED AGAINST PROCESSED BURNS - the conservation invariant compares what
-        //     this chain minted against the burns it ACCEPTED, and what circulates
-        //     against minted minus burned. That is the invariant a bridge needs and a
-        //     transfer-conservation test is not it.
+        //   MINTED AGAINST ATTESTED CLAIMS - the conservation invariant compares what
+        //     this chain minted against the claims the RELAYERS carried to the
+        //     threshold, and what circulates against minted minus burned. Nothing the
+        //     mint writes appears on the other side of that comparison. That is the
+        //     invariant a bridge needs and a transfer-conservation test is not it.
         // What no template can fix, and this header will not pretend otherwise:
-        //   - A THRESHOLD OF RELAYERS IS THE TRUST ROOT. Enough of them, colluding,
-        //     mint whatever they like up to the caps, and the caps are the only thing
-        //     that bounds it. Choose a threshold and a set that make collusion
-        //     expensive, and size the period cap to what you can afford to lose in one
-        //     period rather than to what the source chain holds.
+        //   - A THRESHOLD OF RELAYERS IS THE TRUST ROOT, AND THE GENESIS SET IS THE
+        //     OPERATOR'S. Enough relayers, colluding, mint whatever they like up to the
+        //     caps, and the caps are the only thing that bounds it. The threshold this
+        //     module enforces is a count of DISTINCT ENROLLED ACCOUNTS, and no chain
+        //     can tell whether those accounts are held by three parties or by one hand
+        //     with three keys - round 15 minted the whole total cap through a set the
+        //     operator had enrolled itself, and nothing on this side could see it. What
+        //     the module gives you is that the genesis set is FIXED AND PUBLIC before
+        //     any burn is attested and can never afterwards be changed by one key.
+        //     Publish the genesis set and who holds each key, verify it against the
+        //     chain's configuration before you trust the bridge, and size the caps to
+        //     what you can afford to lose if that publication was a lie.
         //   - THIS CHAIN CANNOT VERIFY THE SOURCE CHAIN. Nothing here reads the other
         //     ledger; what it has is a signed claim about it. If both sides are
         //     Chromia, replace the relayer set with ICCF proof verification and keep
-        //     everything else - the registry key, the row that binds the payout, the
+        //     everything else - the registry key, the claim that binds the payout, the
         //     caps and the invariant are the same either way.
-        //   - A CAP THAT IS REACHED STALLS THE BRIDGE. The attestation that would
-        //     cross a cap is REFUSED, so the burn waits for the next period or for the
-        //     operator to raise the total. That is deliberate - a bridge that keeps
-        //     minting past its cap has no cap - but it means a burn may not land in
-        //     the block it was attested in, and whoever runs the bridge has to say so.
+        //   - A CAP THAT IS REACHED STALLS THE BRIDGE. The attestation that would cross
+        //     a cap is REFUSED, so the burn waits: for the period cap, until enough of
+        //     the last period's mints have aged out of the rolling window; for the
+        //     TOTAL cap, for ever, because no operation in this module raises it. Both
+        //     caps are module args, so raising one is a configuration change to the
+        //     chain and not a transaction anybody can send. That is deliberate - a
+        //     bridge that keeps minting past its cap has no cap - but it means a burn
+        //     may not land in the block it was attested in, and whoever runs the bridge
+        //     has to say so.
+        //   - THE OPERATOR CAN STOP THE BRIDGE. pause_bridge takes nothing and pays
+        //     nobody, but an operator that pauses and never resumes leaves every
+        //     attested burn unpayable. That is the price of keeping a stop button at
+        //     all; if you do not want it, drop both operations and the paused flag.
         //   - THE EXIT IS ONLY A RECORD. Burning here releases nothing on the source
         //     chain; a relayer reading exit_record does. What this side guarantees is
         //     that the record exists exactly once per burned unit and that nobody can
         //     write one without burning.
 
-        // Configuration. Every one of these is a decision no default can make: who may
-        // enrol the relayer set, how many of them must agree, and how much this bridge
-        // may ever mint. They are module args so that none of them is an argument a
-        // caller supplies.
+        // Configuration. Every one of these is a decision no default can make: who
+        // enrols the GENESIS relayer set, how many of them must agree, and how much this
+        // bridge may ever mint. They are module args so that none of them is an argument
+        // a caller supplies.
         struct module_args {
             bridge_operator_pubkey: pubkey;
             relayer_threshold: integer;
@@ -406,8 +479,8 @@ object DappScaffold {
             period_mint_cap: integer;
         }
 
-        // The wrapped token. Every unit in existence was minted against a burn in the
-        // registry below.
+        // The wrapped token. Every unit in existence was minted against a claim that
+        // reached the relayer threshold.
         entity holding {
             key owner: byte_array;
             mutable balance: integer = 0;
@@ -422,20 +495,56 @@ object DappScaffold {
         }
 
         // THE PROCESSED-BURNS REGISTRY. The key IS the burn's identity on the source
-        // chain, so one burn has one row for the life of this chain, and the row
-        // carries what that burn pays.
+        // chain, so one burn has one row for the life of this chain. The row itself
+        // carries NO payment: what a burn pays is decided by the relayers' votes below,
+        // and `paid_amount` is written once, by the mint, and is what makes a paid burn
+        // final.
         entity processed_burn {
             key source_chain: byte_array, source_tx: byte_array, log_index: integer;
-            recipient: byte_array;
-            amount: integer;
             opened_at: timestamp;
-            mutable attestations: integer = 0;
+            mutable round: integer = 1;
+            mutable round_opened_at: timestamp = 0;
+            mutable paid_amount: integer = 0;
         }
 
-        // One relayer's voice on one burn. Keyed, so it cannot be repeated.
+        // ONE PAYMENT A RELAYER SET COULD AGREE ON: the tuple (burn, recipient, amount).
+        // Several may exist for one burn - relayers that disagree open different claims -
+        // and the one that reaches the threshold is the one that pays. recipient and
+        // amount are in the KEY, so what a claim pays can never be rewritten.
+        entity burn_claim {
+            key burn: processed_burn, recipient: byte_array, amount: integer, round: integer;
+            opened_at: timestamp;
+            mutable votes: integer = 0;
+        }
+
+        // One relayer's voice on one burn, in one round. Keyed, so it cannot be repeated
+        // and cannot be split across two claims.
         entity attestation {
-            key burn: processed_burn, witness: relayer;
+            key burn: processed_burn, witness: relayer, round: integer;
+            claim: burn_claim;
             attested_at: timestamp;
+        }
+
+        // ONE MINT, inside the rolling period window. Rows age out of the window and are
+        // dropped as they do, so the window's total is a bounded sum.
+        entity mint_event {
+            index burn: processed_burn;
+            amount: integer;
+            minted_at: timestamp;
+        }
+
+        // A proposed change to the relayer set, voted by the EXISTING relayers. The epoch
+        // is in the key so that a change the set declined can be proposed again after the
+        // set has moved on.
+        entity relayer_change {
+            key candidate: byte_array, add: boolean, epoch: integer;
+            proposed_at: timestamp;
+            mutable votes: integer = 0;
+        }
+
+        entity relayer_change_vote {
+            key change: relayer_change, witness: relayer;
+            voted_at: timestamp;
         }
 
         // What the source chain releases against.
@@ -449,11 +558,11 @@ object DappScaffold {
         object bridge_state {
             mutable relayer_count: integer = 0;
             mutable relayer_set_closed: boolean = false;
+            mutable set_epoch: integer = 1;
+            mutable paused: boolean = false;
             mutable minted_total: integer = 0;
             mutable burned_total: integer = 0;
             mutable next_exit_id: integer = 1;
-            mutable period_started_at: integer = 0;
-            mutable minted_this_period: integer = 0;
         }
 
         val MAX_AMOUNT = 1000000000;
@@ -467,6 +576,14 @@ object DappScaffold {
         // The window the per-period cap is measured over. A constant, never a
         // parameter: a caller who chooses the period chooses the cap.
         val MINT_PERIOD_MS = 24 * 60 * 60 * 1000;
+        // The most mints one rolling window may hold, so summing it is a bounded scan.
+        // A period that reaches this stalls exactly as a period that reaches the cap
+        // does, and for the same reason.
+        val MAX_MINTS_PER_PERIOD = 64;
+        // How long an attestation round stands before any relayer may reopen it. This is
+        // the answer to round 15's freeze: a burn the set could not agree on is tried
+        // again rather than lost.
+        val ATTESTATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this.
@@ -499,24 +616,48 @@ object DappScaffold {
         function holding_of(owner: byte_array): holding =
             require(holding @? { .owner == owner }, "register an account first");
 
+        // The AUTHENTICATED account, looked up as a relayer by its own id. No operation
+        // takes a signer as an argument, so nobody can present their own (probe N5).
+        function witness_of(account_id: byte_array): relayer {
+            require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
+            return require(
+                relayer @? { .account_id == account_id },
+                "a burn attestation must be signed by an enrolled relayer"
+            );
+        }
+
         // The caps, applied to the one place units are created.
-        function mint_against(burn: processed_burn) {
-            if (op_context.last_block_time - bridge_state.period_started_at >= MINT_PERIOD_MS) {
-                bridge_state.period_started_at = op_context.last_block_time;
-                bridge_state.minted_this_period = 0;
+        function mint_against(claim: burn_claim) {
+            require(not bridge_state.paused, "the bridge is paused");
+            val burn = claim.burn;
+            val now = op_context.last_block_time;
+            // A ROLLING WINDOW. Round 15 crossed TWICE the cap in two milliseconds
+            // against the fixed window this used to be: it was anchored on the mint that
+            // opened it, so 99999 at the end of one window and 100000 at the start of the
+            // next were two windows and one boundary. Here the window is the last
+            // MINT_PERIOD_MS from NOW, wherever that falls: mints older than that are
+            // dropped as they age out, and what is left is what the cap applies to.
+            delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };
+            var in_window = 0;
+            var rows = 0;
+            for (m in mint_event @* {} ( .amount )) {
+                in_window += m;
+                rows += 1;
             }
+            require(rows < MAX_MINTS_PER_PERIOD, "too many mints in this period");
             require(
-                bridge_state.minted_total + burn.amount <= total_mint_cap(),
+                bridge_state.minted_total + claim.amount <= total_mint_cap(),
                 "the bridge's total mint cap is reached"
             );
             require(
-                bridge_state.minted_this_period + burn.amount <= period_mint_cap(),
+                in_window + claim.amount <= period_mint_cap(),
                 "the bridge's mint cap for this period is reached"
             );
-            val h = holding_of(burn.recipient);
-            update h ( .balance += burn.amount );
-            bridge_state.minted_total += burn.amount;
-            bridge_state.minted_this_period += burn.amount;
+            val h = holding_of(claim.recipient);
+            update h ( .balance += claim.amount );
+            bridge_state.minted_total += claim.amount;
+            update burn ( .paid_amount = claim.amount );
+            create mint_event(burn = burn, amount = claim.amount, minted_at = now);
         }
 
         operation register_account() {
@@ -525,9 +666,11 @@ object DappScaffold {
             create holding(owner = account.id, balance = 0);
         }
 
-        // Enrol one relayer. The operator may do this until the set is closed and never
-        // afterwards, so the trust root of the bridge is fixed before the first burn is
-        // attested; the account id is the KEY, so nobody is enrolled twice.
+        // Enrol one relayer into the GENESIS set. The operator may do this until the set
+        // is closed and NEVER afterwards, so the trust root of the bridge is fixed before
+        // the first burn is attested; the account id is the KEY, so nobody is enrolled
+        // twice. After close_relayer_set the set changes only by a vote of the relayers
+        // themselves.
         operation enrol_relayer(candidate: byte_array) {
             require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is closed");
@@ -537,7 +680,7 @@ object DappScaffold {
             bridge_state.relayer_count += 1;
         }
 
-        // Shut the set. One way, and nothing re-opens it.
+        // Shut the genesis set. One way, and nothing re-opens it.
         operation close_relayer_set() {
             require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is already closed");
@@ -548,12 +691,67 @@ object DappScaffold {
             bridge_state.relayer_set_closed = true;
         }
 
+        // CHANGE THE SET, BY A VOTE OF THE SET. Round 15 minted the whole total cap
+        // through relayers the operator had enrolled itself; the genesis set is still the
+        // operator's - no chain can tell three parties from one hand with three keys -
+        // but from the moment it is closed, no single key can widen it or narrow it.
+        // relayer_threshold() distinct EXISTING relayers must agree, one vote each.
+        operation vote_relayer_change(candidate: byte_array, add: boolean) {
+            val account = auth.authenticate();
+            val witness = witness_of(account.id);
+            require(candidate.size() == 32, "a relayer must be a 32-byte account id");
+            val enrolled = relayer @? { .account_id == candidate };
+            if (add) {
+                require(enrolled == null, "that account is already a relayer");
+                require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
+            } else {
+                require(enrolled != null, "that account is not a relayer");
+                require(
+                    bridge_state.relayer_count - 1 >= relayer_threshold(),
+                    "the set cannot fall below the threshold"
+                );
+            }
+            val now = op_context.last_block_time;
+            val epoch = bridge_state.set_epoch;
+            val opened = relayer_change @? { .candidate == candidate, .add == add, .epoch == epoch };
+            if (opened == null) {
+                create relayer_change(candidate = candidate, add = add, epoch = epoch, proposed_at = now, votes = 0);
+            }
+            val change = relayer_change @ { .candidate == candidate, .add == add, .epoch == epoch };
+            create relayer_change_vote(change = change, witness = witness, voted_at = now);
+            val voices = change.votes + 1;
+            update change ( .votes = voices );
+            if (voices == relayer_threshold()) {
+                if (add) {
+                    create relayer(account_id = candidate, enrolled_at = now);
+                    bridge_state.relayer_count += 1;
+                } else {
+                    delete relayer @ { .account_id == candidate };
+                    bridge_state.relayer_count -= 1;
+                }
+                bridge_state.set_epoch += 1;
+            }
+        }
+
+        // THE OPERATOR'S ONLY REMAINING POWER, and it can only ever STOP the bridge.
+        operation pause_bridge() {
+            require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
+            require(not bridge_state.paused, "the bridge is already paused");
+            bridge_state.paused = true;
+        }
+
+        operation resume_bridge() {
+            require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
+            require(bridge_state.paused, "the bridge is not paused");
+            bridge_state.paused = false;
+        }
+
         // THE ATTESTATION. A relayer signs a transaction whose operation arguments ARE
         // the burn record - the chain, the transaction and log index that identify the
         // burn, and the recipient and amount it pays - and the platform verifies that
-        // signature over exactly those fields. The first attestation OPENS the burn's
-        // one row; every later one must agree with it or be refused; and the one that
-        // makes the count equal the threshold is the one that mints.
+        // signature over exactly those fields. Its vote goes to the TUPLE it named, the
+        // claim that reaches the threshold is the one that pays, and the transaction that
+        // takes a claim to the threshold is the one that mints.
         operation attest_burn(
             chain_rid: byte_array,
             tx_rid: byte_array,
@@ -563,15 +761,9 @@ object DappScaffold {
         ) {
             // 1. AUTHENTICATE
             val account = auth.authenticate();
-            // 2. AUTHORIZE - an enrolled relayer, out of a set that can no longer
-            //    change. WHICH relayer is the AUTHENTICATED account looked up by its own
-            //    id: no operation takes a signer as an argument, so nobody can present
-            //    their own (audit probe N5).
-            require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
-            val witness = require(
-                relayer @? { .account_id == account.id },
-                "a burn attestation must be signed by an enrolled relayer"
-            );
+            // 2. AUTHORIZE - an enrolled relayer, out of a set that no single key can
+            //    change any more.
+            val witness = witness_of(account.id);
             // 3. VALIDATE - each input separately, and bounded before it is added to
             //    anything.
             require(chain_rid.size() == 32, "source chain rid must be 32 bytes");
@@ -580,34 +772,77 @@ object DappScaffold {
             require(recipient.size() == 32, "recipient must be a 32-byte account id");
             require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
             require(holding @? { .owner == recipient } != null, "recipient is not registered");
-            // 4. THE REGISTRY. One row per burn, and the row binds what it pays.
-            val opened = processed_burn @? {
+            val now = op_context.last_block_time;
+            // 4. THE REGISTRY. One row per burn, keyed by the burn's identity and
+            //    carrying no payment of its own.
+            val existing = processed_burn @? {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            if (opened == null) {
+            if (existing == null) {
                 create processed_burn(
                     source_chain = chain_rid,
                     source_tx = tx_rid,
                     log_index = log_idx,
-                    recipient = recipient,
-                    amount = amount,
-                    opened_at = op_context.last_block_time
+                    opened_at = now,
+                    round = 1,
+                    round_opened_at = now,
+                    paid_amount = 0
                 );
-            } else {
-                require(opened.recipient == recipient, "this burn was opened for a different recipient");
-                require(opened.amount == amount, "this burn was opened for a different amount");
             }
             val burn = processed_burn @ {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            // 5. ONE RELAYER, ONE VOICE - the key refuses a repeat, so the count below
-            //    is a count of DISTINCT relayers and nothing else.
-            create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);
-            val voices = burn.attestations + 1;
-            update burn ( .attestations = voices );
-            if (voices == relayer_threshold()) {
-                mint_against(burn);
+            require(burn.paid_amount == 0, "this burn has already been paid");
+            // 5. THE VOTE IS ON THE TUPLE. A relayer that disagrees with what is already
+            //    recorded opens a CLAIM OF ITS OWN rather than being refused: round 15
+            //    froze a burn for ever by speaking first and naming itself, and the
+            //    honest majority had no way to say anything else. recipient and amount
+            //    are in this row's KEY, so a claim still cannot be rewritten.
+            val opened = burn_claim @? {
+                .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round
+            };
+            if (opened == null) {
+                create burn_claim(
+                    burn = burn,
+                    recipient = recipient,
+                    amount = amount,
+                    round = burn.round,
+                    opened_at = now,
+                    votes = 0
+                );
             }
+            val claim = burn_claim @ {
+                .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round
+            };
+            // 6. ONE RELAYER, ONE VOICE - the key refuses a repeat AND a second tuple, so
+            //    the count below is a count of DISTINCT relayers and nothing else.
+            create attestation(burn = burn, witness = witness, round = burn.round, claim = claim, attested_at = now);
+            val voices = claim.votes + 1;
+            update claim ( .votes = voices );
+            if (voices == relayer_threshold()) {
+                mint_against(claim);
+            }
+        }
+
+        // NOBODY IS STUCK WITH A BURN THE SET COULD NOT AGREE ON. If no tuple reached the
+        // threshold within ATTESTATION_WINDOW_MS, any relayer may open a fresh round and
+        // the set votes again. The old votes stay where they are; nothing is deleted and
+        // no payment is written by this.
+        operation reopen_burn_attestation(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer) {
+            val account = auth.authenticate();
+            witness_of(account.id);
+            val burn = require(
+                processed_burn @? {
+                    .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+                },
+                "no such burn"
+            );
+            require(burn.paid_amount == 0, "this burn has already been paid");
+            require(
+                op_context.last_block_time - burn.round_opened_at >= ATTESTATION_WINDOW_MS,
+                "the attestation round is still open"
+            );
+            update burn ( .round += 1, .round_opened_at = op_context.last_block_time );
         }
 
         // Leave. The wrapped units are destroyed here and the record is what the source
@@ -654,13 +889,47 @@ object DappScaffold {
 
         query relayer_set_is_closed(): boolean = bridge_state.relayer_set_closed;
 
+        query bridge_is_paused(): boolean = bridge_state.paused;
+
+        query is_relayer(account_id: byte_array): boolean = relayer @? { .account_id == account_id } != null;
+
         query holder_count(): integer = holding @* {} ( .owner ).size();
 
+        // How many relayers have spoken on this burn in the round it is in now.
         query burn_attestations(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer): integer {
             val b = processed_burn @? {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            return if (b != null) b.attestations else 0;
+            if (b == null) return 0;
+            return (attestation @* { .burn == b, .round == b.round } ( .attested_at )).size();
+        }
+
+        // How many relayers have voted for one exact PAYMENT on this burn, in this round.
+        query claim_votes(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer, recipient: byte_array, amount: integer): integer {
+            val b = processed_burn @? {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            if (b == null) return 0;
+            val c = burn_claim @? { .burn == b, .recipient == recipient, .amount == amount, .round == b.round };
+            return if (c != null) c.votes else 0;
+        }
+
+        query burn_round(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer): integer {
+            val b = processed_burn @? {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            return if (b != null) b.round else 0;
+        }
+
+        // What has been minted inside the rolling window ending at `now` - the sum the
+        // period cap is applied to, readable so that a relayer can see why a mint is
+        // waiting. A query has no op_context, so the caller passes the block time it is
+        // asking about.
+        query minted_in_window(now: integer): integer {
+            var total = 0;
+            val floor = now - MINT_PERIOD_MS;
+            for (m in mint_event @* { .minted_at > floor } ( .amount )) total += m;
+            return total;
         }
 
         // INVARIANT 1: every wrapped unit that exists was minted and has not been
@@ -672,15 +941,15 @@ object DappScaffold {
         }
 
         // INVARIANT 2, AND THE ONE A BRIDGE ACTUALLY NEEDS: what this chain minted
-        // against what it ACCEPTED as burned elsewhere. Nothing the mint writes appears
-        // on this side of the comparison - the registry rows are written by the
-        // attestations, so a mint that no burn backs shows up here and a
-        // transfer-conservation test cannot see it at all.
+        // against what the RELAYERS carried to the threshold. Nothing the mint writes
+        // appears on this side of the comparison - claims and their vote counts are
+        // written by the attestations - so a mint that no relayer set voted for shows up
+        // here, and a transfer-conservation test cannot see it at all.
         query attested_burn_total(): integer {
             var total = 0;
             val threshold = relayer_threshold();
-            for (b in processed_burn @* {}) {
-                if (b.attestations >= threshold) total += b.amount;
+            for (c in burn_claim @* {}) {
+                if (c.votes >= threshold) total += c.amount;
             }
             return total;
         }
@@ -700,12 +969,18 @@ object DappScaffold {
         // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
         // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
         //
-        // The two test_r14_* functions replay adversary round 14's bridge drains and
+        // The two test_round14_* functions replay adversary round 14's bridge drains and
         // REQUIRE them to fail. There, nothing recorded which burns had been paid, so
         // one burn of 1000 minted 10000 in ten identical transactions; and nothing tied
         // the recipient and amount to the source transaction, so three attestations
-        // quoting one burn paid three accounts 1000, 5000 and 250000. Here the burn's
-        // identity is a database key and the row it opens is what the mint reads.
+        // quoting one burn paid three accounts 1000, 5000 and 250000.
+        //
+        // The three test_r15_* functions replay adversary round 15, which attacked this
+        // template at the boundaries of round 14's own guards: twice the period cap
+        // crossed in two milliseconds against a window anchored on the mint that opened
+        // it; one relayer below the threshold froze a burn for ever by speaking first;
+        // and the operator key, which enrolled every relayer, minted the whole total cap
+        // on its own.
 
         import main;
         import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, register_account_open, ft_auth_operation_for };
@@ -752,8 +1027,9 @@ object DappScaffold {
         // open and free; being ENROLLED is what makes an account a relayer.
         function relayer_id(i: integer): byte_array = register_account_open(relayer_keypair(i)).account.id;
 
-        // enrol_relayer and close_relayer_set authenticate on the CONFIGURED operator
-        // key rather than through FT4, so these carry no auth descriptor operation.
+        // enrol_relayer, close_relayer_set and the two pause operations authenticate on
+        // the CONFIGURED operator key rather than through FT4, so these carry no auth
+        // descriptor operation.
         function unauthed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
             rell.test.tx().op(op).nop().sign(keypair).run_must_fail(expected);
         }
@@ -784,10 +1060,18 @@ object DappScaffold {
             rell.test.block().run();
         }
 
+        // Round 15 measured the period boundary with ABSOLUTE block times, so every
+        // number in that replay is exact rather than relative to whatever the harness
+        // had reached.
+        function at(t: integer) {
+            rell.test.set_next_block_time(t);
+        }
+
         val DAY = 24 * 60 * 60 * 1000;
+        val T0 = 1900000000000;
 
         // Three relayers, threshold two: enough that a third honest voice can be shown
-        // to mint nothing.
+        // to mint nothing, and enough that one dissenter can be outvoted.
         function open_the_bridge() {
             var i = 1;
             while (i <= 3) {
@@ -801,15 +1085,19 @@ object DappScaffold {
             signed(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount));
         }
 
+        function attest_must_fail(i: integer, tag: integer, recipient: byte_array, amount: integer, expected: text) {
+            signed_must_fail(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount), expected);
+        }
+
         function mint_burn(tag: integer, recipient: byte_array, amount: integer) {
             attest(1, tag, recipient, amount);
             attest(2, tag, recipient, amount);
         }
 
         // THE INVARIANT A BRIDGE NEEDS, and the one round 14's build did not have: what
-        // was MINTED against what was ACCEPTED as burned elsewhere. A
-        // transfer-conservation test compares balances against a counter the minting
-        // operation raises itself and is structurally blind to a mint.
+        // was MINTED against what the RELAYERS voted for. A transfer-conservation test
+        // compares balances against a counter the minting operation raises itself and is
+        // structurally blind to a mint.
         function assert_conserved() {
             assert_equals(main.minted_total(), main.attested_burn_total());
             assert_equals(main.units_in_circulation(), main.minted_total() - main.burned_total());
@@ -820,14 +1108,15 @@ object DappScaffold {
         // ten times minted 10000 wrapped units against 1000 burned on the source chain,
         // because nothing on this chain recorded which burns had already been paid.
         // Here the burn's identity - (source chain, source tx, log index) - is a
-        // database KEY, one relayer's voice on it is another, and the counter equals
-        // the threshold in exactly one transaction, so the burn pays once.
+        // database KEY, one relayer's voice on it is another, the counter equals the
+        // threshold in exactly one transaction, and a paid burn accepts nothing more.
         function test_round14_one_burn_cannot_be_minted_twice_must_fail() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
             open_the_bridge();
 
-            // Two of the three relayers attest, and the second crosses the threshold.
+            // Two of the three relayers vote for the same payment, and the second
+            // crosses the threshold.
             attest(1, 1, alice.account.id, 1000);
             attest(2, 1, alice.account.id, 1000);
 
@@ -842,10 +1131,10 @@ object DappScaffold {
             assert_equals(main.get_balance(alice.account.id), 1000);
             assert_equals(main.minted_total(), 1000);
 
-            // And a THIRD honest relayer's attestation is welcome and mints nothing:
-            // the counter passes the threshold once and only once.
-            attest(3, 1, alice.account.id, 1000);
-            assert_equals(main.burn_attestations(source_chain(), burn_tx(1), 0), 3);
+            // And a THIRD relayer arriving late mints nothing either: the burn is paid,
+            // and a paid burn takes no more attestations at all.
+            attest_must_fail(3, 1, alice.account.id, 1000, "this burn has already been paid");
+            assert_equals(main.burn_attestations(source_chain(), burn_tx(1), 0), 2);
             assert_equals(main.get_balance(alice.account.id), 1000);
             assert_equals(main.minted_total(), 1000);
             assert_conserved();
@@ -855,8 +1144,8 @@ object DappScaffold {
         // The attestation carried a recipient and an amount and NOTHING tied them to
         // the source transaction, so three attestations quoting one burn paid three
         // accounts 1000, 5000 and 250000 - 256000 wrapped units against one burn. Here
-        // the first attestation opens the burn's row with what it pays, and the mint
-        // reads the ROW.
+        // an attestation is a VOTE for one tuple, and a tuple pays only at the
+        // threshold.
         function test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
@@ -866,26 +1155,157 @@ object DappScaffold {
             signed(trudy.keypair, main.register_account());
             open_the_bridge();
 
-            // The burn is opened for alice, for a thousand.
+            // ONE relayer speaks. That is a claim, not a payment - and this line is
+            // where a mutant that mints on every attestation reddens, because alice can
+            // then spend what one voice minted her.
             attest(1, 2, alice.account.id, 1000);
+            signed_must_fail(alice.keypair, main.burn_for_exit(1), "insufficient balance");
 
-            // THE ATTACK: the same source transaction, a different beneficiary and a
-            // different amount. Every one of them is refused, and refused BEFORE it can
-            // be counted towards the threshold.
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000),
-                "this burn was opened for a different recipient");
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, trudy.account.id, 250000),
-                "this burn was opened for a different recipient");
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 5000),
-                "this burn was opened for a different amount");
+            // THE ATTACK: the same source transaction, quoted by two more relayers for
+            // two more beneficiaries and two more amounts. Each opens a claim of its
+            // own, none of the three reaches the threshold, and the burn pays nobody.
+            attest(2, 2, bob.account.id, 5000);
+            attest(3, 2, trudy.account.id, 250000);
             assert_equals(main.minted_total(), 0);
+            signed_must_fail(bob.keypair, main.burn_for_exit(1), "insufficient balance");
+            signed_must_fail(trudy.keypair, main.burn_for_exit(1), "insufficient balance");
+            assert_equals(main.claim_votes(source_chain(), burn_tx(2), 0, alice.account.id, 1000), 1);
+            assert_equals(main.claim_votes(source_chain(), burn_tx(2), 0, trudy.account.id, 250000), 1);
 
-            // The only thing that can be completed is the burn as it was opened.
+            // ...and no relayer gets a second voice on the same burn, for its own tuple
+            // or for anyone else's.
+            signed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000));
+            signed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 1000));
+
+            // The set disagreed, so nobody is stuck with it: after the attestation
+            // window any relayer opens a fresh round, and the tuple TWO of them name is
+            // the one that pays.
+            after(main.ATTESTATION_WINDOW_MS);
+            signed(relayer_keypair(3), main.reopen_burn_attestation(source_chain(), burn_tx(2), 0));
+            assert_equals(main.burn_round(source_chain(), burn_tx(2), 0), 2);
+            attest(1, 2, alice.account.id, 1000);
             attest(2, 2, alice.account.id, 1000);
             assert_equals(main.get_balance(alice.account.id), 1000);
             assert_equals(main.get_balance(bob.account.id), 0);
             assert_equals(main.get_balance(trudy.account.id), 0);
             assert_equals(main.minted_total(), 1000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain one: the per-period cap was a FIXED window
+        // anchored on the mint that opened it, so TWICE the cap crossed in TWO
+        // MILLISECONDS - one unit at T0+1 anchored the window, 99999 at T0+DAY filled
+        // it, and 100000 at T0+DAY+2 filled a fresh one. Here the window is the last
+        // MINT_PERIOD_MS from now, wherever that falls, so no interval of one period
+        // mints more than the cap however it is straddled.
+        function test_r15_b1_no_interval_of_one_period_mints_more_than_the_cap_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            open_the_bridge();
+
+            // The mint that ANCHORED round 15's window: one unit, at T0+1.
+            at(T0);      attest(1, 1, alice.account.id, 1);
+            at(T0 + 1);  attest(2, 1, alice.account.id, 1);
+            assert_equals(main.minted_total(), 1);
+
+            // The LAST millisecond of that window (elapsed = DAY-1): fill it to the cap.
+            at(T0 + DAY - 1);  attest(1, 2, alice.account.id, 99999);
+            at(T0 + DAY);      attest(2, 2, alice.account.id, 99999);
+            assert_equals(main.minted_total(), 100000);
+            assert_equals(main.minted_in_window(T0 + DAY), 100000);
+
+            // THE ATTACK, two milliseconds later: round 15 got a fresh cap here and took
+            // 200000 - exactly twice the cap - between block time T0+DAY and block time
+            // T0+DAY+2. The rolling window still holds 99999 of the last period, so the
+            // 100000 is refused.
+            at(T0 + DAY + 1);  attest(1, 3, alice.account.id, 100000);
+            at(T0 + DAY + 2);
+            attest_must_fail(2, 3, alice.account.id, 100000, "the bridge's mint cap for this period is reached");
+            assert_equals(main.minted_total(), 100000);
+            assert_equals(main.get_balance(alice.account.id), 100000);
+
+            // The burn is not lost: it lands once the 99999 has aged out of the window,
+            // which is the cost the header states.
+            at(T0 + 2 * DAY + 1);
+            attest(2, 3, alice.account.id, 100000);
+            assert_equals(main.minted_total(), 200000);
+            assert_equals(main.get_balance(alice.account.id), 200000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain two: the FIRST attestation opened the
+        // burn's row and BOUND the payment, so ONE relayer out of three, below a
+        // threshold of two, spoke first, named itself, and both honest relayers were
+        // refused - a day later, a year later. Alice's 100000 on the source chain were
+        // unreachable for the life of the chain. Here a relayer votes for a TUPLE: the
+        // dissenter's claim is its own and never reaches the threshold.
+        function test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+
+            // Alice burned 100000 on the source chain, in burn_tx(9), log index 0.
+            // THE ATTACK: relayer 3 - ONE of three, threshold two - speaks first and
+            // names itself.
+            attest(3, 9, trudy.account.id, 1);
+            assert_equals(main.claim_votes(source_chain(), burn_tx(9), 0, trudy.account.id, 1), 1);
+
+            // The honest majority is not bound by it. They attest the truth, their
+            // tuple reaches the threshold, and it is the one that pays.
+            attest(1, 9, alice.account.id, 100000);
+            attest(2, 9, alice.account.id, 100000);
+            assert_equals(main.get_balance(alice.account.id), 100000);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_equals(main.minted_total(), 100000);
+
+            // The dissenter's claim never pays, and the paid burn takes nothing more.
+            assert_equals(main.claim_votes(source_chain(), burn_tx(9), 0, trudy.account.id, 1), 1);
+            attest_must_fail(3, 9, alice.account.id, 100000, "this burn has already been paid");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain three: the operator enrolled every relayer,
+        // so ONE key minted the whole total cap against ten fabricated source
+        // transactions. The genesis set is still the operator's - no chain can tell
+        // three parties from one hand with three keys, and the header says so - but from
+        // the moment it is CLOSED no single key can change it, and the operator's only
+        // remaining power stops the bridge rather than moving anything.
+        function test_r15_b3_no_single_key_owns_the_relayer_set_must_fail() {
+            val trudy = register_trudy();
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+            val outsider = relayer_id(9);
+            assert_equals(main.relayer_count(), 3);
+
+            // The operator cannot widen the set once it is closed...
+            by_operator_must_fail(main.enrol_relayer(outsider), "the relayer set is closed");
+            // ...and neither can ONE relayer, however often it signs.
+            signed(relayer_keypair(1), main.vote_relayer_change(outsider, true));
+            // THE LINE THE MUTANT REDDENS: one vote is not the set, so the candidate is
+            // not a relayer and cannot attest.
+            attest_must_fail(9, 11, trudy.account.id, 100000, "a burn attestation must be signed by an enrolled relayer");
+            assert_false(main.is_relayer(outsider));
+            assert_equals(main.relayer_count(), 3);
+            signed_must_fail_any(relayer_keypair(1), main.vote_relayer_change(outsider, true));
+            assert_equals(main.relayer_count(), 3);
+
+            // THE THRESHOLD OF THE EXISTING SET is what changes it, and nothing else.
+            signed(relayer_keypair(2), main.vote_relayer_change(outsider, true));
+            assert_true(main.is_relayer(outsider));
+            assert_equals(main.relayer_count(), 4);
+
+            // The operator's one remaining power stops the bridge and moves nothing:
+            // while it is paused, a claim that reaches the threshold mints zero.
+            by_operator(main.pause_bridge());
+            attest(1, 12, trudy.account.id, 100000);
+            attest_must_fail(2, 12, trudy.account.id, 100000, "the bridge is paused");
+            assert_equals(main.minted_total(), 0);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            by_operator(main.resume_bridge());
+            attest(2, 12, trudy.account.id, 100000);
+            assert_equals(main.get_balance(trudy.account.id), 100000);
             assert_conserved();
         }
 
@@ -929,7 +1349,8 @@ object DappScaffold {
 
         // EXPLOIT MUST FAIL. A receiver can only ever owe what the source chain locked,
         // so the mint is bounded twice - and the cost of a cap is that a burn waits,
-        // which is what the header's third residual says out loud.
+        // which is what the header's residuals say out loud. The TOTAL cap is not a
+        // rolling one: waiting never refreshes it, because no operation raises it.
         function test_the_caps_bound_what_one_bridge_can_mint_must_fail() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
@@ -939,38 +1360,44 @@ object DappScaffold {
             mint_burn(5, alice.account.id, 100000);
             assert_equals(main.minted_total(), 100000);
 
-            // The next burn is attested but cannot be paid until the period turns.
+            // The next burn is attested but cannot be paid until the window turns.
             attest(1, 6, alice.account.id, 40000);
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(6), 0, alice.account.id, 40000),
-                "the bridge's mint cap for this period is reached");
+            attest_must_fail(2, 6, alice.account.id, 40000, "the bridge's mint cap for this period is reached");
             assert_equals(main.minted_total(), 100000);
             after(DAY);
             attest(2, 6, alice.account.id, 40000);
             assert_equals(main.minted_total(), 140000);
             assert_conserved();
 
-            // The TOTAL cap is not a per-period one: waiting does not help.
-            attest(1, 7, alice.account.id, 20000);
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
-                "the bridge's total mint cap is reached");
+            // Another period, another 100000 - and now the TOTAL cap of 250000 is what
+            // stands in the way, at 240000 minted.
             after(DAY);
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
-                "the bridge's total mint cap is reached");
-            assert_equals(main.minted_total(), 140000);
-            assert_equals(main.get_balance(alice.account.id), 140000);
+            mint_burn(7, alice.account.id, 100000);
+            assert_equals(main.minted_total(), 240000);
+            attest(1, 8, alice.account.id, 20000);
+            attest_must_fail(2, 8, alice.account.id, 20000, "the bridge's total mint cap is reached");
+            after(DAY);
+            attest_must_fail(2, 8, alice.account.id, 20000, "the bridge's total mint cap is reached");
+            assert_equals(main.minted_total(), 240000);
+
+            // What still fits, fits: the total cap bounds the sum and nothing else.
+            mint_burn(9, alice.account.id, 10000);
+            assert_equals(main.minted_total(), 250000);
+            assert_equals(main.get_balance(alice.account.id), 250000);
             assert_conserved();
         }
 
-        // EXPLOIT MUST FAIL. The relayer set is CONFIGURATION: enrolled by the
+        // EXPLOIT MUST FAIL. The genesis relayer set is CONFIGURATION: enrolled by the
         // configured operator key, shut before anything may be attested, and never
-        // touched again. And one relayer is not a threshold however often it signs.
+        // touched by that key again. And one relayer is not a threshold however often
+        // it signs.
         function test_the_relayer_set_is_configuration_not_an_input_must_fail() {
             val alice = register_alice();
             val trudy = register_trudy();
             signed(alice.keypair, main.register_account());
             signed(trudy.keypair, main.register_account());
             // Registering an account is open and free. Being ENROLLED is what makes one
-            // a relayer, and only the operator can do that.
+            // a relayer, and only the operator can do that, and only at genesis.
             val first = relayer_id(1);
             val second = relayer_id(2);
             val outsider = relayer_id(9);
@@ -978,6 +1405,7 @@ object DappScaffold {
             unauthed_must_fail(relayer_keypair(1), main.enrol_relayer(first),
                 "the bridge operator must sign this");
             unauthed_must_fail(trudy.keypair, main.close_relayer_set(), "the bridge operator must sign this");
+            unauthed_must_fail(trudy.keypair, main.pause_bridge(), "the bridge operator must sign this");
             // ...and the operator cannot close a set that could never reach its own
             // threshold.
             by_operator_must_fail(main.close_relayer_set(), "fewer relayers than the threshold requires");
@@ -985,15 +1413,13 @@ object DappScaffold {
             // Nothing may be attested while the set can still change.
             by_operator(main.enrol_relayer(first));
             by_operator(main.enrol_relayer(second));
-            signed_must_fail(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
-                "the relayer set is not closed yet");
+            attest_must_fail(1, 8, alice.account.id, 10, "the relayer set is not closed yet");
             by_operator(main.close_relayer_set());
             assert_true(main.relayer_set_is_closed());
             assert_equals(main.relayer_count(), 2);
 
             // An account nobody enrolled is not a relayer, however it signs...
-            signed_must_fail(relayer_keypair(9), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
-                "a burn attestation must be signed by an enrolled relayer");
+            attest_must_fail(9, 8, alice.account.id, 10, "a burn attestation must be signed by an enrolled relayer");
             // ...and neither is an ordinary holder of the wrapped token.
             signed_must_fail(trudy.keypair, main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
                 "a burn attestation must be signed by an enrolled relayer");
@@ -1011,7 +1437,7 @@ object DappScaffold {
             assert_equals(main.minted_total(), 0);
             assert_equals(main.burn_attestations(source_chain(), burn_tx(8), 0), 1);
 
-            // The set is shut for good: the operator cannot widen it now, and the
+            // The set is shut to the operator for good: it cannot widen it now, and the
             // second relayer is the one that pays the burn.
             by_operator_must_fail(main.enrol_relayer(outsider), "the relayer set is closed");
             by_operator_must_fail(main.close_relayer_set(), "the relayer set is already closed");

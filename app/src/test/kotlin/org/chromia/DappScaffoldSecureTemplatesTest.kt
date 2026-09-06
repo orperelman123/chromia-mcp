@@ -1883,67 +1883,136 @@ class DappScaffoldSecureTemplatesTest {
             burnEntity.contains("key source_chain: byte_array, source_tx: byte_array, log_index: integer;"),
             "the burn's identity must be a database key: $burnEntity"
         )
-        // THE ROW BINDS WHAT THE BURN PAYS: recipient and amount are immutable and
-        // are NOT part of the key, so an attestation that disagrees is refused
-        // rather than opening a row of its own.
-        assertEquals(1, Regex("mutable ").findAll(burnEntity).count(), "the burn row must have exactly ONE mutable field: $burnEntity")
-        assertTrue(burnEntity.contains("mutable attestations: integer = 0;"), burnEntity)
-        listOf("recipient: byte_array;", "amount: integer;").forEach {
-            assertTrue(burnEntity.contains(it), "what a burn pays must be immutable: $it")
-        }
-        assertFalse(burnEntity.contains("mutable recipient") || burnEntity.contains("mutable amount"), burnEntity)
-        assertTrue(
-            main.contains("require(opened.recipient == recipient, \"this burn was opened for a different recipient\");") &&
-                main.contains("require(opened.amount == amount, \"this burn was opened for a different amount\");"),
-            "a later attestation must have to agree with the row"
+        // THE VOTE IS ON THE TUPLE - round 15. The burn row carries NO payment of its
+        // own any more: what a burn pays is a burn_claim, keyed on the tuple, so a
+        // relayer that disagrees opens a claim of its own instead of freezing the burn
+        // by speaking first. What a claim pays is in its KEY and so cannot be rewritten.
+        assertEquals(
+            listOf("round", "round_opened_at", "paid_amount"),
+            Regex("mutable (\\w+)").findAll(burnEntity).map { it.groupValues[1] }.toList(),
+            "the burn row's mutable fields must be exactly the round, its opening and the payment: $burnEntity"
         )
+        assertFalse(
+            burnEntity.contains("recipient") || burnEntity.contains("mutable amount"),
+            "what a burn pays must live in the claim, not in the burn row: $burnEntity"
+        )
+        val claimEntity = main.substringAfter("entity burn_claim {").substringBefore("\n}")
+        assertTrue(
+            claimEntity.contains("key burn: processed_burn, recipient: byte_array, amount: integer, round: integer;"),
+            "the payment a relayer votes for must be the claim's KEY: $claimEntity"
+        )
+        assertEquals(1, Regex("mutable ").findAll(claimEntity).count(), "a claim's only mutable field is its vote count: $claimEntity")
+        assertTrue(claimEntity.contains("mutable votes: integer = 0;"), claimEntity)
         // ONE RELAYER, ONE VOICE - a key again, so the count is a count of DISTINCT
-        // relayers and nothing else.
+        // relayers and a relayer cannot vote for two tuples on one burn.
         val attestationEntity = main.substringAfter("entity attestation {").substringBefore("\n}")
-        assertTrue(attestationEntity.contains("key burn: processed_burn, witness: relayer;"), attestationEntity)
-        // THE MINT READS THE ROW, never the operation's arguments, and there is
+        assertTrue(attestationEntity.contains("key burn: processed_burn, witness: relayer, round: integer;"), attestationEntity)
+        // THE MINT READS THE CLAIM, never the operation's arguments, and there is
         // exactly one place a unit is created.
-        assertTrue(code.contains("function mint_against(burn: processed_burn)"))
-        assertTrue(code.contains("val h = holding_of(burn.recipient);") && code.contains("update h ( .balance += burn.amount );"))
-        assertEquals(1, Regex("mint_against\\(burn\\);").findAll(code).count(), "there must be exactly one call site that mints")
+        assertTrue(code.contains("function mint_against(claim: burn_claim)"))
+        assertTrue(code.contains("val h = holding_of(claim.recipient);") && code.contains("update h ( .balance += claim.amount );"))
+        assertEquals(1, Regex("mint_against\\(claim\\);").findAll(code).count(), "there must be exactly one call site that mints")
         // THE THRESHOLD IS CROSSED ONCE: equality against a counter that rises by
-        // one per distinct relayer. No minted flag to test and none to forget.
+        // one per distinct relayer, and a paid burn takes no further attestation.
         assertTrue(code.contains("if (voices == relayer_threshold()) {"), "the threshold must be crossed by equality, once")
+        assertTrue(code.contains("require(burn.paid_amount == 0, \"this burn has already been paid\");"), "a paid burn is final")
         assertFalse(Regex("mutable minted\\s*:\\s*boolean").containsMatchIn(code), "a minted flag is a check; the counter is the guard")
         assertFalse(code.contains("minted = true"), "a minted flag is a check; the counter is the guard")
-        // THE RELAYER SET IS CONFIGURATION: enrolled by the configured operator key,
-        // shut before anything is attested, and no operation names its own signer.
+        // A STALLED BURN CAN BE RE-ATTESTED - round 15's freeze is not merely outvoted,
+        // it is recoverable: a burn no tuple carried can be voted on again.
+        assertTrue(code.contains("val ATTESTATION_WINDOW_MS ="), "the attestation round must have a named window")
+        assertTrue(opBody(code, "reopen_burn_attestation").contains("update burn ( .round += 1, .round_opened_at = op_context.last_block_time );"))
+        assertTrue(opBody(code, "reopen_burn_attestation").contains("require(burn.paid_amount == 0"), "a paid burn is never reopened")
+        // NO SINGLE KEY OWNS THE RELAYER SET: the operator enrols the GENESIS set and
+        // closes it, and every later change needs the threshold of the EXISTING
+        // relayers. The operator's remaining powers can only STOP the bridge.
         assertEquals(
-            listOf("register_account", "enrol_relayer", "close_relayer_set", "attest_burn", "burn_for_exit", "transfer"),
+            listOf(
+                "register_account", "enrol_relayer", "close_relayer_set", "vote_relayer_change",
+                "pause_bridge", "resume_bridge", "attest_burn", "reopen_burn_attestation",
+                "burn_for_exit", "transfer"
+            ),
             Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
             "the template must ship exactly these operations"
         )
         val operatorCheck = "require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), \"the bridge operator must sign this\");"
         assertTrue(opBody(code, "enrol_relayer").contains(operatorCheck))
         assertTrue(opBody(code, "close_relayer_set").contains(operatorCheck))
-        assertTrue(opBody(code, "attest_burn").contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
+        assertTrue(opBody(code, "pause_bridge").contains(operatorCheck))
+        assertTrue(opBody(code, "resume_bridge").contains(operatorCheck))
+        // ...and the operator key appears in NO other operation, so the only thing it
+        // can do after the set is closed is stop the bridge.
+        assertEquals(
+            4,
+            Regex("bridge_operator_pubkey\\)").findAll(code).count(),
+            "the operator key may be read by exactly the four operations that enrol at genesis and pause"
+        )
+        listOf("vote_relayer_change", "attest_burn").forEach {
+            assertFalse(opBody(code, it).contains("bridge_operator_pubkey"), "$it must not be an operator power")
+        }
         assertTrue(
-            code.contains("relayer @? { .account_id == account.id },"),
+            opBody(code, "vote_relayer_change").contains("if (voices == relayer_threshold()) {"),
+            "a change to the set must need the threshold of the EXISTING relayers"
+        )
+        assertTrue(opBody(code, "vote_relayer_change").contains("val witness = witness_of(account.id);"))
+        assertTrue(
+            code.contains("relayer @? { .account_id == account_id },"),
             "the attesting relayer must be the AUTHENTICATED account looked up by its own id"
         )
+        assertTrue(opBody(code, "attest_burn").contains("val witness = witness_of(account.id);"))
+        assertTrue(code.substringAfter("function witness_of").substringBefore("\n}")
+            .contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
         assertFalse(opBody(code, "attest_burn").contains("pubkey"), "no caller may name its own signer")
         assertTrue(main.contains("val MIN_RELAYER_THRESHOLD = 2;"), "a bridge whose threshold is one must be refused")
-        // CAPPED IN TOTAL AND PER PERIOD, and neither is a parameter.
+        // A ROLLING PERIOD CAP - round 15 crossed twice a FIXED window's cap in two
+        // milliseconds. The window is the last MINT_PERIOD_MS from now, and it is a
+        // bounded scan because MAX_MINTS_PER_PERIOD bounds the rows in it.
         assertTrue(main.contains("\"the bridge's total mint cap is reached\"") && main.contains("\"the bridge's mint cap for this period is reached\""))
         assertTrue(main.contains("val MINT_PERIOD_MS ="), "the period must be a named constant")
+        assertTrue(main.contains("val MAX_MINTS_PER_PERIOD ="), "the rolling window's scan must be bounded")
+        assertTrue(
+            code.contains("delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };"),
+            "the period window must roll with the block time, not be anchored on a mint"
+        )
+        assertFalse(
+            code.contains("period_started_at"),
+            "a window anchored on the mint that opened it is round 15's drain b1"
+        )
         assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*cap").containsMatchIn(main), "a cap must never be an operation parameter")
         // THE EXIT IS A RECORD, written in the operation that burns.
         assertTrue(opBody(code, "burn_for_exit").contains("create exit_record("))
         assertEquals(1, Regex("create exit_record\\(").findAll(code).count(), "an exit record must be written in exactly one place")
-        // MINTED AGAINST PROCESSED BURNS - the invariant a transfer test cannot be,
-        // which is the prose defect underneath the whole round.
+        // MINTED AGAINST ATTESTED CLAIMS - the invariant a transfer test cannot be,
+        // which is the prose defect underneath the whole round. Both sides of it must
+        // stay on opposite sides of the mint: the claims and their votes are written by
+        // the ATTESTATIONS.
         assertTrue(main.contains("query attested_burn_total(): integer"))
+        assertTrue(
+            main.substringAfter("query attested_burn_total(): integer").substringBefore("\n}")
+                .contains("for (c in burn_claim @* {})"),
+            "the invariant must sum what the RELAYERS voted for, not what the mint wrote"
+        )
         assertTrue(
             main.contains("TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT"),
             "the header must say why the invariant this server used to hand out did not help"
         )
-        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the bridge header must state its guard count")
-        assertEquals(8, guardCount(main), "the bridge header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Ten guards are STRUCTURAL"), "the bridge header must state its guard count")
+        assertEquals(10, guardCount(main), "the bridge header's stated count must be the number of guards it lists")
+        // The two prose defects round 15 found in the residual list are gone, and what
+        // replaced them is true.
+        assertFalse(
+            main.contains("or for the operator to raise the total"),
+            "round 15: there is no operation that raises the total cap, so that recovery path does not exist"
+        )
+        val yml = DappScaffold.files("wrapped", template = "bridge").getValue("chromia.yml")
+        assertFalse(
+            yml.contains("It can do nothing else"),
+            "round 15: the operator chooses the genesis set, so 'it can do nothing else' was false"
+        )
+        assertTrue(
+            yml.contains("no chain can tell two parties from one hand"),
+            "the yml must say what a threshold of enrolled accounts does and does not prove"
+        )
         assertTrue(main.contains("A THRESHOLD OF RELAYERS IS THE TRUST ROOT"), "the header must admit what no guard here can fix")
     }
 
@@ -2281,6 +2350,9 @@ class DappScaffoldSecureTemplatesTest {
         setOf(
             "test_round14_one_burn_cannot_be_minted_twice_must_fail",
             "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+            "test_r15_b1_no_interval_of_one_period_mints_more_than_the_cap_must_fail",
+            "test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail",
+            "test_r15_b3_no_single_key_owns_the_relayer_set_must_fail",
             "test_mint_transfer_and_exit_conserve_against_attested_burns",
             "test_the_caps_bound_what_one_bridge_can_mint_must_fail",
             "test_the_relayer_set_is_configuration_not_an_input_must_fail"
@@ -4194,48 +4266,151 @@ class DappScaffoldSecureTemplatesTest {
     )
 
     /**
-     * REMOVE THE REGISTRY. Mint on EVERY attestation instead of when the counter
-     * equals the threshold, and drop the attestation row that makes that count a
-     * count of DISTINCT relayers - which is round 14's receiver exactly: it minted
-     * on a relayer's signature and recorded nothing. The same attestation
-     * resubmitted then mints again, so the replay's run_must_fail succeeds and the
-     * case goes red because the attack landed.
+     * MINT ON EVERY ATTESTATION instead of when a claim's counter equals the
+     * threshold, and drop the attestation row that makes that count a count of
+     * DISTINCT relayers and the finality check that makes a paid burn final -
+     * which is round 14's receiver exactly: it minted on a relayer's signature and
+     * recorded nothing. The same attestation resubmitted then mints again, so the
+     * replay's run_must_fail succeeds and the case goes red because the attack
+     * landed.
      */
-    private val BRIDGE_REGISTRY_GUARD =
-        "    val voices = burn.attestations + 1;\n" +
-            "    update burn ( .attestations = voices );\n" +
+    private val BRIDGE_THRESHOLD_GUARD =
+        "    val voices = claim.votes + 1;\n" +
+            "    update claim ( .votes = voices );\n" +
             "    if (voices == relayer_threshold()) {\n" +
-            "        mint_against(burn);\n" +
+            "        mint_against(claim);\n" +
             "    }"
+
+    private val BRIDGE_MINT_ON_EVERY_ATTESTATION =
+        "    val voices = claim.votes + 1;\n" +
+            "    update claim ( .votes = voices );\n" +
+            "    mint_against(claim);"
+
+    private val BRIDGE_PAID_IS_FINAL_GUARD =
+        "    require(burn.paid_amount == 0, \"this burn has already been paid\");\n" +
+            "    // 5. THE VOTE IS ON THE TUPLE. A relayer that disagrees with what is already"
 
     @Test
     fun bridgeR14ReplayGoesRedWhenEveryAttestationMints() = assertGuardMutationRedensExploitTest(
         "bridge",
-        BRIDGE_REGISTRY_GUARD,
-        "    mint_against(burn);",
+        BRIDGE_THRESHOLD_GUARD,
+        BRIDGE_MINT_ON_EVERY_ATTESTATION,
         "test_round14_one_burn_cannot_be_minted_twice_must_fail",
         // Wrong reason: the repeat still refused by the attestation key, which
         // names that table. Right reason is the transaction not failing at all.
         "attestation",
         attackLanded,
-        alsoRemove = listOf("create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);")
+        alsoRemove = listOf(
+            "    create attestation(burn = burn, witness = witness, round = burn.round, claim = claim, attested_at = now);",
+            BRIDGE_PAID_IS_FINAL_GUARD
+        )
     )
 
     /**
-     * REMOVE THE FIELD BINDING. Put what a burn PAYS into the burn's identity, so
-     * an attestation naming a different recipient or a different amount opens a row
-     * of its own instead of being refused - which is round 14's second drain, where
-     * three attestations quoting ONE source transaction paid three accounts 1000,
-     * 5000 and 250000 against one burn.
+     * The same mutant WITHOUT stripping the finality check, against round 14's
+     * second drain: three attestations quoting ONE source transaction paid three
+     * accounts 1000, 5000 and 250000. Here one relayer's voice is a CLAIM and a
+     * claim pays only at the threshold, so the replay's first must-fail - alice
+     * cannot spend what one voice named her - succeeds under the mutant.
      */
     @Test
     fun bridgeR14ReplayGoesRedWhenAnAttestationIsNotHeldToTheBurnItOpened() = assertGuardMutationRedensExploitTest(
         "bridge",
-        "        require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
-            "        require(opened.amount == amount, \"this burn was opened for a different amount\");",
-        "",
+        BRIDGE_THRESHOLD_GUARD,
+        BRIDGE_MINT_ON_EVERY_ATTESTATION,
         "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+        "insufficient balance",
+        attackLanded
+    )
+
+    /**
+     * ROUND 15, DRAIN 1: put the FIXED window back - anchored on the mint that
+     * opened it, with the two counters it needs on bridge_state - and twice the
+     * cap crosses in two milliseconds again. The replay's must-fail at T0+DAY+2
+     * succeeds, so the case goes red because the attack landed.
+     */
+    @Test
+    fun bridgeR15ReplayGoesRedWithAPeriodWindowAnchoredOnTheOpeningMint() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };\n" +
+            "    var in_window = 0;\n" +
+            "    var rows = 0;\n" +
+            "    for (m in mint_event @* {} ( .amount )) {\n" +
+            "        in_window += m;\n" +
+            "        rows += 1;\n" +
+            "    }\n" +
+            "    require(rows < MAX_MINTS_PER_PERIOD, \"too many mints in this period\");",
+        "    if (now - bridge_state.period_started_at >= MINT_PERIOD_MS) {\n" +
+            "        bridge_state.period_started_at = now;\n" +
+            "        bridge_state.minted_this_period = 0;\n" +
+            "    }\n" +
+            "    val in_window = bridge_state.minted_this_period;",
+        "test_r15_b1_no_interval_of_one_period_mints_more_than_the_cap_must_fail",
+        "the bridge's mint cap for this period is reached",
+        attackLanded,
+        alsoReplace = listOf(
+            "    mutable next_exit_id: integer = 1;" to
+                "    mutable next_exit_id: integer = 1;\n" +
+                "    mutable period_started_at: integer = 0;\n" +
+                "    mutable minted_this_period: integer = 0;",
+            "    bridge_state.minted_total += claim.amount;" to
+                "    bridge_state.minted_total += claim.amount;\n" +
+                "    bridge_state.minted_this_period += claim.amount;"
+        )
+    )
+
+    /**
+     * ROUND 15, DRAIN 2: put FIRST-ATTESTATION-BINDS back. The claim is looked up
+     * by the burn alone, so the first relayer to speak writes what the burn pays
+     * and every later one must agree with it or be refused - which is how one
+     * relayer out of three, below a threshold of two, froze a 100000 burn for the
+     * life of the chain. The replay's honest majority is refused, and THAT
+     * refusal is the attack landing: the freeze is back.
+     */
+    @Test
+    fun bridgeR15FreezeReplayGoesRedWhenTheFirstAttestationBindsThePayment() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    val opened = burn_claim @? {\n" +
+            "        .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round\n" +
+            "    };",
+        "    val opened = burn_claim @? { .burn == burn, .round == burn.round };",
+        "test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail",
+        // Wrong reason: the mutant paying anyway and the burn coming back final.
+        "this burn has already been paid",
         "this burn was opened for a different recipient",
+        alsoReplace = listOf(
+            "    val claim = burn_claim @ {\n" +
+                "        .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round\n" +
+                "    };" to
+                "    if (opened != null) {\n" +
+                "        require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
+                "        require(opened.amount == amount, \"this burn was opened for a different amount\");\n" +
+                "    }\n" +
+                "    val claim = burn_claim @ { .burn == burn, .round == burn.round };"
+        )
+    )
+
+    /**
+     * ROUND 15, DRAIN 3: let ONE relayer change the set - a single vote applies the
+     * change instead of the threshold of the existing relayers. The candidate the
+     * one key nominated is enrolled at once and attests, so the replay's must-fail
+     * succeeds and the case goes red because the attack landed. (The genesis set is
+     * still the operator's; what this guard buys is that no single key can change
+     * it afterwards, which is what the header and the yml now say.)
+     */
+    @Test
+    fun bridgeR15ReplayGoesRedWhenOneKeyCanChangeTheRelayerSet() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    create relayer_change_vote(change = change, witness = witness, voted_at = now);\n" +
+            "    val voices = change.votes + 1;\n" +
+            "    update change ( .votes = voices );\n" +
+            "    if (voices == relayer_threshold()) {",
+        "    create relayer_change_vote(change = change, witness = witness, voted_at = now);\n" +
+            "    val voices = change.votes + 1;\n" +
+            "    update change ( .votes = voices );\n" +
+            "    if (voices >= 1) {",
+        "test_r15_b3_no_single_key_owns_the_relayer_set_must_fail",
+        "a burn attestation must be signed by an enrolled relayer",
         attackLanded
     )
 }
