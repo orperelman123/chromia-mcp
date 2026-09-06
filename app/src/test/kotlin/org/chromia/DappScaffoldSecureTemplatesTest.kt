@@ -544,26 +544,42 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(retire.contains("owed[owner] = exact / backing;"), "every share must be FLOORED first")
         assertTrue(retire.contains("remainder[owner] = exact % backing;"), "and its fractional remainder kept, because that is what decides the odd point")
         assertTrue(retire.contains("var leftover = amount - floored;"), "the points the floors leave over are what is distributed")
-        // ROUND 15 moved this pin: plain largest remainder empties the small staker at
-        // its own boundary (stakes of 1000 and 1 against a backing of 1001, a payout of
-        // 501: the one-point staker holds the LARGEST remainder and the odd point takes
-        // 100% of them), so the point goes to the largest remainder AMONG THE STAKERS IT
-        // DOES NOT EMPTY. The survival term is the guard and is pinned verbatim.
+        // ROUND 15 moved this pin and ROUND 16 moved it again. Plain largest remainder
+        // empties the small staker at its own boundary (stakes of 1000 and 1 against a
+        // backing of 1001, a payout of 501: the one-point staker holds the LARGEST
+        // remainder and the odd point takes 100% of them), so the point goes to a staker
+        // it does NOT empty. Round 16 found the two ways that was still not enough: a
+        // staker whose REMAINDER IS ZERO could not be a candidate at all (`var best = 0`
+        // against `r > best`, which at 100/1/1 and a payout of 51 left only the two
+        // one-point holders the point empties), and a staker that had already absorbed a
+        // point could not absorb a second even when the alternative was emptying somebody
+        // who could not afford a first. All three tiers are pinned verbatim, and so is
+        // the -1 that makes a zero remainder a real candidate.
+        assertTrue(main.contains("val NO_CANDIDATE_YET = -1;"), "a zero remainder must be a candidate - round 16")
+        assertTrue(retire.contains("var best = NO_CANDIDATE_YET;"), "...and the search must start below it, not at it")
         assertTrue(
-            retire.contains("if (r > best and owed[owner] + 1 < m.stake) {"),
-            "the leftover point goes to the largest remainder among the stakers it does not EMPTY - round 15"
+            retire.contains("val survives = owed[owner] + 1 < m.stake;"),
+            "the survival term is the guard - round 15"
         )
         assertTrue(
-            retire.contains("if (r > fallback_best) {"),
-            "and the plain largest remainder is kept as the FALLBACK, for the payout that empties everybody"
+            retire.contains("if (survives and not (owner in awarded) and r > best) {"),
+            "TIER 1: the largest remainder among survivors that have taken no point yet"
         )
         assertTrue(
-            retire.contains("val chosen = require(pick ?: fallback, \"stake retirement did not balance\");"),
-            "a survivor is preferred and the fallback is taken only when there is none - ties to the first owner in the canonical order"
+            retire.contains("if (survives and r > second_best) {"),
+            "TIER 2 (round 16): a staker that can afford a SECOND point pays it rather than emptying one that cannot afford a first"
         )
         assertTrue(
-            retire.contains("remainder[chosen] = 0;"),
-            "nobody takes a second leftover point, and a staker with no remainder is never charged one"
+            retire.contains("if (not (owner in awarded) and r > fallback_best) {"),
+            "TIER 3: the plain largest remainder, and never twice on the same staker"
+        )
+        assertTrue(
+            retire.contains("val chosen = require(pick ?: second ?: fallback, \"stake retirement did not balance\");"),
+            "the tiers are tried in that order - ties to the first owner in the canonical order"
+        )
+        assertTrue(
+            retire.contains("awarded.add(chosen);"),
+            "nobody takes a second leftover point except through tier 2, which requires them to survive it"
         )
         assertEquals(
             1,
@@ -4998,22 +5014,22 @@ class DappScaffoldSecureTemplatesTest {
     fun bridgeR15FreezeReplayGoesRedWhenTheFirstAttestationBindsThePayment() = assertGuardMutationRedensExploitTest(
         "bridge",
         "    val opened = burn_claim @? {\n" +
-            "        .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round\n" +
+            "        .burn == burn, .recipient == recipient, .amount == amount\n" +
             "    };",
-        "    val opened = burn_claim @? { .burn == burn, .round == burn.round };",
+        "    val opened = burn_claim @? { .burn == burn };",
         "test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail",
         // Wrong reason: the mutant paying anyway and the burn coming back final.
         "this burn has already been paid",
         "this burn was opened for a different recipient",
         alsoReplace = listOf(
             "    val claim = burn_claim @ {\n" +
-                "        .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round\n" +
+                "        .burn == burn, .recipient == recipient, .amount == amount\n" +
                 "    };" to
                 "    if (opened != null) {\n" +
                 "        require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
                 "        require(opened.amount == amount, \"this burn was opened for a different amount\");\n" +
                 "    }\n" +
-                "    val claim = burn_claim @ { .burn == burn, .round == burn.round };"
+                "    val claim = burn_claim @ { .burn == burn };"
         )
     )
 
