@@ -669,7 +669,7 @@ object RellSecurityCheck {
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
-                    inlinable, escrowedCaps, mirroredCounters, storedClockFields + timestampTypedFields
+                    inlinable, escrowedCaps, mirroredCounters, timestampTypedFields
                 )
                 findings += blockClockRandomnessFindings(
                     path, op, allEntityNames, entityHelperReturns, inlinable, identityFieldNames,
@@ -2289,11 +2289,13 @@ object RellSecurityCheck {
         // A liability counter is not a payout: raising `pool.total_debt` (which
         // moves in lockstep with `loan.principal`) makes the borrower owe more,
         // and there is nothing to fund or cap. See [mirroredCounterFields].
-        // A field that stores a CLOCK value - declared `timestamp`, or written
-        // from the block clock anywhere in the app - is a time, not a quantity:
+        // A field DECLARED `timestamp` is a time, not a quantity:
         // `funded_until = last_block_time + ms_bought(...)` (subscription) buys
         // time, and crediting time mints nothing. Round 14 read it as a balance
-        // because its NAME matched; the type and the data flow say otherwise.
+        // because its NAME matched (fund). The exclusion is the declared type
+        // ONLY - a balance fed from elapsed time (stake * elapsed * rate) is the
+        // round-4 mint this rule exists for, and the data-flow set of clock-fed
+        // fields would have hidden it (it did, for one gate).
         val valueCredits = writes.filter { w ->
             w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
                 (w.entity to w.field) !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0" &&

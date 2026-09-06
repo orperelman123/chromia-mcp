@@ -4226,8 +4226,8 @@ class DappScaffoldSecureTemplatesTest {
     @Test
     fun bridgeR14ReplayGoesRedWhenAnAttestationIsNotHeldToTheBurnItOpened() = assertGuardMutationRedensExploitTest(
         "bridge",
-        "                require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
-            "                require(opened.amount == amount, \"this burn was opened for a different amount\");",
+        "        require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
+            "        require(opened.amount == amount, \"this burn was opened for a different amount\");",
         "",
         "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
         "this burn was opened for a different recipient",
