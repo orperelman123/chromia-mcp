@@ -7570,7 +7570,10 @@ object DappScaffold {
             assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 50);
             // Untouched: an ask at 1000 is not reachable by a buyer bidding 20.
             assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS);
-            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS - main.MAX_RESTING_ORDERS);
+            assert_equals(
+                main.get_units(trudy.account.id),
+                main.WELCOME_UNITS - main.MAX_RESTING_ORDERS * main.MIN_ORDER_UNITS
+            );
             assert_conserved();
         }
 
