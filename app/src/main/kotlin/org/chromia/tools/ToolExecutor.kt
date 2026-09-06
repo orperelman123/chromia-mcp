@@ -1449,12 +1449,24 @@ class RunRellTestsStrategy : BaseToolStrategy() {
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.arguments as Map<String, Any>
         val filesArg = args["files"]
-        val (files, invalidKeys) = extractRellFilesMap(filesArg)
+        val (submitted, invalidKeys) = extractRellFilesMap(filesArg)
         if (invalidKeys.isNotEmpty()) {
             return toolErrorResult(
                 "`files` values must be Rell source strings; non-string value(s) at: ${invalidKeys.joinToString(", ")}"
             )
         }
+        // AUDIT F4: scaffold_dapp hands back chromia.yml IN `files`, and an agent
+        // that forwards what it was given used to be told "Only .rell files are
+        // supported". Take the yml out of the map and read the module args from
+        // it instead - `chr test` merges moduleArgs with test.moduleArgs, and so
+        // does this, so scaffold_dapp -> run_rell_tests needs no hand-merging.
+        val yamlFromFiles = submitted.entries
+            .firstOrNull { (path, _) ->
+                val name = path.substringAfterLast('/').substringAfterLast('\').lowercase()
+                name == "chromia.yml" || name == "chromia.yaml"
+            }
+        val files = LinkedHashMap(submitted).also { map -> yamlFromFiles?.let { map.remove(it.key) } }
+        val yaml = extractString(args, "yaml") ?: yamlFromFiles?.value
         if (files.isEmpty()) {
             return toolErrorResult(
                 "run_rell_tests needs a `files` map including at least one `@test module;` file, e.g. {\"main.rell\": \"module; ...\", \"tests/main_test.rell\": \"@test module; ...\"}"
@@ -1508,11 +1520,43 @@ class RunRellTestsStrategy : BaseToolStrategy() {
             else -> return toolErrorResult("`tests` must be an array of test-name patterns; got ${testsArg::class.simpleName}")
         }
 
+        // An explicit moduleArgs argument always wins; the yml only fills a gap.
+        val derived = if (moduleArgs.isEmpty() && yaml != null) ChromiaYmlModuleArgs.merged(yaml) else emptyMap()
+        val effectiveModuleArgs = moduleArgs.ifEmpty { derived }
+
         return runCatching {
             val result = withContext(Dispatchers.IO) {
-                with(RunRellTests) { run(files, moduleArgs = moduleArgs, tests = tests).toJson() }
+                with(RunRellTests) { run(files, moduleArgs = effectiveModuleArgs, tests = tests).toJson() }
             }
-            toolSuccessResult(result)
+            val annotated = if (derived.isNotEmpty()) {
+                buildJsonObject {
+                    result.forEach { (k, v) ->
+                        if (k == "notes") {
+                            put(
+                                k,
+                                (v as? JsonPrimitive)?.content.orEmpty() +
+                                    " moduleArgs were read from the chromia.yml you passed" +
+                                    (if (yamlFromFiles != null) " in `files`" else "") +
+                                    ": blockchains.<name>.moduleArgs merged with test.moduleArgs, " +
+                                    "for ${derived.keys.sorted().joinToString(", ")}. Pass an explicit " +
+                                    "`moduleArgs` object to override."
+                            )
+                        } else {
+                            put(k, v)
+                        }
+                    }
+                    put("moduleArgsSource", "chromia.yml")
+                    put(
+                        "moduleArgsUsed",
+                        buildJsonObject {
+                            derived.forEach { (m, a) -> put(m, buildJsonObject { a.forEach { (k, v) -> put(k, v) } }) }
+                        }
+                    )
+                }
+            } else {
+                result
+            }
+            toolSuccessResult(annotated)
         }.getOrElse { e ->
             toolErrorResult("run_rell_tests failed: ${e.message}")
         }

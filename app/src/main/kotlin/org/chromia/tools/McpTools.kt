@@ -1568,6 +1568,31 @@ object McpTools {
                     "pins" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
                     "forbidden" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
                     "files" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
+                    "moduleArgs" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("The module args this template's SHIPPED tests need, ready to paste into run_rell_tests{moduleArgs}: chromia.yml's blockchains.<name>.moduleArgs merged with its test.moduleArgs, keyed by Rell module name. Empty {} for templates that need none. Assembling this by hand used to be a mandatory second 36-second call.")
+                        )
+                    ),
+                    "nextCall" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The literal next call that makes the shipped tests green on the FIRST run.")
+                        )
+                    ),
+                    "ok" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive("false when nothing was scaffolded (an unknown template with no close shipped match); `files` is then absent and `warnings` says what to do instead.")
+                        )
+                    ),
+                    "template" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The template actually scaffolded. For an unknown name this is the CLOSEST shipped template, whose files are what you get - never `hello` as a silent substitute.")
+                        )
+                    ),
+                    "warnings" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
                     "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                 )
             ),
@@ -1834,7 +1859,13 @@ object McpTools {
                     "moduleArgs" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
-                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml (its moduleArgs AND test.moduleArgs blocks), e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) ALSO pass the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys; scaffold_dapp template=ft4 writes a working set into chromia.yml test.moduleArgs). Without them every tx fails with 'Unable to create GTX module'. Pass it as ONE object that merges blockchains.<name>.moduleArgs with test.moduleArgs, keyed by module name; byte_array / pubkey values may be the yml's x\"02C4...\" literal, 0x02c4..., or bare hex - all three decode to bytes.")
+                            "description" to JsonPrimitive("Optional module_args by module name. YOU RARELY NEED TO BUILD THIS BY HAND: pass chromia.yml (inside `files`, or as `yaml`) and this tool merges blockchains.<name>.moduleArgs with test.moduleArgs for you, exactly as `chr test` does; scaffold_dapp also returns the finished object as its own top-level `moduleArgs` field - copy that verbatim. Shape: {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys) - must be present too, or every tx fails with 'Unable to create GTX module'. An explicit value here always wins over the yml. byte_array / pubkey values may be the yml's x\"02C4...\" literal, 0x02c4..., or bare hex - all three decode to bytes.")
+                        )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional chromia.yml. When `moduleArgs` is not given, the module args are read from it - blockchains.<name>.moduleArgs merged with test.moduleArgs, the same merge `chr test` performs. A chromia.yml passed inside `files` is used the same way and is not compiled.")
                         )
                     )
                 )
@@ -1857,7 +1888,19 @@ object McpTools {
                             "description" to JsonPrimitive("print()/log() output captured from the tests (capped); omitted when the tests print nothing.")
                         )
                     ),
-                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "moduleArgsSource" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Present only when the module args were read from a chromia.yml you passed instead of from the `moduleArgs` argument.")
+                        )
+                    ),
+                    "moduleArgsUsed" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("The merged module args the run actually used, when they were derived from chromia.yml - paste-able as `moduleArgs` on a later call.")
+                        )
+                    )
                 )
             ),
             required = listOf("ok", "total", "passed", "failed", "cases", "notes")

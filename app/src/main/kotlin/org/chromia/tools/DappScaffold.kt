@@ -90,6 +90,46 @@ object DappScaffold {
         "lib.ft4.accounts.strategies.open"
     )
 
+    /**
+     * Templates whose main module reads a configured oracle key.
+     * Mirrors the gate suite's own map; kept here so the SHIPPED response and
+     * the test harness cannot disagree about what a template needs.
+     */
+    private val ORACLE_TEMPLATES = setOf("vault", "lending", "stablecoin")
+
+    /**
+     * The module_args a template's SHIPPED tests need, merged exactly as
+     * `chr test` merges them: `blockchains.<name>.moduleArgs` plus
+     * `test.moduleArgs`. This is what `scaffold_dapp` returns as its top-level
+     * `moduleArgs` field and what `run_rell_tests{files, moduleArgs}` takes
+     * verbatim.
+     *
+     * AUDIT F4 (2026-09-06): the first honest run_rell_tests on the flagship
+     * `ft4` scaffold went red in 22,131 ms - 0 passed / 3 failed, every case
+     * "Unable to create GTX module" - because the two blocks were never merged.
+     * Assembling the merge by hand cost another 35,824 ms and the instructions
+     * were 14 KB into a 22 KB notes blob. `hello` needs none and gets none:
+     * an empty object is the honest answer, not a decorative one.
+     */
+    fun testModuleArgs(template: String): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> {
+        val t = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) } ?: return emptyMap()
+        return when {
+            t == "hello" -> emptyMap()
+            t == "lending" -> lendingTestModuleArgs()
+            t == "governance" -> governanceTestModuleArgs()
+            t == "bridge" -> bridgeTestModuleArgs()
+            t in ORACLE_TEMPLATES -> oracleTestModuleArgs()
+            else -> ft4TestModuleArgs()
+        }
+    }
+
+    /** [testModuleArgs] as the JSON object an agent pastes into run_rell_tests. */
+    fun testModuleArgsJson(template: String): JsonObject = buildJsonObject {
+        testModuleArgs(template).forEach { (module, args) ->
+            put(module, buildJsonObject { args.forEach { (k, v) -> put(k, v) } })
+        }
+    }
+
     private val namePattern = Regex("^[a-z][a-z0-9_]{0,31}$")
 
     fun normalizeName(raw: String?): String {
@@ -1557,6 +1597,27 @@ object DappScaffold {
         return folded.takeIf { namePattern.matches(it) }
     }
 
+    /**
+     * The literal next call, spelled out. An agent that reads nothing else in
+     * this response can copy this one line and the shipped tests are green on
+     * the FIRST run (audit F4: they were red, and the fix was 14 KB into an
+     * essay).
+     */
+    internal fun nextCallNote(template: String): String {
+        val args = testModuleArgs(template)
+        return if (args.isEmpty()) {
+            "run_rell_tests{files: <the .rell files above>} - this template needs no moduleArgs. " +
+                "run_rell_tests also reads chromia.yml if you pass it inside `files`."
+        } else {
+            "run_rell_tests{files: <the .rell files above>, moduleArgs: <the `moduleArgs` field of " +
+                "THIS response, verbatim>}. That object is chromia.yml's blockchains.<name>.moduleArgs " +
+                "merged with its test.moduleArgs - FT4's test helpers need the test-scoped " +
+                "lib.ft4.core.admin / lib.ft4.test.core.auth keys, and without them every case fails " +
+                "with \"Unable to create GTX module\". Passing chromia.yml inside `files` does the " +
+                "same merge for you."
+        }
+    }
+
     fun toJson(name: String?, template: String = "hello"): JsonObject {
         val chain = normalizeName(name)
         // `Stablecoin`, ` amm ` - case and whitespace are not a different ask
@@ -1612,6 +1673,11 @@ object DappScaffold {
                     fileMap.forEach { (path, content) -> put(path, content) }
                 }
             )
+            // AUDIT F4: the merged moduleArgs as its own top-level field, so the
+            // next call is a copy of TWO fields and nothing has to be assembled
+            // by hand out of the yml. Empty for `hello`, which needs none.
+            put("moduleArgs", testModuleArgsJson(effectiveTemplate))
+            put("nextCall", nextCallNote(effectiveTemplate))
             put("notes", notes(chain))
         }
     }

@@ -862,3 +862,66 @@ internal object SimpleYaml {
         return if (isQuoted(v)) v.substring(1, v.length - 1) else v
     }
 }
+
+/**
+ * The module_args a chromia.yml declares, in the shape `run_rell_tests` takes.
+ *
+ * AUDIT F4 (2026-09-06): the flagship `ft4` template's own shipped tests failed
+ * every case on the first honest `run_rell_tests{files}` from the scaffold
+ * output - 22,131 ms to a red - with
+ *   "System function 'rell.test.tx.run': Block execution failed: ...
+ *    Unable to create GTX module: net.postchain.rell.module.RellPostchainModuleFactory"
+ * because `moduleArgs` and `test.moduleArgs` were never merged: the tool takes
+ * module args as a PARAMETER and never read the yml the scaffold had just
+ * handed back. Assembling the merge by hand cost another 35,824 ms, and the
+ * instructions for doing it were 14 KB inside a 22 KB notes blob.
+ *
+ * `chr test` merges the two blocks; so does this. Test-scoped args win on a key
+ * collision, which is what `chr test` does and what the FT4 admin wiring needs.
+ */
+object ChromiaYmlModuleArgs {
+
+    /**
+     * `blockchains.<any>.moduleArgs` merged with `test.moduleArgs`, keyed by
+     * Rell module name. Empty when the yml declares none, or does not parse -
+     * this is a convenience, never a gate.
+     */
+    fun merged(yaml: String): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> {
+        val root = runCatching { SimpleYaml.parse(yaml.trim()) }.getOrNull() as? YamlNode.Mapping ?: return emptyMap()
+        val out = LinkedHashMap<String, MutableMap<String, kotlinx.serialization.json.JsonElement>>()
+        fun absorb(node: YamlNode?) {
+            val mapping = node as? YamlNode.Mapping ?: return
+            mapping.entries.forEach { (module, args) ->
+                val argsMapping = args as? YamlNode.Mapping ?: return@forEach
+                val target = out.getOrPut(module) { LinkedHashMap() }
+                argsMapping.entries.forEach { (key, value) -> target[key] = toJson(value) }
+            }
+        }
+        root.mapping("blockchains")?.entries?.values?.forEach { chain ->
+            absorb((chain as? YamlNode.Mapping)?.mapping("moduleArgs"))
+        }
+        // Test-scoped last: `chr test` lets test.moduleArgs win, and the FT4
+        // admin wiring (lib.ft4.core.admin, lib.ft4.test.core.auth) lives only there.
+        absorb(root.mapping("test")?.mapping("moduleArgs"))
+        return out.mapValues { (_, v) -> v.toMap() }
+    }
+
+    /**
+     * Scalars keep the type the yml wrote: integers and booleans as such, and
+     * everything else - including the `x"..."` byte_array literal - as the
+     * string the tool's own GTV conversion already accepts.
+     */
+    private fun toJson(node: YamlNode): kotlinx.serialization.json.JsonElement = when (node) {
+        is YamlNode.Scalar -> scalarToJson(node.raw)
+        is YamlNode.Sequence -> buildJsonArray { node.items.forEach { add(toJson(it)) } }
+        is YamlNode.Mapping -> buildJsonObject { node.entries.forEach { (k, v) -> put(k, toJson(v)) } }
+    }
+
+    private fun scalarToJson(raw: String): kotlinx.serialization.json.JsonElement {
+        val t = raw.trim()
+        t.toLongOrNull()?.let { return JsonPrimitive(it) }
+        if (t.equals("true", ignoreCase = true)) return JsonPrimitive(true)
+        if (t.equals("false", ignoreCase = true)) return JsonPrimitive(false)
+        return JsonPrimitive(t)
+    }
+}
