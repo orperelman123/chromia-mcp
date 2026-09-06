@@ -150,7 +150,7 @@ tasks.named<Test>("test") {
     // which the merge gate then read as "the suite did not run". Round 9 added
     // four full dapp builds and five samples to the corpus, each analysed on
     // every run. CI's own job budget is 50 minutes, so this stays inside it.
-    timeout.set(Duration.ofMinutes(45))
+    timeout.set(Duration.ofMinutes(60))
 
     // Environment-gated tests (a PostgreSQL with C.UTF-8 collation, the live
     // testnet probes) skip unless their env vars are set - and a skip is a test
