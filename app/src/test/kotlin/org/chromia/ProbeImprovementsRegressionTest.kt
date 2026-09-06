@@ -106,7 +106,7 @@ class ProbeImprovementsRegressionTest {
             val result = executor.executeTool(
                 callToolRequest(
                     name = "chromia_help",
-                    arguments = buildJsonObject { put("topic", alias) }
+                    arguments = buildJsonObject { put("topic", alias); put("section", "all") }
                 )
             )
             assertTrue(result.isError != true, alias)

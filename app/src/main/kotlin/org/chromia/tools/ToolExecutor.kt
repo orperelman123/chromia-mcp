@@ -94,6 +94,9 @@ class ToolExecutor(
 
     private val strategies = helpStrategies + mapOf(
         "chromia_help" to ChromiaHelpStrategy(helpStrategies),
+        "describe_tool" to DescribeToolStrategy {
+            runCatching { org.chromia.App.effectiveDisabledTools() }.getOrElse { McpTools.disabledTools() }
+        },
         "get_prompts" to PromptsToolStrategy(promptManager),
         "get_blockchains_transactions" to BlockchainsTransactionsStrategy(),
         "get_transactions_by_cluster" to TransactionsByClusterStrategy(),
@@ -1500,14 +1503,17 @@ class ValidateChromiaYmlStrategy : BaseToolStrategy() {
 /**
  * Gateway over the static help/INDEX strategies: one `chromia_help(topic)` schema
  * instead of ~30 individual tool schemas in the agent's context. With no or an
- * unknown topic it returns the topic index; otherwise it delegates to the matching
- * help strategy and returns that tool's exact payload.
+ * unknown topic it returns the topic index. With a topic it returns that topic's
+ * TABLE OF CONTENTS - section names and the bytes each costs - because audit F9
+ * measured one topic at 27,288 tokens, four times what compact mode saves in
+ * total. `section` returns one section; section:"all" returns the whole payload,
+ * byte-identical to calling the individual *_help tool.
  */
 class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>) : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = false
 
 
-    private companion object {
+    internal companion object {
         /**
          * What agents actually ask for vs what the topic is named: "security" and
          * "best practices" both live in chromia_rell_practices_help (probe finding
@@ -1518,28 +1524,245 @@ class ChromiaHelpStrategy(private val helpStrategies: Map<String, ToolStrategy>)
             "best_practices" to "chromia_rell_practices_help",
             "best-practices" to "chromia_rell_practices_help"
         )
+
+        /** `section` value that asks for the whole payload - nothing is unreachable. */
+        const val WHOLE_PAYLOAD = "all"
+
+        /**
+         * A value bigger than this is listed in the table of contents by its own
+         * parts instead, so an agent can spend a paragraph rather than a chapter.
+         * Also the hard cut on one section: nothing this gateway offers as a
+         * section costs more than this plus its wrapper - measured by
+         * ChromiaHelpSectionTest, which prints the worst on every run.
+         */
+        const val SECTION_SPLIT_BYTES = 6_000
+
+        /** How deep the splitting recursion goes before it hands over a big leaf. */
+        private const val MAX_SPLIT_DEPTH = 4
+
+        /** Characters of a section's own text shown in the table of contents. */
+        private const val PREVIEW_CHARS = 60
+
+        /** Serialized byte cost of a JSON value - what the agent actually pays. */
+        internal fun byteSize(element: JsonElement): Int = element.toString().toByteArray().size
+
+        /** One addressable section: what to ask for, and what it costs. */
+        internal data class Section(val name: String, val value: JsonElement, val preview: String?)
+
+        /** [text] cut to at most [bytes] UTF-8 bytes, never mid-character. */
+        private fun cutToBytes(text: String, bytes: Int): String {
+            var cut = text
+            while (cut.toByteArray().size > bytes) cut = cut.dropLast(1)
+            return cut
+        }
+
+        /**
+         * A long string split at line boundaries into pieces that each fit
+         * [SECTION_SPLIT_BYTES]; a single line longer than that is cut to fit
+         * rather than handed over whole, so a section always has a bound.
+         */
+        private fun splitText(text: String): List<String> {
+            val parts = mutableListOf<String>()
+            val current = StringBuilder()
+            fun flush() {
+                if (current.isNotEmpty()) {
+                    parts += current.toString()
+                    current.setLength(0)
+                }
+            }
+            text.lines().forEach { line ->
+                var rest = line
+                while (rest.toByteArray().size > SECTION_SPLIT_BYTES) {
+                    flush()
+                    val head = cutToBytes(rest, SECTION_SPLIT_BYTES)
+                    parts += head
+                    rest = rest.substring(head.length)
+                }
+                val candidate = if (current.isEmpty()) rest else current.toString() + "\n" + rest
+                if (candidate.toByteArray().size > SECTION_SPLIT_BYTES) {
+                    flush()
+                    current.append(rest)
+                } else {
+                    current.setLength(0)
+                    current.append(candidate)
+                }
+            }
+            flush()
+            return parts.ifEmpty { listOf(text) }
+        }
+
+        private fun previewOf(element: JsonElement): String? {
+            val text = when {
+                element is JsonPrimitive && element.isString -> element.content
+                element is JsonObject -> element.keys.joinToString(", ")
+                element is JsonArray -> element.joinToString(", ") { it.toString() }
+                else -> return null
+            }.replace(Regex("\\s+"), " ").trim()
+            return if (text.length <= PREVIEW_CHARS) text.ifEmpty { null }
+            else text.take(PREVIEW_CHARS) + "..."
+        }
+
+        private fun collect(name: String, value: JsonElement, depth: Int, out: MutableList<Section>) {
+            if (byteSize(value) <= SECTION_SPLIT_BYTES || depth >= MAX_SPLIT_DEPTH) {
+                out += Section(name, value, previewOf(value))
+                return
+            }
+            when {
+                value is JsonObject && value.isNotEmpty() ->
+                    value.forEach { (key, child) -> collect("$name.$key", child, depth + 1, out) }
+
+                value is JsonArray && value.isNotEmpty() -> {
+                    var index = 1
+                    val group = mutableListOf<JsonElement>()
+                    fun flushGroup() {
+                        if (group.isNotEmpty()) {
+                            collect("$name.${index++}", JsonArray(group.toList()), MAX_SPLIT_DEPTH, out)
+                            group.clear()
+                        }
+                    }
+                    value.forEach { element ->
+                        if (byteSize(element) > SECTION_SPLIT_BYTES) {
+                            flushGroup()
+                            collect("$name.${index++}", element, depth + 1, out)
+                        } else {
+                            group += element
+                            if (byteSize(JsonArray(group.toList())) > SECTION_SPLIT_BYTES) {
+                                val last = group.removeLast()
+                                flushGroup()
+                                group += last
+                            }
+                        }
+                    }
+                    flushGroup()
+                }
+
+                value is JsonPrimitive && value.isString -> {
+                    val parts = splitText(value.content)
+                    if (parts.size == 1) {
+                        out += Section(name, JsonPrimitive(cutToBytes(parts.first(), SECTION_SPLIT_BYTES)), previewOf(value))
+                    } else {
+                        parts.forEachIndexed { i, part ->
+                            val piece = JsonPrimitive(part)
+                            out += Section("$name.${i + 1}", piece, previewOf(piece))
+                        }
+                    }
+                }
+
+                else -> out += Section(name, value, previewOf(value))
+            }
+        }
+
+        /**
+         * Addressable sections of [payload], in payload order. A key whose value
+         * costs more than [SECTION_SPLIT_BYTES] is listed by its own parts -
+         * sub-keys, array chunks, or paragraphs of a long string - so every
+         * section an agent can ask for has a bound.
+         */
+        internal fun sections(payload: JsonObject): List<Section> {
+            val out = mutableListOf<Section>()
+            payload.forEach { (key, value) -> collect(key, value, depth = 1, out = out) }
+            return out
+        }
+
+        /** [payload]'s table of contents: every section with the bytes it costs. */
+        internal fun tableOfContents(topic: String, payload: JsonObject, note: String?): JsonObject {
+            val listed = sections(payload)
+            return buildJsonObject {
+                put("topic", JsonPrimitive(topic))
+                put("bytes", JsonPrimitive(byteSize(payload)))
+                put("sections", buildJsonArray {
+                    listed.forEach { section ->
+                        add(buildJsonObject {
+                            put("section", JsonPrimitive(section.name))
+                            put("bytes", JsonPrimitive(byteSize(section.value)))
+                            section.preview?.takeIf { section.name.contains('.') }
+                                ?.let { put("preview", JsonPrimitive(it)) }
+                        })
+                    }
+                })
+                put(
+                    "notes",
+                    (note?.plus(" ") ?: "") +
+                        "This is the table of contents, not the payload: call " +
+                        "chromia_help{topic:\"$topic\", section:\"<section>\"} for one section, or " +
+                        "section:\"$WHOLE_PAYLOAD\" for all ${byteSize(payload)} bytes."
+                )
+            }
+        }
     }
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
         val requested = extractString(args, "topic")?.trim()?.lowercase()
+        val section = extractString(args, "section")?.trim()
         val rawTopic = requested?.let { TOPIC_ALIASES[it] ?: it }
         // Accept both "chr_build" and "chr_build_help" spellings.
         val topic = rawTopic?.let { if (it in helpStrategies) it else "${it}_help".takeIf { t -> t in helpStrategies } }
 
-        if (topic == null) {
-            val index = buildJsonObject {
-                put("topics", buildJsonArray { helpStrategies.keys.sorted().forEach { add(JsonPrimitive(it)) } })
+        // A tool name is a topic too: F9 moved the long form of the security tools
+        // out of tools/list, and it has to stay reachable by the name agents know.
+        if (topic == null && rawTopic != null && rawTopic in ToolDocs.TOPICS) {
+            return toolSuccessResult(buildJsonObject {
+                put("topic", JsonPrimitive(rawTopic))
+                put("tool", JsonPrimitive(rawTopic))
+                put("description", JsonPrimitive(McpTools.fullDescription(rawTopic).orEmpty()))
                 put(
                     "notes",
-                    (if (rawTopic == null) "Pass one of these topics to get that help payload. "
+                    "The full description of the `$rawTopic` tool, moved out of tools/list to keep " +
+                        "the catalog small (audit F9). describe_tool{tool:\"$rawTopic\"} returns the " +
+                        "same text with the tool's input schema."
+                )
+            })
+        }
+
+        if (topic == null) {
+            val index = buildJsonObject {
+                put("topics", buildJsonArray { McpTools.HELP_TOPIC_NAMES.sorted().forEach { add(JsonPrimitive(it)) } })
+                put(
+                    "notes",
+                    (if (rawTopic == null) "Pass one of these topics; you get its table of contents, then a section. "
                     else "Unknown topic '$rawTopic'. ") +
-                        "Topic names map 1:1 to the full help catalog (CLI commands, chromia.yml, Rell language, FT4, deploy, integrations)."
+                        "Topic names map 1:1 to the full help catalog (CLI commands, chromia.yml, Rell language, " +
+                        "FT4, deploy, integrations), plus a tool name for that tool's full description."
                 )
             }
             return toolSuccessResult(index)
         }
-        return helpStrategies.getValue(topic).execute(request, repository)
+
+        val delegated = helpStrategies.getValue(topic).execute(request, repository)
+        val payload = delegated.structuredContent
+        // Only a structured payload can be sectioned; anything else passes through.
+        if (payload == null || delegated.isError == true) return delegated
+
+        if (section == null) return toolSuccessResult(tableOfContents(topic, payload, note = null))
+        if (section.equals(WHOLE_PAYLOAD, ignoreCase = true)) return delegated
+
+        val match = sections(payload).firstOrNull { it.name.equals(section, ignoreCase = true) }
+            ?: return toolSuccessResult(tableOfContents(topic, payload, note = "Unknown section '$section'."))
+        return toolSuccessResult(buildJsonObject {
+            put("topic", JsonPrimitive(topic))
+            put("section", JsonPrimitive(match.name))
+            put("bytes", JsonPrimitive(byteSize(match.value)))
+            put(match.name, match.value)
+        })
+    }
+}
+
+/**
+ * `describe_tool`: the full description and untrimmed schemas of one tool.
+ * F9 measured `tools/list` at 115,908 B (~29k tokens) before an agent's first
+ * useful call; the long form of the biggest descriptions was MOVED here, never
+ * deleted, and ToolDescriptionBudgetTest pins that every sentence that left a
+ * description is still reachable by name.
+ */
+class DescribeToolStrategy(private val disabled: () -> Set<String> = { emptySet() }) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = false
+
+    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
+        val args = request.argumentsOrEmpty as Map<String, Any>
+        val name = extractString(args, "tool") ?: extractString(args, "name")
+        val includeSchema = extractBoolean(args, "includeSchema") ?: true
+        return toolSuccessResult(McpTools.describeToolJson(name, includeSchema, disabled()))
     }
 }
 
