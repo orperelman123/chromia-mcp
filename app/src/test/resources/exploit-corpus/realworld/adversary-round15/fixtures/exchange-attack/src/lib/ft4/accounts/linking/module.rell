@@ -1,2 +1,0 @@
-import ^^.core.accounts.linking.*;
-import external: ^^.external.accounts.linking;
