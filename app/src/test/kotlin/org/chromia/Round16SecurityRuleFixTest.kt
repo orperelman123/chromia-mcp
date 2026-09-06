@@ -81,19 +81,38 @@ class Round16SecurityRuleFixTest {
         )
     }
 
+    /**
+     * `max(param, MIN)` is a floor spelled as arithmetic, and the rule has
+     * always accepted it. It is worth exactly what MIN is worth, so it is
+     * resolved on the same terms as a comparison's - the round-16 zero cannot
+     * buy silence by moving into a max().
+     *
+     * The window is stored UNCLAMPED here on purpose: `now + max(param, MIN)`
+     * is not a window at all under the round-14 tightening (the duration is
+     * what the call returns, not the argument it was passed), so a sample that
+     * clamps inline would test nothing about this branch.
+     */
+    private fun daoWithMaxFloor(floor: String) = """
+        module;
+        entity motion { key id: integer; deadline: timestamp; }
+        object book { mutable next_id: integer = 1; }
+        operation open_motion(voting_period_ms: integer) {
+            require(voting_period_ms == max(voting_period_ms, $floor), "the voting period is too short");
+            create motion(id = book.next_id, deadline = op_context.last_block_time + voting_period_ms);
+            book.next_id += 1;
+        }
+    """.trimIndent()
+
     @Test
     fun `max against a zero is not a floor and max against a real minimum is`() {
-        val zeroed = """
-            module;
-            entity motion { key id: integer; deadline: timestamp; }
-            object book { mutable next_id: integer = 1; }
-            operation open_motion(voting_period_ms: integer) {
-                create motion(id = book.next_id, deadline = op_context.last_block_time + max(voting_period_ms, 0));
-                book.next_id += 1;
-            }
-        """.trimIndent()
-        assertTrue("unbounded-voting-period" in rules("main.rell" to zeroed))
-        assertFalse("unbounded-voting-period" in rules("main.rell" to zeroed.replace("max(voting_period_ms, 0)", "max(voting_period_ms, 3600000)")))
+        assertTrue(
+            "unbounded-voting-period" in rules("main.rell" to daoWithMaxFloor("0")),
+            "max(param, 0) clamps nothing - a period of 0 still passes"
+        )
+        assertFalse(
+            "unbounded-voting-period" in rules("main.rell" to daoWithMaxFloor("3600000")),
+            "max(param, 3600000) is a real floor spelled as arithmetic and must stay silent"
+        )
     }
 
     @Test

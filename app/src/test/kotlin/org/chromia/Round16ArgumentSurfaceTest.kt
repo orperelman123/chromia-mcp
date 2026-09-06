@@ -15,6 +15,7 @@ import org.chromia.tools.callToolRequest
 import org.chromia.tools.propertiesOrEmpty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -381,7 +382,7 @@ class Round16ArgumentSurfaceTest {
         assertTrue(WriteDeploymentConfig.isCommentLine("   # a note"))
         assertFalse(WriteDeploymentConfig.isCommentLine("deployments: # prod"))
         assertEquals("deployments", WriteDeploymentConfig.topLevelKeyOf("deployments: # prod"))
-        assertEquals(null, WriteDeploymentConfig.topLevelKeyOf("  deployments:"))
-        assertEquals(null, WriteDeploymentConfig.topLevelKeyOf("# deployments:"))
+        assertNull(WriteDeploymentConfig.topLevelKeyOf("  deployments:"), "indented: not a top-level key")
+        assertNull(WriteDeploymentConfig.topLevelKeyOf("# deployments:"), "a comment is not a key")
     }
 }
