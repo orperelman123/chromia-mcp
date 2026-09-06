@@ -124,7 +124,7 @@ object DappScaffold {
     fun defaultChromiaYml(): String = chromiaYml(DEFAULT_NAME)
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -179,6 +179,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to exchangeMainRell(),
                 "src/test/main_test.rell" to exchangeTestRell()
+            )
+            "subscription" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to subscriptionMainRell(),
+                "src/test/main_test.rell" to subscriptionTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -236,8 +241,8 @@ object DappScaffold {
             crash and require both to fail). NOT an "exchange" - that word used to be answered
             here, and it is how adversary round 8 came to build a drainable AMM: a vault covers
             a reserve and a price FEED, never a CURVE. A swap pool or DEX pair is template=amm,
-            and an ORDER BOOK - resting orders that something has to match - has no template at
-            all, which the redirect will tell you plainly if you ask for one. The vault's oracle key is a module arg: its tests need
+            and an ORDER BOOK - resting orders that something has to match - is
+            template=exchange, which round 12's drain bought. The vault's oracle key is a module arg: its tests need
             main.oracle_pubkey from chromia.yml test.moduleArgs in the module_args you pass to
             run_rell_tests, and you must set main.oracle_pubkey under blockchains.<name>.moduleArgs
             before `chr build` - it is deliberately absent so no placeholder key can ship.
@@ -246,9 +251,11 @@ object DappScaffold {
             pool, the clock releases at most what the pool holds, every credit is a pool debit in the
             same operation, unstaking has a cooldown; the shipped tests replay the round-4
             stake-times-elapsed-times-rate mint from an empty pool and require it to fail). For a
-            payment to ONE NAMED beneficiary metered by the clock - payroll, a subscription, a
-            vesting grant, a drip - use template=streaming instead: that is a different exploit
-            class and it has its own template.
+            payment to ONE NAMED beneficiary metered by the clock - payroll, a vesting grant,
+            a drip - use template=streaming instead: that is a different exploit class and it
+            has its own template. If a MERCHANT collects from a payer period after period,
+            that is recurring pull billing and it is template=subscription, which is a third
+            class again: streaming is prepaid and a pull authorisation is not.
             Building an NFT marketplace, a listing/auction board, or anything with a buy button and
             creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
             to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
@@ -287,9 +294,11 @@ object DappScaffold {
             pool for years, and a fixed percentage step is sized by the attacker. Net the step into
             the priced state so it accrues CONTINUOUSLY; for a moving RATE that means the
             CHECKPOINTED INDEX the template ships.
-            Building a payment stream, payroll, a subscription, a vesting grant, a drip or any
-            other payout METERED BY THE CLOCK to one named beneficiary: start from
-            template=streaming. Round 7 drained an un-templated one built with only this server's
+            Building a payment stream, payroll, a vesting grant, a drip or any other payout
+            METERED BY THE CLOCK to one named beneficiary, PREPAID by the payer: start from
+            template=streaming. If the payer does NOT prepay and a merchant collects against
+            a standing authorisation - a subscription, a membership, an allowance - that is
+            template=subscription: round 13 drained a build that used this template for it. Round 7 drained an un-templated one built with only this server's
             guidance, gate silent and ok:true with zero findings: what was owed was measured from a
             MUTABLE ANCHOR advanced by every settlement, so a stranger with nothing at stake settled
             faster than one whole unit of entitlement, released zero each time, moved the anchor
@@ -421,6 +430,34 @@ object DappScaffold {
             table on every place_order and nothing bounded the book, so ten one-unit trades
             went from 1.8 seconds to 26.3 behind 150 resting bids at price 1 and were
             abandoned at 90 seconds behind 400, bought with one free registration.
+
+            Building RECURRING PULL BILLING - a subscription, a membership, an allowance, a
+            direct debit, anything where a MERCHANT COLLECTS period after period against one
+            authorisation the payer signed once: start from template=subscription, NOT
+            template=streaming. Streaming is PREPAID to one named beneficiary and every
+            guard it has rests on the money already being escrowed; reverse it into a pull
+            model and its safest-looking term becomes the drain. Adversary round 13 built
+            exactly that from this server's own redirect, which answered both
+            template=subscription and template=allowance with "use template=streaming". The
+            author carried over every structural guard that CAN be carried - no operation
+            writes a timestamp, all terms immutable, one monotone counter, permissionless
+            collection, pay before you close, cancellable fixed at creation - and the gate
+            said ok:true. The one guard that does not carry over is the one the whole
+            template rests on, PREPAID, and nothing in the guidance named a substitute: the
+            claim was on the payer's ACCOUNT rather than on an escrow, so a plan at 10
+            points a month, signed as non-cancellable and therefore unendable BY EITHER
+            PARTY, took all 9990 points she held in a single charge() eighty-three years
+            later, still owed 20, and took every point that arrived afterwards in the block
+            it landed. Its period boundary was a whole fee, not the "staircase of one unit"
+            the streaming header bounds it at: two identical subscribers cancelling ten
+            minutes either side of a boundary in a thirty-day period paid 1000 and 2000.
+            The template makes both unwritable: A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE
+            PAYER FUNDED - accrual is capped at it and charge() never touches a balance -
+            THE FEE ACCRUES PRO RATA so nothing is ever billed in advance and no boundary
+            is worth straddling, and EITHER PARTY MAY ALWAYS CANCEL, because a pull
+            authorisation that cannot be revoked is a standing claim on a person rather
+            than a right over a sum. There is deliberately no cancellable term. Both drains
+            ship as must-fail tests with mutants.
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -526,8 +563,33 @@ object DappScaffold {
                     "vault's bounded oracle, over-collateralisation, a liquidation threshold with " +
                     "a close factor and bonus, and the minimum-first-deposit guard that kills " +
                     "ERC-4626 share inflation - with the round-6 drain as a must-fail test."
-            has("stream", "payroll", "salary", "subscription", "drip", "annuity", "allowance",
-                "installment", "stipend", "wage", "unlock") || (has("vest") && !has("harvest")) ->
+            has("subscription", "subscribe", "recurring", "billing", "allowance", "membership",
+                "direct_debit", "direct debit", "auto_renew", "autorenew", "installment",
+                "instalment", "annuity", "stipend", "pull_payment", "saas") ->
+                "Use `template=subscription`: RECURRING PULL BILLING has its own template, " +
+                    "and it is NOT `streaming`. This server used to answer this ask with " +
+                    "`template=streaming`, and adversary round 13 drained the build that " +
+                    "followed it. Streaming is PREPAID to one named beneficiary and every " +
+                    "guard it has rests on the money already being escrowed; reversed into " +
+                    "a pull model the same terms become an IRREVOCABLE, UNCAPPED, " +
+                    "UNESCROWED CLAIM ON EVERYTHING THE PAYER WILL EVER HOLD. Measured: a " +
+                    "plan at 10 points a month, signed with streaming's `cancellable = " +
+                    "false` - which there means a vesting grant that cannot be clawed back, " +
+                    "and here meant NEITHER PARTY COULD END IT - took all 9990 points the " +
+                    "payer held in one permissionless charge() eighty-three years later, " +
+                    "still owed 20, and took every point that arrived afterwards in the " +
+                    "block it landed. Its period boundary was a WHOLE FEE rather than the " +
+                    "one-unit staircase the streaming header bounds it at: two identical " +
+                    "subscribers cancelling ten minutes either side of a boundary in a " +
+                    "thirty-day period paid 1000 and 2000. The template makes both " +
+                    "unwritable: A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE PAYER FUNDED, " +
+                    "THE FEE ACCRUES PRO RATA so nothing is billed in advance and no " +
+                    "boundary is worth straddling, and EITHER PARTY MAY ALWAYS CANCEL - " +
+                    "there is no `cancellable` term, because a pull authorisation that " +
+                    "cannot be revoked is a standing claim on a person rather than a right " +
+                    "over a sum. Both drains ship as must-fail tests with mutants."
+            has("stream", "payroll", "salary", "drip", "wage", "unlock") ||
+                (has("vest") && !has("harvest")) ->
                 "Use `template=streaming`: it is the template for this class, and this class is what " +
                     "adversary round 7 drained WITH NO TEMPLATE AT ALL. A hand-built payment stream " +
                     "measured what was owed from a MUTABLE ANCHOR - the block of the last settlement - " +
@@ -606,23 +668,28 @@ object DappScaffold {
                 "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
                     "releases at most what the pool holds, every credit is a pool debit in the same " +
                     "operation, and unstaking has a cooldown. If instead you are paying ONE named " +
-                    "beneficiary over time - payroll, a subscription, a vesting grant, a drip - that " +
-                    "is `template=streaming`, a different exploit class with its own template."
+                    "beneficiary over time - payroll, a vesting grant, a drip - that is " +
+                    "`template=streaming`, a different exploit class with its own template; and if " +
+                    "a MERCHANT collects from a payer period after period, that is " +
+                    "`template=subscription`, a third one."
             has("token", "ft4", "asset", "coin", "transfer", "wallet", "payment") ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics."
             else ->
-                "No shipped template covers that name. The nine hardened ones are `governance` " +
+                "No shipped template covers that name. The ten hardened ones are `governance` " +
                     "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
                     "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
                     "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
                     "that moves), `streaming` (a clock-metered payout to one named beneficiary - " +
-                    "payroll, subscriptions, vesting, drips), `amm` (a constant-product swap " +
+                    "payroll, vesting, drips - PREPAID), `amm` (a constant-product swap " +
                     "pool: exact-quoted-reserve swaps and term-committed liquidity positions), " +
                     "`stablecoin` (a coin minted against locked collateral: ratio-checked mints, " +
                     "pro-rata liquidation, shared settlement, no redemption at par) and " +
                     "`exchange` (an ORDER BOOK: immutable resting orders whose partial fill writes " +
-                    "one monotone counter, and matching no caller can reorder); " +
+                    "one monotone counter, and matching no caller can reorder) and " +
+                    "`subscription` (RECURRING PULL BILLING: a merchant's whole claim is the " +
+                    "escrow the payer funded, the fee accrues pro rata so nothing is billed in " +
+                    "advance, and either party may always cancel); " +
                     "`ft4` is the plain token skeleton with " +
                     "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
                     "class with no template is where every drain in this project has landed - and " +
@@ -3882,6 +3949,529 @@ object DappScaffold {
     // NEW row, so its created_at was NOW, so ANY counterparty restarted the maker's cancel
     // clock by taking one unit - and a maker who rested 100 units at 10 beside a standing
     // bid of 20 ended with 1000 points where an uninterrupted maker ends with 2000.
+
+    private fun subscriptionMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Subscription template: RECURRING PULL BILLING. A payer signs one authorisation
+        // and a merchant collects against it, period after period, without the payer
+        // signing again. This is NOT the streaming template, and until round 13 the ask
+        // for it was answered with `template=streaming`: streaming is PREPAID to ONE
+        // NAMED BENEFICIARY and every guard it has rests on the money already being
+        // escrowed. Reverse that into a pull model and the same terms become an
+        // irrevocable, uncapped, unescrowed claim on everything the payer will ever hold -
+        // which is what round 13 built from that redirect, and drained. Eight guards are
+        // STRUCTURAL - they live in the entities and the accrual function, not in a
+        // require() a future operation can forget:
+        //   THE CLAIM IS   - a merchant can NEVER be paid a point the payer did not put
+        //     THE ESCROW     into THIS subscription. `funded` is every point the payer has
+        //                    ever escrowed here and `charged` every point the merchant has
+        //                    ever taken; accrual is capped at `funded`, and charge() moves
+        //                    value out of the escrow and touches no balance the payer owns.
+        //                    A payer who wants the claim to stop simply stops funding it.
+        //                    THIS is the guard that does not carry over from streaming and
+        //                    that nothing in the old guidance replaced: round 13's build
+        //                    took `min(owed, payer.balance)` straight out of the payer's
+        //                    account, so one charge() eighty-three years later took all
+        //                    9990 points she had, she still owed 20 and counting, and every
+        //                    point that ever arrived afterwards was taken in the block it
+        //                    landed - because charge() is permissionless and the claim was
+        //                    on her, not on an escrow.
+        //   NEVER IN       - the fee ACCRUES ACROSS the period rather than falling due at
+        //     ADVANCE        its start: due(now) is what has elapsed, never what is to
+        //                    come, so in the first block nothing is due and a merchant can
+        //                    never be paid for time that has not happened. Round 13's build
+        //                    billed `elapsed / period + 1` whole periods, so the first
+        //                    charge took a whole month before a day of it existed - and
+        //                    that is also where its boundary step came from.
+        //   NO STEP AT     - because accrual is pro rata, cancelling one block either side
+        //     THE PERIOD     of a period boundary differs by ONE BLOCK'S worth of fee and
+        //     BOUNDARY       not by a period's. Round 13 measured the whole-period version:
+        //                    two identical subscribers on identical 1000-a-month terms, one
+        //                    cancelling in the last block before the boundary and one in the
+        //                    first block after it, TEN MINUTES apart in a thirty-day period,
+        //                    paid 1000 and 2000 - a full period's fee on the timing of one
+        //                    block, with the merchant the party who reads the boundary best.
+        //                    The streaming header bounds this residual at "a staircase of
+        //                    ONE UNIT"; that bound is only true of a pro-rata accrual, and
+        //                    it is true here. What is left is integer truncation: a
+        //                    subscription whose fee is small in whole units has wide steps,
+        //                    so denominate in the asset's smallest unit.
+        //   ALWAYS         - EITHER PARTY MAY CANCEL, ALWAYS, and there is no term that
+        //     CANCELLABLE    says otherwise. There is deliberately no `cancellable` field
+        //                    here, and that is the deepest difference from streaming: there,
+        //                    cancellable = false is a VESTING GRANT - the money is already
+        //                    escrowed, so what the term protects is the PAYEE's earned
+        //                    claim on money that has left the payer for good. In a pull
+        //                    model the same word reverses: nothing is escrowed beyond the
+        //                    current funding, so an authorisation that cannot be revoked is
+        //                    a standing claim on a person, not a right over a sum. Round 13
+        //                    signed one and could not leave - "this subscription is not
+        //                    cancellable" - and neither could the merchant, so NOBODY could
+        //                    end it. A pull authorisation is revocable by construction or it
+        //                    is not an authorisation.
+        //   IMMUTABLE      - amount_per_period, period_ms and the payer and merchant are
+        //     TERMS          written once, by the payer, and no operation rewrites any of
+        //                    them. Repricing is cancel and re-authorise, which the payer
+        //                    has to sign; a merchant who could raise the fee would need no
+        //                    other exploit.
+        //   ONE CLOCK,     - started_at is written ONCE, by open_subscription, and no
+        //     WRITTEN ONCE   operation writes a timestamp at all - cancellation DELETES the
+        //                    row rather than stamping it. The two mutable fields are
+        //                    monotone counters. Round 12's exchange drain and round 8's
+        //                    streaming grief were both a clock a second party could move;
+        //                    there is no such field here to move.
+        //   PAID BEFORE    - cancel_subscription pays the merchant everything accrued up to
+        //     REFUNDED       the cancelling block FIRST and refunds the payer only what is
+        //                    left, in one operation. THE ORDER IS THE GUARD: swap the two
+        //                    and the payer takes back income the merchant has already
+        //                    earned, which is how round 7's streaming drain ended.
+        //   PAIRED         - every point that moves is debited from somewhere in the same
+        //     SETTLEMENT     operation, and nothing is created after the one-time welcome
+        //                    grant. points_in_circulation() sums balances AND live escrow,
+        //                    and the shipped conservation test asserts it at every step.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE. The escrow is the
+        //     merchant's claim: fund one period at a time and the most a merchant who stops
+        //     delivering can take is the period you are in. Funding a year in advance is
+        //     your choice and it is exactly as safe as prepaying a year, which is to say it
+        //     is not a payment schedule any more.
+        //   - COLLECTION IS PERMISSIONLESS, deliberately: anyone may call charge(), and it
+        //     can only ever move accrued escrow to the merchant it was authorised for. A
+        //     merchant who never collects leaves the money escrowed, and the payer gets it
+        //     back on cancellation. Nobody can direct a point anywhere else.
+        //   - TRUNCATION FAVOURS THE PAYER. accrued() rounds down, so the merchant is
+        //     never paid for a fraction of a unit. Over many periods that is at most one
+        //     unit per collection.
+
+        entity account {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // A PULL AUTHORISATION. Every term is written once, by the payer who signed it.
+        // The two mutable fields are counters that only go up, and their difference is the
+        // escrow this subscription holds - it is not a stored field, so it cannot drift.
+        entity subscription {
+            key id: integer;
+            index payer: byte_array;
+            index merchant: byte_array;
+            amount_per_period: integer;   // the fee for one whole period - never changes
+            period_ms: integer;           // never changes
+            started_at: timestamp;        // the accrual clock - written ONCE
+            mutable funded: integer = 0;  // MONOTONE: every point the payer has escrowed
+            mutable charged: integer = 0; // MONOTONE: every point the merchant has taken
+        }
+
+        object book {
+            mutable next_id: integer = 1;
+        }
+
+        val WELCOME_POINTS = 10000;
+        val MAX_AMOUNT = 1000000;
+        // A period is a real billing period: an hour at the shortest, a year at the
+        // longest. A period of one millisecond is a fee per millisecond, and the payer
+        // signing it would not read it as one.
+        val MIN_PERIOD_MS = 60 * 60 * 1000;
+        val MAX_PERIOD_MS = 365 * 24 * 60 * 60 * 1000;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this default.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function account_of(owner: byte_array): account =
+            require(account @? { .owner == owner }, "register an account first");
+
+        // The escrow this subscription is holding right now: what the payer put in, less
+        // what the merchant has taken. Derived from two monotone counters, never stored.
+        function escrow_of(s: subscription): integer = s.funded - s.charged;
+
+        // WHAT HAS BEEN EARNED, and the whole of the billing model. It is PRO RATA across
+        // the period - elapsed time, never a whole period in advance - and it is CAPPED AT
+        // THE ESCROW, which is what makes a pull authorisation a claim on a sum rather than
+        // on a person.
+        function accrued(s: subscription, at: timestamp): integer {
+            if (at <= s.started_at) return 0;
+            // Bounded BEFORE it is multiplied. Rell integers are 64-bit and an overflow
+            // aborts, and the escrow is the ceiling anyway, so time past the point where
+            // the escrow is exhausted is the same number as time at it: a subscription
+            // nobody collected on for eighty years must not become an abort.
+            val periods_funded = s.funded / s.amount_per_period + 1;
+            val bounded = min(at - s.started_at, periods_funded * s.period_ms);
+            val whole = bounded / s.period_ms;
+            val part = bounded % s.period_ms;
+            val earned = s.amount_per_period * whole + s.amount_per_period * part / s.period_ms;
+            return min(s.funded, earned);
+        }
+
+        function due(s: subscription, at: timestamp): integer = accrued(s, at) - s.charged;
+
+        // Queries have no op_context, so they read the clock the same way the streaming
+        // template does. Nothing WRITES a timestamp anywhere in this module.
+        function latest_block_time(): timestamp {
+            val t = block @? {} ( @max .timestamp );
+            return if (t != null) t else 0;
+        }
+
+        operation register_account() {
+            val acct = auth.authenticate();
+            require(account @? { .owner == acct.id } == null, "already registered");
+            create account(owner = acct.id, balance = WELCOME_POINTS);
+        }
+
+        // THE AUTHORISATION, and the only operation the payer must sign. Every term is
+        // fixed here; the initial funding is the merchant's whole claim until the payer
+        // chooses to add to it.
+        operation open_subscription(merchant: byte_array, amount_per_period: integer, period_ms: integer, funding: integer) {
+            // 1. AUTHENTICATE - and it is the PAYER who signs an authorisation to pull.
+            val acct = auth.authenticate();
+            val payer = account_of(acct.id);
+            // 2. AUTHORIZE / VALIDATE - each input separately, and bounded before it is
+            //    multiplied by anything.
+            require(merchant != acct.id, "cannot subscribe to yourself");
+            require(account @? { .owner == merchant } != null, "merchant is not registered");
+            require(amount_per_period > 0 and amount_per_period <= MAX_AMOUNT, "fee out of range");
+            require(period_ms >= MIN_PERIOD_MS and period_ms <= MAX_PERIOD_MS, "period out of range");
+            require(funding > 0 and funding <= MAX_AMOUNT, "funding out of range");
+            require(payer.balance >= funding, "insufficient balance");
+            // 3. ESCROW IN THE SAME OPERATION THAT CREATES THE ROW.
+            update payer ( .balance -= funding );
+            create subscription(
+                id = book.next_id,
+                payer = acct.id,
+                merchant = merchant,
+                amount_per_period = amount_per_period,
+                period_ms = period_ms,
+                started_at = op_context.last_block_time,
+                funded = funding
+            );
+            book.next_id += 1;
+        }
+
+        // Top up the escrow. ONLY THE PAYER, and it is the only way the merchant's claim
+        // ever grows: there is no operation by which a merchant reaches anything else.
+        operation fund_subscription(subscription_id: integer, amount: integer) {
+            val acct = auth.authenticate();
+            val s = require(subscription @? { .id == subscription_id }, "no such subscription");
+            require(s.payer == acct.id, "not your subscription");
+            require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
+            require(s.funded + amount <= MAX_AMOUNT, "subscription escrow cap reached");
+            val payer = account_of(acct.id);
+            require(payer.balance >= amount, "insufficient balance");
+            update payer ( .balance -= amount );
+            update s ( .funded += amount );
+        }
+
+        // COLLECTION, permissionless like the streaming template's: anybody may call it and
+        // it can only move accrued escrow to the merchant this subscription names. What it
+        // cannot do is touch the payer's balance - that is the whole of round 13's drain.
+        operation charge(subscription_id: integer) {
+            auth.authenticate();
+            val s = require(subscription @? { .id == subscription_id }, "no such subscription");
+            val owed = due(s, op_context.last_block_time);
+            require(owed > 0, "nothing is due");
+            val merchant = account_of(s.merchant);
+            update s ( .charged += owed );
+            update merchant ( .balance += owed );
+        }
+
+        // CANCELLATION, available to both parties at every moment of the subscription's
+        // life. It PAYS BEFORE IT REFUNDS, in one operation, and then the authorisation is
+        // gone: the merchant is paid everything accrued to this block, the payer takes back
+        // the rest of the escrow, and no timestamp is written anywhere.
+        operation cancel_subscription(subscription_id: integer) {
+            val acct = auth.authenticate();
+            val s = require(subscription @? { .id == subscription_id }, "no such subscription");
+            require(s.payer == acct.id or s.merchant == acct.id, "not your subscription");
+            val owed = due(s, op_context.last_block_time);
+            val merchant = account_of(s.merchant);
+            val payer = account_of(s.payer);
+            val refund = escrow_of(s) - owed;
+            // THE ORDER IS THE GUARD: the merchant's earned fee first, the payer's
+            // unearned remainder second, both inside this operation.
+            update merchant ( .balance += owed );
+            update payer ( .balance += refund );
+            delete s;
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_balance(owner: byte_array): integer {
+            val a = account @? { .owner == owner };
+            return if (a != null) a.balance else 0;
+        }
+
+        query get_subscription(subscription_id: integer) {
+            val s = subscription @? { .id == subscription_id };
+            return if (s != null)
+                (payer = s.payer, merchant = s.merchant, amount_per_period = s.amount_per_period,
+                 period_ms = s.period_ms, started_at = s.started_at, funded = s.funded,
+                 charged = s.charged, escrow = escrow_of(s))
+            else null;
+        }
+
+        // What a merchant could collect in this block, and it is never more than the
+        // escrow: the number a payer should read before signing.
+        query outstanding(subscription_id: integer): integer {
+            val s = subscription @? { .id == subscription_id };
+            return if (s != null) due(s, latest_block_time()) else 0;
+        }
+
+        query account_count(): integer = account @* {} ( .owner ).size();
+
+        // INVARIANT: every point is in a balance or in a live subscription's escrow, and
+        // nothing is created after the one-time welcome grant.
+        query points_in_circulation(): integer {
+            var total = 0;
+            for (b in account @* {} ( .balance )) total += b;
+            for (s in subscription @* {}) total += s.funded - s.charged;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun subscriptionTestRell(): String = """
+        @test module;
+
+        // The subscription template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_round13_* functions replay adversary round 13's pull-billing drains
+        // and REQUIRE them to fail. There, an authorisation built from the
+        // `template=subscription` redirect (which answered `template=streaming`) was
+        // non-cancellable by BOTH parties and its claim was on the payer's balance rather
+        // than on an escrow, so one charge() eighty-three years later took all 9990 points
+        // she held and every point that arrived afterwards; and the fee fell due a whole
+        // period at a time, so two identical subscribers cancelling ten minutes apart
+        // across a boundary paid 1000 and 2000.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        // Nothing is created after the welcome grant: every point is in a balance or in a
+        // live subscription's escrow.
+        function assert_conserved() {
+            assert_equals(main.points_in_circulation(), main.account_count() * main.WELCOME_POINTS);
+        }
+
+        val MONTH = 30 * 24 * 60 * 60 * 1000;
+        val TEN_MINUTES = 10 * 60 * 1000;
+
+        // The happy path: a payer authorises, the merchant collects period after period,
+        // and both sides can see what is owed before it is taken.
+        function test_charge_accrues_and_never_exceeds_the_escrow() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+            assert_equals(main.get_balance(alice.account.id), 8000);
+            assert_equals(main.get_subscription(1)!!.escrow, 2000);
+
+            // NEVER IN ADVANCE: in the block it is signed, nothing has been earned.
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            after(MONTH);
+            assert_equals(main.outstanding(1), 1000);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 11000);
+            assert_equals(main.get_subscription(1)!!.escrow, 1000);
+            assert_conserved();
+
+            // The second period, and the escrow is spent exactly.
+            after(MONTH);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 12000);
+            assert_equals(main.get_subscription(1)!!.escrow, 0);
+            // ...and a third period buys the merchant NOTHING, because the payer has not
+            // funded one. This is the whole difference from round 13's build.
+            after(MONTH);
+            assert_equals(main.outstanding(1), 0);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.get_balance(alice.account.id), 8000);
+            assert_conserved();
+
+            // The payer decides to continue, and only the payer can.
+            signed_must_fail(trudy.keypair, main.fund_subscription(1, 1000), "not your subscription");
+            signed(alice.keypair, main.fund_subscription(1, 1000));
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 13000);
+            assert_equals(main.get_balance(alice.account.id), 7000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13, drain one: a non-cancellable pull authorisation is
+        // an irrevocable, uncapped, unescrowed claim on everything the payer will ever
+        // hold. Measured on a running chain: alice signed a discounted plan at 10 points a
+        // month, tried to leave in month two and was refused "this subscription is not
+        // cancellable" - and so was the merchant, so NOBODY could end it. Eighty-three
+        // years later one charge() took all 9990 points she had, she still owed 20 and
+        // counting, and every point that arrived afterwards was taken in the block it
+        // landed, because charge() is permissionless. The conservation invariant the
+        // guidance told the author to write was exact at every step.
+        //
+        // Here the merchant's whole claim is the escrow the payer funded, and the payer
+        // can always leave.
+        function test_round13_a_pull_authorisation_cannot_take_everything_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // The same discounted plan: 10 points a month, and she funds one month of it.
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 10, MONTH, 10));
+            after(MONTH);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 10010);
+            assert_equals(main.get_balance(alice.account.id), 9990);
+
+            // EIGHTY-THREE YEARS. Round 13 measured 10010 owed at this point and took
+            // every point she had; here the claim is what she escrowed and it is spent.
+            after(1000 * MONTH);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.outstanding(1), 0);
+            assert_equals(main.get_balance(alice.account.id), 9990);
+
+            // Nor can the claim reach money that arrives later: round 13 took every point
+            // that landed in her account in the block it landed.
+            val bob = register_bob();
+            signed(bob.keypair, main.register_account());
+            signed(bob.keypair, main.open_subscription(alice.account.id, 1000, MONTH, 5000));
+            after(MONTH);
+            signed(alice.keypair, main.charge(2));
+            assert_equals(main.get_balance(alice.account.id), 10990);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.get_balance(alice.account.id), 10990);
+
+            // ...and the payer can ALWAYS end it. Round 13 refused both parties for ever.
+            signed(alice.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_subscription(1), null);
+            assert_equals(main.get_balance(alice.account.id), 10990);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 13, drain two: the period boundary was a WHOLE FEE
+        // step, not the "staircase of ONE UNIT" the streaming header bounds it at. Its
+        // build billed `elapsed / period + 1` whole periods, so two identical subscribers
+        // on identical 1000-a-month terms, one cancelling in the last block before the
+        // boundary and one in the first block after it - TEN MINUTES apart in a thirty-day
+        // period - paid 1000 and 2000, and the merchant is the party who reads the
+        // boundary best. Here the fee accrues across the period, so what separates them is
+        // ten minutes of it.
+        function test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+            signed(bob.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+
+            // NEVER IN ADVANCE, and it is the same guard: round 13's whole-period accrual
+            // made a whole month fall due in the block the plan was signed.
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+
+            // alice leaves ten minutes before the boundary...
+            after(MONTH - TEN_MINUTES);
+            signed(alice.keypair, main.cancel_subscription(1));
+            // ...and bob ten minutes after it.
+            after(2 * TEN_MINUTES);
+            signed(bob.keypair, main.cancel_subscription(2));
+
+            val alice_paid = main.WELCOME_POINTS - main.get_balance(alice.account.id);
+            val bob_paid = main.WELCOME_POINTS - main.get_balance(bob.account.id);
+            // Round 13 measured 1000 and 2000 here. Neither pays more than the period they
+            // were in, and what separates them is twenty minutes of a thirty-day period -
+            // under one point of a 1000-point fee, so the step they straddled is not worth
+            // straddling.
+            assert_true(alice_paid <= 1000);
+            assert_true(bob_paid <= 1001);
+            assert_true(bob_paid - alice_paid <= 2);
+            assert_equals(main.get_balance(trudy.account.id), 10000 + alice_paid + bob_paid);
+            assert_conserved();
+        }
+
+        // TERMS, OWNERSHIP AND BOUNDS. Everything the payer signed is immutable, only the
+        // two parties may cancel, only the payer may fund, and every input is bounded.
+        function test_terms_and_ownership() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(bob.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+
+            signed_must_fail(alice.keypair, main.open_subscription(alice.account.id, 10, MONTH, 10), "cannot subscribe to yourself");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 0, MONTH, 10), "fee out of range");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 10, 1, 10), "period out of range");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 10, MONTH, 0), "funding out of range");
+            signed_must_fail(alice.keypair, main.open_subscription(trudy.account.id, 10, MONTH, 10001), "insufficient balance");
+
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 1000));
+            assert_equals(main.get_subscription(1)!!.amount_per_period, 1000);
+            assert_equals(main.get_subscription(1)!!.period_ms, MONTH);
+            val started = main.get_subscription(1)!!.started_at;
+
+            // A stranger can neither fund it, nor end it, nor be paid by it.
+            signed_must_fail(bob.keypair, main.fund_subscription(1, 1), "not your subscription");
+            signed_must_fail(bob.keypair, main.cancel_subscription(1), "not your subscription");
+            signed_must_fail(bob.keypair, main.charge(99), "no such subscription");
+
+            // Collection is permissionless and pays the merchant it names, whoever asks.
+            after(MONTH);
+            signed(bob.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 11000);
+            // The clock never moved: nothing in this module writes a timestamp.
+            assert_equals(main.get_subscription(1)!!.started_at, started);
+            assert_conserved();
+
+            // THE MERCHANT MAY CANCEL TOO - neither side can hold the other hostage.
+            signed(trudy.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_subscription(1), null);
+            assert_equals(main.get_balance(alice.account.id), 9000);
+            assert_conserved();
+        }
+
+        // CANCELLATION PAYS BEFORE IT REFUNDS. The merchant keeps what accrued up to the
+        // cancelling block and the payer takes back the rest, in one operation - and a
+        // payer who cancels mid-period cannot take back what has already been earned.
+        function test_cancellation_pays_the_merchant_first() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 2000));
+            // Half a period in, half the fee is earned and half the escrow is not.
+            after(MONTH / 2);
+            assert_equals(main.outstanding(1), 500);
+            signed(alice.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_balance(trudy.account.id), 10500);
+            assert_equals(main.get_balance(alice.account.id), 9500);
+            assert_equals(main.get_subscription(1), null);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
 
     private fun exchangeMainRell(): String = """
         module;

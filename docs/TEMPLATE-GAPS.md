@@ -24,7 +24,26 @@ agent proved nothing, because a disclaimer is not a guard.
 So a redirect is a **debt**, and this is the ledger. Ordered by what an agent is
 most likely to ask for next times how far the redirect target is from the ask.
 
-**Closed so far:** `exchange` / `order book` / `limit order` / `matching engine`.
+**Closed so far:** `subscription` / `allowance` / recurring PULL billing. That row
+was the top of this table and its answer was the drain: it sent the ask to
+`streaming`, which is PREPAID to one named beneficiary and every guard of which
+rests on the money already being escrowed. Round 13 built from that redirect,
+carried over every structural guard that CAN be carried, and was drained twice at
+HIGH: the claim was on the payer's ACCOUNT rather than on an escrow, so one
+permissionless charge() eighty-three years later took all 9990 points she held
+and every point that arrived afterwards; and streaming's `cancellable = false`,
+which there protects a vesting grant, here meant NEITHER PARTY could end it. Its
+period boundary was a whole fee rather than the one-unit staircase the streaming
+header bounds it at - two identical subscribers cancelling ten minutes either
+side of a boundary in a thirty-day period paid 1000 and 2000. The `subscription`
+template makes all three unwritable: a merchant's whole claim is the escrow the
+payer funded, the fee accrues PRO RATA so nothing is billed in advance and no
+boundary is worth straddling, and either party may ALWAYS cancel - there is no
+`cancellable` term, because a pull authorisation that cannot be revoked is a
+standing claim on a person rather than a right over a sum. Both drains ship as
+must-fail tests with mutants.
+
+`exchange` / `order book` / `limit order` / `matching engine`.
 That row was the top of this table and its answer was the drain: it said no
 template covered an order book and offered two sentences instead - the
 marketplace's immutable escrow row, and "an order that can be pulled in the block
@@ -59,13 +78,12 @@ and the redirect now names it ahead of `lending` (which claims "debt").
 
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| `subscription`, `allowance` | `streaming` | recurring PULL billing, where the payer is charged period after period | `streaming` is PREPAID to one named beneficiary and its safety rests on that: the money is already escrowed. A pull model has no escrow, so the failure is a charge that should not have happened - the opposite direction, and none of the streaming guards address it |
 | bridge / cross-chain | `ft4` (via `token`, `asset`, `transfer`) | everything - burn-proof authenticity, replay protection, destination-chain minting | **the earlier version of this row said bridge asks "fall to the `else` branch, which at least says plainly that nothing covers it". The route audit of 2026-09-03 disproved that: every realistic phrasing names a token or an asset, so "a cross-chain token bridge" is answered "Use `template=ft4`: it ships the conservation invariant tests" with no warning at all. Only the bare words reach `else`.** Highest severity if built; the ledger's own reason for deprioritising it was false |
 
 ## How to use this
 
 Take the top row that is not in flight. Build the template the way the other
-eight are built - the exploit made **unwritable**, not merely detected
+others are built - the exploit made **unwritable**, not merely detected
 (GOAL.md principle 4), every guard carrying a mutant that reddens a shipped
 must-fail test *because the attack landed*, and the shape SHIPPED rather than
 described.

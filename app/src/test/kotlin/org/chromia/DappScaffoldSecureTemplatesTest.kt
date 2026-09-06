@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -112,7 +112,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription"), DappScaffold.templates)
+        assertEquals("subscription", DappScaffold.toJson("plan", template = "subscription").getValue("template").toString().trim('"'), "the class round 13 drained must scaffold its own template")
         assertEquals("exchange", DappScaffold.toJson("book", template = "exchange").getValue("template").toString().trim('"'), "the class round 12 drained must scaffold its own template")
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
         assertEquals("stablecoin", DappScaffold.toJson("peg", template = "stablecoin").getValue("template").toString().trim('"'))
@@ -251,10 +252,37 @@ class DappScaffoldSecureTemplatesTest {
             DappScaffold.toJson("x", template = "auction").getValue("warnings").toString().contains("template=marketplace"),
             "an auction must be routed to the marketplace template, which now ships one"
         )
+        // ROUND 13. Recurring PULL billing was answered with `template=streaming` - which
+        // is PREPAID, and every guard it has rests on that - and the build that followed
+        // the redirect was drained twice at HIGH. Every name for the class routes to its
+        // own template now, and it must say what the class does to a streaming term
+        // rather than only naming a template: a redirect that names a template without
+        // its guard is the round-8 hazard again.
+        listOf("subscription", "allowance", "recurring billing", "membership", "direct debit", "saas billing").forEach { asked ->
+            val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
+            assertTrue(warning.contains("Use `template=subscription`"), "$asked must be routed to the pull-billing template: $warning")
+            assertFalse(warning.contains("Use `template=streaming`"), "$asked must NOT still be sent to the prepaid template: $warning")
+            assertTrue(
+                warning.contains("IRREVOCABLE, UNCAPPED, UNESCROWED CLAIM ON EVERYTHING THE PAYER WILL EVER HOLD"),
+                "$asked must be told what streaming's terms become when they are reversed: $warning"
+            )
+            assertTrue(
+                warning.contains("A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE PAYER FUNDED") &&
+                    warning.contains("EITHER PARTY MAY ALWAYS CANCEL"),
+                "...and what the template makes unwritable: $warning"
+            )
+        }
+        // ...and the prepaid class keeps its own template: the fix must not cost that.
+        listOf("vesting", "payroll", "payment_stream").forEach { asked ->
+            assertTrue(
+                DappScaffold.toJson("x", template = asked).getValue("warnings").toString().contains("Use `template=streaming`"),
+                "$asked is PREPAID and must still reach the streaming template"
+            )
+        }
         // Round 7's drain landed in a class with NO template at all. Every name for it
         // must now route here, and `harvest` must still reach staking - a keyword list
         // that swallows it would be a mis-route dressed as coverage.
-        listOf("stream", "payment_stream", "vesting", "payroll", "subscription", "salary_drip", "allowance").forEach { asked ->
+        listOf("stream", "payment_stream", "vesting", "payroll", "salary_drip").forEach { asked ->
             val warning = DappScaffold.toJson("x", template = asked).getValue("warnings").toString()
             assertTrue(warning.contains("Use `template=streaming`"), "$asked must be routed to the streaming template: $warning")
             assertTrue(warning.contains("NO OPERATION IN IT"), "$asked must be told what makes the round-7 grief unwritable: $warning")
@@ -447,6 +475,81 @@ class DappScaffoldSecureTemplatesTest {
         // The header COUNTS its guards. Round 12 found the stablecoin's count off by one.
         assertTrue(main.contains("Ten guards are STRUCTURAL"), "the governance header must state its guard count")
         assertEquals(10, guardCount(main), "the governance header's stated count must be the number of guards it lists")
+    }
+
+    /**
+     * THE TWELFTH TEMPLATE, and the class adversary round 13 drained twice at HIGH after
+     * this server sent it to `template=streaming`. Streaming is PREPAID to one named
+     * beneficiary and every guard it has rests on the money already being escrowed;
+     * reversed into a pull model the same terms become an irrevocable, uncapped,
+     * unescrowed claim on everything the payer will ever hold. The guards below are what
+     * makes that unwritable.
+     */
+    @Test
+    fun subscriptionGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("plan", template = "subscription").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // THE CLAIM IS THE ESCROW. Round 13's build charged `min(owed, payer.balance)`,
+        // so one permissionless charge() eighty-three years later took all 9990 points the
+        // payer held and every point that arrived afterwards. Accrual is capped at what
+        // the payer escrowed HERE, and charge() reaches no balance the payer owns.
+        assertTrue(code.contains("return min(s.funded, earned);"), "accrual must be capped at the escrow the payer funded")
+        val charge = opBody(code, "charge")
+        assertFalse(charge.contains("payer"), "charge() must not be able to name the payer at all, let alone their balance")
+        assertTrue(charge.contains("update s ( .charged += owed );") && charge.contains("update merchant ( .balance += owed );"))
+        assertEquals(
+            2,
+            Regex("\\.balance -= ").findAll(code).count(),
+            "a payer's balance may be debited only by the two operations the PAYER signs - opening it and funding it"
+        )
+        assertTrue(opBody(code, "open_subscription").contains("update payer ( .balance -= funding );"))
+        assertTrue(opBody(code, "fund_subscription").contains("require(s.payer == acct.id, \"not your subscription\");"), "only the payer may add to the escrow")
+        // NEVER IN ADVANCE, and therefore NO STEP AT THE BOUNDARY. Round 13's build billed
+        // `elapsed / period + 1` whole periods, so a whole month fell due in the block the
+        // plan was signed and two subscribers cancelling ten minutes apart paid 1000 and 2000.
+        assertTrue(
+            code.contains("val earned = s.amount_per_period * whole + s.amount_per_period * part / s.period_ms;"),
+            "the fee must accrue PRO RATA across the period"
+        )
+        assertFalse(Regex("/ s\\.period_ms \\+ 1").containsMatchIn(code), "a whole period falling due at its start is round 13's step")
+        assertTrue(code.contains("require(owed > 0, \"nothing is due\");"), "a merchant must not be paid for time that has not elapsed")
+        // ALWAYS CANCELLABLE. There is no term that can say otherwise: in a pull model an
+        // authorisation that cannot be revoked is a standing claim on a person.
+        assertFalse(code.contains("cancellable"), "a pull authorisation must not carry a cancellable term at all")
+        val cancel = opBody(code, "cancel_subscription")
+        assertTrue(cancel.contains("require(s.payer == acct.id or s.merchant == acct.id, \"not your subscription\");"), "both parties may always cancel")
+        // PAID BEFORE REFUNDED - the order is the guard, exactly as in streaming.
+        assertTrue(
+            cancel.indexOf("update merchant ( .balance += owed );") < cancel.indexOf("update payer ( .balance += refund );"),
+            "cancellation must pay the merchant what accrued BEFORE it refunds the payer"
+        )
+        assertTrue(cancel.contains("delete s;"), "cancellation ends the authorisation rather than stamping it")
+        // IMMUTABLE TERMS, ONE CLOCK WRITTEN ONCE, AND NO OPERATION WRITES A TIMESTAMP.
+        val entity = code.substringAfter("entity subscription {").substringBefore("\n}")
+        listOf("amount_per_period: integer;", "period_ms: integer;", "started_at: timestamp;").forEach {
+            assertTrue(entity.contains(it), "a subscription's terms must be immutable: $it")
+        }
+        assertEquals(2, Regex("mutable ").findAll(entity).count(), "the only mutable fields are the two monotone counters")
+        assertTrue(entity.contains("mutable funded: integer = 0;") && entity.contains("mutable charged: integer = 0;"))
+        assertEquals(1, Regex("started_at = op_context").findAll(code).count(), "the accrual clock must be written exactly once, by open_subscription")
+        assertEquals(1, Regex("create subscription\\(").findAll(code).count())
+        // Bounds, and the operation list: no operation names a party it was not authorised by.
+        assertEquals(
+            listOf("register_account", "open_subscription", "fund_subscription", "charge", "cancel_subscription"),
+            Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
+            "the template must ship exactly these operations"
+        )
+        listOf("val MAX_AMOUNT =", "val MIN_PERIOD_MS =", "val MAX_PERIOD_MS =", "val WELCOME_POINTS =").forEach {
+            assertTrue(main.contains(it), "subscription must declare $it")
+        }
+        assertTrue(code.contains("require(merchant != acct.id, \"cannot subscribe to yourself\");"))
+        // The header COUNTS its guards.
+        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the subscription header must state its guard count")
+        assertEquals(8, guardCount(main), "the subscription header's stated count must be the number of guards it lists")
+        assertTrue(
+            main.contains("A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE"),
+            "the header must admit what the escrow costs"
+        )
     }
 
     @Test
@@ -1431,14 +1534,14 @@ class DappScaffoldSecureTemplatesTest {
         // backing withdrew 99 of her own 100 tokens - her own position never leaving 150% -
         // and settled in the same block. It now clears the same floor liquidate() does,
         // at a fresh price, with no exception for a debt-free position.
-        val withdraw = opBody(code, "withdraw_collateral")
+        val withdrawBody = opBody(code, "withdraw_collateral")
         assertTrue(
-            withdraw.contains("collateral_value(system.total_collateral - amount, price) * BPS"),
+            withdrawBody.contains("collateral_value(system.total_collateral - amount, price) * BPS"),
             "a withdrawal must read the SYSTEM's backing, not only the position's ratio"
         )
-        assertTrue(withdraw.contains("\"withdrawal would take the system under its backing floor\""))
+        assertTrue(withdrawBody.contains("\"withdrawal would take the system under its backing floor\""))
         assertTrue(
-            withdraw.contains(">= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),"),
+            withdrawBody.contains(">= system.total_debt * (BPS + LIQUIDATION_BONUS_BPS),"),
             "and the floor must be the BONUS floor - round 12 measured what a 100% one costs"
         )
         assertFalse(
@@ -1815,6 +1918,18 @@ class DappScaffoldSecureTemplatesTest {
         )
     )
 
+    @Test
+    fun subscriptionShippedTestsRunGreen() = assertShippedGreen(
+        "subscription",
+        setOf(
+            "test_charge_accrues_and_never_exceeds_the_escrow",
+            "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
+            "test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail",
+            "test_terms_and_ownership",
+            "test_cancellation_pays_the_merchant_first"
+        )
+    )
+
     /** What the Rell runner reports when a run_must_fail transaction succeeds - the attack landed. */
     private val attackLanded = "did not fail"
 
@@ -2064,6 +2179,40 @@ class DappScaffoldSecureTemplatesTest {
         "retire_stake_backing(p.amount);",
         "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
         "proposal cannot be paid out of money that arrived after it"
+    )
+
+    /**
+     * ROUND 13, THE CLAIM. Take the escrow cap off the accrual and a pull authorisation is
+     * a claim that grows for ever again - the shape round 13 drained, where charge() took
+     * `min(owed, payer.balance)` and one call eighty-three years later took all 9990
+     * points the payer held. The replay requires the charge after those years to be
+     * refused "nothing is due"; without the cap it is owed a fee for time the payer never
+     * funded, so run_must_fail reports that the transaction did not fail.
+     */
+    @Test
+    fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardRemovalRedensExploitTest(
+        "subscription",
+        "    return min(s.funded, earned);",
+        "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
+        "insufficient balance"
+    )
+
+    /**
+     * ROUND 13, THE STEP. Put whole-period billing back - `elapsed / period + 1`, which is
+     * what round 13's build computed - and a whole month falls due in the block the plan
+     * is signed. The replay requires that first charge to be refused "nothing is due"
+     * (NEVER IN ADVANCE is the same guard that removes the boundary step), so the mutant
+     * makes run_must_fail report that the transaction did not fail. Nothing else changes:
+     * the escrow cap is still in place, so it cannot be what went red.
+     */
+    @Test
+    fun subscriptionR13ReplayGoesRedWithWholePeriodBilling() = assertGuardMutationRedensExploitTest(
+        "subscription",
+        "    val earned = s.amount_per_period * whole + s.amount_per_period * part / s.period_ms;",
+        "    val earned = (whole + 1) * s.amount_per_period;",
+        "test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail",
+        "no such subscription",
+        attackLanded
     )
 
     /** The approval cannot be parked either: strip the window and the expiry replay goes red. */
