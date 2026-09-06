@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -116,7 +116,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow"), DappScaffold.templates)
+        assertEquals("escrow", DappScaffold.toJson("otc", template = "escrow").getValue("template").toString().trim('"'), "the class round 15 drained must scaffold its own template")
         assertEquals("bridge", DappScaffold.toJson("wrapped", template = "bridge").getValue("template").toString().trim('"'), "the class round 14 drained must scaffold its own template")
         assertEquals("subscription", DappScaffold.toJson("plan", template = "subscription").getValue("template").toString().trim('"'), "the class round 13 drained must scaffold its own template")
         assertEquals("exchange", DappScaffold.toJson("book", template = "exchange").getValue("template").toString().trim('"'), "the class round 12 drained must scaffold its own template")
@@ -1826,6 +1827,11 @@ class DappScaffoldSecureTemplatesTest {
         // priced AT THE MARKET crosses every taker's limit and costs its author nothing,
         // and 100 such rows on five registrations took ten honest trades from 2.8s to 16.6s.
         assertTrue(main.contains("val MIN_NOTIONAL ="), "a resting order must be worth something the attacker pays for")
+        assertTrue(main.contains("val MIN_ORDER_UNITS ="), "round 15: a floor in quote units is no floor on the side that escrows base")
+        assertTrue(
+            opBody(code, "place_order").contains("require(left >= MIN_ORDER_UNITS, \"order size too small\");"),
+            "the floor must be priced in the asset EACH side escrows"
+        )
         assertTrue(
             opBody(code, "place_order").contains("require(price * left >= MIN_NOTIONAL, \"order notional too small\");"),
             "the notional floor applies to what RESTS - a taker's own small order is still a trade"
@@ -1883,68 +1889,255 @@ class DappScaffoldSecureTemplatesTest {
             burnEntity.contains("key source_chain: byte_array, source_tx: byte_array, log_index: integer;"),
             "the burn's identity must be a database key: $burnEntity"
         )
-        // THE ROW BINDS WHAT THE BURN PAYS: recipient and amount are immutable and
-        // are NOT part of the key, so an attestation that disagrees is refused
-        // rather than opening a row of its own.
-        assertEquals(1, Regex("mutable ").findAll(burnEntity).count(), "the burn row must have exactly ONE mutable field: $burnEntity")
-        assertTrue(burnEntity.contains("mutable attestations: integer = 0;"), burnEntity)
-        listOf("recipient: byte_array;", "amount: integer;").forEach {
-            assertTrue(burnEntity.contains(it), "what a burn pays must be immutable: $it")
-        }
-        assertFalse(burnEntity.contains("mutable recipient") || burnEntity.contains("mutable amount"), burnEntity)
-        assertTrue(
-            main.contains("require(opened.recipient == recipient, \"this burn was opened for a different recipient\");") &&
-                main.contains("require(opened.amount == amount, \"this burn was opened for a different amount\");"),
-            "a later attestation must have to agree with the row"
+        // THE VOTE IS ON THE TUPLE - round 15. The burn row carries NO payment of its
+        // own any more: what a burn pays is a burn_claim, keyed on the tuple, so a
+        // relayer that disagrees opens a claim of its own instead of freezing the burn
+        // by speaking first. What a claim pays is in its KEY and so cannot be rewritten.
+        assertEquals(
+            listOf("round", "round_opened_at", "paid_amount"),
+            Regex("mutable (\\w+)").findAll(burnEntity).map { it.groupValues[1] }.toList(),
+            "the burn row's mutable fields must be exactly the round, its opening and the payment: $burnEntity"
         )
+        assertFalse(
+            burnEntity.contains("recipient") || burnEntity.contains("mutable amount"),
+            "what a burn pays must live in the claim, not in the burn row: $burnEntity"
+        )
+        val claimEntity = main.substringAfter("entity burn_claim {").substringBefore("\n}")
+        assertTrue(
+            claimEntity.contains("key burn: processed_burn, recipient: byte_array, amount: integer, round: integer;"),
+            "the payment a relayer votes for must be the claim's KEY: $claimEntity"
+        )
+        assertEquals(1, Regex("mutable ").findAll(claimEntity).count(), "a claim's only mutable field is its vote count: $claimEntity")
+        assertTrue(claimEntity.contains("mutable votes: integer = 0;"), claimEntity)
         // ONE RELAYER, ONE VOICE - a key again, so the count is a count of DISTINCT
-        // relayers and nothing else.
+        // relayers and a relayer cannot vote for two tuples on one burn.
         val attestationEntity = main.substringAfter("entity attestation {").substringBefore("\n}")
-        assertTrue(attestationEntity.contains("key burn: processed_burn, witness: relayer;"), attestationEntity)
-        // THE MINT READS THE ROW, never the operation's arguments, and there is
+        assertTrue(attestationEntity.contains("key burn: processed_burn, witness: relayer, round: integer;"), attestationEntity)
+        // THE MINT READS THE CLAIM, never the operation's arguments, and there is
         // exactly one place a unit is created.
-        assertTrue(code.contains("function mint_against(burn: processed_burn)"))
-        assertTrue(code.contains("val h = holding_of(burn.recipient);") && code.contains("update h ( .balance += burn.amount );"))
-        assertEquals(1, Regex("mint_against\\(burn\\);").findAll(code).count(), "there must be exactly one call site that mints")
+        assertTrue(code.contains("function mint_against(claim: burn_claim)"))
+        assertTrue(code.contains("val h = holding_of(claim.recipient);") && code.contains("update h ( .balance += claim.amount );"))
+        assertEquals(1, Regex("mint_against\\(claim\\);").findAll(code).count(), "there must be exactly one call site that mints")
         // THE THRESHOLD IS CROSSED ONCE: equality against a counter that rises by
-        // one per distinct relayer. No minted flag to test and none to forget.
+        // one per distinct relayer, and a paid burn takes no further attestation.
         assertTrue(code.contains("if (voices == relayer_threshold()) {"), "the threshold must be crossed by equality, once")
+        assertTrue(code.contains("require(burn.paid_amount == 0, \"this burn has already been paid\");"), "a paid burn is final")
         assertFalse(Regex("mutable minted\\s*:\\s*boolean").containsMatchIn(code), "a minted flag is a check; the counter is the guard")
         assertFalse(code.contains("minted = true"), "a minted flag is a check; the counter is the guard")
-        // THE RELAYER SET IS CONFIGURATION: enrolled by the configured operator key,
-        // shut before anything is attested, and no operation names its own signer.
+        // A STALLED BURN CAN BE RE-ATTESTED - round 15's freeze is not merely outvoted,
+        // it is recoverable: a burn no tuple carried can be voted on again.
+        assertTrue(code.contains("val ATTESTATION_WINDOW_MS ="), "the attestation round must have a named window")
+        assertTrue(opBody(code, "reopen_burn_attestation").contains("update burn ( .round += 1, .round_opened_at = op_context.last_block_time );"))
+        assertTrue(opBody(code, "reopen_burn_attestation").contains("require(burn.paid_amount == 0"), "a paid burn is never reopened")
+        // NO SINGLE KEY OWNS THE RELAYER SET: the operator enrols the GENESIS set and
+        // closes it, and every later change needs the threshold of the EXISTING
+        // relayers. The operator's remaining powers can only STOP the bridge.
         assertEquals(
-            listOf("register_account", "enrol_relayer", "close_relayer_set", "attest_burn", "burn_for_exit", "transfer"),
+            listOf(
+                "register_account", "enrol_relayer", "close_relayer_set", "vote_relayer_change",
+                "pause_bridge", "resume_bridge", "attest_burn", "reopen_burn_attestation",
+                "burn_for_exit", "transfer"
+            ),
             Regex("operation\\s+(\\w+)").findAll(code).map { it.groupValues[1] }.toList(),
             "the template must ship exactly these operations"
         )
         val operatorCheck = "require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), \"the bridge operator must sign this\");"
         assertTrue(opBody(code, "enrol_relayer").contains(operatorCheck))
         assertTrue(opBody(code, "close_relayer_set").contains(operatorCheck))
-        assertTrue(opBody(code, "attest_burn").contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
+        assertTrue(opBody(code, "pause_bridge").contains(operatorCheck))
+        assertTrue(opBody(code, "resume_bridge").contains(operatorCheck))
+        // ...and the operator key appears in NO other operation, so the only thing it
+        // can do after the set is closed is stop the bridge.
+        assertEquals(
+            4,
+            Regex("bridge_operator_pubkey\\)").findAll(code).count(),
+            "the operator key may be read by exactly the four operations that enrol at genesis and pause"
+        )
+        listOf("vote_relayer_change", "attest_burn").forEach {
+            assertFalse(opBody(code, it).contains("bridge_operator_pubkey"), "$it must not be an operator power")
+        }
         assertTrue(
-            code.contains("relayer @? { .account_id == account.id },"),
+            opBody(code, "vote_relayer_change").contains("if (voices == relayer_threshold()) {"),
+            "a change to the set must need the threshold of the EXISTING relayers"
+        )
+        assertTrue(opBody(code, "vote_relayer_change").contains("val witness = witness_of(account.id);"))
+        assertFalse(
+            code.contains("delete relayer"),
+            "a retired relayer's attestations reference its row: it is deactivated, never deleted"
+        )
+        assertTrue(
+            code.contains("relayer @? { .account_id == account_id, .active == true },"),
             "the attesting relayer must be the AUTHENTICATED account looked up by its own id"
         )
+        assertTrue(opBody(code, "attest_burn").contains("val witness = witness_of(account.id);"))
+        assertTrue(code.substringAfter("function witness_of").substringBefore("\n}")
+            .contains("require(bridge_state.relayer_set_closed, \"the relayer set is not closed yet\");"))
         assertFalse(opBody(code, "attest_burn").contains("pubkey"), "no caller may name its own signer")
         assertTrue(main.contains("val MIN_RELAYER_THRESHOLD = 2;"), "a bridge whose threshold is one must be refused")
-        // CAPPED IN TOTAL AND PER PERIOD, and neither is a parameter.
+        // A ROLLING PERIOD CAP - round 15 crossed twice a FIXED window's cap in two
+        // milliseconds. The window is the last MINT_PERIOD_MS from now, and it is a
+        // bounded scan because MAX_MINTS_PER_PERIOD bounds the rows in it.
         assertTrue(main.contains("\"the bridge's total mint cap is reached\"") && main.contains("\"the bridge's mint cap for this period is reached\""))
         assertTrue(main.contains("val MINT_PERIOD_MS ="), "the period must be a named constant")
+        assertTrue(main.contains("val MAX_MINTS_PER_PERIOD ="), "the rolling window's scan must be bounded")
+        assertTrue(
+            code.contains("delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };"),
+            "the period window must roll with the block time, not be anchored on a mint"
+        )
+        assertFalse(
+            code.contains("period_started_at"),
+            "a window anchored on the mint that opened it is round 15's drain b1"
+        )
         assertFalse(Regex("operation\\s+\\w+\\s*\\([^)]*cap").containsMatchIn(main), "a cap must never be an operation parameter")
         // THE EXIT IS A RECORD, written in the operation that burns.
         assertTrue(opBody(code, "burn_for_exit").contains("create exit_record("))
         assertEquals(1, Regex("create exit_record\\(").findAll(code).count(), "an exit record must be written in exactly one place")
-        // MINTED AGAINST PROCESSED BURNS - the invariant a transfer test cannot be,
-        // which is the prose defect underneath the whole round.
+        // MINTED AGAINST ATTESTED CLAIMS - the invariant a transfer test cannot be,
+        // which is the prose defect underneath the whole round. Both sides of it must
+        // stay on opposite sides of the mint: the claims and their votes are written by
+        // the ATTESTATIONS.
         assertTrue(main.contains("query attested_burn_total(): integer"))
+        assertTrue(
+            main.substringAfter("query attested_burn_total(): integer").substringBefore("\n}")
+                .contains("for (c in burn_claim @* {})"),
+            "the invariant must sum what the RELAYERS voted for, not what the mint wrote"
+        )
         assertTrue(
             main.contains("TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT"),
             "the header must say why the invariant this server used to hand out did not help"
         )
-        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the bridge header must state its guard count")
-        assertEquals(8, guardCount(main), "the bridge header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Ten guards are STRUCTURAL"), "the bridge header must state its guard count")
+        assertEquals(10, guardCount(main), "the bridge header's stated count must be the number of guards it lists")
+        // The two prose defects round 15 found in the residual list are gone, and what
+        // replaced them is true.
+        assertFalse(
+            main.contains("or for the operator to raise the total"),
+            "round 15: there is no operation that raises the total cap, so that recovery path does not exist"
+        )
+        val yml = DappScaffold.files("wrapped", template = "bridge").getValue("chromia.yml")
+        assertFalse(
+            yml.contains("It can do nothing else"),
+            "round 15: the operator chooses the genesis set, so 'it can do nothing else' was false"
+        )
+        assertTrue(
+            yml.contains("no chain can tell two parties from one hand"),
+            "the yml must say what a threshold of enrolled accounts does and does not prove"
+        )
         assertTrue(main.contains("A THRESHOLD OF RELAYERS IS THE TRUST ROOT"), "the header must admit what no guard here can fix")
+    }
+
+    /**
+     * THE FOURTEENTH TEMPLATE. Adversary round 15 asked for "an OTC swap escrow
+     * between two parties with a timeout", was answered `template=amm` because
+     * `swap` is in that keyword list, and drained the pool-shaped build twice -
+     * both times out of the advice: the immutable-row-deleted-whole discipline
+     * re-created a partial fill's remainder with a FRESH timeout (94 of the
+     * maker's 100 units still escrowed at hour six), and only one leg was
+     * escrowed, so the window was an option she wrote for free.
+     */
+    @Test
+    fun escrowGuardsAreStructuralNotOptional() {
+        val main = DappScaffold.files("otc", template = "escrow").getValue("src/main.rell")
+        val code = withoutComments(main)
+        // TWO PARTIES, NAMED: the counterparty is a field, not a matcher.
+        val swapEntity = main.substringAfter("entity swap {").substringBefore("\n}")
+        listOf("index maker: byte_array;", "index taker: byte_array;").forEach {
+            assertTrue(swapEntity.contains(it), "a swap is between two NAMED parties: $it")
+        }
+        assertTrue(opBody(code, "settle_swap").contains("require(s.taker == account.id, \"this swap names another counterparty\");"))
+        // THE TERMS ARE WRITTEN ONCE: one mutable field, and it is the status.
+        assertEquals(
+            listOf("status"),
+            Regex("mutable (\\w+)").findAll(swapEntity).map { it.groupValues[1] }.toList(),
+            "the swap row's only mutable field is its status: \$swapEntity"
+        )
+        listOf("qty_a: integer;", "qty_b: integer;", "opened_at: timestamp;", "deadline: timestamp;").forEach {
+            assertTrue(swapEntity.contains(it), "what the parties rely on must be immutable: \$it")
+        }
+        // ALL OR NOTHING - round 15's first drain, made unwritable. There is no
+        // remainder, so there is no second row and no second clock.
+        assertTrue(code.contains("require(qty_a == s.qty_a, \"a swap settles in full or not at all\");"))
+        assertEquals(1, Regex("create swap\\(").findAll(code).count(), "a swap row is created in exactly ONE place")
+        assertTrue(opBody(code, "open_swap").contains("create swap("), "...and that place is the one that escrows the maker's leg")
+        assertFalse(code.contains("delete swap"), "an escrow row is never deleted: it is the record of what happened")
+        // NO OPERATION WRITES A TIMESTAMP: opened_at and deadline are written by
+        // open_swap and by nothing else, and neither field is mutable.
+        assertEquals(1, Regex("deadline = ").findAll(code).count(), "the deadline is written in exactly one place")
+        assertEquals(1, Regex("opened_at = ").findAll(code).count(), "the clock is written in exactly one place")
+        assertTrue(opBody(code, "open_swap").contains("deadline = op_context.last_block_time + SWAP_WINDOW_MS"))
+        assertFalse(Regex("mutable \\w+: timestamp").containsMatchIn(code), "no timestamp on this row is mutable")
+        // THE OFFER IS REVOCABLE IN ANY BLOCK - round 15's second drain. cancel_swap
+        // reads no clock at all, which is what makes the counterparty's free look
+        // worth one block instead of the whole window.
+        assertFalse(
+            opBody(code, "cancel_swap").contains("op_context.last_block_time"),
+            "a cancel that waits for a deadline is the free option round 15 measured"
+        )
+        assertTrue(opBody(code, "cancel_swap").contains("require(s.maker == account.id, \"not your swap\");"))
+        // AFTER THE DEADLINE THE LEG GOES HOME TO ITS OWNER, never to the caller.
+        assertTrue(opBody(code, "expire_swap").contains("require(op_context.last_block_time >= s.deadline, \"the swap has not expired yet\");"))
+        assertTrue(opBody(code, "expire_swap").contains("val maker = trader_of(s.maker);") &&
+            opBody(code, "expire_swap").contains("update maker ( .asset_a += s.qty_a );"))
+        assertFalse(opBody(code, "expire_swap").contains("trader_of(account.id)"), "the caller is not paid for closing a swap")
+        // ONE EXIT, ONCE: every path out checks the same status and moves it.
+        listOf("settle_swap", "cancel_swap", "expire_swap").forEach {
+            assertTrue(
+                opBody(code, it).contains("require(s.status == STATUS_OPEN, \"this swap is no longer open\");"),
+                "\$it must refuse a swap that has already ended"
+            )
+        }
+        assertEquals(1, Regex("STATUS_SETTLED \\);").findAll(code).count())
+        assertEquals(2, Regex("STATUS_RETURNED \\);").findAll(code).count())
+        // BOUNDED BY WHAT IT COSTS.
+        assertTrue(code.contains("val MAX_LIVE_SWAPS ="), "a maker's open offers must be bounded")
+        assertTrue(opBody(code, "open_swap").contains("\"too many open swaps\""))
+        // CONSERVATION ACROSS BOTH ASSETS - a swap that conserves one leg has lost
+        // the other one.
+        assertTrue(main.contains("query a_in_circulation(): integer") && main.contains("query b_in_circulation(): integer"))
+        assertTrue(
+            main.substringAfter("query a_in_circulation(): integer").substringBefore("\n}")
+                .contains("for (s in swap @* { .status == STATUS_OPEN } ( .qty_a )) total += s;"),
+            "asset A in circulation must count what is escrowed behind an OPEN swap"
+        )
+        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the escrow header must state its guard count")
+        assertEquals(9, guardCount(main), "the escrow header's stated count must be the number of guards it lists")
+        assertTrue(
+            main.contains("A DEADLINE IS AN OPTION FOR WHOEVER MAY TAKE IT"),
+            "the header must admit what no guard here can fix"
+        )
+    }
+
+    /**
+     * THE REDIRECT ROUND 15 DRAINED. `swap` alone still means the constant-product
+     * pool - that is what most people mean by it - but an OTC swap, an escrow, a
+     * p2p trade or an atomic swap is a two-party trade and must reach the template
+     * for that class. And the amm's own answer, which is where this ask used to
+     * land, has to name it.
+     */
+    @Test
+    fun anOtcSwapEscrowAskIsRoutedToItsOwnTemplate() {
+        listOf(
+            "an OTC swap escrow between two parties with a timeout",
+            "otc desk",
+            "escrow",
+            "a p2p trade with a deadline",
+            "atomic swap",
+            "a two-party swap",
+            "a swap between two parties"
+        ).forEach { ask ->
+            val note = DappScaffold.closestTemplateNote(ask)
+            assertTrue(note.contains("`template=escrow`"), "'\$ask' must be routed to the escrow template: \$note")
+        }
+        // ...and `swap` on its own still means the pool.
+        val pool = DappScaffold.closestTemplateNote("a swap pool")
+        assertTrue(pool.contains("`template=amm`"), pool)
+        assertTrue(
+            pool.contains("`template=escrow`"),
+            "the amm answer must name the two-party template, because that ask reaches it: \$pool"
+        )
+        val out = DappScaffold.toJson("otc", template = "escrow")
+        assertEquals("escrow", out.getValue("template").toString().trim('"'), "template=escrow must resolve to the escrow template")
+        assertEquals("[]", out.getValue("warnings").toString(), "escrow is a shipped template, not a redirect")
     }
 
     @Test
@@ -2136,7 +2329,8 @@ class DappScaffoldSecureTemplatesTest {
             "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
             "test_r13_a_payout_retires_the_stake_that_backed_it",
             "test_r14_the_rounding_does_not_always_fall_on_the_same_staker_must_fail",
-            "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail"
+            "test_r14_a_two_point_payout_cannot_wipe_the_smallest_stake_must_fail",
+            "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail"
         )
     )
 
@@ -2238,6 +2432,7 @@ class DappScaffoldSecureTemplatesTest {
             "test_r12_settling_the_47_00_fixture_pays_the_same_three_numbers",
             "test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail",
             "test_r13_burning_first_reaches_the_same_place",
+            "test_r15_a_par_exit_lowers_the_ratio_but_moves_no_collateral_must_fail",
             "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
             "test_r14_a_debt_free_depositor_is_not_frozen_by_someone_elses_debt_must_fail",
             "test_r14_a_failing_position_cannot_void_the_settlement_must_fail",
@@ -2256,7 +2451,8 @@ class DappScaffoldSecureTemplatesTest {
             "test_bounds_and_ownership",
             "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
             "test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail",
-            "test_r14_market_priced_dust_is_refused_must_fail"
+            "test_r14_market_priced_dust_is_refused_must_fail",
+            "test_r15_the_notional_floor_is_priced_on_both_sides_must_fail"
         )
     )
 
@@ -2276,11 +2472,26 @@ class DappScaffoldSecureTemplatesTest {
     )
 
     @Test
+    fun escrowShippedTestsRunGreen() = assertShippedGreen(
+        "escrow",
+        setOf(
+            "test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
+            "test_r15_otc2_the_window_is_not_a_free_option_must_fail",
+            "test_a_swap_settles_both_legs_or_neither_and_conserves",
+            "test_only_the_named_counterparty_settles_and_only_before_the_deadline_must_fail",
+            "test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail"
+        )
+    )
+
+    @Test
     fun bridgeShippedTestsRunGreen() = assertShippedGreen(
         "bridge",
         setOf(
             "test_round14_one_burn_cannot_be_minted_twice_must_fail",
             "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+            "test_r15_b1_no_interval_of_one_period_mints_more_than_the_cap_must_fail",
+            "test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail",
+            "test_r15_b3_no_single_key_owns_the_relayer_set_must_fail",
             "test_mint_transfer_and_exit_conserve_against_attested_burns",
             "test_the_caps_bound_what_one_bridge_can_mint_must_fail",
             "test_the_relayer_set_is_configuration_not_an_input_must_fail"
@@ -2550,6 +2761,30 @@ class DappScaffoldSecureTemplatesTest {
      * function that does not compile, and a mutant that fails to build proves nothing, so
      * each is replaced by the unbounded expression instead.
      */
+    /**
+     * ROUND 15: PLAIN LARGEST REMAINDER EMPTIES THE SMALL STAKER. Drop the survival
+     * filter on the leftover point and the odd point goes to the largest remainder
+     * outright - which at stakes of 1000 and 1 against a backing of 1001 is the
+     * ONE-POINT staker, whose exact share is 0.5005 of a point. A payout of 501
+     * then takes 100% of their holding and 50.0% of the other's, and there is no
+     * unstake. The replay goes red on the line where the emptied staker tries to
+     * propose: "only members with stake may propose" IS the attack landing here,
+     * because the attack is a staker losing their voice to a payout that left
+     * everyone else standing.
+     */
+    @Test
+    fun governanceR15ReplayGoesRedWhenTheOddPointEmptiesTheSmallStaker() = assertGuardMutationRedensExploitTest(
+        "governance",
+        "            val m = member @ { .owner == owner };
+" +
+            "            if (r > best and owed[owner] + 1 < m.stake) {",
+        "            if (r > best) {",
+        "test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail",
+        // Wrong reason: the payout refused outright, which would prove nothing.
+        "stake retirement did not balance",
+        "only members with stake may propose"
+    )
+
     @Test
     fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardMutationRedensExploitTest(
         "subscription",
@@ -2783,6 +3018,29 @@ class DappScaffoldSecureTemplatesTest {
      * refused, goes through: run_must_fail reports that the transaction did not fail. The
      * position ratio check is left standing, so it cannot be what changed.
      */
+    /**
+     * ROUND 15: WHAT A PENDING SETTLEMENT ACTUALLY GUARANTEES. The residual list
+     * said the two operations left running RAISE the system's backing; a full par
+     * exit lowers it (99.3% -> 72.0%), and the header now says so. What holds is
+     * that no collateral LEAVES while an opening is pending - so drop
+     * not_pending() from withdraw_collateral and the debtor who has just stopped
+     * backing the coin walks out with her hundred tokens inside the window, while
+     * the 72%-backed position waits for phase two. The replay's must-fail
+     * withdrawal succeeds, so the case goes red because the attack landed.
+     */
+    @Test
+    fun stablecoinR15ReplayGoesRedWhenValueCanLeaveDuringAPendingSettlement() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "    not_pending();\n" +
+            "    val account = auth.authenticate();\n" +
+            "    val me = tokens_of(account.id);",
+        "    val account = auth.authenticate();\n" +
+            "    val me = tokens_of(account.id);",
+        "test_r15_a_par_exit_lowers_the_ratio_but_moves_no_collateral_must_fail",
+        "settlement is pending",
+        attackLanded
+    )
+
     @Test
     fun stablecoinR13ReplayGoesRedWithoutTheSystemBackingFloorOnWithdrawal() = assertGuardRemovalRedensExploitTest(
         "stablecoin",
@@ -3116,6 +3374,21 @@ class DappScaffoldSecureTemplatesTest {
      * reports that the transaction did not fail. The matcher's where-clause is untouched,
      * so this is the cap and nothing else.
      */
+    /**
+     * ROUND 15: THE FLOOR WAS PRICED IN QUOTE UNITS ONLY. Remove the base-side
+     * floor and a ONE-UNIT sell at a market of MIN_NOTIONAL clears the quote floor
+     * exactly, so one free registration stands a hundred crossing rows instead of
+     * twenty. The replay's must-fail sell succeeds, so the case goes red because
+     * the attack landed.
+     */
+    @Test
+    fun exchangeR15ReplayGoesRedWithoutTheBaseSideFloor() = assertGuardRemovalRedensExploitTest(
+        "exchange",
+        "        require(left >= MIN_ORDER_UNITS, \"order size too small\");",
+        "test_r15_the_notional_floor_is_priced_on_both_sides_must_fail",
+        "order size too small"
+    )
+
     @Test
     fun exchangeR13ReplayGoesRedWithoutThePerTraderOrderCap() = assertGuardRemovalRedensExploitTest(
         "exchange",
@@ -4194,48 +4467,219 @@ class DappScaffoldSecureTemplatesTest {
     )
 
     /**
-     * REMOVE THE REGISTRY. Mint on EVERY attestation instead of when the counter
-     * equals the threshold, and drop the attestation row that makes that count a
-     * count of DISTINCT relayers - which is round 14's receiver exactly: it minted
-     * on a relayer's signature and recorded nothing. The same attestation
-     * resubmitted then mints again, so the replay's run_must_fail succeeds and the
-     * case goes red because the attack landed.
+     * ROUND 15, DRAIN 1: give the swap PARTIAL FILLS the amm's way - delete the row
+     * whole and re-create the remainder - and the remainder's deadline starts NOW,
+     * so a one-unit fill 59 minutes into a one-hour offer buys the taker another
+     * hour of the maker's asset at the maker's stale price. The replay's must-fail
+     * one-unit settle succeeds, so the case goes red because the attack landed.
      */
-    private val BRIDGE_REGISTRY_GUARD =
-        "    val voices = burn.attestations + 1;\n" +
-            "    update burn ( .attestations = voices );\n" +
+    @Test
+    fun escrowR15ReplayGoesRedWhenAPartialFillReCreatesTheOfferWithAFreshClock() = assertGuardMutationRedensExploitTest(
+        "escrow",
+        "    require(qty_a == s.qty_a, \"a swap settles in full or not at all\");\n" +
+            "    require(taker.asset_b >= s.qty_b, \"insufficient asset B\");\n" +
+            "    val maker = trader_of(s.maker);\n" +
+            "    // BOTH LEGS, IN THIS ONE OPERATION. The maker's leg has been escrowed since\n" +
+            "    // the row was written; the taker's is taken here and delivered here.\n" +
+            "    update taker ( .asset_b -= s.qty_b, .asset_a += s.qty_a );\n" +
+            "    update maker ( .asset_b += s.qty_b );\n" +
+            "    update s ( .status = STATUS_SETTLED );",
+        "    require(qty_a > 0 and qty_a <= s.qty_a, \"quantity out of range\");\n" +
+            "    val cost_b = qty_a * s.qty_b / s.qty_a;\n" +
+            "    require(taker.asset_b >= cost_b, \"insufficient asset B\");\n" +
+            "    val maker = trader_of(s.maker);\n" +
+            "    val left = s.qty_a - qty_a;\n" +
+            "    update taker ( .asset_b -= cost_b, .asset_a += qty_a );\n" +
+            "    update maker ( .asset_b += cost_b );\n" +
+            "    update s ( .status = STATUS_SETTLED );\n" +
+            "    if (left > 0) {\n" +
+            "        create swap(\n" +
+            "            id = book.next_id,\n" +
+            "            maker = s.maker,\n" +
+            "            taker = s.taker,\n" +
+            "            qty_a = left,\n" +
+            "            qty_b = s.qty_b * left / s.qty_a,\n" +
+            "            opened_at = op_context.last_block_time,\n" +
+            "            deadline = op_context.last_block_time + SWAP_WINDOW_MS\n" +
+            "        );\n" +
+            "        book.next_id += 1;\n" +
+            "    }",
+        "test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail",
+        "a swap settles in full or not at all",
+        attackLanded
+    )
+
+    /**
+     * ROUND 15, DRAIN 2: lock the maker in for the window - make cancel_swap wait
+     * for the deadline, which is the shape the amm-derived build had - and the
+     * window becomes an option the taker holds for nothing. The replay reddens on
+     * the maker's own cancel, and THAT refusal is the attack landing: she is
+     * locked, which is the drain.
+     */
+    @Test
+    fun escrowR15ReplayGoesRedWhenTheMakerIsLockedInForTheWindow() = assertGuardMutationRedensExploitTest(
+        "escrow",
+        "    require(s.maker == account.id, \"not your swap\");\n" +
+            "    require(s.status == STATUS_OPEN, \"this swap is no longer open\");\n" +
+            "    val me = trader_of(account.id);",
+        "    require(s.maker == account.id, \"not your swap\");\n" +
+            "    require(s.status == STATUS_OPEN, \"this swap is no longer open\");\n" +
+            "    require(op_context.last_block_time >= s.deadline, \"the swap has not expired yet\");\n" +
+            "    val me = trader_of(account.id);",
+        "test_r15_otc2_the_window_is_not_a_free_option_must_fail",
+        // Wrong reason: the taker's late settle still refused, which would mean the
+        // maker got out and the option never existed.
+        "this swap is no longer open",
+        "the swap has not expired yet"
+    )
+
+    /**
+     * MINT ON EVERY ATTESTATION instead of when a claim's counter equals the
+     * threshold, and drop the attestation row that makes that count a count of
+     * DISTINCT relayers and the finality check that makes a paid burn final -
+     * which is round 14's receiver exactly: it minted on a relayer's signature and
+     * recorded nothing. The same attestation resubmitted then mints again, so the
+     * replay's run_must_fail succeeds and the case goes red because the attack
+     * landed.
+     */
+    private val BRIDGE_THRESHOLD_GUARD =
+        "    val voices = claim.votes + 1;\n" +
+            "    update claim ( .votes = voices );\n" +
             "    if (voices == relayer_threshold()) {\n" +
-            "        mint_against(burn);\n" +
+            "        mint_against(claim);\n" +
             "    }"
+
+    private val BRIDGE_MINT_ON_EVERY_ATTESTATION =
+        "    val voices = claim.votes + 1;\n" +
+            "    update claim ( .votes = voices );\n" +
+            "    mint_against(claim);"
+
+    private val BRIDGE_PAID_IS_FINAL_GUARD =
+        "    require(burn.paid_amount == 0, \"this burn has already been paid\");\n" +
+            "    // 5. THE VOTE IS ON THE TUPLE. A relayer that disagrees with what is already"
 
     @Test
     fun bridgeR14ReplayGoesRedWhenEveryAttestationMints() = assertGuardMutationRedensExploitTest(
         "bridge",
-        BRIDGE_REGISTRY_GUARD,
-        "    mint_against(burn);",
+        BRIDGE_THRESHOLD_GUARD,
+        BRIDGE_MINT_ON_EVERY_ATTESTATION,
         "test_round14_one_burn_cannot_be_minted_twice_must_fail",
-        // Wrong reason: the repeat still refused by the attestation key, which
-        // names that table. Right reason is the transaction not failing at all.
-        "attestation",
+        // Wrong reason: the repeat still refused by the attestation key, which the
+        // database reports in those words. Keyed on the REFUSAL and not on the table's
+        // name, because a stack frame naming attest_burn is not a refusal.
+        "duplicate key value",
         attackLanded,
-        alsoRemove = listOf("create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);")
+        alsoRemove = listOf(
+            "    create attestation(burn = burn, witness = witness, round = burn.round, claim = claim, attested_at = now);",
+            BRIDGE_PAID_IS_FINAL_GUARD
+        )
     )
 
     /**
-     * REMOVE THE FIELD BINDING. Put what a burn PAYS into the burn's identity, so
-     * an attestation naming a different recipient or a different amount opens a row
-     * of its own instead of being refused - which is round 14's second drain, where
-     * three attestations quoting ONE source transaction paid three accounts 1000,
-     * 5000 and 250000 against one burn.
+     * The same mutant WITHOUT stripping the finality check, against round 14's
+     * second drain: three attestations quoting ONE source transaction paid three
+     * accounts 1000, 5000 and 250000. Here one relayer's voice is a CLAIM and a
+     * claim pays only at the threshold, so the replay's first must-fail - alice
+     * cannot spend what one voice named her - succeeds under the mutant.
      */
     @Test
     fun bridgeR14ReplayGoesRedWhenAnAttestationIsNotHeldToTheBurnItOpened() = assertGuardMutationRedensExploitTest(
         "bridge",
-        "        require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
-            "        require(opened.amount == amount, \"this burn was opened for a different amount\");",
-        "",
+        BRIDGE_THRESHOLD_GUARD,
+        BRIDGE_MINT_ON_EVERY_ATTESTATION,
         "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+        "insufficient balance",
+        attackLanded
+    )
+
+    /**
+     * ROUND 15, DRAIN 1: put the FIXED window back - anchored on the mint that
+     * opened it, with the two counters it needs on bridge_state - and twice the
+     * cap crosses in two milliseconds again. The replay's must-fail at T0+DAY+2
+     * succeeds, so the case goes red because the attack landed.
+     */
+    @Test
+    fun bridgeR15ReplayGoesRedWithAPeriodWindowAnchoredOnTheOpeningMint() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };\n" +
+            "    var in_window = 0;\n" +
+            "    var rows = 0;\n" +
+            "    for (m in mint_event @* {} ( .amount )) {\n" +
+            "        in_window += m;\n" +
+            "        rows += 1;\n" +
+            "    }\n" +
+            "    require(rows < MAX_MINTS_PER_PERIOD, \"too many mints in this period\");",
+        "    if (now - bridge_state.period_started_at >= MINT_PERIOD_MS) {\n" +
+            "        bridge_state.period_started_at = now;\n" +
+            "        bridge_state.minted_this_period = 0;\n" +
+            "    }\n" +
+            "    val in_window = bridge_state.minted_this_period;",
+        "test_r15_b1_no_interval_of_one_period_mints_more_than_the_cap_must_fail",
+        "the bridge's mint cap for this period is reached",
+        attackLanded,
+        alsoReplace = listOf(
+            "    mutable next_exit_id: integer = 1;" to
+                "    mutable next_exit_id: integer = 1;\n" +
+                "    mutable period_started_at: integer = 0;\n" +
+                "    mutable minted_this_period: integer = 0;",
+            "    bridge_state.minted_total += claim.amount;" to
+                "    bridge_state.minted_total += claim.amount;\n" +
+                "    bridge_state.minted_this_period += claim.amount;"
+        )
+    )
+
+    /**
+     * ROUND 15, DRAIN 2: put FIRST-ATTESTATION-BINDS back. The claim is looked up
+     * by the burn alone, so the first relayer to speak writes what the burn pays
+     * and every later one must agree with it or be refused - which is how one
+     * relayer out of three, below a threshold of two, froze a 100000 burn for the
+     * life of the chain. The replay's honest majority is refused, and THAT
+     * refusal is the attack landing: the freeze is back.
+     */
+    @Test
+    fun bridgeR15FreezeReplayGoesRedWhenTheFirstAttestationBindsThePayment() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    val opened = burn_claim @? {\n" +
+            "        .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round\n" +
+            "    };",
+        "    val opened = burn_claim @? { .burn == burn, .round == burn.round };",
+        "test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail",
+        // Wrong reason: the mutant paying anyway and the burn coming back final.
+        "this burn has already been paid",
         "this burn was opened for a different recipient",
+        alsoReplace = listOf(
+            "    val claim = burn_claim @ {\n" +
+                "        .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round\n" +
+                "    };" to
+                "    if (opened != null) {\n" +
+                "        require(opened.recipient == recipient, \"this burn was opened for a different recipient\");\n" +
+                "        require(opened.amount == amount, \"this burn was opened for a different amount\");\n" +
+                "    }\n" +
+                "    val claim = burn_claim @ { .burn == burn, .round == burn.round };"
+        )
+    )
+
+    /**
+     * ROUND 15, DRAIN 3: let ONE relayer change the set - a single vote applies the
+     * change instead of the threshold of the existing relayers. The candidate the
+     * one key nominated is enrolled at once and attests, so the replay's must-fail
+     * succeeds and the case goes red because the attack landed. (The genesis set is
+     * still the operator's; what this guard buys is that no single key can change
+     * it afterwards, which is what the header and the yml now say.)
+     */
+    @Test
+    fun bridgeR15ReplayGoesRedWhenOneKeyCanChangeTheRelayerSet() = assertGuardMutationRedensExploitTest(
+        "bridge",
+        "    create relayer_change_vote(change = change, witness = witness, voted_at = now);\n" +
+            "    val voices = change.votes + 1;\n" +
+            "    update change ( .votes = voices );\n" +
+            "    if (voices == relayer_threshold()) {",
+        "    create relayer_change_vote(change = change, witness = witness, voted_at = now);\n" +
+            "    val voices = change.votes + 1;\n" +
+            "    update change ( .votes = voices );\n" +
+            "    if (voices >= 1) {",
+        "test_r15_b3_no_single_key_owns_the_relayer_set_must_fail",
+        "a burn attestation must be signed by an enrolled relayer",
         attackLanded
     )
 }

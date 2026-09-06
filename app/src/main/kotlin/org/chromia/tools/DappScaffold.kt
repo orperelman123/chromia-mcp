@@ -173,7 +173,7 @@ object DappScaffold {
     fun chromiaYmlFor(name: String): String = chromiaYml(normalizeName(name))
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow")
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -239,6 +239,11 @@ object DappScaffold {
                 "src/main.rell" to bridgeMainRell(),
                 "src/test/main_test.rell" to bridgeTestRell()
             )
+            "escrow" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to escrowMainRell(),
+                "src/test/main_test.rell" to escrowTestRell()
+            )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
                 "src/main.rell" to mainRell(),
@@ -265,7 +270,7 @@ object DappScaffold {
         )
 
     const val BRIDGE_TEST_THRESHOLD = 2
-    const val BRIDGE_TEST_TOTAL_CAP = 150000
+    const val BRIDGE_TEST_TOTAL_CAP = 250000
     const val BRIDGE_TEST_PERIOD_CAP = 100000
 
     /**
@@ -280,16 +285,31 @@ object DappScaffold {
             append("      # REQUIRED before `chr build` / deploy - the bridge's own configuration.\n")
             append("      # Deliberately NOT set here so the chain cannot be built with a placeholder,\n")
             append("      # and every line is a decision no default can make for you:\n")
-            append("      #   bridge_operator_pubkey - the key that enrols the relayer set and closes\n")
-            append("      #     it. It can do nothing else, and once close_relayer_set() is signed the\n")
-            append("      #     set is fixed for the life of the chain.\n")
-            append("      #   relayer_threshold - how many DISTINCT relayers must attest one burn\n")
-            append("      #     before it mints. At least two: a bridge whose threshold is one is a\n")
-            append("      #     bridge with one key, and this module refuses that.\n")
+            append("      #   bridge_operator_pubkey - the key that enrols the GENESIS relayer set\n")
+            append("      #     and closes it. Once close_relayer_set() is signed it can no longer add\n")
+            append("      #     or remove a relayer - every later change needs relayer_threshold() of\n")
+            append("      #     the EXISTING relayers to vote for it - and the one power it keeps can\n")
+            append("      #     only STOP the bridge: pause_bridge / resume_bridge, which mint nothing\n")
+            append("      #     and move nothing. An operator that pauses and never resumes leaves\n")
+            append("      #     every attested burn unpayable; that is the price of a stop button.\n")
+            append("      #   relayer_threshold - how many DISTINCT relayers must vote for one PAYMENT\n")
+            append("      #     before it mints, and how many must agree to any later change to the\n")
+            append("      #     set. At least two, because this module refuses one. But two is a count\n")
+            append("      #     of ENROLLED ACCOUNTS and no chain can tell two parties from one hand\n")
+            append("      #     with two keys: adversary round 15 minted this bridge's whole total cap\n")
+            append("      #     through a set the operator had enrolled itself. PUBLISH the genesis\n")
+            append("      #     set and who holds each key, check it against the chain configuration\n")
+            append("      #     before you trust the bridge, and size the caps below to what you can\n")
+            append("      #     afford to lose if that publication was a lie.\n")
             append("      #   total_mint_cap / period_mint_cap - what the source chain's locked supply\n")
-            append("      #     bounds, and the most that may cross in one MINT_PERIOD_MS. Size the\n")
-            append("      #     period cap to what you can afford to lose to a hostile relayer\n")
-            append("      #     majority in one period, not to what the source chain holds.\n")
+            append("      #     bounds, and the most that may cross in ANY MINT_PERIOD_MS-long interval,\n")
+            append("      #     wherever it starts: the period cap is a ROLLING window, because round 15\n")
+            append("      #     took twice a fixed window's cap across its boundary in two milliseconds.\n")
+            append("      #     Size the period cap to what you can afford to lose to a hostile relayer\n")
+            append("      #     majority in one period, not to what the source chain holds. Neither cap\n")
+            append("      #     is raised by any operation: a bridge that has reached its total cap\n")
+            append("      #     needs a configuration change, and there is no recovery path inside the\n")
+            append("      #     module.\n")
             append("      # main:\n")
             append("      #   bridge_operator_pubkey: x\"<your bridge operator public key>\"\n")
             append("      #   relayer_threshold: 3\n")
@@ -339,9 +359,27 @@ object DappScaffold {
         // TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT. A bridge's
         // invariant has to compare what was minted against something that was NOT
         // written by the mint, and the only such thing this chain can hold is the
-        // attested burn record - so that is what it compares against here.
+        // relayers' own votes - so that is what it compares against here.
         //
-        // Eight guards are STRUCTURAL - they live in the entities and their keys, not
+        // ROUND 15 ATTACKED THIS TEMPLATE AND TOOK THREE MORE, all of them at the
+        // boundaries of the guards round 14 had just written. Each is closed below and
+        // each ships as a must-fail test with a mutant:
+        //   - THE PERIOD CAP WAS A FIXED WINDOW ANCHORED ON THE MINT THAT OPENED IT, so
+        //     TWICE the cap crossed in TWO MILLISECONDS: one unit at T0+1 anchored the
+        //     window, 99999 at T0+DAY filled it, and 100000 at T0+DAY+2 filled a fresh
+        //     one - 200000 units against a period cap of 100000, between block time
+        //     T0+DAY and block time T0+DAY+2.
+        //   - ONE RELAYER FROZE A BURN FOR EVER. The FIRST attestation opened the row
+        //     and BOUND the payment, so a single relayer out of three, below a
+        //     threshold of two, spoke first, named itself, and both honest relayers
+        //     were refused - a day later, a year later. Alice's 100000 locked on the
+        //     source chain were unreachable for the life of the chain. The old header
+        //     presented that refusal as the safety property; it was how the set agreed
+        //     on the FIRST SPEAKER's payment.
+        //   - THE OPERATOR KEY WAS THE BRIDGE. It enrolled every relayer, so one key
+        //     minted 1000000 - the whole total cap - against ten fabricated source
+        //     transactions, with minted_total == attested_burn_total at every step.
+        // Ten guards are STRUCTURAL - they live in the entities and their keys, not
         // in a require() a later operation can forget:
         //   ONE BURN, ONE ROW - the processed-burns registry is keyed by the burn's
         //     identity on the source chain and by nothing else: (source_chain,
@@ -349,60 +387,100 @@ object DappScaffold {
         //     refused by the DATABASE and there is no check to omit. The log index is
         //     part of it because one transaction can carry several burns and they are
         //     different burns.
-        //   THE ROW BINDS WHAT THE BURN PAYS - recipient and amount are written ONCE,
-        //     by the attestation that opens the row, and neither is mutable. The mint
-        //     reads the ROW, never the operation's arguments, so nothing in a later
-        //     attestation can be substituted; one that disagrees with what is already
-        //     recorded is refused rather than counted, which is how a relayer set
-        //     agrees on a burn rather than on a payment.
-        //   ONE RELAYER, ONE VOICE - an attestation row is keyed (burn, witness), so a
-        //     relayer counts once per burn however many times it signs. A `key` again,
-        //     and not a check: the second attestation from the same relayer aborts.
-        //   THE THRESHOLD IS CROSSED ONCE - the counter rises by exactly one per
+        //   THE VOTE IS ON THE TUPLE - a relayer does not attest to a burn, it attests
+        //     to a PAYMENT: the tuple (burn, recipient, amount) is a burn_claim row, and
+        //     the claim that reaches the threshold is the one that pays. Round 15's
+        //     freeze is unwritable here rather than detectable: a relayer that names a
+        //     recipient nobody else names opens a claim of its own that never reaches
+        //     the threshold, and the honest majority pays the tuple THEY name without
+        //     ever having to agree with the first speaker. What a burn pays is still
+        //     immutable - the claim's recipient and amount are in its KEY - and the
+        //     mint still reads the ROW rather than the operation's arguments.
+        //   ONE RELAYER, ONE VOICE - an attestation row is keyed (burn, witness,
+        //     round), so a relayer counts once per burn however many times it signs AND
+        //     cannot vote for two different tuples on the same burn. A `key` again, and
+        //     not a check: the second attestation from the same relayer aborts.
+        //   THE THRESHOLD IS CROSSED ONCE - a claim's counter rises by exactly one per
         //     DISTINCT relayer, so it EQUALS the threshold in exactly one transaction,
-        //     ever, and that is the transaction that mints. There is no minted flag to
+        //     ever, and that is the transaction that mints. Once a burn is paid no
+        //     further attestation on it is accepted at all. There is no minted flag to
         //     test and none to forget.
-        //   THE RELAYER SET IS CONFIGURATION - relayers are enrolled by the configured
-        //     bridge operator key, and the set is CLOSED before any burn may be
-        //     attested; after that nothing adds, removes or replaces one. A relayer is
-        //     the AUTHENTICATED account looked up by its own id, so no operation takes
-        //     a signer as an argument and nobody can name their own (probe N5).
-        //   CAPPED IN TOTAL AND PER PERIOD - a receiver can only ever owe what the
-        //     source chain locked, so a mint is bounded twice, against a total cap and
-        //     against a per-period cap, both configuration. A relayer majority that
-        //     turns hostile is then a bounded and visible loss rather than the supply.
+        //   A STALLED BURN CAN BE RE-ATTESTED - if the relayers disagree and NO tuple
+        //     reaches the threshold, any relayer may reopen the burn's attestation
+        //     ROUND once ATTESTATION_WINDOW_MS has passed, and they vote again. Nothing
+        //     is deleted and no timestamp is rewritten except the round's own opening;
+        //     the old votes stay as the record of who said what. A burn that cannot be
+        //     paid is a burn that can be tried again, which is what makes the freeze
+        //     impossible rather than merely visible.
+        //   NO SINGLE KEY OWNS THE RELAYER SET - the operator enrols the GENESIS set
+        //     and closes it, and after that it can neither add nor remove a relayer:
+        //     every later change is voted through by relayer_threshold() of the
+        //     EXISTING relayers (vote_relayer_change), keyed one vote per relayer per
+        //     proposal. The operator key keeps exactly one power afterwards, and it can
+        //     only ever stop the bridge: pause_bridge / resume_bridge, which mint
+        //     nothing and move nothing.
+        //   A ROLLING PERIOD CAP - the per-period cap holds over EVERY
+        //     MINT_PERIOD_MS-long interval, wherever it starts, not over a window
+        //     anchored on the mint that opened it. Each mint is a row, rows older than
+        //     the window are dropped as they age out, and what is minted in the window
+        //     is the sum of the rows still in it. THE COST, stated because a defence's
+        //     price belongs in this list: a mint reads and sums the mints of the last
+        //     period, so the cap is bounded twice - by the amount and by
+        //     MAX_MINTS_PER_PERIOD rows, which is what keeps that sum a bounded scan
+        //     and not an unbounded one. A period that fills stalls until the oldest
+        //     mint in it ages out.
+        //   CAPPED IN TOTAL - a receiver can only ever owe what the source chain
+        //     locked, so a mint is bounded against a total cap as well, and that one is
+        //     never refreshed by waiting. A relayer majority that turns hostile is then
+        //     a bounded and visible loss rather than the supply.
         //   THE EXIT IS A RECORD - burn_for_exit destroys the wrapped units AND writes
         //     an exit_record in the same operation, so a holder can never burn without
         //     leaving the evidence the source chain releases against.
-        //   MINTED AGAINST PROCESSED BURNS - the conservation invariant compares what
-        //     this chain minted against the burns it ACCEPTED, and what circulates
-        //     against minted minus burned. That is the invariant a bridge needs and a
-        //     transfer-conservation test is not it.
+        //   MINTED AGAINST ATTESTED CLAIMS - the conservation invariant compares what
+        //     this chain minted against the claims the RELAYERS carried to the
+        //     threshold, and what circulates against minted minus burned. Nothing the
+        //     mint writes appears on the other side of that comparison. That is the
+        //     invariant a bridge needs and a transfer-conservation test is not it.
         // What no template can fix, and this header will not pretend otherwise:
-        //   - A THRESHOLD OF RELAYERS IS THE TRUST ROOT. Enough of them, colluding,
-        //     mint whatever they like up to the caps, and the caps are the only thing
-        //     that bounds it. Choose a threshold and a set that make collusion
-        //     expensive, and size the period cap to what you can afford to lose in one
-        //     period rather than to what the source chain holds.
+        //   - A THRESHOLD OF RELAYERS IS THE TRUST ROOT, AND THE GENESIS SET IS THE
+        //     OPERATOR'S. Enough relayers, colluding, mint whatever they like up to the
+        //     caps, and the caps are the only thing that bounds it. The threshold this
+        //     module enforces is a count of DISTINCT ENROLLED ACCOUNTS, and no chain
+        //     can tell whether those accounts are held by three parties or by one hand
+        //     with three keys - round 15 minted the whole total cap through a set the
+        //     operator had enrolled itself, and nothing on this side could see it. What
+        //     the module gives you is that the genesis set is FIXED AND PUBLIC before
+        //     any burn is attested and can never afterwards be changed by one key.
+        //     Publish the genesis set and who holds each key, verify it against the
+        //     chain's configuration before you trust the bridge, and size the caps to
+        //     what you can afford to lose if that publication was a lie.
         //   - THIS CHAIN CANNOT VERIFY THE SOURCE CHAIN. Nothing here reads the other
         //     ledger; what it has is a signed claim about it. If both sides are
         //     Chromia, replace the relayer set with ICCF proof verification and keep
-        //     everything else - the registry key, the row that binds the payout, the
+        //     everything else - the registry key, the claim that binds the payout, the
         //     caps and the invariant are the same either way.
-        //   - A CAP THAT IS REACHED STALLS THE BRIDGE. The attestation that would
-        //     cross a cap is REFUSED, so the burn waits for the next period or for the
-        //     operator to raise the total. That is deliberate - a bridge that keeps
-        //     minting past its cap has no cap - but it means a burn may not land in
-        //     the block it was attested in, and whoever runs the bridge has to say so.
+        //   - A CAP THAT IS REACHED STALLS THE BRIDGE. The attestation that would cross
+        //     a cap is REFUSED, so the burn waits: for the period cap, until enough of
+        //     the last period's mints have aged out of the rolling window; for the
+        //     TOTAL cap, for ever, because no operation in this module raises it. Both
+        //     caps are module args, so raising one is a configuration change to the
+        //     chain and not a transaction anybody can send. That is deliberate - a
+        //     bridge that keeps minting past its cap has no cap - but it means a burn
+        //     may not land in the block it was attested in, and whoever runs the bridge
+        //     has to say so.
+        //   - THE OPERATOR CAN STOP THE BRIDGE. pause_bridge takes nothing and pays
+        //     nobody, but an operator that pauses and never resumes leaves every
+        //     attested burn unpayable. That is the price of keeping a stop button at
+        //     all; if you do not want it, drop both operations and the paused flag.
         //   - THE EXIT IS ONLY A RECORD. Burning here releases nothing on the source
         //     chain; a relayer reading exit_record does. What this side guarantees is
         //     that the record exists exactly once per burned unit and that nobody can
         //     write one without burning.
 
-        // Configuration. Every one of these is a decision no default can make: who may
-        // enrol the relayer set, how many of them must agree, and how much this bridge
-        // may ever mint. They are module args so that none of them is an argument a
-        // caller supplies.
+        // Configuration. Every one of these is a decision no default can make: who
+        // enrols the GENESIS relayer set, how many of them must agree, and how much this
+        // bridge may ever mint. They are module args so that none of them is an argument
+        // a caller supplies.
         struct module_args {
             bridge_operator_pubkey: pubkey;
             relayer_threshold: integer;
@@ -410,8 +488,8 @@ object DappScaffold {
             period_mint_cap: integer;
         }
 
-        // The wrapped token. Every unit in existence was minted against a burn in the
-        // registry below.
+        // The wrapped token. Every unit in existence was minted against a claim that
+        // reached the relayer threshold.
         entity holding {
             key owner: byte_array;
             mutable balance: integer = 0;
@@ -423,23 +501,63 @@ object DappScaffold {
         entity relayer {
             key account_id: byte_array;
             enrolled_at: timestamp;
+            // A retired relayer is NOT deleted: its attestations and its votes reference
+            // this row and are the record of what it said. It counts for nothing from the
+            // block this is cleared in, and re-enrolling it is another threshold vote.
+            mutable active: boolean = true;
         }
 
         // THE PROCESSED-BURNS REGISTRY. The key IS the burn's identity on the source
-        // chain, so one burn has one row for the life of this chain, and the row
-        // carries what that burn pays.
+        // chain, so one burn has one row for the life of this chain. The row itself
+        // carries NO payment: what a burn pays is decided by the relayers' votes below,
+        // and `paid_amount` is written once, by the mint, and is what makes a paid burn
+        // final.
         entity processed_burn {
             key source_chain: byte_array, source_tx: byte_array, log_index: integer;
-            recipient: byte_array;
-            amount: integer;
             opened_at: timestamp;
-            mutable attestations: integer = 0;
+            mutable round: integer = 1;
+            mutable round_opened_at: timestamp = 0;
+            mutable paid_amount: integer = 0;
         }
 
-        // One relayer's voice on one burn. Keyed, so it cannot be repeated.
+        // ONE PAYMENT A RELAYER SET COULD AGREE ON: the tuple (burn, recipient, amount).
+        // Several may exist for one burn - relayers that disagree open different claims -
+        // and the one that reaches the threshold is the one that pays. recipient and
+        // amount are in the KEY, so what a claim pays can never be rewritten.
+        entity burn_claim {
+            key burn: processed_burn, recipient: byte_array, amount: integer, round: integer;
+            opened_at: timestamp;
+            mutable votes: integer = 0;
+        }
+
+        // One relayer's voice on one burn, in one round. Keyed, so it cannot be repeated
+        // and cannot be split across two claims.
         entity attestation {
-            key burn: processed_burn, witness: relayer;
+            key burn: processed_burn, witness: relayer, round: integer;
+            claim: burn_claim;
             attested_at: timestamp;
+        }
+
+        // ONE MINT, inside the rolling period window. Rows age out of the window and are
+        // dropped as they do, so the window's total is a bounded sum.
+        entity mint_event {
+            index burn: processed_burn;
+            amount: integer;
+            minted_at: timestamp;
+        }
+
+        // A proposed change to the relayer set, voted by the EXISTING relayers. The epoch
+        // is in the key so that a change the set declined can be proposed again after the
+        // set has moved on.
+        entity relayer_change {
+            key candidate: byte_array, add: boolean, epoch: integer;
+            proposed_at: timestamp;
+            mutable votes: integer = 0;
+        }
+
+        entity relayer_change_vote {
+            key change: relayer_change, witness: relayer;
+            voted_at: timestamp;
         }
 
         // What the source chain releases against.
@@ -453,11 +571,11 @@ object DappScaffold {
         object bridge_state {
             mutable relayer_count: integer = 0;
             mutable relayer_set_closed: boolean = false;
+            mutable set_epoch: integer = 1;
+            mutable paused: boolean = false;
             mutable minted_total: integer = 0;
             mutable burned_total: integer = 0;
             mutable next_exit_id: integer = 1;
-            mutable period_started_at: integer = 0;
-            mutable minted_this_period: integer = 0;
         }
 
         val MAX_AMOUNT = 1000000000;
@@ -471,6 +589,14 @@ object DappScaffold {
         // The window the per-period cap is measured over. A constant, never a
         // parameter: a caller who chooses the period chooses the cap.
         val MINT_PERIOD_MS = 24 * 60 * 60 * 1000;
+        // The most mints one rolling window may hold, so summing it is a bounded scan.
+        // A period that reaches this stalls exactly as a period that reaches the cap
+        // does, and for the same reason.
+        val MAX_MINTS_PER_PERIOD = 64;
+        // How long an attestation round stands before any relayer may reopen it. This is
+        // the answer to round 15's freeze: a burn the set could not agree on is tried
+        // again rather than lost.
+        val ATTESTATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this.
@@ -503,24 +629,48 @@ object DappScaffold {
         function holding_of(owner: byte_array): holding =
             require(holding @? { .owner == owner }, "register an account first");
 
+        // The AUTHENTICATED account, looked up as a relayer by its own id. No operation
+        // takes a signer as an argument, so nobody can present their own (probe N5).
+        function witness_of(account_id: byte_array): relayer {
+            require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
+            return require(
+                relayer @? { .account_id == account_id, .active == true },
+                "a burn attestation must be signed by an enrolled relayer"
+            );
+        }
+
         // The caps, applied to the one place units are created.
-        function mint_against(burn: processed_burn) {
-            if (op_context.last_block_time - bridge_state.period_started_at >= MINT_PERIOD_MS) {
-                bridge_state.period_started_at = op_context.last_block_time;
-                bridge_state.minted_this_period = 0;
+        function mint_against(claim: burn_claim) {
+            require(not bridge_state.paused, "the bridge is paused");
+            val burn = claim.burn;
+            val now = op_context.last_block_time;
+            // A ROLLING WINDOW. Round 15 crossed TWICE the cap in two milliseconds
+            // against the fixed window this used to be: it was anchored on the mint that
+            // opened it, so 99999 at the end of one window and 100000 at the start of the
+            // next were two windows and one boundary. Here the window is the last
+            // MINT_PERIOD_MS from NOW, wherever that falls: mints older than that are
+            // dropped as they age out, and what is left is what the cap applies to.
+            delete mint_event @* { .minted_at <= now - MINT_PERIOD_MS };
+            var in_window = 0;
+            var rows = 0;
+            for (m in mint_event @* {} ( .amount )) {
+                in_window += m;
+                rows += 1;
             }
+            require(rows < MAX_MINTS_PER_PERIOD, "too many mints in this period");
             require(
-                bridge_state.minted_total + burn.amount <= total_mint_cap(),
+                bridge_state.minted_total + claim.amount <= total_mint_cap(),
                 "the bridge's total mint cap is reached"
             );
             require(
-                bridge_state.minted_this_period + burn.amount <= period_mint_cap(),
+                in_window + claim.amount <= period_mint_cap(),
                 "the bridge's mint cap for this period is reached"
             );
-            val h = holding_of(burn.recipient);
-            update h ( .balance += burn.amount );
-            bridge_state.minted_total += burn.amount;
-            bridge_state.minted_this_period += burn.amount;
+            val h = holding_of(claim.recipient);
+            update h ( .balance += claim.amount );
+            bridge_state.minted_total += claim.amount;
+            update burn ( .paid_amount = claim.amount );
+            create mint_event(burn = burn, amount = claim.amount, minted_at = now);
         }
 
         operation register_account() {
@@ -529,19 +679,21 @@ object DappScaffold {
             create holding(owner = account.id, balance = 0);
         }
 
-        // Enrol one relayer. The operator may do this until the set is closed and never
-        // afterwards, so the trust root of the bridge is fixed before the first burn is
-        // attested; the account id is the KEY, so nobody is enrolled twice.
+        // Enrol one relayer into the GENESIS set. The operator may do this until the set
+        // is closed and NEVER afterwards, so the trust root of the bridge is fixed before
+        // the first burn is attested; the account id is the KEY, so nobody is enrolled
+        // twice. After close_relayer_set the set changes only by a vote of the relayers
+        // themselves.
         operation enrol_relayer(candidate: byte_array) {
             require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is closed");
             require(candidate.size() == 32, "a relayer must be a 32-byte account id");
             require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
-            create relayer(account_id = candidate, enrolled_at = op_context.last_block_time);
+            create relayer(account_id = candidate, enrolled_at = op_context.last_block_time, active = true);
             bridge_state.relayer_count += 1;
         }
 
-        // Shut the set. One way, and nothing re-opens it.
+        // Shut the genesis set. One way, and nothing re-opens it.
         operation close_relayer_set() {
             require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
             require(not bridge_state.relayer_set_closed, "the relayer set is already closed");
@@ -552,12 +704,72 @@ object DappScaffold {
             bridge_state.relayer_set_closed = true;
         }
 
+        // CHANGE THE SET, BY A VOTE OF THE SET. Round 15 minted the whole total cap
+        // through relayers the operator had enrolled itself; the genesis set is still the
+        // operator's - no chain can tell three parties from one hand with three keys -
+        // but from the moment it is closed, no single key can widen it or narrow it.
+        // relayer_threshold() distinct EXISTING relayers must agree, one vote each.
+        operation vote_relayer_change(candidate: byte_array, add: boolean) {
+            val account = auth.authenticate();
+            val witness = witness_of(account.id);
+            require(candidate.size() == 32, "a relayer must be a 32-byte account id");
+            val enrolled = relayer @? { .account_id == candidate, .active == true };
+            if (add) {
+                require(enrolled == null, "that account is already a relayer");
+                require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
+            } else {
+                require(enrolled != null, "that account is not a relayer");
+                require(
+                    bridge_state.relayer_count - 1 >= relayer_threshold(),
+                    "the set cannot fall below the threshold"
+                );
+            }
+            val now = op_context.last_block_time;
+            val epoch = bridge_state.set_epoch;
+            val opened = relayer_change @? { .candidate == candidate, .add == add, .epoch == epoch };
+            if (opened == null) {
+                create relayer_change(candidate = candidate, add = add, epoch = epoch, proposed_at = now, votes = 0);
+            }
+            val change = relayer_change @ { .candidate == candidate, .add == add, .epoch == epoch };
+            create relayer_change_vote(change = change, witness = witness, voted_at = now);
+            val voices = change.votes + 1;
+            update change ( .votes = voices );
+            if (voices == relayer_threshold()) {
+                if (add) {
+                    val retired = relayer @? { .account_id == candidate };
+                    if (retired == null) {
+                        create relayer(account_id = candidate, enrolled_at = now, active = true);
+                    } else {
+                        update retired ( .active = true );
+                    }
+                    bridge_state.relayer_count += 1;
+                } else {
+                    update relayer @ { .account_id == candidate } ( .active = false );
+                    bridge_state.relayer_count -= 1;
+                }
+                bridge_state.set_epoch += 1;
+            }
+        }
+
+        // THE OPERATOR'S ONLY REMAINING POWER, and it can only ever STOP the bridge.
+        operation pause_bridge() {
+            require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
+            require(not bridge_state.paused, "the bridge is already paused");
+            bridge_state.paused = true;
+        }
+
+        operation resume_bridge() {
+            require(op_context.is_signer(chain_context.args.bridge_operator_pubkey), "the bridge operator must sign this");
+            require(bridge_state.paused, "the bridge is not paused");
+            bridge_state.paused = false;
+        }
+
         // THE ATTESTATION. A relayer signs a transaction whose operation arguments ARE
         // the burn record - the chain, the transaction and log index that identify the
         // burn, and the recipient and amount it pays - and the platform verifies that
-        // signature over exactly those fields. The first attestation OPENS the burn's
-        // one row; every later one must agree with it or be refused; and the one that
-        // makes the count equal the threshold is the one that mints.
+        // signature over exactly those fields. Its vote goes to the TUPLE it named, the
+        // claim that reaches the threshold is the one that pays, and the transaction that
+        // takes a claim to the threshold is the one that mints.
         operation attest_burn(
             chain_rid: byte_array,
             tx_rid: byte_array,
@@ -567,15 +779,9 @@ object DappScaffold {
         ) {
             // 1. AUTHENTICATE
             val account = auth.authenticate();
-            // 2. AUTHORIZE - an enrolled relayer, out of a set that can no longer
-            //    change. WHICH relayer is the AUTHENTICATED account looked up by its own
-            //    id: no operation takes a signer as an argument, so nobody can present
-            //    their own (audit probe N5).
-            require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
-            val witness = require(
-                relayer @? { .account_id == account.id },
-                "a burn attestation must be signed by an enrolled relayer"
-            );
+            // 2. AUTHORIZE - an enrolled relayer, out of a set that no single key can
+            //    change any more.
+            val witness = witness_of(account.id);
             // 3. VALIDATE - each input separately, and bounded before it is added to
             //    anything.
             require(chain_rid.size() == 32, "source chain rid must be 32 bytes");
@@ -584,34 +790,77 @@ object DappScaffold {
             require(recipient.size() == 32, "recipient must be a 32-byte account id");
             require(amount > 0 and amount <= MAX_AMOUNT, "amount out of range");
             require(holding @? { .owner == recipient } != null, "recipient is not registered");
-            // 4. THE REGISTRY. One row per burn, and the row binds what it pays.
-            val opened = processed_burn @? {
+            val now = op_context.last_block_time;
+            // 4. THE REGISTRY. One row per burn, keyed by the burn's identity and
+            //    carrying no payment of its own.
+            val existing = processed_burn @? {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            if (opened == null) {
+            if (existing == null) {
                 create processed_burn(
                     source_chain = chain_rid,
                     source_tx = tx_rid,
                     log_index = log_idx,
-                    recipient = recipient,
-                    amount = amount,
-                    opened_at = op_context.last_block_time
+                    opened_at = now,
+                    round = 1,
+                    round_opened_at = now,
+                    paid_amount = 0
                 );
-            } else {
-                require(opened.recipient == recipient, "this burn was opened for a different recipient");
-                require(opened.amount == amount, "this burn was opened for a different amount");
             }
             val burn = processed_burn @ {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            // 5. ONE RELAYER, ONE VOICE - the key refuses a repeat, so the count below
-            //    is a count of DISTINCT relayers and nothing else.
-            create attestation(burn = burn, witness = witness, attested_at = op_context.last_block_time);
-            val voices = burn.attestations + 1;
-            update burn ( .attestations = voices );
-            if (voices == relayer_threshold()) {
-                mint_against(burn);
+            require(burn.paid_amount == 0, "this burn has already been paid");
+            // 5. THE VOTE IS ON THE TUPLE. A relayer that disagrees with what is already
+            //    recorded opens a CLAIM OF ITS OWN rather than being refused: round 15
+            //    froze a burn for ever by speaking first and naming itself, and the
+            //    honest majority had no way to say anything else. recipient and amount
+            //    are in this row's KEY, so a claim still cannot be rewritten.
+            val opened = burn_claim @? {
+                .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round
+            };
+            if (opened == null) {
+                create burn_claim(
+                    burn = burn,
+                    recipient = recipient,
+                    amount = amount,
+                    round = burn.round,
+                    opened_at = now,
+                    votes = 0
+                );
             }
+            val claim = burn_claim @ {
+                .burn == burn, .recipient == recipient, .amount == amount, .round == burn.round
+            };
+            // 6. ONE RELAYER, ONE VOICE - the key refuses a repeat AND a second tuple, so
+            //    the count below is a count of DISTINCT relayers and nothing else.
+            create attestation(burn = burn, witness = witness, round = burn.round, claim = claim, attested_at = now);
+            val voices = claim.votes + 1;
+            update claim ( .votes = voices );
+            if (voices == relayer_threshold()) {
+                mint_against(claim);
+            }
+        }
+
+        // NOBODY IS STUCK WITH A BURN THE SET COULD NOT AGREE ON. If no tuple reached the
+        // threshold within ATTESTATION_WINDOW_MS, any relayer may open a fresh round and
+        // the set votes again. The old votes stay where they are; nothing is deleted and
+        // no payment is written by this.
+        operation reopen_burn_attestation(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer) {
+            val account = auth.authenticate();
+            witness_of(account.id);
+            val burn = require(
+                processed_burn @? {
+                    .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+                },
+                "no such burn"
+            );
+            require(burn.paid_amount == 0, "this burn has already been paid");
+            require(
+                op_context.last_block_time - burn.round_opened_at >= ATTESTATION_WINDOW_MS,
+                "the attestation round is still open"
+            );
+            update burn ( .round += 1, .round_opened_at = op_context.last_block_time );
         }
 
         // Leave. The wrapped units are destroyed here and the record is what the source
@@ -658,13 +907,48 @@ object DappScaffold {
 
         query relayer_set_is_closed(): boolean = bridge_state.relayer_set_closed;
 
+        query bridge_is_paused(): boolean = bridge_state.paused;
+
+        query is_relayer(account_id: byte_array): boolean =
+            relayer @? { .account_id == account_id, .active == true } != null;
+
         query holder_count(): integer = holding @* {} ( .owner ).size();
 
+        // How many relayers have spoken on this burn in the round it is in now.
         query burn_attestations(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer): integer {
             val b = processed_burn @? {
                 .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
             };
-            return if (b != null) b.attestations else 0;
+            if (b == null) return 0;
+            return (attestation @* { .burn == b, .round == b.round } ( .attested_at )).size();
+        }
+
+        // How many relayers have voted for one exact PAYMENT on this burn, in this round.
+        query claim_votes(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer, recipient: byte_array, amount: integer): integer {
+            val b = processed_burn @? {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            if (b == null) return 0;
+            val c = burn_claim @? { .burn == b, .recipient == recipient, .amount == amount, .round == b.round };
+            return if (c != null) c.votes else 0;
+        }
+
+        query burn_round(chain_rid: byte_array, tx_rid: byte_array, log_idx: integer): integer {
+            val b = processed_burn @? {
+                .source_chain == chain_rid, .source_tx == tx_rid, .log_index == log_idx
+            };
+            return if (b != null) b.round else 0;
+        }
+
+        // What has been minted inside the rolling window ending at `now` - the sum the
+        // period cap is applied to, readable so that a relayer can see why a mint is
+        // waiting. A query has no op_context, so the caller passes the block time it is
+        // asking about.
+        query minted_in_window(now: integer): integer {
+            var total = 0;
+            val floor = now - MINT_PERIOD_MS;
+            for (m in mint_event @* { .minted_at > floor } ( .amount )) total += m;
+            return total;
         }
 
         // INVARIANT 1: every wrapped unit that exists was minted and has not been
@@ -676,15 +960,15 @@ object DappScaffold {
         }
 
         // INVARIANT 2, AND THE ONE A BRIDGE ACTUALLY NEEDS: what this chain minted
-        // against what it ACCEPTED as burned elsewhere. Nothing the mint writes appears
-        // on this side of the comparison - the registry rows are written by the
-        // attestations, so a mint that no burn backs shows up here and a
-        // transfer-conservation test cannot see it at all.
+        // against what the RELAYERS carried to the threshold. Nothing the mint writes
+        // appears on this side of the comparison - claims and their vote counts are
+        // written by the attestations - so a mint that no relayer set voted for shows up
+        // here, and a transfer-conservation test cannot see it at all.
         query attested_burn_total(): integer {
             var total = 0;
             val threshold = relayer_threshold();
-            for (b in processed_burn @* {}) {
-                if (b.attestations >= threshold) total += b.amount;
+            for (c in burn_claim @* {}) {
+                if (c.votes >= threshold) total += c.amount;
             }
             return total;
         }
@@ -704,12 +988,18 @@ object DappScaffold {
         // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
         // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
         //
-        // The two test_r14_* functions replay adversary round 14's bridge drains and
+        // The two test_round14_* functions replay adversary round 14's bridge drains and
         // REQUIRE them to fail. There, nothing recorded which burns had been paid, so
         // one burn of 1000 minted 10000 in ten identical transactions; and nothing tied
         // the recipient and amount to the source transaction, so three attestations
-        // quoting one burn paid three accounts 1000, 5000 and 250000. Here the burn's
-        // identity is a database key and the row it opens is what the mint reads.
+        // quoting one burn paid three accounts 1000, 5000 and 250000.
+        //
+        // The three test_r15_* functions replay adversary round 15, which attacked this
+        // template at the boundaries of round 14's own guards: twice the period cap
+        // crossed in two milliseconds against a window anchored on the mint that opened
+        // it; one relayer below the threshold froze a burn for ever by speaking first;
+        // and the operator key, which enrolled every relayer, minted the whole total cap
+        // on its own.
 
         import main;
         import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, register_account_open, ft_auth_operation_for };
@@ -756,8 +1046,9 @@ object DappScaffold {
         // open and free; being ENROLLED is what makes an account a relayer.
         function relayer_id(i: integer): byte_array = register_account_open(relayer_keypair(i)).account.id;
 
-        // enrol_relayer and close_relayer_set authenticate on the CONFIGURED operator
-        // key rather than through FT4, so these carry no auth descriptor operation.
+        // enrol_relayer, close_relayer_set and the two pause operations authenticate on
+        // the CONFIGURED operator key rather than through FT4, so these carry no auth
+        // descriptor operation.
         function unauthed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
             rell.test.tx().op(op).nop().sign(keypair).run_must_fail(expected);
         }
@@ -788,10 +1079,18 @@ object DappScaffold {
             rell.test.block().run();
         }
 
+        // Round 15 measured the period boundary with ABSOLUTE block times, so every
+        // number in that replay is exact rather than relative to whatever the harness
+        // had reached.
+        function at(t: integer) {
+            rell.test.set_next_block_time(t);
+        }
+
         val DAY = 24 * 60 * 60 * 1000;
+        val T0 = 1900000000000;
 
         // Three relayers, threshold two: enough that a third honest voice can be shown
-        // to mint nothing.
+        // to mint nothing, and enough that one dissenter can be outvoted.
         function open_the_bridge() {
             var i = 1;
             while (i <= 3) {
@@ -805,15 +1104,19 @@ object DappScaffold {
             signed(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount));
         }
 
+        function attest_must_fail(i: integer, tag: integer, recipient: byte_array, amount: integer, expected: text) {
+            signed_must_fail(relayer_keypair(i), main.attest_burn(source_chain(), burn_tx(tag), 0, recipient, amount), expected);
+        }
+
         function mint_burn(tag: integer, recipient: byte_array, amount: integer) {
             attest(1, tag, recipient, amount);
             attest(2, tag, recipient, amount);
         }
 
         // THE INVARIANT A BRIDGE NEEDS, and the one round 14's build did not have: what
-        // was MINTED against what was ACCEPTED as burned elsewhere. A
-        // transfer-conservation test compares balances against a counter the minting
-        // operation raises itself and is structurally blind to a mint.
+        // was MINTED against what the RELAYERS voted for. A transfer-conservation test
+        // compares balances against a counter the minting operation raises itself and is
+        // structurally blind to a mint.
         function assert_conserved() {
             assert_equals(main.minted_total(), main.attested_burn_total());
             assert_equals(main.units_in_circulation(), main.minted_total() - main.burned_total());
@@ -824,14 +1127,15 @@ object DappScaffold {
         // ten times minted 10000 wrapped units against 1000 burned on the source chain,
         // because nothing on this chain recorded which burns had already been paid.
         // Here the burn's identity - (source chain, source tx, log index) - is a
-        // database KEY, one relayer's voice on it is another, and the counter equals
-        // the threshold in exactly one transaction, so the burn pays once.
+        // database KEY, one relayer's voice on it is another, the counter equals the
+        // threshold in exactly one transaction, and a paid burn accepts nothing more.
         function test_round14_one_burn_cannot_be_minted_twice_must_fail() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
             open_the_bridge();
 
-            // Two of the three relayers attest, and the second crosses the threshold.
+            // Two of the three relayers vote for the same payment, and the second
+            // crosses the threshold.
             attest(1, 1, alice.account.id, 1000);
             attest(2, 1, alice.account.id, 1000);
 
@@ -846,10 +1150,10 @@ object DappScaffold {
             assert_equals(main.get_balance(alice.account.id), 1000);
             assert_equals(main.minted_total(), 1000);
 
-            // And a THIRD honest relayer's attestation is welcome and mints nothing:
-            // the counter passes the threshold once and only once.
-            attest(3, 1, alice.account.id, 1000);
-            assert_equals(main.burn_attestations(source_chain(), burn_tx(1), 0), 3);
+            // And a THIRD relayer arriving late mints nothing either: the burn is paid,
+            // and a paid burn takes no more attestations at all.
+            attest_must_fail(3, 1, alice.account.id, 1000, "this burn has already been paid");
+            assert_equals(main.burn_attestations(source_chain(), burn_tx(1), 0), 2);
             assert_equals(main.get_balance(alice.account.id), 1000);
             assert_equals(main.minted_total(), 1000);
             assert_conserved();
@@ -859,8 +1163,8 @@ object DappScaffold {
         // The attestation carried a recipient and an amount and NOTHING tied them to
         // the source transaction, so three attestations quoting one burn paid three
         // accounts 1000, 5000 and 250000 - 256000 wrapped units against one burn. Here
-        // the first attestation opens the burn's row with what it pays, and the mint
-        // reads the ROW.
+        // an attestation is a VOTE for one tuple, and a tuple pays only at the
+        // threshold.
         function test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
@@ -870,26 +1174,164 @@ object DappScaffold {
             signed(trudy.keypair, main.register_account());
             open_the_bridge();
 
-            // The burn is opened for alice, for a thousand.
+            // ONE relayer speaks. That is a claim, not a payment - and this line is
+            // where a mutant that mints on every attestation reddens, because alice can
+            // then spend what one voice minted her.
             attest(1, 2, alice.account.id, 1000);
+            signed_must_fail(alice.keypair, main.burn_for_exit(1), "insufficient balance");
 
-            // THE ATTACK: the same source transaction, a different beneficiary and a
-            // different amount. Every one of them is refused, and refused BEFORE it can
-            // be counted towards the threshold.
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000),
-                "this burn was opened for a different recipient");
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, trudy.account.id, 250000),
-                "this burn was opened for a different recipient");
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 5000),
-                "this burn was opened for a different amount");
+            // THE ATTACK: the same source transaction, quoted by two more relayers for
+            // two more beneficiaries and two more amounts. Each opens a claim of its
+            // own, none of the three reaches the threshold, and the burn pays nobody.
+            attest(2, 2, bob.account.id, 5000);
+            attest(3, 2, trudy.account.id, 250000);
             assert_equals(main.minted_total(), 0);
+            signed_must_fail(bob.keypair, main.burn_for_exit(1), "insufficient balance");
+            signed_must_fail(trudy.keypair, main.burn_for_exit(1), "insufficient balance");
+            assert_equals(main.claim_votes(source_chain(), burn_tx(2), 0, alice.account.id, 1000), 1);
+            assert_equals(main.claim_votes(source_chain(), burn_tx(2), 0, trudy.account.id, 250000), 1);
 
-            // The only thing that can be completed is the burn as it was opened.
+            // ...and no relayer gets a second voice on the same burn, for its own tuple
+            // or for anyone else's.
+            signed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, bob.account.id, 5000));
+            signed_must_fail_any(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(2), 0, alice.account.id, 1000));
+
+            // The set disagreed, so nobody is stuck with it: after the attestation
+            // window any relayer opens a fresh round, and the tuple TWO of them name is
+            // the one that pays.
+            after(main.ATTESTATION_WINDOW_MS);
+            signed(relayer_keypair(3), main.reopen_burn_attestation(source_chain(), burn_tx(2), 0));
+            assert_equals(main.burn_round(source_chain(), burn_tx(2), 0), 2);
+            attest(1, 2, alice.account.id, 1000);
             attest(2, 2, alice.account.id, 1000);
             assert_equals(main.get_balance(alice.account.id), 1000);
             assert_equals(main.get_balance(bob.account.id), 0);
             assert_equals(main.get_balance(trudy.account.id), 0);
             assert_equals(main.minted_total(), 1000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain one: the per-period cap was a FIXED window
+        // anchored on the mint that opened it, so TWICE the cap crossed in TWO
+        // MILLISECONDS - one unit at T0+1 anchored the window, 99999 at T0+DAY filled
+        // it, and 100000 at T0+DAY+2 filled a fresh one. Here the window is the last
+        // MINT_PERIOD_MS from now, wherever that falls, so no interval of one period
+        // mints more than the cap however it is straddled.
+        function test_r15_b1_no_interval_of_one_period_mints_more_than_the_cap_must_fail() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_account());
+            open_the_bridge();
+
+            // The mint that ANCHORED round 15's window: one unit, at T0+1.
+            at(T0);      attest(1, 1, alice.account.id, 1);
+            at(T0 + 1);  attest(2, 1, alice.account.id, 1);
+            assert_equals(main.minted_total(), 1);
+
+            // The LAST millisecond of that window: fill it to the cap. (A mint is
+            // stamped with op_context.last_block_time, which is the block BEFORE the one
+            // its transaction lands in, so the windows below are read from the stamps
+            // rather than from the transaction's own block.)
+            at(T0 + DAY - 1);  attest(1, 2, alice.account.id, 99999);
+            at(T0 + DAY);      attest(2, 2, alice.account.id, 99999);
+            assert_equals(main.minted_total(), 100000);
+
+            // THE ATTACK, two milliseconds later: round 15 got a fresh cap here and took
+            // 200000 - exactly twice the cap - between block time T0+DAY and block time
+            // T0+DAY+2. The rolling window still holds 99999 of the last period, so the
+            // 100000 is refused.
+            at(T0 + DAY + 1);  attest(1, 3, alice.account.id, 100000);
+            at(T0 + DAY + 2);
+            attest_must_fail(2, 3, alice.account.id, 100000, "the bridge's mint cap for this period is reached");
+            assert_equals(main.minted_total(), 100000);
+            assert_equals(main.get_balance(alice.account.id), 100000);
+            // ...because the period the third mint would have joined already holds
+            // 99999 of the second, whatever the boundary between them is called.
+            assert_equals(main.minted_in_window(T0 + DAY + 2), 99999);
+
+            // The burn is not lost: it lands once the 99999 has aged out of the window,
+            // which is the cost the header states.
+            at(T0 + 2 * DAY);
+            rell.test.block().run();
+            at(T0 + 2 * DAY + 1);
+            attest(2, 3, alice.account.id, 100000);
+            assert_equals(main.minted_total(), 200000);
+            assert_equals(main.get_balance(alice.account.id), 200000);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain two: the FIRST attestation opened the
+        // burn's row and BOUND the payment, so ONE relayer out of three, below a
+        // threshold of two, spoke first, named itself, and both honest relayers were
+        // refused - a day later, a year later. Alice's 100000 on the source chain were
+        // unreachable for the life of the chain. Here a relayer votes for a TUPLE: the
+        // dissenter's claim is its own and never reaches the threshold.
+        function test_r15_b2_one_relayer_cannot_freeze_a_burn_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+
+            // Alice burned 100000 on the source chain, in burn_tx(9), log index 0.
+            // THE ATTACK: relayer 3 - ONE of three, threshold two - speaks first and
+            // names itself.
+            attest(3, 9, trudy.account.id, 1);
+            assert_equals(main.claim_votes(source_chain(), burn_tx(9), 0, trudy.account.id, 1), 1);
+
+            // The honest majority is not bound by it. They attest the truth, their
+            // tuple reaches the threshold, and it is the one that pays.
+            attest(1, 9, alice.account.id, 100000);
+            attest(2, 9, alice.account.id, 100000);
+            assert_equals(main.get_balance(alice.account.id), 100000);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_equals(main.minted_total(), 100000);
+
+            // The dissenter's claim never pays, and the paid burn takes nothing more.
+            assert_equals(main.claim_votes(source_chain(), burn_tx(9), 0, trudy.account.id, 1), 1);
+            attest_must_fail(3, 9, alice.account.id, 100000, "this burn has already been paid");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain three: the operator enrolled every relayer,
+        // so ONE key minted the whole total cap against ten fabricated source
+        // transactions. The genesis set is still the operator's - no chain can tell
+        // three parties from one hand with three keys, and the header says so - but from
+        // the moment it is CLOSED no single key can change it, and the operator's only
+        // remaining power stops the bridge rather than moving anything.
+        function test_r15_b3_no_single_key_owns_the_relayer_set_must_fail() {
+            val trudy = register_trudy();
+            signed(trudy.keypair, main.register_account());
+            open_the_bridge();
+            val outsider = relayer_id(9);
+            assert_equals(main.relayer_count(), 3);
+
+            // The operator cannot widen the set once it is closed...
+            by_operator_must_fail(main.enrol_relayer(outsider), "the relayer set is closed");
+            // ...and neither can ONE relayer, however often it signs.
+            signed(relayer_keypair(1), main.vote_relayer_change(outsider, true));
+            // THE LINE THE MUTANT REDDENS: one vote is not the set, so the candidate is
+            // not a relayer and cannot attest.
+            attest_must_fail(9, 11, trudy.account.id, 100000, "a burn attestation must be signed by an enrolled relayer");
+            assert_false(main.is_relayer(outsider));
+            assert_equals(main.relayer_count(), 3);
+            signed_must_fail_any(relayer_keypair(1), main.vote_relayer_change(outsider, true));
+            assert_equals(main.relayer_count(), 3);
+
+            // THE THRESHOLD OF THE EXISTING SET is what changes it, and nothing else.
+            signed(relayer_keypair(2), main.vote_relayer_change(outsider, true));
+            assert_true(main.is_relayer(outsider));
+            assert_equals(main.relayer_count(), 4);
+
+            // The operator's one remaining power stops the bridge and moves nothing:
+            // while it is paused, a claim that reaches the threshold mints zero.
+            by_operator(main.pause_bridge());
+            attest(1, 12, trudy.account.id, 100000);
+            attest_must_fail(2, 12, trudy.account.id, 100000, "the bridge is paused");
+            assert_equals(main.minted_total(), 0);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            by_operator(main.resume_bridge());
+            attest(2, 12, trudy.account.id, 100000);
+            assert_equals(main.get_balance(trudy.account.id), 100000);
             assert_conserved();
         }
 
@@ -933,7 +1375,8 @@ object DappScaffold {
 
         // EXPLOIT MUST FAIL. A receiver can only ever owe what the source chain locked,
         // so the mint is bounded twice - and the cost of a cap is that a burn waits,
-        // which is what the header's third residual says out loud.
+        // which is what the header's residuals say out loud. The TOTAL cap is not a
+        // rolling one: waiting never refreshes it, because no operation raises it.
         function test_the_caps_bound_what_one_bridge_can_mint_must_fail() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
@@ -943,38 +1386,44 @@ object DappScaffold {
             mint_burn(5, alice.account.id, 100000);
             assert_equals(main.minted_total(), 100000);
 
-            // The next burn is attested but cannot be paid until the period turns.
+            // The next burn is attested but cannot be paid until the window turns.
             attest(1, 6, alice.account.id, 40000);
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(6), 0, alice.account.id, 40000),
-                "the bridge's mint cap for this period is reached");
+            attest_must_fail(2, 6, alice.account.id, 40000, "the bridge's mint cap for this period is reached");
             assert_equals(main.minted_total(), 100000);
             after(DAY);
             attest(2, 6, alice.account.id, 40000);
             assert_equals(main.minted_total(), 140000);
             assert_conserved();
 
-            // The TOTAL cap is not a per-period one: waiting does not help.
-            attest(1, 7, alice.account.id, 20000);
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
-                "the bridge's total mint cap is reached");
+            // Another period, another 100000 - and now the TOTAL cap of 250000 is what
+            // stands in the way, at 240000 minted.
             after(DAY);
-            signed_must_fail(relayer_keypair(2), main.attest_burn(source_chain(), burn_tx(7), 0, alice.account.id, 20000),
-                "the bridge's total mint cap is reached");
-            assert_equals(main.minted_total(), 140000);
-            assert_equals(main.get_balance(alice.account.id), 140000);
+            mint_burn(7, alice.account.id, 100000);
+            assert_equals(main.minted_total(), 240000);
+            attest(1, 8, alice.account.id, 20000);
+            attest_must_fail(2, 8, alice.account.id, 20000, "the bridge's total mint cap is reached");
+            after(DAY);
+            attest_must_fail(2, 8, alice.account.id, 20000, "the bridge's total mint cap is reached");
+            assert_equals(main.minted_total(), 240000);
+
+            // What still fits, fits: the total cap bounds the sum and nothing else.
+            mint_burn(9, alice.account.id, 10000);
+            assert_equals(main.minted_total(), 250000);
+            assert_equals(main.get_balance(alice.account.id), 250000);
             assert_conserved();
         }
 
-        // EXPLOIT MUST FAIL. The relayer set is CONFIGURATION: enrolled by the
+        // EXPLOIT MUST FAIL. The genesis relayer set is CONFIGURATION: enrolled by the
         // configured operator key, shut before anything may be attested, and never
-        // touched again. And one relayer is not a threshold however often it signs.
+        // touched by that key again. And one relayer is not a threshold however often
+        // it signs.
         function test_the_relayer_set_is_configuration_not_an_input_must_fail() {
             val alice = register_alice();
             val trudy = register_trudy();
             signed(alice.keypair, main.register_account());
             signed(trudy.keypair, main.register_account());
             // Registering an account is open and free. Being ENROLLED is what makes one
-            // a relayer, and only the operator can do that.
+            // a relayer, and only the operator can do that, and only at genesis.
             val first = relayer_id(1);
             val second = relayer_id(2);
             val outsider = relayer_id(9);
@@ -982,6 +1431,7 @@ object DappScaffold {
             unauthed_must_fail(relayer_keypair(1), main.enrol_relayer(first),
                 "the bridge operator must sign this");
             unauthed_must_fail(trudy.keypair, main.close_relayer_set(), "the bridge operator must sign this");
+            unauthed_must_fail(trudy.keypair, main.pause_bridge(), "the bridge operator must sign this");
             // ...and the operator cannot close a set that could never reach its own
             // threshold.
             by_operator_must_fail(main.close_relayer_set(), "fewer relayers than the threshold requires");
@@ -989,15 +1439,13 @@ object DappScaffold {
             // Nothing may be attested while the set can still change.
             by_operator(main.enrol_relayer(first));
             by_operator(main.enrol_relayer(second));
-            signed_must_fail(relayer_keypair(1), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
-                "the relayer set is not closed yet");
+            attest_must_fail(1, 8, alice.account.id, 10, "the relayer set is not closed yet");
             by_operator(main.close_relayer_set());
             assert_true(main.relayer_set_is_closed());
             assert_equals(main.relayer_count(), 2);
 
             // An account nobody enrolled is not a relayer, however it signs...
-            signed_must_fail(relayer_keypair(9), main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
-                "a burn attestation must be signed by an enrolled relayer");
+            attest_must_fail(9, 8, alice.account.id, 10, "a burn attestation must be signed by an enrolled relayer");
             // ...and neither is an ordinary holder of the wrapped token.
             signed_must_fail(trudy.keypair, main.attest_burn(source_chain(), burn_tx(8), 0, alice.account.id, 10),
                 "a burn attestation must be signed by an enrolled relayer");
@@ -1015,7 +1463,7 @@ object DappScaffold {
             assert_equals(main.minted_total(), 0);
             assert_equals(main.burn_attestations(source_chain(), burn_tx(8), 0), 1);
 
-            // The set is shut for good: the operator cannot widen it now, and the
+            // The set is shut to the operator for good: it cannot widen it now, and the
             // second relayer is the one that pays the burn.
             by_operator_must_fail(main.enrol_relayer(outsider), "the relayer set is closed");
             by_operator_must_fail(main.close_relayer_set(), "the relayer set is already closed");
@@ -1170,6 +1618,32 @@ object DappScaffold {
             because it compares balances against a counter the minting operation raises
             itself - it was exact at every step of round 14's 10x mint. A bridge's invariant
             compares what was MINTED against the burns it ACCEPTED.
+            Building an OTC SWAP, an ESCROW between two named parties, a peer-to-peer trade
+            or any two-party exchange with a timeout: start from template=escrow. NOT
+            template=amm, which is where this ask used to go because `swap` is in that
+            keyword list: adversary round 15 asked for "an OTC swap escrow between two
+            parties with a timeout", was answered with a CONSTANT-PRODUCT POOL in the full
+            confident prose of a covered class, and drained the build twice - both times
+            out of the advice rather than a forgotten check. The amm's discipline is an
+            IMMUTABLE POSITION ROW DELETED WHOLE, so a partly filled offer re-created its
+            remainder as a NEW ROW whose timeout started NOW: a taker who bought ONE unit
+            every 59 minutes held a one-hour offer open for ever, and six hours in 94 of
+            the maker's 100 units were still escrowed with her reclaim refused every time,
+            after which he took the lot at the price she had quoted six hours earlier. And
+            only ONE LEG was escrowed, so the window was an option the maker wrote for
+            nothing: the taker held his own asset throughout and decided at the end of it.
+            The template makes both unwritable. A swap SETTLES IN FULL OR NOT AT ALL, so
+            there is no remainder to re-create and no second clock; the terms and the
+            deadline are IMMUTABLE fields written once by the operation that escrows the
+            maker's leg, and no operation writes a timestamp; the offer is REVOCABLE IN ANY
+            BLOCK, so the counterparty's free look is worth one block rather than the whole
+            window; after the deadline EITHER party may close it and the escrowed leg goes
+            back to whoever escrowed it, never to the caller; and the conservation queries
+            cover BOTH assets, because a swap that conserves one of them has lost the
+            other. Both drains ship as must-fail tests with mutants, and the cost of the
+            revocable offer is stated in the header rather than hidden: a taker cannot rely
+            on an offer still standing when their transaction lands, and a firm offer that
+            cannot be withdrawn is an option you must charge a premium for.
             Building an NFT marketplace, a listing/auction board, or anything with a buy button and
             creator royalties: start from template=marketplace (a buy names the EXACT price it agreed
             to and the listing row is immutable, so the round-5 max_price sandwich - seller reprices
@@ -1562,6 +2036,39 @@ object DappScaffold {
                     "offers, AND a timed ascending auction with no mutable bid field (the standing " +
                     "bid is its own immutable escrow row), plus the encumbrance helper every " +
                     "token-moving path consults."
+            // AHEAD OF THE AMM BRANCH, which is what this ask used to get: "swap" is
+            // in that keyword list, so "an OTC swap escrow between two parties with a
+            // timeout" was answered with a CONSTANT-PRODUCT POOL, in the full confident
+            // prose of a covered class. Adversary round 15 built exactly that and
+            // drained it twice. `swap` ALONE still means the pool - that is what most
+            // people mean by it - but a swap that names two parties, an escrow, an OTC
+            // trade or a timeout is this class and not that one.
+            has("escrow", "otc", "atomic swap", "atomic_swap", "p2p trade", "p2p_trade",
+                "peer to peer trade", "peer-to-peer trade", "swap between two parties",
+                "two party swap", "two-party swap", "counterparty swap", "swap with a timeout") ->
+                "Use `template=escrow`: a TWO-PARTY OTC SWAP with a deadline, and it is the " +
+                    "FOURTEENTH template because adversary round 15 asked this server for exactly " +
+                    "this and was answered `template=amm` - a constant-product pool - since `swap` " +
+                    "is in the amm keyword list and neither `escrow` nor `otc` was anywhere in " +
+                    "this map. The build that followed that answer carried every guard the answer " +
+                    "names and drained twice, both times out of the ADVICE rather than a forgotten " +
+                    "check. THE TIMEOUT WAS THE TAKER'S TO RESET: the amm's own discipline is an " +
+                    "immutable position row DELETED WHOLE, so a partly filled offer re-created its " +
+                    "remainder as a NEW ROW whose timeout started NOW - a taker who bought ONE " +
+                    "unit every 59 minutes held a one-hour offer open for ever, and six hours in " +
+                    "94 of the maker's 100 units were still escrowed with her reclaim refused " +
+                    "every time. AND THE WINDOW WAS AN OPTION SHE WROTE FOR FREE: only one leg " +
+                    "was escrowed, so the maker's asset was locked while the taker committed " +
+                    "nothing and decided at the end of the hour. The template makes both " +
+                    "unwritable: a swap SETTLES IN FULL OR NOT AT ALL, so there is no remainder " +
+                    "and no second clock; the deadline is written ONCE by the operation that " +
+                    "escrows the maker's leg and no operation writes a timestamp; and the offer " +
+                    "is REVOCABLE IN ANY BLOCK, so the free look lasts one block rather than the " +
+                    "window. Both drains ship as must-fail tests with mutants, and the cost of " +
+                    "the revocable offer - a taker cannot rely on an offer still standing when " +
+                    "their transaction lands - is in the header rather than hidden. If what you " +
+                    "want is a POOL that prices off reserves, that is `template=amm`; if it is " +
+                    "resting orders anyone may fill, that is `template=exchange`."
             has("dao", "govern", "vot", "treasury", "proposal", "quorum") ->
                 "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
                     "execute-once are structural there, and it ships the single-account drain as a " +
@@ -1601,7 +2108,14 @@ object DappScaffold {
                     "ONE LIMIT, since `exchange` reaches this answer: this is a constant-product " +
                     "pool, NOT an order book. If you need resting orders that get matched, that IS " +
                     "covered now - `template=exchange`, shipped after adversary round 12 drained " +
-                    "an order book built freehand on this server's advice."
+                    "an order book built freehand on this server's advice. AND A SECOND LIMIT, " +
+                    "since `swap` reaches this answer too: this is a POOL, not a trade between two " +
+                    "named parties. If what you want is an OTC swap, an escrow between a maker and " +
+                    "ONE counterparty, or any two-party trade with a timeout, that is " +
+                    "`template=escrow` - shipped after adversary round 15 was answered with THIS " +
+                    "note for that ask and drained the pool-shaped build twice: the immutable row " +
+                    "deleted whole re-created a partial fill's remainder with a fresh timeout, and " +
+                    "escrowing only one leg made the window an option the maker wrote for free."
             has("oracle", "vault", "redeem", "redemption", "price") ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
@@ -2361,9 +2875,13 @@ object DappScaffold {
         //                   weight with it, pro rata from the stakes that were backing it
         //                   (retire_stake_backing), PRO RATA BY LARGEST REMAINDER: every
         //                   staker's share is floored, and the points the floors leave over
-        //                   go one each to the largest fractional remainders, ties by
-        //                   owner. Every staker is within ONE POINT of exact pro rata and
-        //                   the odd point falls on whoever is owed most of it - round 14
+        //                   go one each to the largest fractional remainders AMONG THE
+        //                   STAKERS THAT POINT DOES NOT EMPTY, ties by owner. Every staker
+        //                   is within ONE POINT of exact pro rata, the odd point falls on
+        //                   whoever is owed most of it, and no payout smaller than the
+        //                   whole treasury empties one staker while another stands - round
+        //                   15 measured the version without that last clause emptying a
+        //                   one-point staker with a payout of 501 out of 1001 - round 14
         //                   drained the version that rounded UP in owner order and stopped
         //                   when the amount was covered, where the head of the sort paid
         //                   every rounding point (ten one-point payouts: 10 / 0 / 0) and a
@@ -2581,12 +3099,28 @@ object DappScaffold {
         // The caller is execute_proposal and there is no other: this is the only place any
         // stake is ever reduced, which is why there is no unstake operation.
         // RETIREMENT IS PRO RATA, BY LARGEST REMAINDER. Each staker's share is FLOORED
-        // first - nobody is charged a point they do not owe, and no payout can take a
-        // staker's whole holding unless it takes everyone's - and the points the floors
+        // first - nobody is charged a point they do not owe - and the points the floors
         // leave over, always FEWER THAN THE NUMBER OF STAKERS, are handed out ONE EACH to
-        // the largest fractional remainders. So every staker's retirement is within one
-        // point of exact pro rata, and WHO PAYS THE ODD POINT is whoever is owed most of
-        // it: it moves with the stakes rather than sitting on one account.
+        // the largest fractional remainders AMONG THE STAKERS THAT POINT DOES NOT EMPTY.
+        // Two things follow, and they are the whole of what this rule guarantees:
+        //   - EVERY STAKER IS WITHIN ONE POINT OF EXACT PRO RATA, and WHO PAYS THE ODD
+        //     POINT moves with the stakes rather than sitting on one account.
+        //   - NO PAYOUT SMALLER THAN THE WHOLE TREASURY EMPTIES A STAKER while leaving
+        //     another one standing. The floor alone can never empty anybody, because
+        //     floor(stake * amount / backing) is strictly below the stake whenever amount
+        //     is below backing; the leftover point is the only thing that can, and it is
+        //     given to a staker who survives it whenever one exists.
+        // Round 15 measured what plain largest remainder does without that last clause,
+        // at exactly the shape round 14 used to price the OLD bug: stakes of 1000 and 1
+        // against a backing of 1001, and a payout of 501 - 50.05% of the treasury. The
+        // one-point staker's exact share is 0.5005 of a point, which is the LARGEST
+        // remainder of the two, so the odd point fell on them and took 100% of their
+        // holding while taking 50.0% of the other's. There is deliberately no unstake, so
+        // what they lost was not refundable, and the genesis window is shut, so no
+        // operation could give them weight again. The same payout now retires 501 from the
+        // large staker and nothing from the small one: the large staker is one point WORSE
+        // than exact pro rata, which is the price, and it is paid by the party that has
+        // 999 points left rather than by the party that would have none.
         //
         // Round 14 measured the version that rounded UP in @sort .owner order and stopped
         // the moment `remaining` reached zero. Rounding up is not a rounding - the shares
@@ -2621,15 +3155,37 @@ object DappScaffold {
             // non-zero has floored strictly below their own stake.
             var leftover = amount - floored;
             while (leftover > 0) {
+                // THE ODD POINT GOES TO THE LARGEST REMAINDER IT DOES NOT EMPTY. Round 15
+                // measured plain largest remainder at its own boundary: with stakes of
+                // 1000 and 1 against a backing of 1001, a payout of 501 owes the one-point
+                // staker 0.5005 of a point - the LARGEST remainder - so the odd point took
+                // 100% of their holding out of a payout that took 50.0% of everyone
+                // else's, and there is no unstake to get it back. A FLOOR can never empty
+                // anybody: floor(stake * amount / backing) is strictly below the stake
+                // whenever the payout is smaller than the treasury, and when it is not,
+                // everybody is emptied together. So the leftover point is the ONLY way one
+                // staker is emptied while others are not, and it is handed to the largest
+                // remainder among the stakers who SURVIVE it. Only when every candidate
+                // would be emptied by it does it fall on the largest remainder outright,
+                // and that is a payout taking the treasury down to less than one point per
+                // staker - it is taking everyone's.
                 var pick: byte_array? = null;
                 var best = 0;
+                var fallback: byte_array? = null;
+                var fallback_best = 0;
                 for (owner in owners) {
-                    if (remainder[owner] > best) {
-                        best = remainder[owner];
+                    val r = remainder[owner];
+                    if (r > fallback_best) {
+                        fallback_best = r;
+                        fallback = owner;
+                    }
+                    val m = member @ { .owner == owner };
+                    if (r > best and owed[owner] + 1 < m.stake) {
+                        best = r;
                         pick = owner;
                     }
                 }
-                val chosen = require(pick, "stake retirement did not balance");
+                val chosen = require(pick ?: fallback, "stake retirement did not balance");
                 owed[chosen] = owed[chosen] + 1;
                 // Awarded: nobody takes a second leftover point, and a staker with no
                 // remainder is never charged one at all.
@@ -3771,6 +4327,48 @@ object DappScaffold {
             assert_equals(main.staked_points(), main.total_stake());
         }
 
+        // EXPLOIT MUST FAIL. Round 15, at the boundary round 14's own fix created. With
+        // stakes of 1000 and 1 against a backing of 1001, a payout of 501 - 50.05% of the
+        // treasury - owes the one-point staker 0.5005 of a point, which is the LARGEST
+        // remainder of the two. Plain largest remainder therefore handed them the odd
+        // point and took 100% of their holding, while taking 50.0% of the other's; there
+        // is no unstake and the genesis window is shut, so the point was gone for good.
+        // The odd point now goes to the largest remainder that SURVIVES it.
+        function test_r15_a_payout_cannot_empty_one_staker_while_another_stands_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            close_genesis_window();
+
+            // Alice stakes her whole allocation; bob stakes ONE point.
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1));
+            assert_equals(main.total_stake(), 1001);
+            assert_equals(main.get_stake(bob.account.id), 1);
+
+            // An ordinary, honest, quorate proposal: pay 501 to alice.
+            signed(alice.keypair, main.create_proposal("half the treasury", alice.account.id, 501));
+            val p = proposal_titled("half the treasury");
+            signed(alice.keypair, main.cast_vote(p, true));
+            close_voting_window();
+            signed(alice.keypair, main.execute_proposal(p));
+
+            // THE LINE THE MUTANT REDDENS: bob still holds the point he staked, so he
+            // still has a voice in the DAO. Round 15 measured him at zero here.
+            signed(bob.keypair, main.create_proposal("bob still has a voice", bob.account.id, 1));
+            assert_equals(main.get_stake(bob.account.id), 1);
+            // ...and the odd point is paid by the staker who can afford it: alice is ONE
+            // POINT worse than exact pro rata (500.5 owed, 501 retired), which is the
+            // price of the rule and is stated in the header.
+            assert_equals(main.get_stake(alice.account.id), 499);
+            assert_equals(main.total_stake(), 500);
+            assert_equals(main.treasury_balance(), 500);
+            assert_conserved();
+        }
+
         // EXPLOIT MUST FAIL. The same defect as a takeover. Round 14: with stakes of
         // 1 / 1000 / 1000 and a backing of 2001, ONE two-point payout took 100% of the
         // one-point staker's weight - ceil(1 * 2 / 2001) = 1, her whole holding, half the
@@ -3971,10 +4569,27 @@ object DappScaffold {
         //                      and the whale walked out with every token she came in with.
         //   SETTLEMENT IS   - opening settlement and closing it are two calls of settle(),
         //     TWO PHASES      SETTLEMENT_WINDOW_MS apart. While it is pending, the only
-        //                     operations that still run are the two that RAISE the system's
-        //                     backing - deposit_collateral and burn_stable - so a debtor
-        //                     whose position is sound always has a block in which to take
-        //                     the par exit. AN OPENING IS RESOLVED ONCE, AT OR AFTER ITS
+        //                     operations that still run are the two that CANNOT MOVE A
+        //                     TOKEN OUT OF THE RESERVE - deposit_collateral and
+        //                     burn_stable - so a debtor whose position is sound always has
+        //                     a block in which to take the par exit. Round 15 measured the
+        //                     sentence that used to stand here, "the two that RAISE the
+        //                     system's backing", and it is FALSE of burn_stable: a debtor
+        //                     who retires her LAST unit of debt stops backing the coin, so
+        //                     her whole collateral leaves backing_collateral with it and
+        //                     the RATIO FALLS. At 48.00, with 100 tokens against 3000 of
+        //                     coin beside a position holding 100 against 6666, her par
+        //                     exit took the system from 99.3% backed to 72.0% in one
+        //                     block. That fall is correct and it is not a leak: her
+        //                     collateral was never the holders' - round 14's drain was
+        //                     COUNTING it, which reported this same system 144% backed and
+        //                     voided the opening - and no token moved, because
+        //                     burn_stable only reclassifies collateral and
+        //                     withdraw_collateral is refused for the whole window. WHAT
+        //                     HOLDS WHILE AN OPENING IS PENDING is therefore this, and it
+        //                     is what the shipped replay asserts: NO COLLATERAL LEAVES THE
+        //                     RESERVE, and the fall cannot void the opening either, since
+        //                     a void needs backing to RISE over the bonus line. AN OPENING IS RESOLVED ONCE, AT OR AFTER ITS
         //                     WINDOW, and it is voided only by a system that has climbed
         //                     back OVER THE BONUS LINE - the same 105% every other
         //                     value-moving operation clears - so a void puts everybody back
@@ -4206,8 +4821,14 @@ object DappScaffold {
 
         // ...and every operation that takes value OUT of the system also starts here.
         // While a settlement is pending the only two operations that run are the ones that
-        // RAISE the system's backing, deposit_collateral and burn_stable: a shortfall that
-        // somebody has already shown at a fresh price is not the moment to let value leave.
+        // CANNOT MOVE A TOKEN OUT OF THE RESERVE, deposit_collateral and burn_stable: a
+        // shortfall that somebody has already shown at a fresh price is not the moment to
+        // let value leave. NOT "the two that raise the system's backing" - that is what
+        // this comment used to say and round 15 measured it false, because a FULL par exit
+        // retires the debtor's last unit of debt and her collateral stops backing the coin
+        // in the same block (99.3% -> 72.0% at 48.00). The ratio can fall here. What
+        // cannot happen is a token leaving: burn_stable reclassifies collateral and moves
+        // none, and everything that would move one is refused below.
         function not_pending() {
             require(not settlement.open, "settlement is pending - deposit or burn until it closes");
         }
@@ -5094,6 +5715,68 @@ object DappScaffold {
             assert_equals(main.get_cdp(alice.account.id)!!.debt, 0);
             signed(trudy.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(trudy.account.id), 100);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15 read the residual list and measured the sentence
+        // "the only operations that still run are THE TWO THAT RAISE THE SYSTEM'S BACKING
+        // - deposit_collateral and burn_stable". burn_stable does not raise it: a debtor
+        // who retires her LAST unit of debt stops backing the coin in that block, so her
+        // whole collateral leaves backing_collateral against a much smaller debt and the
+        // RATIO FALLS - 99.3% to 72.0% at 48.00, measured here.
+        //
+        // The header now says that, and this test pins what IS true of the window, which
+        // is the property the sentence was reaching for: while an opening is pending NO
+        // COLLATERAL LEAVES THE RESERVE. burn_stable moves no tokens at all, every
+        // operation that could move one is refused, and the fall cannot void the opening
+        // because a void needs backing to RISE over the bonus line. Counting her
+        // collateral instead - the other way to make the old sentence true - is round 14's
+        // drain: it reports this system 144% backed and voids the opening while the 72%
+        // position stands.
+        function test_r15_a_par_exit_lowers_the_ratio_but_moves_no_collateral_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            crash_r13(alice.keypair, trudy.keypair);
+
+            val before = main.get_system();
+            assert_equals(before.backing_collateral, 200);
+            assert_equals(before.total_collateral, 200);
+            assert_equals(before.total_debt, 9666);
+            // 200 tokens at 48.00 = 9600 against 9666 of coin: 99.3%, short. This opens
+            // the settlement and stops there - settle_by() would run BOTH phases.
+            signed(trudy.keypair, main.settle());
+            assert_true(main.settlement_pending());
+
+            // ALICE TAKES THE PAR EXIT THE WINDOW EXISTS FOR, in full.
+            signed(alice.keypair, main.burn_stable(3000));
+            val after_burn = main.get_system();
+            // Her 100 tokens left the BACKING with her last unit of debt: 100 * 48.00 =
+            // 4800 against 6666 of coin is 72.0%, down from 99.3%. The old sentence said
+            // this operation raises the backing.
+            assert_equals(after_burn.backing_collateral, 100);
+            assert_equals(after_burn.total_debt, 6666);
+            assert_true(main.backing_matches_positions());
+            // AND THE PROPERTY THAT DOES HOLD: not one token left the reserve. This is
+            // the line the mutant reddens.
+            assert_equals(after_burn.total_collateral, 200);
+            signed_must_fail(alice.keypair, main.withdraw_collateral(100), "settlement is pending");
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(1), "settlement is pending");
+            assert_equals(main.get_system().total_collateral, 200);
+            assert_equals(main.get_tokens(alice.account.id), 0);
+            assert_conserved();
+
+            // ...and the fall does not void the opening: a void needs backing to RISE
+            // over the bonus line, so phase two runs at the price the opening recorded.
+            after(main.SETTLEMENT_WINDOW_MS + 1000);
+            signed(trudy.keypair, main.settle());
+            assert_true(main.get_system().settled);
+            assert_equals(main.get_system().settlement_pool, 100);
+            assert_equals(main.get_system().settlement_supply, 6666);
+            // Her collateral was never the holders': she owes nothing, so all hundred
+            // come back to her, which is what makes the fall correct rather than a leak.
+            assert_equals(main.get_tokens(alice.account.id), 100);
             assert_conserved();
         }
 
@@ -6378,9 +7061,12 @@ object DappScaffold {
         //                   what crosses. Say it that way round when you extend this: an
         //                   order that does not cross the taker's limit costs a place_order
         //                   nothing, and one that does costs a row's worth of filtering.
-        //                   AND THE BOOK IS BOUNDED BY WHAT AN ATTACKER PAYS FOR. A resting
-        //                   order must be worth MIN_NOTIONAL - price * qty - and a trader
-        //                   may stand at most MAX_RESTING_ORDERS quotes at once. The cap
+        //                   AND THE BOOK IS BOUNDED BY WHAT AN ATTACKER PAYS FOR, ON BOTH
+        //                   SIDES. A resting order must be worth MIN_NOTIONAL in QUOTE
+        //                   units - price * qty, which is what a BID escrows - AND
+        //                   MIN_ORDER_UNITS in BASE units, which is what a SELL escrows;
+        //                   and a trader may stand at most MAX_RESTING_ORDERS quotes at
+        //                   once. The cap
         //                   alone is not a bound and this header used to say it was ("the
         //                   book is bounded by the traders in it rather than by what one
         //                   welcome grant can buy"): a trader is a FREE FT4 REGISTRATION
@@ -6394,14 +7080,25 @@ object DappScaffold {
         //                   behind an empty book and 16.6 SECONDS behind 100 one-unit sells
         //                   at the market standing on FIVE free registrations, and at 200
         //                   rows the run sat on the runner's 90-second cap. MIN_NOTIONAL is
-        //                   what makes those rows cost something: at a market of 20 a
-        //                   welcome grant of 100 units is 2000 of notional, so it buys TWO
-        //                   crossing rows and not twenty, and a hundred of them needs fifty
-        //                   funded accounts offering 5000 units of real inventory at the
-        //                   market - which is a market and not a denial of service. Size
-        //                   MIN_NOTIONAL against what a grant (or, in production, the
-        //                   cheapest funded account) can hold: the bound is
-        //                   holdings * price / MIN_NOTIONAL rows per account.
+        //                   what makes those rows cost something. ROUND 15 MEASURED THE
+        //                   PRICE OF STATING THAT BOUND FOR ONE SIDE ONLY: this header used
+        //                   to say "a welcome grant of 100 units is 2000 of notional, so it
+        //                   buys TWO crossing rows ... a hundred of them needs fifty funded
+        //                   accounts", which is the SELL side at a market of 20. A SELL
+        //                   taker walks the BID side, and a bid escrows POINTS: the
+        //                   10000-point welcome grant buys TEN crossing bids of exactly
+        //                   MIN_NOTIONAL, so a hundred crossing rows needed TEN free
+        //                   registrations and not fifty - the stated bound was 5x wrong for
+        //                   half the book. Worse, the quote floor is no floor at all on the
+        //                   sell side at a high price: at a market of MIN_NOTIONAL a
+        //                   ONE-UNIT sell clears it exactly, so one grant of 100 units
+        //                   stands a HUNDRED rows. THE BOUND, NOW, AND IT DOES NOT MOVE
+        //                   WITH THE PRICE: WELCOME_POINTS / MIN_NOTIONAL rows on the bid
+        //                   side (ten) and WELCOME_UNITS / MIN_ORDER_UNITS on the sell side
+        //                   (twenty, which is MAX_RESTING_ORDERS, so the cap binds there
+        //                   first). Size BOTH floors against what a grant - or, in
+        //                   production, the cheapest funded account - can hold, and read
+        //                   the CHEAPER side, because that is the one an attacker uses.
         //                   Round 13 measured the unfiltered, unbounded version:
         //                   best_resting was `for (o in order @* {})` - the whole table,
         //                   filtered in Rell afterwards - so the header's own advice,
@@ -6501,6 +7198,15 @@ object DappScaffold {
         // trader creates - round 13 filled the book with 1-point bids nobody would ever
         // reach and made every place_order pay for them. Size it against how many price
         // levels a real maker quotes; it is a constant, never a parameter.
+        // ...and in the asset the OTHER side escrows. MIN_NOTIONAL is priced in QUOTE
+        // units, which is what a bid escrows; a SELL escrows base units, and at a market
+        // of MIN_NOTIONAL a one-unit sell clears the quote floor exactly - so the quote
+        // floor alone bounds a free registration's sells at 100 rows rather than at two,
+        // and the bound moves with the price. This one does not: whatever the price, a
+        // resting order is at least MIN_ORDER_UNITS of base. Size it WITH the welcome
+        // grant and with MAX_RESTING_ORDERS - 100 units of grant at 5 units a row is
+        // twenty rows, which is exactly the cap, so neither constant is slack.
+        val MIN_ORDER_UNITS = 5;
         val MAX_RESTING_ORDERS = 20;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
@@ -6609,12 +7315,22 @@ object DappScaffold {
             // 5. REST what is left, escrowed in the same operation that creates the row.
             if (left > 0) {
                 val me = trader_of(account.id);
-                // A BOOK BOUNDED BY WHAT IT COSTS TO FILL. The row must be worth
-                // MIN_NOTIONAL - round 14 measured one-unit rows AT THE MARKET PRICE
+                // A BOOK BOUNDED BY WHAT IT COSTS TO FILL, ON BOTH SIDES. The row must be
+                // worth MIN_NOTIONAL - round 14 measured one-unit rows AT THE MARKET PRICE
                 // crossing every taker's limit at no cost to their author, five free
                 // registrations paying for a hundred of them and a 5.9x tax on ten honest
                 // trades. This is on the REMAINDER, so a taker's small order still trades.
                 require(price * left >= MIN_NOTIONAL, "order notional too small");
+                // ...AND IT MUST BE WORTH MIN_ORDER_UNITS OF BASE. The line above is
+                // priced in QUOTE units, which is what a BID escrows, and round 15 showed
+                // both halves of what that misses: a bid's escrow is points, so the
+                // 10000-point welcome grant stands TEN of those rows and a hundred
+                // crossing bids needs TEN free registrations where this header used to
+                // claim fifty; and a SELL escrows base, so at a market of MIN_NOTIONAL a
+                // ONE-UNIT sell clears the quote floor exactly and one grant stands a
+                // hundred rows. A floor has to be denominated in what the side actually
+                // parts with, or its bound moves with the price.
+                require(left >= MIN_ORDER_UNITS, "order size too small");
                 // ...and a trader may stand only so many at once. A cancelled row keeps its
                 // slot until its escrow has rested: the slot is the capital, not the quote.
                 require(
@@ -6773,6 +7489,43 @@ object DappScaffold {
 
         val HOUR = 60 * 60 * 1000;
 
+        // EXPLOIT MUST FAIL. Round 15: the notional floor was priced on the SELL side
+        // only. A bid escrows POINTS, so the 10000-point welcome grant stands TEN
+        // crossing bids of exactly MIN_NOTIONAL - round 15 stood a hundred of them on
+        // TEN free registrations where the header claimed fifty. And the quote floor is
+        // no floor on the sell side at a high price: at a market of MIN_NOTIONAL a
+        // one-unit sell clears it exactly, so one grant would stand a hundred rows.
+        // Each side is now floored in the asset it escrows, and neither bound moves
+        // with the price.
+        function test_r15_the_notional_floor_is_priced_on_both_sides_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            // THE BID SIDE. Ten rows of exactly MIN_NOTIONAL is the whole grant: what a
+            // free registration can stand on this side is WELCOME_POINTS / MIN_NOTIONAL,
+            // and it does not change with the market.
+            var i = 0;
+            while (i < 10) {
+                signed(alice.keypair, main.place_order(true, 20, 50));
+                i += 1;
+            }
+            assert_equals(main.get_points(alice.account.id), 0);
+            signed_must_fail(alice.keypair, main.place_order(true, 20, 50), "insufficient points");
+            assert_equals(main.trader_count(), 2);
+
+            // THE SELL SIDE, at the price where the quote floor stops being one. THE LINE
+            // THE MUTANT REDDENS: one unit at a market of MIN_NOTIONAL is worth exactly
+            // MIN_NOTIONAL, so the quote floor admits it and a hundred of them fit in one
+            // welcome grant.
+            signed_must_fail(bob.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "order size too small");
+            // What a sell costs is bounded in the asset it escrows, at any price.
+            signed(bob.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS));
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS - main.MIN_ORDER_UNITS);
+            assert_conserved();
+        }
+
         // EXPLOIT MUST FAIL. Round 13: the dust book. best_resting() was
         // `for (o in order @* {})` - the whole order table, filtered in Rell afterwards -
         // so the header's own advice, "index price and side before your book is large",
@@ -6801,16 +7554,22 @@ object DappScaffold {
 
             // ROUND 13'S ROW, at one point of escrow: refused before it is counted.
             signed_must_fail(trudy.keypair, main.place_order(true, 1, 1), "order notional too small");
-            // The cheapest rows she can actually stand: one unit each at MAX_PRICE / 1000,
-            // which is MIN_NOTIONAL exactly.
+            // The cheapest rows she can actually stand: MIN_ORDER_UNITS each at
+            // MAX_PRICE / 1000. One unit at that price clears the QUOTE floor exactly and
+            // is refused by the BASE floor - round 15's half of this bound.
+            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "order size too small");
             var i = 0;
             while (i < main.MAX_RESTING_ORDERS) {
-                signed(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1));
+                signed(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS));
                 i += 1;
             }
-            // THE BOUND. Round 13's version would have paid for 10000 rows.
-            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "too many resting orders");
-            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS - main.MAX_RESTING_ORDERS);
+            // THE BOUND. Round 13's version would have paid for 10000 rows, and the
+            // quote-floor-only version for a hundred at this price.
+            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS), "too many resting orders");
+            assert_equals(
+                main.get_units(trudy.account.id),
+                main.WELCOME_UNITS - main.MAX_RESTING_ORDERS * main.MIN_ORDER_UNITS
+            );
 
             // And the rows that ARE resting are not on the path of a crossing order: alice
             // sells 50 at 20 and bob buys 50 at 20 through a book of asks at 1000, which
@@ -6821,7 +7580,10 @@ object DappScaffold {
             assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 50);
             // Untouched: an ask at 1000 is not reachable by a buyer bidding 20.
             assert_equals(main.get_points(trudy.account.id), main.WELCOME_POINTS);
-            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS - main.MAX_RESTING_ORDERS);
+            assert_equals(
+                main.get_units(trudy.account.id),
+                main.WELCOME_UNITS - main.MAX_RESTING_ORDERS * main.MIN_ORDER_UNITS
+            );
             assert_conserved();
         }
 
@@ -7138,6 +7900,529 @@ object DappScaffold {
             signed(bob.keypair, main.place_order(true, 20, 1));
             assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS + 1);
             assert_equals(main.get_order(1)!!.remaining, 49);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    // ---- escrow template: a TWO-PARTY OTC SWAP, both legs in the module's hands
+    // ---- at the instant it settles, terms and deadline written once ----
+    //
+    // The FOURTEENTH template, and the class adversary round 15 built with no
+    // template at all: "an OTC swap escrow between two parties with a timeout" was
+    // answered `template=amm` - a constant-product pool - because `swap` is in the
+    // amm keyword list and neither `escrow` nor `otc` was anywhere in the redirect
+    // map. The build that followed that answer carried every guard the answer
+    // names, and drained twice.
+    private fun escrowMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Escrow template: a TWO-PARTY OTC SWAP with a deadline. One party offers a
+        // quantity of asset A for a quantity of asset B, names the ONE counterparty who
+        // may take it, and the trade either happens in full or not at all.
+        //
+        // This is the class adversary round 15 built with NO TEMPLATE AT ALL, because
+        // this server sent the ask somewhere else: `closestTemplateNote()` had no keyword
+        // for "escrow" and none for "otc", and "swap" is in the `amm` list, so "an OTC
+        // swap escrow between two parties with a timeout" was answered `template=amm` - a
+        // constant-product pool - with the full confident prose of a covered class. The
+        // build that followed that answer carried every guard the answer names: the exact
+        // quoted terms or revert, the IMMUTABLE POSITION ROW DELETED WHOLE, the golden FT4
+        // shape, bounded amounts, the auth handler at ["T"], conservation queries. It
+        // drained twice, and BOTH drains came out of the advice rather than out of a
+        // forgotten check:
+        //   - THE TIMEOUT WAS THE TAKER'S TO RESET. "A burn deletes one row whole" is the
+        //     amm's discipline for a liquidity position, and applied to a partly filled
+        //     offer it means the remainder is a NEW ROW - whose timeout starts NOW. A
+        //     taker who bought ONE unit every 59 minutes held a one-hour offer open for
+        //     ever: six hours in, 94 of the maker's 100 units were still escrowed, her
+        //     reclaim refused every time, and the taker closed the lot out at the price
+        //     she had quoted six hours earlier.
+        //   - THE WINDOW WAS AN OPTION SHE WROTE FOR FREE. Only ONE leg was escrowed. The
+        //     maker's asset was locked for the window and could not be recalled; the
+        //     taker committed nothing, held his own asset throughout, and decided at the
+        //     end of the hour. He took 100 units at 10 when the market had moved to 20;
+        //     had it moved the other way he would simply not have taken it.
+        // Nine guards are STRUCTURAL - they live in the entity and its operations, not in
+        // a require() a later operation can forget:
+        //   TWO PARTIES, NAMED - a swap is between the maker and ONE counterparty written
+        //     into the row when it is created. This is not a book and there is no matcher:
+        //     `taker` is a field, and the only account that can settle a swap is the one
+        //     it names. If you want resting orders that anyone may fill, that is a
+        //     different exploit class and a different template - `template=exchange`.
+        //   THE TERMS ARE WRITTEN ONCE - qty_a, qty_b, maker, taker, opened_at and the
+        //     deadline are IMMUTABLE fields. The row carries exactly ONE mutable field,
+        //     `status`, and it moves out of OPEN once and never back. There is no quote to
+        //     move underneath a taker, so the taker's quoted terms are checked against a
+        //     row that cannot have changed rather than against a reserve that can.
+        //   ALL OR NOTHING - a settlement moves BOTH legs in full or the transaction
+        //     aborts: `qty_a` must equal the whole quantity on offer. So there is no
+        //     remainder, no re-created row, and no new clock - which is round 15's first
+        //     drain made unwritable rather than checked. If you need partial fills, the
+        //     shape that survives is the exchange template's: keep the ORIGINAL row and
+        //     write ONE MONOTONE COUNTER, never delete-and-recreate.
+        //   NO OPERATION WRITES A TIMESTAMP - `opened_at` and `deadline` are written by
+        //     the one operation that escrows the maker's leg and by nothing else, and
+        //     neither field is mutable. Every other operation READS
+        //     op_context.last_block_time and compares. A deadline no counterparty can push
+        //     is the whole of what "with a timeout" was asked for.
+        //   BOTH LEGS IN ONE OPERATION - the maker's leg is escrowed when the swap is
+        //     created, and the taker's is taken in the very operation that delivers it, so
+        //     there is never a block in which one party has parted with value and the
+        //     other has not. Nothing settles half-way: one operation debits and credits
+        //     both sides.
+        //   THE OFFER IS REVOCABLE, IN ANY BLOCK - cancel_swap needs no deadline and no
+        //     counterparty. That is round 15's second drain: an offer the maker cannot
+        //     withdraw is a free option for whoever may take it, and the longer the window
+        //     the more it is worth. Here the option lasts one block, because the maker can
+        //     always take the swap off the table in the next one. THE COST is the mirror
+        //     image and it is stated rather than hidden: a taker cannot rely on an offer
+        //     still standing when their transaction lands, so a swap is a firm offer for
+        //     exactly as long as both parties leave it alone.
+        //   AFTER THE DEADLINE THE LEG GOES HOME TO ITS OWNER - expire_swap may be called
+        //     by EITHER party, and it returns the escrowed leg to the account that
+        //     escrowed it. Never to the caller: the taker can clear a stale row off the
+        //     books and gets nothing for doing it.
+        //   ONE EXIT, ONCE - settle, cancel and expire all require `status == STATUS_OPEN`
+        //     and all move it away from OPEN, so an escrowed leg is released exactly once
+        //     however the swap ends. There is no delete: the row stays as the record of
+        //     what happened.
+        //   BOUNDED BY WHAT IT COSTS - every amount is range-checked before it is used,
+        //     and a maker may hold at most MAX_LIVE_SWAPS open swaps at a time, each one
+        //     backed by escrow it has actually parted with. A free registration cannot
+        //     stand an unbounded book of offers.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - A DEADLINE IS AN OPTION FOR WHOEVER MAY TAKE IT. Escrowing both legs at once
+        //     would need both signatures in one transaction, and then there is no offer to
+        //     accept - just a trade. What this template does instead is make the option
+        //     WORTH ONE BLOCK: the maker may cancel at any time, so the counterparty's
+        //     free look lasts only as long as the maker leaves it alone. If you need a
+        //     firm offer that CANNOT be withdrawn for a stated time, you are selling an
+        //     option and you must charge for it - a premium the taker escrows at
+        //     creation. Do not ship an irrevocable window for nothing and call it a swap.
+        //   - THIS MODULE DOES NOT PRICE ANYTHING. qty_a for qty_b is whatever the two
+        //     parties agreed off-chain. There is no oracle and no market here, so a swap
+        //     at a bad price settles exactly as reliably as a swap at a good one.
+        //   - THE ASSETS ARE STAND-INS. asset_a and asset_b are balances on this chain,
+        //     credited once by a welcome grant so the tests can move real value. Replace
+        //     them with FT4 assets and keep every guard above: the escrow becomes a
+        //     transfer into the module's own account and back out, and the ONE EXIT rule
+        //     is what stops it being paid twice.
+
+        // The two assets. Balances only - nothing is created after the welcome grant, and
+        // the conservation queries at the bottom prove it for BOTH assets, because a swap
+        // that conserves one of them and not the other is not a swap.
+        entity trader {
+            key owner: byte_array;
+            mutable asset_a: integer = 0;
+            mutable asset_b: integer = 0;
+        }
+
+        // THE SWAP. Written once. Everything a party relies on - who may take it, what it
+        // pays, what it costs and when it dies - is an IMMUTABLE field, and the single
+        // mutable one is the status, which leaves OPEN exactly once.
+        entity swap {
+            key id: integer;
+            index maker: byte_array;
+            index taker: byte_array;
+            qty_a: integer;
+            qty_b: integer;
+            opened_at: timestamp;
+            deadline: timestamp;
+            mutable status: integer = 0;
+        }
+
+        object book {
+            mutable next_id: integer = 1;
+        }
+
+        // The status values. OPEN is the only one an operation may act on.
+        val STATUS_OPEN = 0;
+        val STATUS_SETTLED = 1;
+        val STATUS_RETURNED = 2;
+
+        val WELCOME_A = 1000;
+        val WELCOME_B = 10000;
+        val MAX_AMOUNT = 1000000;
+        // How long an offer stands before either party may close it. A constant, never a
+        // parameter: a maker who chooses the window chooses how long the counterparty's
+        // free look lasts, and a taker who chooses it chooses the same thing.
+        val SWAP_WINDOW_MS = 60 * 60 * 1000;
+        // A maker's open offers are bounded, because each one costs escrow it has parted
+        // with and because a free FT4 registration must not be able to stand a book.
+        val MAX_LIVE_SWAPS = 10;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function trader_of(owner: byte_array): trader =
+            require(trader @? { .owner == owner }, "register first");
+
+        operation register_trader() {
+            val account = auth.authenticate();
+            require(trader @? { .owner == account.id } == null, "already registered");
+            create trader(owner = account.id, asset_a = WELCOME_A, asset_b = WELCOME_B);
+        }
+
+        // OPEN. The maker's leg is escrowed in the same operation that writes the row, and
+        // the row's terms and deadline are written here and nowhere else.
+        operation open_swap(counterparty: byte_array, qty_a: integer, qty_b: integer) {
+            // 1. AUTHENTICATE
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - a registered trader, and a NAMED counterparty who is one too.
+            val me = trader_of(account.id);
+            require(counterparty != account.id, "a swap needs two parties");
+            require(trader @? { .owner == counterparty } != null, "the counterparty is not registered");
+            // 3. VALIDATE - each input separately, bounded before it is used.
+            require(qty_a > 0 and qty_a <= MAX_AMOUNT, "quantity out of range");
+            require(qty_b > 0 and qty_b <= MAX_AMOUNT, "price out of range");
+            require(me.asset_a >= qty_a, "insufficient asset A");
+            require(
+                (swap @* { .maker == account.id, .status == STATUS_OPEN } ( .id )).size() < MAX_LIVE_SWAPS,
+                "too many open swaps"
+            );
+            // 4. ESCROW AND WRITE, together. The leg leaves the maker's balance in the
+            //    operation that creates the row, so no row ever exists unbacked.
+            update me ( .asset_a -= qty_a );
+            create swap(
+                id = book.next_id,
+                maker = account.id,
+                taker = counterparty,
+                qty_a = qty_a,
+                qty_b = qty_b,
+                opened_at = op_context.last_block_time,
+                deadline = op_context.last_block_time + SWAP_WINDOW_MS
+            );
+            book.next_id += 1;
+        }
+
+        // SETTLE. The NAMED counterparty pays the whole of leg B and takes the whole of
+        // leg A, in one operation. There is no quantity to choose: `qty_a` is here so that
+        // the caller states what they believe they are taking, and it must be the lot.
+        operation settle_swap(swap_id: integer, quoted_qty_a: integer, quoted_qty_b: integer, qty_a: integer) {
+            val account = auth.authenticate();
+            val taker = trader_of(account.id);
+            val s = require(swap @? { .id == swap_id }, "no such swap");
+            // A SWAP IS BETWEEN TWO PARTIES: the row names who may settle it.
+            require(s.taker == account.id, "this swap names another counterparty");
+            require(s.status == STATUS_OPEN, "this swap is no longer open");
+            require(op_context.last_block_time < s.deadline, "the swap has expired");
+            // The terms cannot have moved - they are immutable - so this compares the row
+            // with what the caller was told, and catches a caller who quoted a DIFFERENT
+            // swap rather than a swap whose terms changed under them.
+            require(s.qty_a == quoted_qty_a and s.qty_b == quoted_qty_b, "the swap's terms are not the ones you quoted");
+            // ALL OR NOTHING. A partial fill would need a remainder, a remainder is a new
+            // row, and a new row has a new clock - which is exactly how round 15 held a
+            // one-hour offer open for six hours, one unit at a time.
+            require(qty_a == s.qty_a, "a swap settles in full or not at all");
+            require(taker.asset_b >= s.qty_b, "insufficient asset B");
+            val maker = trader_of(s.maker);
+            // BOTH LEGS, IN THIS ONE OPERATION. The maker's leg has been escrowed since
+            // the row was written; the taker's is taken here and delivered here.
+            update taker ( .asset_b -= s.qty_b, .asset_a += s.qty_a );
+            update maker ( .asset_b += s.qty_b );
+            update s ( .status = STATUS_SETTLED );
+        }
+
+        // CANCEL, IN ANY BLOCK. The maker takes the offer off the table and her leg back.
+        // No deadline: an offer that cannot be withdrawn is an option written for free,
+        // and round 15 measured what one hour of it was worth.
+        operation cancel_swap(swap_id: integer) {
+            val account = auth.authenticate();
+            val s = require(swap @? { .id == swap_id }, "no such swap");
+            require(s.maker == account.id, "not your swap");
+            require(s.status == STATUS_OPEN, "this swap is no longer open");
+            val me = trader_of(account.id);
+            update me ( .asset_a += s.qty_a );
+            update s ( .status = STATUS_RETURNED );
+        }
+
+        // EXPIRE. After the deadline EITHER party may close the swap, and the escrowed leg
+        // goes back to the account that escrowed it - never to the caller.
+        operation expire_swap(swap_id: integer) {
+            val account = auth.authenticate();
+            val s = require(swap @? { .id == swap_id }, "no such swap");
+            require(s.maker == account.id or s.taker == account.id, "a swap is closed by one of its two parties");
+            require(s.status == STATUS_OPEN, "this swap is no longer open");
+            require(op_context.last_block_time >= s.deadline, "the swap has not expired yet");
+            val maker = trader_of(s.maker);
+            update maker ( .asset_a += s.qty_a );
+            update s ( .status = STATUS_RETURNED );
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query get_a(owner: byte_array): integer {
+            val t = trader @? { .owner == owner };
+            return if (t != null) t.asset_a else 0;
+        }
+
+        query get_b(owner: byte_array): integer {
+            val t = trader @? { .owner == owner };
+            return if (t != null) t.asset_b else 0;
+        }
+
+        query get_swap(swap_id: integer) {
+            val s = swap @? { .id == swap_id };
+            return if (s != null)
+                (
+                    id = s.id, maker = s.maker, taker = s.taker, qty_a = s.qty_a,
+                    qty_b = s.qty_b, opened_at = s.opened_at, deadline = s.deadline,
+                    status = s.status
+                )
+            else null;
+        }
+
+        query open_swaps_of(maker: byte_array): integer =
+            (swap @* { .maker == maker, .status == STATUS_OPEN } ( .id )).size();
+
+        query trader_count(): integer = trader @* {} ( .owner ).size();
+
+        // INVARIANT, ACROSS BOTH ASSETS. Nothing is created after the welcome grant. Every
+        // unit of A is in a balance or escrowed behind an OPEN swap; every unit of B is in
+        // a balance, because leg B is never escrowed - it is taken and delivered in the
+        // same operation. A swap that conserved one asset and not the other would settle
+        // one leg and lose the other, which is the whole failure an escrow exists to
+        // prevent, so both are asserted after every step of the shipped tests.
+        query a_in_circulation(): integer {
+            var total = 0;
+            for (b in trader @* {} ( .asset_a )) total += b;
+            for (s in swap @* { .status == STATUS_OPEN } ( .qty_a )) total += s;
+            return total;
+        }
+
+        query b_in_circulation(): integer {
+            var total = 0;
+            for (b in trader @* {} ( .asset_b )) total += b;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun escrowTestRell(): String = """
+        @test module;
+
+        // The escrow template's invariant tests. They are real: FT4 test accounts, signed
+        // operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's moduleArgs
+        // PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_r15_otc* functions replay adversary round 15's two drains on the
+        // build this server's own redirect produced for this ask - `template=amm`, a
+        // constant-product pool - and REQUIRE them to fail. There, a partial fill deleted
+        // the offer row and re-created the remainder, so a one-unit buy every 59 minutes
+        // reset the maker's one-hour timeout for ever; and only one leg was escrowed, so
+        // the window was an option the maker wrote for nothing.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val HOUR = 60 * 60 * 1000;
+
+        // BOTH assets, after every step. An escrow that conserves one leg and not the
+        // other has lost the other one.
+        function assert_conserved() {
+            assert_equals(main.a_in_circulation(), main.trader_count() * main.WELCOME_A);
+            assert_equals(main.b_in_circulation(), main.trader_count() * main.WELCOME_B);
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain one: the taker resets the maker's clock. The
+        // answer this ask used to get taught the amm's immutable-row-deleted-whole
+        // discipline, so a partial fill re-created the remainder as a NEW ROW whose
+        // timeout started NOW. Bob bought ONE unit every 59 minutes, six times; alice's
+        // reclaim was refused every time; six hours in she had sold 6 units for 60 of B
+        // and 94 of her 100 units of A were still escrowed with an hour to run, and bob
+        // then took the 94 at the price she quoted six hours earlier.
+        //
+        // Here a swap settles in FULL or not at all, so there is no remainder to re-create
+        // and no clock to restart: the one-unit fill is refused, the deadline is the one
+        // written when the swap was opened, and the maker's leg comes home on time.
+        function test_r15_otc1_a_partial_fill_cannot_reset_the_makers_clock_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            val s = main.get_swap(1)!!;
+            assert_equals(s.qty_a, 100);
+            assert_equals(s.deadline, s.opened_at + main.SWAP_WINDOW_MS);
+
+            // THE ATTACK, six times over, nine minutes apart and all of them inside the
+            // one window: buy ONE unit and start the clock again. Every one of them is
+            // refused, and the deadline never moves.
+            var round = 0;
+            while (round < 6) {
+                after(9 * 60 * 1000);
+                signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 1),
+                    "a swap settles in full or not at all");
+                assert_equals(main.get_swap(1)!!.deadline, s.deadline);
+                assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+                assert_equals(main.get_b(alice.account.id), main.WELCOME_B);
+                round += 1;
+            }
+
+            // ...and the deadline the maker wrote is the deadline she gets, whatever the
+            // counterparty did in between. Round 15's maker was still locked at hour six.
+            after(7 * 60 * 1000);
+            signed(alice.keypair, main.expire_swap(1));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+            assert_equals(main.get_swap(1)!!.status, main.STATUS_RETURNED);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15, drain two: the window was a free option. Only the
+        // maker's leg was escrowed and she could not recall it, so the taker held his own
+        // asset for the hour and decided at the end of it - 100 units at 10 when the
+        // market had moved to 20, and nothing at all had the market moved the other way.
+        //
+        // Here the offer is revocable in any block, so the option is worth ONE BLOCK: the
+        // maker takes it off the table half an hour in and there is nothing left to
+        // decide about at the end of the hour.
+        function test_r15_otc2_the_window_is_not_a_free_option_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+
+            // Half an hour in, with bob still holding every unit of his own asset - he has
+            // committed nothing, which is what makes the offer an option - alice withdraws
+            // it. No deadline is needed and none is waited for.
+            after(30 * 60 * 1000);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
+            signed(alice.keypair, main.cancel_swap(1));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+
+            // THE ATTACK: bob waits out the rest of the window and takes it at the end,
+            // the way round 15's taker did. There is nothing to take.
+            after(29 * 60 * 1000);
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100),
+                "this swap is no longer open");
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(alice.account.id), main.WELCOME_B);
+            assert_conserved();
+        }
+
+        // HAPPY PATH + CONSERVATION ACROSS BOTH ASSETS: a swap settles both legs in one
+        // operation, and nothing is created or lost on either side of it.
+        function test_a_swap_settles_both_legs_or_neither_and_conserves() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            assert_conserved();
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            // The maker's leg is escrowed the moment the row exists: it is out of her
+            // balance and counted in circulation behind the swap.
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+            assert_equals(main.open_swaps_of(alice.account.id), 1);
+            assert_conserved();
+
+            // A taker who names a size that is not the lot moves nothing.
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100 + 1),
+                "a swap settles in full or not at all");
+            assert_conserved();
+
+            signed(bob.keypair, main.settle_swap(1, 100, 1000, 100));
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A + 100);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B - 1000);
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A - 100);
+            assert_equals(main.get_b(alice.account.id), main.WELCOME_B + 1000);
+            assert_equals(main.open_swaps_of(alice.account.id), 0);
+            assert_conserved();
+
+            // ONE EXIT, ONCE. A settled swap cannot be settled, cancelled or expired
+            // again, so the escrowed leg is released exactly once however it ended.
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100), "this swap is no longer open");
+            signed_must_fail(alice.keypair, main.cancel_swap(1), "this swap is no longer open");
+            after(HOUR + 1000);
+            signed_must_fail(alice.keypair, main.expire_swap(1), "this swap is no longer open");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. A swap is between TWO PARTIES: the row names who may settle
+        // it, and it dies at the deadline it was written with. Neither is negotiable by a
+        // caller, and no stranger can take a trade that was not offered to them.
+        function test_only_the_named_counterparty_settles_and_only_before_the_deadline_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            signed_must_fail(alice.keypair, main.open_swap(alice.account.id, 100, 1000), "a swap needs two parties");
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+
+            // Trudy was not offered this trade, however well she quotes it.
+            signed_must_fail(trudy.keypair, main.settle_swap(1, 100, 1000, 100),
+                "this swap names another counterparty");
+            // Nor can the maker settle her own offer.
+            signed_must_fail(alice.keypair, main.settle_swap(1, 100, 1000, 100),
+                "this swap names another counterparty");
+            // ...and a taker who quotes terms that are not this swap's is refused.
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 999, 100),
+                "the swap's terms are not the ones you quoted");
+            assert_equals(main.get_a(trudy.account.id), main.WELCOME_A);
+            assert_conserved();
+
+            // THE DEADLINE IS THE ONE THAT WAS WRITTEN. A minute past it the trade is over
+            // for the counterparty, and no operation can push it out.
+            after(HOUR + 60 * 1000);
+            signed_must_fail(bob.keypair, main.settle_swap(1, 100, 1000, 100), "the swap has expired");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. After the deadline either party may close the swap, and the
+        // escrowed leg goes back to WHOEVER ESCROWED IT - never to whoever made the call.
+        // Before the deadline nobody but the maker may end it at all.
+        function test_after_the_deadline_the_escrowed_leg_goes_home_to_its_owner_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+            signed(trudy.keypair, main.register_trader());
+
+            signed(alice.keypair, main.open_swap(bob.account.id, 100, 1000));
+            // Not yet, and not by a stranger.
+            signed_must_fail(bob.keypair, main.expire_swap(1), "the swap has not expired yet");
+            signed_must_fail(trudy.keypair, main.expire_swap(1), "a swap is closed by one of its two parties");
+            signed_must_fail(bob.keypair, main.cancel_swap(1), "not your swap");
+            assert_conserved();
+
+            // THE ATTACK: the counterparty closes the expired swap and keeps the leg. The
+            // escrow goes to the account that escrowed it, and bob is paid nothing for
+            // clearing the row.
+            after(HOUR + 1000);
+            signed(bob.keypair, main.expire_swap(1));
+            assert_equals(main.get_a(alice.account.id), main.WELCOME_A);
+            assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
+            assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
             assert_conserved();
         }
     """.trimIndent() + "\n"
