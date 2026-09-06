@@ -88,12 +88,19 @@ weakens, via `replacement`) the guard, reruns only that test, and reads *why* it
   reaches it through your own call graph; and when it came from the **first** statement of the
   test that invokes that declaration. A refusal by any other declaration, by the same one in a
   *later* statement, or a test-side assertion, is the damage being noticed and counts as
-  `load_bearing`
-- `ambiguous_refusal` — red, and the tool cannot say which of those two it is: the error carries
-  no frame it recognises while the test does invoke the guard's own declaration, or that
-  declaration is invoked more than once and the error gave no line in the test to place the
-  failure in. Never counted as proven, and never a reason to weaken the test — the evidence text
-  says what to add
+  `load_bearing`. An error with **no frame at all** is never an operation — a refusing operation
+  always carries one — so it is the test module or a **query**, and which one is read off the
+  string literals each owns: a query whose own second guard refuses is `still_refused`, while a
+  `rell.test.assert_*` or a test-side `require` is the damage being measured. When the frame
+  names the guard's declaration and the test invokes it **more than once**, the tool cuts the
+  test after the first such statement and runs the mutant again (*differential truncation*):
+  still refused there means the attack was refused; green there means it landed
+- `ambiguous_refusal` — red, and the tool cannot say which of those two it is: a frame-less error
+  whose words **both** the test module and a production query the test invokes can produce (or
+  that neither can), or a repeated invocation whose first call cannot be located exactly — a loop,
+  or a helper with several call sites — so the truncated re-run would not measure the attack.
+  Never counted as proven, and never a reason to weaken the test — the evidence text says what
+  to add
 - `environmental` — the mutant did not compile or lacked `moduleArgs`; proves nothing
 - `baseline_red` / `guard_not_found` / `guard_ambiguous` / `test_not_found` — the inputs cannot be verified yet
 - `replacement_rejected` / `also_remove_overlaps_guard` — the mutation itself is refused: a

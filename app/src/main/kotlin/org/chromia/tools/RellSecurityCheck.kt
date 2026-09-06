@@ -554,6 +554,9 @@ object RellSecurityCheck {
             functionBodies(m).map { it.first }
         }
         val quorumTermPresent = submissionHasQuorumTerm(fullyMasked)
+        // Pairs of integer fields that ARE a tally, read off type and use so
+        // that renaming yes_votes/no_votes cannot silence the advisory.
+        val tallyPairs = tallyFieldPairs(fullyMasked)
         val allEntityNames = entityNames(fullyMasked)
         val entityHelperReturns = helperEntityReturns(fullyMasked, allEntityNames)
         val priceReadFunctions = functionNamesMatchingSeed(
@@ -680,7 +683,7 @@ object RellSecurityCheck {
                 )
                 findings += iccfProvenanceFindings(path, op, mutatingFunctions)
                 findings += majorityWithoutQuorumFindings(
-                    path, op, valueMutatingFunctions, quorumTermPresent, numericConstants
+                    path, op, valueMutatingFunctions, quorumTermPresent, numericConstants, tallyPairs
                 )
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
@@ -1537,11 +1540,85 @@ object RellSecurityCheck {
     // on a heuristic trains agents to route around it (observed); an advisory
     // names the invariant the developer must consciously own.
 
-    /** `yes_votes > no_votes` - two vote-tally terms compared to each other. */
+    /**
+     * `yes_votes > no_votes` - two vote-tally terms compared to each other,
+     * recognised by the WORDS vote/tally/ballot. Round 15 renamed the sample's
+     * `yes_votes`/`no_votes` to `ayes`/`noes`, changed nothing else, and the
+     * advisory went silent: a rule whose verdict turns on an identifier is
+     * keyed on what the author - or an attacker - chooses. The word list stays
+     * as one recogniser because it costs nothing and only ever produces false
+     * NEGATIVES when it misses; [tallyFieldPairs] is the structural one beside
+     * it, and it is what decides the renamed sample.
+     */
     private val MAJORITY_COMPARISON_REGEX = Regex(
         """[\w.]*(?:vote|tally|ballot)\w*\s*>=?\s*[\w.]*(?:vote|tally|ballot)\w*""",
         RegexOption.IGNORE_CASE
     )
+
+    /**
+     * A TALLY, STRUCTURALLY. Two DISTINCT mutable `integer` attributes of ONE
+     * entity or object that the submission
+     *   (a) COMPARES AGAINST EACH OTHER off the same row (`m.a > m.b`, or the
+     *       attribute-only form `.a > .b` inside an update or an at-expression),
+     *       which is what a majority gate is, and
+     *   (b) COUNTS TOGETHER - either SUMMED off that same row (`m.a + m.b`, the
+     *       participation-floor shape) or each INCREMENTED on its own somewhere
+     *       (`.a += 1` / `.b += 1`, which is what casting a vote for one side
+     *       does).
+     * Nothing in that is a name. Two balances of one row are not a tally: they
+     * are not both incremented and never compared to each other, and a pair
+     * that is compared but never counted is a bound, not a poll.
+     */
+    internal fun tallyFieldPairs(fullyMasked: Map<String, String>): Set<Pair<String, String>> {
+        val app = fullyMasked.filterKeys {
+            !RellLibs.isVendoredLibraryPath(it) && !RellLibs.isThirdPartyLibPath(it)
+        }
+        if (app.isEmpty()) return emptySet()
+        val text = app.values.joinToString("\n")
+        val byEntity = entityFields(app)
+            .filter { it.mutable && it.type.trim().trimEnd('?') == "integer" }
+            .groupBy({ it.entity }, { it.name })
+        val out = LinkedHashSet<Pair<String, String>>()
+        byEntity.values.forEach { raw ->
+            val names = raw.distinct()
+            for (i in names.indices) {
+                for (j in i + 1 until names.size) {
+                    val a = names[i]
+                    val b = names[j]
+                    if (!comparesFieldsToEachOther(text, a, b)) continue
+                    if (!countsFieldsTogether(text, a, b)) continue
+                    out += a to b
+                }
+            }
+        }
+        return out
+    }
+
+    /** `X.a <op> X.b` off the SAME receiver, or `.a <op> .b` with none. */
+    internal fun comparesFieldsToEachOther(text: String, a: String, b: String): Boolean {
+        val x = Regex.escape(a)
+        val y = Regex.escape(b)
+        val ops = """(?:>=|<=|>|<)"""
+        return listOf(x to y, y to x).any { (p, q) ->
+            Regex("""\b(\w+)\s*\.\s*$p\s*$ops\s*\1\s*\.\s*$q\b""").containsMatchIn(text) ||
+                Regex("""(?<![\w.])\.\s*$p\s*$ops\s*\.\s*$q\b""").containsMatchIn(text)
+        }
+    }
+
+    /** `X.a + X.b` off one row, or both fields incremented somewhere. */
+    private fun countsFieldsTogether(text: String, a: String, b: String): Boolean {
+        val x = Regex.escape(a)
+        val y = Regex.escape(b)
+        val summed = listOf(x to y, y to x).any { (p, q) ->
+            Regex("""\b(\w+)\s*\.\s*$p\s*\+\s*\1\s*\.\s*$q\b""").containsMatchIn(text) ||
+                Regex("""(?<![\w.])\.\s*$p\s*\+\s*\.\s*$q\b""").containsMatchIn(text)
+        }
+        if (summed) return true
+        fun incremented(f: String) =
+            Regex("""\.\s*${Regex.escape(f)}\s*\+=""").containsMatchIn(text) ||
+                Regex("""\.\s*${Regex.escape(f)}\s*=[^;]*\.\s*${Regex.escape(f)}\s*\+""").containsMatchIn(text)
+        return incremented(a) && incremented(b)
+    }
 
     /**
      * Evidence the governance thought about participation or weighting: a
@@ -1626,10 +1703,16 @@ object RellSecurityCheck {
         op: OperationBlock,
         valueMutatingFunctions: Set<String>,
         quorumTermPresent: Boolean,
-        constants: Map<String, Long> = emptyMap()
+        constants: Map<String, Long> = emptyMap(),
+        tallyPairs: Set<Pair<String, String>> = emptySet()
     ): List<Finding> {
         if (quorumTermPresent) return emptyList()
-        if (!MAJORITY_COMPARISON_REGEX.containsMatchIn(op.body)) return emptyList()
+        // THE MAJORITY GATE, by words OR by structure. The word list is the
+        // legacy recogniser; [tallyFieldPairs] is the one a rename cannot
+        // move, and either is enough to say this operation is gated on a poll.
+        val gatedOnATally = MAJORITY_COMPARISON_REGEX.containsMatchIn(op.body) ||
+            tallyPairs.any { (a, b) -> comparesFieldsToEachOther(op.body, a, b) }
+        if (!gatedOnATally) return emptyList()
         // THE STRUCTURAL SILENCER (round 14). The word list above is the
         // rule's legacy quieting bias and stays: it only ever produces false
         // NEGATIVES. This one is what a participation floor actually looks
