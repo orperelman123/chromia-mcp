@@ -96,7 +96,7 @@ class RuleRenameInvarianceTest {
         assertTrue(
             result.findings.isEmpty(),
             "$id: expected no findings on correct code; got " +
-                result.findings.joinToString("; ") { "${it.severity} ${it.rule} - ${it.message}" }
+                result.findings.joinToString("; ") { "${it.severity} ${it.rule} - ${it.text}" }
         )
     }
 
