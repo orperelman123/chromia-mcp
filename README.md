@@ -81,9 +81,19 @@ weakens, via `replacement`) the guard, reruns only that test, and reads *why* it
 
 - `load_bearing` — failed because the attack landed (`run_must_fail` reports "did not fail")
 - `vacuous` — stayed green without the guard; the test does not exercise it
-- `still_refused` — the guard's own operation still refused the attack (another `require` in it,
-  or a `module_args` bound); name it in `alsoRemove`. A refusal by a *later* operation or a
-  test-side assertion is the damage being noticed, and counts as `load_bearing`
+- `still_refused` — the guard's own declaration still refused the attack (another `require` in
+  it, or a `module_args` bound); name it in `alsoRemove`. A refusal counts as the guard's own
+  when the runner's frame — `[module:declaration(file:line)]` — names the declaration the guard
+  sits in, **module included**, or (for a guard in a `function`) any operation or query that
+  reaches it through your own call graph; and when it came from the **first** statement of the
+  test that invokes that declaration. A refusal by any other declaration, by the same one in a
+  *later* statement, or a test-side assertion, is the damage being noticed and counts as
+  `load_bearing`
+- `ambiguous_refusal` — red, and the tool cannot say which of those two it is: the error carries
+  no frame it recognises while the test does invoke the guard's own declaration, or that
+  declaration is invoked more than once and the error gave no line in the test to place the
+  failure in. Never counted as proven, and never a reason to weaken the test — the evidence text
+  says what to add
 - `environmental` — the mutant did not compile or lacked `moduleArgs`; proves nothing
 - `baseline_red` / `guard_not_found` / `guard_ambiguous` / `test_not_found` — the inputs cannot be verified yet
 - `replacement_rejected` / `also_remove_overlaps_guard` — the mutation itself is refused: a

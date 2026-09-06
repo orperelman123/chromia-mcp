@@ -73,6 +73,22 @@ Not "fewer than last round". Coverage moving is not a pass.
    another (`take` / `retake`); a refusal from the guard's own operation in
    a LATER transaction of the test after the attack landed in an earlier one;
    a query-side guard; a test that never runs the attacked operation at all.
+   Round 15 found four of those, one of them `ok:true`, and the fix stopped
+   patching the comparison: the guard's own declarations are RESOLVED THROUGH
+   CALLERS (a guard in a `function` belongs to the operations and queries that
+   reach it, transitively), frames are compared WITH THEIR MODULE, a refusal by
+   the guard's own declaration counts only from the FIRST statement of the test
+   that invokes it, and what the tool cannot tell apart is a new
+   `ambiguous_refusal` with ok:false. So round 16 attacks those three: the
+   CALLER RESOLUTION (a helper called through an interface or an `@extend`, a
+   same-named helper in two modules, a caller the bare-name graph misses); the
+   STATEMENT-ORDER rule (an attack and a later refusal inside ONE statement, a
+   test whose attack is in a loop or a helper, a multi-line statement whose
+   span swallows the later one); and the QUERY FRAME (a query refusal whose
+   frame names a file the submission spells differently, a refusal from inside
+   a library, an error with two frames of which the first is the innermost).
+   And `ambiguous_refusal` is itself new surface: a verdict an agent can make
+   the tool return on purpose is a verdict an agent can learn to ignore.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /

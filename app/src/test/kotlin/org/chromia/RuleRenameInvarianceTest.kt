@@ -166,4 +166,100 @@ class RuleRenameInvarianceTest {
             )
         )
     }
+
+    // =====================================================================
+    // ROUND 15. Four of the six samples below are rules that were SILENCED by
+    // something the author picks - a declared type, a decoy field name, an
+    // added ceiling, a literal floor - and one was a rule FIRING on a name.
+    // Each fix has to be keyed on structure, so each sample gets the same
+    // treatment: rename identifiers in both directions and require the verdict
+    // not to move. Renames are whole-identifier substitutions, so they change
+    // no type, no control flow and no data flow.
+    // =====================================================================
+
+    @Test
+    fun timestampDeclaredBalanceIsRenameInvariant() {
+        val id = "r15-ts-balance-declared-timestamp"
+        assertRenameInvariant(
+            id,
+            "every identifier the mint is spelled with" to mapOf(
+                "staker" to "position_row",
+                "last_claim" to "since_ms",
+                "elapsed" to "dt",
+                "reward" to "credit_amount",
+                "RATE" to "K"
+            ),
+            "the credited quantity is named like a deadline" to mapOf(
+                "reward" to "funded_until",
+                "last_claim" to "clock_at"
+            )
+        )
+    }
+
+    @Test
+    fun timestampDecoyFieldIsRenameInvariant() {
+        val id = "r15-ts-decoy-timestamp-field-elsewhere"
+        assertRenameInvariant(
+            id,
+            "the decoy entity is renamed" to mapOf("ledger_close" to "epoch_marker"),
+            "the mint's own row and locals are renamed" to mapOf(
+                "staker" to "position_row",
+                "elapsed" to "dt",
+                "reward" to "credit_amount"
+            )
+        )
+    }
+
+    @Test
+    fun upperBoundedVotingPeriodIsRenameInvariant() {
+        val id = "r15-vp-upper-bound-only"
+        assertRenameInvariant(
+            id,
+            "the window loses every word that reads like one" to mapOf(
+                "voting_period_ms" to "w",
+                "MAX_VOTING_MS" to "CAP",
+                "closes_at" to "z",
+                "motion" to "item"
+            ),
+            "the window is named like money" to mapOf("voting_period_ms" to "amount_per_period")
+        )
+    }
+
+    @Test
+    fun quorumFloorOfTwoIsRenameInvariant() {
+        val id = "r15-mq-floor-of-two"
+        assertRenameInvariant(
+            id,
+            "the motion and its payout are renamed" to mapOf(
+                "motion" to "item",
+                "payout" to "sum",
+                "beneficiary" to "to_key"
+            ),
+            "the tallies are renamed" to mapOf("yes_votes" to "ayes", "no_votes" to "noes")
+        )
+    }
+
+    @Test
+    fun enrolmentCheckQueryIsRenameInvariant() {
+        val id = "r15-qs-fp-enrolment-check"
+        assertCleanBaseline(id)
+        assertRenameInvariant(
+            id,
+            "the checked entity stops reading as secret" to mapOf("credential" to "enrolment_record"),
+            "the returned attribute is renamed" to mapOf("display_name" to "label")
+        )
+    }
+
+    @Test
+    fun secretThroughAHelperIsRenameInvariant() {
+        val id = "r15-qs-miss-secret-through-a-helper"
+        assertRenameInvariant(
+            id,
+            "the helper and the query are renamed" to mapOf(
+                "read_content" to "fetch",
+                "note_content" to "q"
+            ),
+            "an integer key is named like a secret" to mapOf("id" to "secret_id")
+        )
+    }
 }
