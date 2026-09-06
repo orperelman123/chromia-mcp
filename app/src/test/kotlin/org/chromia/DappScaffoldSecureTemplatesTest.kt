@@ -1827,6 +1827,11 @@ class DappScaffoldSecureTemplatesTest {
         // priced AT THE MARKET crosses every taker's limit and costs its author nothing,
         // and 100 such rows on five registrations took ten honest trades from 2.8s to 16.6s.
         assertTrue(main.contains("val MIN_NOTIONAL ="), "a resting order must be worth something the attacker pays for")
+        assertTrue(main.contains("val MIN_ORDER_UNITS ="), "round 15: a floor in quote units is no floor on the side that escrows base")
+        assertTrue(
+            opBody(code, "place_order").contains("require(left >= MIN_ORDER_UNITS, \"order size too small\");"),
+            "the floor must be priced in the asset EACH side escrows"
+        )
         assertTrue(
             opBody(code, "place_order").contains("require(price * left >= MIN_NOTIONAL, \"order notional too small\");"),
             "the notional floor applies to what RESTS - a taker's own small order is still a trade"
@@ -2423,6 +2428,7 @@ class DappScaffoldSecureTemplatesTest {
             "test_r12_settling_the_47_00_fixture_pays_the_same_three_numbers",
             "test_r13_settlement_cannot_race_a_healthy_debtors_par_exit_must_fail",
             "test_r13_burning_first_reaches_the_same_place",
+            "test_r15_a_par_exit_lowers_the_ratio_but_moves_no_collateral_must_fail",
             "test_r13_a_whale_withdrawal_cannot_open_settlement_must_fail",
             "test_r14_a_debt_free_depositor_is_not_frozen_by_someone_elses_debt_must_fail",
             "test_r14_a_failing_position_cannot_void_the_settlement_must_fail",
@@ -2441,7 +2447,8 @@ class DappScaffoldSecureTemplatesTest {
             "test_bounds_and_ownership",
             "test_round13_dust_book_cannot_tax_every_place_order_must_fail",
             "test_r14_a_second_key_buys_no_exit_a_one_account_maker_lacks_must_fail",
-            "test_r14_market_priced_dust_is_refused_must_fail"
+            "test_r14_market_priced_dust_is_refused_must_fail",
+            "test_r15_the_notional_floor_is_priced_on_both_sides_must_fail"
         )
     )
 
@@ -3007,6 +3014,29 @@ class DappScaffoldSecureTemplatesTest {
      * refused, goes through: run_must_fail reports that the transaction did not fail. The
      * position ratio check is left standing, so it cannot be what changed.
      */
+    /**
+     * ROUND 15: WHAT A PENDING SETTLEMENT ACTUALLY GUARANTEES. The residual list
+     * said the two operations left running RAISE the system's backing; a full par
+     * exit lowers it (99.3% -> 72.0%), and the header now says so. What holds is
+     * that no collateral LEAVES while an opening is pending - so drop
+     * not_pending() from withdraw_collateral and the debtor who has just stopped
+     * backing the coin walks out with her hundred tokens inside the window, while
+     * the 72%-backed position waits for phase two. The replay's must-fail
+     * withdrawal succeeds, so the case goes red because the attack landed.
+     */
+    @Test
+    fun stablecoinR15ReplayGoesRedWhenValueCanLeaveDuringAPendingSettlement() = assertGuardMutationRedensExploitTest(
+        "stablecoin",
+        "    not_pending();\n" +
+            "    val account = auth.authenticate();\n" +
+            "    val me = tokens_of(account.id);",
+        "    val account = auth.authenticate();\n" +
+            "    val me = tokens_of(account.id);",
+        "test_r15_a_par_exit_lowers_the_ratio_but_moves_no_collateral_must_fail",
+        "settlement is pending",
+        attackLanded
+    )
+
     @Test
     fun stablecoinR13ReplayGoesRedWithoutTheSystemBackingFloorOnWithdrawal() = assertGuardRemovalRedensExploitTest(
         "stablecoin",
@@ -3340,6 +3370,21 @@ class DappScaffoldSecureTemplatesTest {
      * reports that the transaction did not fail. The matcher's where-clause is untouched,
      * so this is the cap and nothing else.
      */
+    /**
+     * ROUND 15: THE FLOOR WAS PRICED IN QUOTE UNITS ONLY. Remove the base-side
+     * floor and a ONE-UNIT sell at a market of MIN_NOTIONAL clears the quote floor
+     * exactly, so one free registration stands a hundred crossing rows instead of
+     * twenty. The replay's must-fail sell succeeds, so the case goes red because
+     * the attack landed.
+     */
+    @Test
+    fun exchangeR15ReplayGoesRedWithoutTheBaseSideFloor() = assertGuardRemovalRedensExploitTest(
+        "exchange",
+        "        require(left >= MIN_ORDER_UNITS, \"order size too small\");",
+        "test_r15_the_notional_floor_is_priced_on_both_sides_must_fail",
+        "order size too small"
+    )
+
     @Test
     fun exchangeR13ReplayGoesRedWithoutThePerTraderOrderCap() = assertGuardRemovalRedensExploitTest(
         "exchange",

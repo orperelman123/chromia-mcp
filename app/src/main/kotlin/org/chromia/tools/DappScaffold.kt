@@ -4543,10 +4543,27 @@ object DappScaffold {
         //                      and the whale walked out with every token she came in with.
         //   SETTLEMENT IS   - opening settlement and closing it are two calls of settle(),
         //     TWO PHASES      SETTLEMENT_WINDOW_MS apart. While it is pending, the only
-        //                     operations that still run are the two that RAISE the system's
-        //                     backing - deposit_collateral and burn_stable - so a debtor
-        //                     whose position is sound always has a block in which to take
-        //                     the par exit. AN OPENING IS RESOLVED ONCE, AT OR AFTER ITS
+        //                     operations that still run are the two that CANNOT MOVE A
+        //                     TOKEN OUT OF THE RESERVE - deposit_collateral and
+        //                     burn_stable - so a debtor whose position is sound always has
+        //                     a block in which to take the par exit. Round 15 measured the
+        //                     sentence that used to stand here, "the two that RAISE the
+        //                     system's backing", and it is FALSE of burn_stable: a debtor
+        //                     who retires her LAST unit of debt stops backing the coin, so
+        //                     her whole collateral leaves backing_collateral with it and
+        //                     the RATIO FALLS. At 48.00, with 100 tokens against 3000 of
+        //                     coin beside a position holding 100 against 6666, her par
+        //                     exit took the system from 99.3% backed to 72.0% in one
+        //                     block. That fall is correct and it is not a leak: her
+        //                     collateral was never the holders' - round 14's drain was
+        //                     COUNTING it, which reported this same system 144% backed and
+        //                     voided the opening - and no token moved, because
+        //                     burn_stable only reclassifies collateral and
+        //                     withdraw_collateral is refused for the whole window. WHAT
+        //                     HOLDS WHILE AN OPENING IS PENDING is therefore this, and it
+        //                     is what the shipped replay asserts: NO COLLATERAL LEAVES THE
+        //                     RESERVE, and the fall cannot void the opening either, since
+        //                     a void needs backing to RISE over the bonus line. AN OPENING IS RESOLVED ONCE, AT OR AFTER ITS
         //                     WINDOW, and it is voided only by a system that has climbed
         //                     back OVER THE BONUS LINE - the same 105% every other
         //                     value-moving operation clears - so a void puts everybody back
@@ -4778,8 +4795,14 @@ object DappScaffold {
 
         // ...and every operation that takes value OUT of the system also starts here.
         // While a settlement is pending the only two operations that run are the ones that
-        // RAISE the system's backing, deposit_collateral and burn_stable: a shortfall that
-        // somebody has already shown at a fresh price is not the moment to let value leave.
+        // CANNOT MOVE A TOKEN OUT OF THE RESERVE, deposit_collateral and burn_stable: a
+        // shortfall that somebody has already shown at a fresh price is not the moment to
+        // let value leave. NOT "the two that raise the system's backing" - that is what
+        // this comment used to say and round 15 measured it false, because a FULL par exit
+        // retires the debtor's last unit of debt and her collateral stops backing the coin
+        // in the same block (99.3% -> 72.0% at 48.00). The ratio can fall here. What
+        // cannot happen is a token leaving: burn_stable reclassifies collateral and moves
+        // none, and everything that would move one is refused below.
         function not_pending() {
             require(not settlement.open, "settlement is pending - deposit or burn until it closes");
         }
@@ -5666,6 +5689,67 @@ object DappScaffold {
             assert_equals(main.get_cdp(alice.account.id)!!.debt, 0);
             signed(trudy.keypair, main.redeem_settled(6666));
             assert_equals(main.get_tokens(trudy.account.id), 100);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 15 read the residual list and measured the sentence
+        // "the only operations that still run are THE TWO THAT RAISE THE SYSTEM'S BACKING
+        // - deposit_collateral and burn_stable". burn_stable does not raise it: a debtor
+        // who retires her LAST unit of debt stops backing the coin in that block, so her
+        // whole collateral leaves backing_collateral against a much smaller debt and the
+        // RATIO FALLS - 99.3% to 72.0% at 48.00, measured here.
+        //
+        // The header now says that, and this test pins what IS true of the window, which
+        // is the property the sentence was reaching for: while an opening is pending NO
+        // COLLATERAL LEAVES THE RESERVE. burn_stable moves no tokens at all, every
+        // operation that could move one is refused, and the fall cannot void the opening
+        // because a void needs backing to RISE over the bonus line. Counting her
+        // collateral instead - the other way to make the old sentence true - is round 14's
+        // drain: it reports this system 144% backed and voids the opening while the 72%
+        // position stands.
+        function test_r15_a_par_exit_lowers_the_ratio_but_moves_no_collateral_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            crash_r13(alice.keypair, trudy.keypair);
+
+            val before = main.get_system();
+            assert_equals(before.backing_collateral, 200);
+            assert_equals(before.total_collateral, 200);
+            assert_equals(before.total_debt, 9666);
+            // 200 tokens at 48.00 = 9600 against 9666 of coin: 99.3%, short.
+            settle_by(trudy.keypair);
+            assert_true(main.settlement_pending());
+
+            // ALICE TAKES THE PAR EXIT THE WINDOW EXISTS FOR, in full.
+            signed(alice.keypair, main.burn_stable(3000));
+            val after_burn = main.get_system();
+            // Her 100 tokens left the BACKING with her last unit of debt: 100 * 48.00 =
+            // 4800 against 6666 of coin is 72.0%, down from 99.3%. The old sentence said
+            // this operation raises the backing.
+            assert_equals(after_burn.backing_collateral, 100);
+            assert_equals(after_burn.total_debt, 6666);
+            assert_true(main.backing_matches_positions());
+            // AND THE PROPERTY THAT DOES HOLD: not one token left the reserve. This is
+            // the line the mutant reddens.
+            assert_equals(after_burn.total_collateral, 200);
+            signed_must_fail(alice.keypair, main.withdraw_collateral(100), "settlement is pending");
+            signed_must_fail(trudy.keypair, main.withdraw_collateral(1), "settlement is pending");
+            assert_equals(main.get_system().total_collateral, 200);
+            assert_equals(main.get_tokens(alice.account.id), 0);
+            assert_conserved();
+
+            // ...and the fall does not void the opening: a void needs backing to RISE
+            // over the bonus line, so phase two runs at the price the opening recorded.
+            after(main.SETTLEMENT_WINDOW_MS + 1000);
+            settle_by(trudy.keypair);
+            assert_true(main.get_system().settled);
+            assert_equals(main.get_system().settlement_pool, 100);
+            assert_equals(main.get_system().settlement_supply, 6666);
+            // Her collateral was never the holders': she owes nothing, so all hundred
+            // come back to her, which is what makes the fall correct rather than a leak.
+            assert_equals(main.get_tokens(alice.account.id), 100);
             assert_conserved();
         }
 
@@ -6950,9 +7034,12 @@ object DappScaffold {
         //                   what crosses. Say it that way round when you extend this: an
         //                   order that does not cross the taker's limit costs a place_order
         //                   nothing, and one that does costs a row's worth of filtering.
-        //                   AND THE BOOK IS BOUNDED BY WHAT AN ATTACKER PAYS FOR. A resting
-        //                   order must be worth MIN_NOTIONAL - price * qty - and a trader
-        //                   may stand at most MAX_RESTING_ORDERS quotes at once. The cap
+        //                   AND THE BOOK IS BOUNDED BY WHAT AN ATTACKER PAYS FOR, ON BOTH
+        //                   SIDES. A resting order must be worth MIN_NOTIONAL in QUOTE
+        //                   units - price * qty, which is what a BID escrows - AND
+        //                   MIN_ORDER_UNITS in BASE units, which is what a SELL escrows;
+        //                   and a trader may stand at most MAX_RESTING_ORDERS quotes at
+        //                   once. The cap
         //                   alone is not a bound and this header used to say it was ("the
         //                   book is bounded by the traders in it rather than by what one
         //                   welcome grant can buy"): a trader is a FREE FT4 REGISTRATION
@@ -6966,14 +7053,25 @@ object DappScaffold {
         //                   behind an empty book and 16.6 SECONDS behind 100 one-unit sells
         //                   at the market standing on FIVE free registrations, and at 200
         //                   rows the run sat on the runner's 90-second cap. MIN_NOTIONAL is
-        //                   what makes those rows cost something: at a market of 20 a
-        //                   welcome grant of 100 units is 2000 of notional, so it buys TWO
-        //                   crossing rows and not twenty, and a hundred of them needs fifty
-        //                   funded accounts offering 5000 units of real inventory at the
-        //                   market - which is a market and not a denial of service. Size
-        //                   MIN_NOTIONAL against what a grant (or, in production, the
-        //                   cheapest funded account) can hold: the bound is
-        //                   holdings * price / MIN_NOTIONAL rows per account.
+        //                   what makes those rows cost something. ROUND 15 MEASURED THE
+        //                   PRICE OF STATING THAT BOUND FOR ONE SIDE ONLY: this header used
+        //                   to say "a welcome grant of 100 units is 2000 of notional, so it
+        //                   buys TWO crossing rows ... a hundred of them needs fifty funded
+        //                   accounts", which is the SELL side at a market of 20. A SELL
+        //                   taker walks the BID side, and a bid escrows POINTS: the
+        //                   10000-point welcome grant buys TEN crossing bids of exactly
+        //                   MIN_NOTIONAL, so a hundred crossing rows needed TEN free
+        //                   registrations and not fifty - the stated bound was 5x wrong for
+        //                   half the book. Worse, the quote floor is no floor at all on the
+        //                   sell side at a high price: at a market of MIN_NOTIONAL a
+        //                   ONE-UNIT sell clears it exactly, so one grant of 100 units
+        //                   stands a HUNDRED rows. THE BOUND, NOW, AND IT DOES NOT MOVE
+        //                   WITH THE PRICE: WELCOME_POINTS / MIN_NOTIONAL rows on the bid
+        //                   side (ten) and WELCOME_UNITS / MIN_ORDER_UNITS on the sell side
+        //                   (twenty, which is MAX_RESTING_ORDERS, so the cap binds there
+        //                   first). Size BOTH floors against what a grant - or, in
+        //                   production, the cheapest funded account - can hold, and read
+        //                   the CHEAPER side, because that is the one an attacker uses.
         //                   Round 13 measured the unfiltered, unbounded version:
         //                   best_resting was `for (o in order @* {})` - the whole table,
         //                   filtered in Rell afterwards - so the header's own advice,
@@ -7073,6 +7171,15 @@ object DappScaffold {
         // trader creates - round 13 filled the book with 1-point bids nobody would ever
         // reach and made every place_order pay for them. Size it against how many price
         // levels a real maker quotes; it is a constant, never a parameter.
+        // ...and in the asset the OTHER side escrows. MIN_NOTIONAL is priced in QUOTE
+        // units, which is what a bid escrows; a SELL escrows base units, and at a market
+        // of MIN_NOTIONAL a one-unit sell clears the quote floor exactly - so the quote
+        // floor alone bounds a free registration's sells at 100 rows rather than at two,
+        // and the bound moves with the price. This one does not: whatever the price, a
+        // resting order is at least MIN_ORDER_UNITS of base. Size it WITH the welcome
+        // grant and with MAX_RESTING_ORDERS - 100 units of grant at 5 units a row is
+        // twenty rows, which is exactly the cap, so neither constant is slack.
+        val MIN_ORDER_UNITS = 5;
         val MAX_RESTING_ORDERS = 20;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
@@ -7181,12 +7288,22 @@ object DappScaffold {
             // 5. REST what is left, escrowed in the same operation that creates the row.
             if (left > 0) {
                 val me = trader_of(account.id);
-                // A BOOK BOUNDED BY WHAT IT COSTS TO FILL. The row must be worth
-                // MIN_NOTIONAL - round 14 measured one-unit rows AT THE MARKET PRICE
+                // A BOOK BOUNDED BY WHAT IT COSTS TO FILL, ON BOTH SIDES. The row must be
+                // worth MIN_NOTIONAL - round 14 measured one-unit rows AT THE MARKET PRICE
                 // crossing every taker's limit at no cost to their author, five free
                 // registrations paying for a hundred of them and a 5.9x tax on ten honest
                 // trades. This is on the REMAINDER, so a taker's small order still trades.
                 require(price * left >= MIN_NOTIONAL, "order notional too small");
+                // ...AND IT MUST BE WORTH MIN_ORDER_UNITS OF BASE. The line above is
+                // priced in QUOTE units, which is what a BID escrows, and round 15 showed
+                // both halves of what that misses: a bid's escrow is points, so the
+                // 10000-point welcome grant stands TEN of those rows and a hundred
+                // crossing bids needs TEN free registrations where this header used to
+                // claim fifty; and a SELL escrows base, so at a market of MIN_NOTIONAL a
+                // ONE-UNIT sell clears the quote floor exactly and one grant stands a
+                // hundred rows. A floor has to be denominated in what the side actually
+                // parts with, or its bound moves with the price.
+                require(left >= MIN_ORDER_UNITS, "order size too small");
                 // ...and a trader may stand only so many at once. A cancelled row keeps its
                 // slot until its escrow has rested: the slot is the capital, not the quote.
                 require(
@@ -7345,6 +7462,43 @@ object DappScaffold {
 
         val HOUR = 60 * 60 * 1000;
 
+        // EXPLOIT MUST FAIL. Round 15: the notional floor was priced on the SELL side
+        // only. A bid escrows POINTS, so the 10000-point welcome grant stands TEN
+        // crossing bids of exactly MIN_NOTIONAL - round 15 stood a hundred of them on
+        // TEN free registrations where the header claimed fifty. And the quote floor is
+        // no floor on the sell side at a high price: at a market of MIN_NOTIONAL a
+        // one-unit sell clears it exactly, so one grant would stand a hundred rows.
+        // Each side is now floored in the asset it escrows, and neither bound moves
+        // with the price.
+        function test_r15_the_notional_floor_is_priced_on_both_sides_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_trader());
+            signed(bob.keypair, main.register_trader());
+
+            // THE BID SIDE. Ten rows of exactly MIN_NOTIONAL is the whole grant: what a
+            // free registration can stand on this side is WELCOME_POINTS / MIN_NOTIONAL,
+            // and it does not change with the market.
+            var i = 0;
+            while (i < 10) {
+                signed(alice.keypair, main.place_order(true, 20, 50));
+                i += 1;
+            }
+            assert_equals(main.get_points(alice.account.id), 0);
+            signed_must_fail(alice.keypair, main.place_order(true, 20, 50), "insufficient points");
+            assert_equals(main.trader_count(), 2);
+
+            // THE SELL SIDE, at the price where the quote floor stops being one. THE LINE
+            // THE MUTANT REDDENS: one unit at a market of MIN_NOTIONAL is worth exactly
+            // MIN_NOTIONAL, so the quote floor admits it and a hundred of them fit in one
+            // welcome grant.
+            signed_must_fail(bob.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "order size too small");
+            // What a sell costs is bounded in the asset it escrows, at any price.
+            signed(bob.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS));
+            assert_equals(main.get_units(bob.account.id), main.WELCOME_UNITS - main.MIN_ORDER_UNITS);
+            assert_conserved();
+        }
+
         // EXPLOIT MUST FAIL. Round 13: the dust book. best_resting() was
         // `for (o in order @* {})` - the whole order table, filtered in Rell afterwards -
         // so the header's own advice, "index price and side before your book is large",
@@ -7373,16 +7527,22 @@ object DappScaffold {
 
             // ROUND 13'S ROW, at one point of escrow: refused before it is counted.
             signed_must_fail(trudy.keypair, main.place_order(true, 1, 1), "order notional too small");
-            // The cheapest rows she can actually stand: one unit each at MAX_PRICE / 1000,
-            // which is MIN_NOTIONAL exactly.
+            // The cheapest rows she can actually stand: MIN_ORDER_UNITS each at
+            // MAX_PRICE / 1000. One unit at that price clears the QUOTE floor exactly and
+            // is refused by the BASE floor - round 15's half of this bound.
+            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "order size too small");
             var i = 0;
             while (i < main.MAX_RESTING_ORDERS) {
-                signed(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1));
+                signed(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS));
                 i += 1;
             }
-            // THE BOUND. Round 13's version would have paid for 10000 rows.
-            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, 1), "too many resting orders");
-            assert_equals(main.get_units(trudy.account.id), main.WELCOME_UNITS - main.MAX_RESTING_ORDERS);
+            // THE BOUND. Round 13's version would have paid for 10000 rows, and the
+            // quote-floor-only version for a hundred at this price.
+            signed_must_fail(trudy.keypair, main.place_order(false, main.MIN_NOTIONAL, main.MIN_ORDER_UNITS), "too many resting orders");
+            assert_equals(
+                main.get_units(trudy.account.id),
+                main.WELCOME_UNITS - main.MAX_RESTING_ORDERS * main.MIN_ORDER_UNITS
+            );
 
             // And the rows that ARE resting are not on the path of a crossing order: alice
             // sells 50 at 20 and bob buys 50 at 20 through a book of asks at 1000, which
