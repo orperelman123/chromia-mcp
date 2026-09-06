@@ -312,10 +312,31 @@ object DeploymentPreflight {
         // ---- container -------------------------------------------------------
         if (dep != null) {
             val container = dep.scalar("container")?.trim().orEmpty()
-            val containerFix =
-                "Lease a container (testnet: ${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}; mainnet: " +
-                    "${VaultLeaseHelp.MAINNET_VAULT_CONTAINERS} after a >=10 CHR deposit) and put the " +
-                    "real Container ID here - a human Vault web step this tool cannot do."
+            // AUDIT F3 (2026-09-06): this line said "a human Vault web step this
+            // tool cannot do" while the SAME JAR ships provision_testnet_container
+            // and claim_testnet_tchr, and the deploy journey stopped here every
+            // time. Name the tool that does it, and the one condition in which it
+            // cannot: no funding key on the server means a dry run that signs
+            // nothing - the server operator's configuration, not a browser.
+            val containerFix = if (trimmedTarget.equals("testnet", ignoreCase = true)) {
+                "Call provision_testnet_container - it leases a testnet container headlessly (call " +
+                    "claim_testnet_tchr first if the funding account is short of tCHR: " +
+                    "FT4-authenticated, 1000 tCHR per account per 7 days, no captcha and no website) " +
+                    "- and put the returned Container ID here. THE ONE CONDITION IN WHICH IT CANNOT: " +
+                    "with no funding key registered on the server (env " +
+                    "${TestnetProvisioning.FUNDING_KEY_ENV} or ${TestnetProvisioning.FUNDING_KEY_ID_ENV}) " +
+                    "it answers status \"dry_run\" / \"blocked_human_step\" and signs nothing - that " +
+                    "is the server operator configuring a key, not a human opening a browser. Manual " +
+                    "fallback if the operator will not: lease at " +
+                    "${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS} (tCHR from " +
+                    "${VaultLeaseHelp.TESTNET_FAUCET}, captcha)."
+            } else {
+                "Lease a mainnet container at ${VaultLeaseHelp.MAINNET_VAULT_CONTAINERS} after a " +
+                    ">=10 CHR deposit (${VaultLeaseHelp.MAINNET_VAULT_DEPOSIT}) and put the real " +
+                    "Container ID here. No tool on this server leases on mainnet - " +
+                    "provision_testnet_container is testnet only - so this one really is a human " +
+                    "Vault web step."
+            }
             when {
                 container.isEmpty() -> findings += Finding(
                     SEVERITY_BLOCKER, "container",

@@ -106,13 +106,25 @@ class OnboardingNextStepToolTest {
         assertTrue(key.nextAction.how.contains("chr keygen"), key.nextAction.how)
         assertTrue(key.nextAction.how.contains("never generates"), key.nextAction.how)
 
+        // AUDIT F3 (2026-09-06): this server ships claim_testnet_tchr and
+        // provision_testnet_container, so with them registered the tCHR + lease
+        // step is an AGENT step naming both tools - it used to be a "human"
+        // step pointing at a captcha the server does not need, and the deploy
+        // journey ended there. The browser facts survive as the fallback.
         val container = plan(built.copy(hasTestnetKey = true))
         assertEquals("testnet_container", container.stage)
-        assertEquals("human", container.nextAction.who)
+        assertEquals("agent", container.nextAction.who)
         val how = container.nextAction.how
+        assertTrue(how.contains("claim_testnet_tchr"), how)
+        assertTrue(how.contains("provision_testnet_container"), how)
+        assertTrue(how.contains("no captcha and no website"), how)
+        // The one condition in which the tools cannot: no funding key on the
+        // SERVER - the operator's configuration, not a human with a browser.
+        assertTrue(how.contains("CHROMIA_TESTNET_FUNDING_PRIVKEY"), how)
+        assertTrue(how.contains("dry run"), how)
+        // The manual fallback is still stated, with the same dated facts.
         assertTrue(how.contains("https://faucet.testnet.chromia.com"), how)
         assertTrue(how.contains("captcha"), how)
-        assertTrue(how.contains("1000 tCHR per 7 days"), how)
         assertTrue(how.contains("https://vault.testnet.chromia.com/en/containers/"), how)
         // Docs publish no fixed CHR-per-SCU price - the lease is priced at lease
         // time; the ~35 figure is a dated live observation, never a quoted price.
@@ -120,12 +132,18 @@ class OnboardingNextStepToolTest {
         assertTrue(how.contains("~35 tCHR/SCU-week"), how)
         assertTrue(how.contains("2026-09-01"), how)
         assertTrue(how.contains("1-12 weeks"), how)
-        // The pmc alternative exists and must be named honestly - it needs a
-        // provider account, so it is disclosed as a non-agent path, not hidden
-        // behind a false "no API" claim.
-        assertTrue(how.contains("pmc economy claim-test-chr"), how)
-        assertTrue(how.contains("provider account"), how)
         assertFalse(how.contains("no API"), how)
+
+        // With those tools NOT registered, the honest browser answer is restored
+        // in full - including the pmc disclosure.
+        val manual = plan(
+            built.copy(hasTestnetKey = true),
+            registered = tools - OnboardingNextStep.TESTNET_CONTAINER_TOOLS
+        )
+        assertEquals("human", manual.nextAction.who)
+        assertTrue(manual.nextAction.how.contains("pmc economy claim-test-chr"), manual.nextAction.how)
+        assertTrue(manual.nextAction.how.contains("provider account"), manual.nextAction.how)
+        assertTrue(manual.nextAction.how.contains("1000 tCHR per 7 days"), manual.nextAction.how)
 
         val config = plan(built.copy(hasTestnetKey = true, hasTestnetContainer = true))
         assertEquals("deployment_config", config.stage)
@@ -161,14 +179,26 @@ class OnboardingNextStepToolTest {
     @Test
     fun humanOnlyStepsAreListedAsBlockersWithUrls() {
         val result = plan(built.copy(goal = "testnet"))
-        assertEquals(2, result.blockers.size, result.blockers.toString())
+        // AUDIT F3: one blocker, not two. `chr keygen` really is a human step -
+        // this server never handles key material. The tCHR + lease step is not,
+        // because claim_testnet_tchr and provision_testnet_container ship here.
+        assertEquals(1, result.blockers.size, result.blockers.toString())
         assertTrue(result.blockers.any { it.contains("chr keygen") }, result.blockers.toString())
-        assertTrue(
+        assertFalse(
             result.blockers.any { it.contains("https://faucet.testnet.chromia.com") },
-            result.blockers.toString()
+            "the faucet is not a blocker on a server that claims tCHR itself: ${result.blockers}"
         )
         // Agent steps are never blockers.
         assertFalse(result.blockers.any { it.contains("write_deployment_config") })
+
+        // Take the two provisioning tools away and the browser blocker is back,
+        // saying WHY: this server does not register them.
+        val manual = plan(built.copy(goal = "testnet"), registered = tools - OnboardingNextStep.TESTNET_CONTAINER_TOOLS)
+        assertEquals(2, manual.blockers.size, manual.blockers.toString())
+        assertTrue(
+            manual.blockers.any { it.contains("https://faucet.testnet.chromia.com") },
+            manual.blockers.toString()
+        )
     }
 
     // ---- mainnet journey -----------------------------------------------------
