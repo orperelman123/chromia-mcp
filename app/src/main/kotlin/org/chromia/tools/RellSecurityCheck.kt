@@ -581,11 +581,23 @@ object RellSecurityCheck {
         val identityFieldNames = entityFields(fullyMasked)
             .filter { it.type.trimEnd('?') == "byte_array" }
             .mapTo(mutableSetOf()) { it.name }
-        // Declared-timestamp attributes: times, never quantities (see the
-        // unbacked-conversion-credit rule).
-        val timestampTypedFields = entityFields(fullyMasked)
+        // Module-level integer constants of the app's own files: `val X = 12;`.
+        // A rule that treats a literal floor as no floor must resolve a named
+        // constant to its literal, or extracting the constant is the evasion.
+        val numericConstants: Map<String, Long> = fullyMasked
+            .filterKeys { !RellLibs.isVendoredLibraryPath(it) && !RellLibs.isThirdPartyLibPath(it) }
+            .values
+            .flatMap { NUMERIC_CONSTANT_REGEX.findAll(it).toList() }
+            .mapNotNull { m -> m.groupValues[2].toLongOrNull()?.let { m.groupValues[1] to it } }
+            .toMap()
+        // Declared-timestamp attributes, keyed by (ENTITY, FIELD). Round 14
+        // keyed this on the bare field name over the whole submission, so one
+        // unrelated entity with a time field called `balance` silenced the
+        // unbacked-conversion-credit rule for every `balance` in the
+        // submission (round 15, r15-ts-decoy-timestamp-field-elsewhere).
+        val timestampTypedFields: Set<Pair<String?, String>> = entityFields(fullyMasked)
             .filter { it.type.trimEnd('?') == "timestamp" }
-            .mapTo(mutableSetOf()) { it.name }
+            .mapTo(mutableSetOf()) { it.entity as String? to it.name }
         // Entity declarations of the APP's own files: what a query can return is
         // decided by the attributes and their declared TYPES, not by the words
         // around the query (round 14).
@@ -646,7 +658,9 @@ object RellSecurityCheck {
             if (!RunRellTests.isTestModuleSource(content)) {
                 val queries = scanQueries(masked)
                 queriesScanned += queries.size
-                queries.forEach { q -> findings += querySecretExposureFindings(path, q, appFieldsByEntity) }
+                queries.forEach { q ->
+                    findings += querySecretExposureFindings(path, q, appFieldsByEntity, inlinable, allEntityNames)
+                }
             }
             val authMarkers = authMarkersFor(masked, distrust)
             val ops = scanOperations(path, masked)
@@ -665,7 +679,9 @@ object RellSecurityCheck {
                     path, op, requireFunctions, knownFunctions, mutatingFunctions, allEntityNames
                 )
                 findings += iccfProvenanceFindings(path, op, mutatingFunctions)
-                findings += majorityWithoutQuorumFindings(path, op, valueMutatingFunctions, quorumTermPresent)
+                findings += majorityWithoutQuorumFindings(
+                    path, op, valueMutatingFunctions, quorumTermPresent, numericConstants
+                )
                 findings += unboundedTimeWindowFindings(path, op, requireFunctions)
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
@@ -1537,6 +1553,9 @@ object RellSecurityCheck {
      * prefer missing a quorumless DAO in a codebase that uses these words
      * elsewhere over advising a designer who demonstrably weighed votes.
      */
+    /** `val NAME = 12;` at any indentation - a named integer constant. */
+    private val NUMERIC_CONSTANT_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*=\s*(-?\d+)\s*;""")
+
     private val QUORUM_TERM_REGEX = Regex(
         """quorum|threshold|min_votes|min_yes|total_members|member_count|total_votes|total_supply|voting_power|weight|stake""",
         RegexOption.IGNORE_CASE
@@ -1579,15 +1598,35 @@ object RellSecurityCheck {
         """\.\s*[A-Za-z_]\w*\s*\+\s*[\w.]*\.\s*[A-Za-z_]\w*\s*(?:>=|>)\s*([\w.]+)"""
     )
 
+    /**
+     * A QUORUM IS RELATIVE TO THE ELECTORATE. Round 15 wrote
+     * `require(m.yes_votes + m.no_votes >= 2)` - exactly the shape this
+     * recognised - into a treasury payout and the advisory went silent, while
+     * two free registrations still carried the vote. A floor that is a bare
+     * number bounds participation against nothing: the roll can be ten or ten
+     * thousand and the bar does not move. So the term the sum is compared
+     * against must be relative - a field read (`total_members`,
+     * `floor_at_creation`), a call, an expression - or, if it really is a
+     * constant, one an attacker has to pay for. [constants] resolves a named
+     * `val` to its literal so that extracting `val MIN_VOTES = 2` cannot buy
+     * the silence a literal 2 no longer buys.
+     */
+    private const val SMALLEST_ABSOLUTE_FLOOR = 10L
+
     /** True when [body] compares a SUM of two field reads against a real floor. */
-    internal fun hasParticipationFloor(body: String): Boolean =
-        PARTICIPATION_FLOOR_REGEX.findAll(body).any { it.groupValues[1] !in setOf("0", "1") }
+    internal fun hasParticipationFloor(body: String, constants: Map<String, Long> = emptyMap()): Boolean =
+        PARTICIPATION_FLOOR_REGEX.findAll(body).any { m ->
+            val term = m.groupValues[1]
+            val literal = term.toLongOrNull() ?: constants[term]
+            if (literal == null) true else literal >= SMALLEST_ABSOLUTE_FLOOR
+        }
 
     private fun majorityWithoutQuorumFindings(
         path: String,
         op: OperationBlock,
         valueMutatingFunctions: Set<String>,
-        quorumTermPresent: Boolean
+        quorumTermPresent: Boolean,
+        constants: Map<String, Long> = emptyMap()
     ): List<Finding> {
         if (quorumTermPresent) return emptyList()
         if (!MAJORITY_COMPARISON_REGEX.containsMatchIn(op.body)) return emptyList()
@@ -1595,7 +1634,7 @@ object RellSecurityCheck {
         // rule's legacy quieting bias and stays: it only ever produces false
         // NEGATIVES. This one is what a participation floor actually looks
         // like, and it is immune to what the designer calls it.
-        if (hasParticipationFloor(op.body)) return emptyList()
+        if (hasParticipationFloor(op.body, constants)) return emptyList()
         val calls = calledNames(op.body)
         val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
         if (!movesValue) return emptyList()
@@ -1623,9 +1662,6 @@ object RellSecurityCheck {
         RegexOption.IGNORE_CASE
     )
 
-    /** `+` / `-` joining a clock and an offset - not `+=`, `-=` or `->`. */
-    private val ADDITIVE_OP_REGEX = Regex("""[+\-](?![=>])""")
-
     /**
      * MEDIUM when a caller-supplied integer parameter is ADDED TO (or
      * subtracted from) the block clock inside ONE expression - which is what
@@ -1647,18 +1683,38 @@ object RellSecurityCheck {
      * to silence this advisory. Renaming that one parameter - changing no other
      * character - reported zero findings, which is principle 2 in reverse.
      *
-     * Two structural changes close it, and neither reads a name, so no rename
-     * of anything can change the verdict:
+     * Two structural changes closed it in round 14, and neither reads a name,
+     * so no rename of anything can change the verdict:
      *  - the parameter must appear in the SAME EXPRESSION as the clock, joined
      *    by `+`/`-`. Expressions are statements split on top-level `,` as well
      *    as `;`, because the argument slots of one `create` are separate
      *    expressions that happen to share a statement.
      *  - ANY comparison of the parameter against something other than the
-     *    literal 0 silences it, not only a lower bound. An author who wrote
-     *    `require(valid_ms <= MAX_OFFER_MS)` has thought about the range of
-     *    this number; the marketplace template's offer validity is exactly that
-     *    shape, and firing there would be the gate crying wolf on code this
-     *    server ships (principle 3).
+     *    literal 0 silenced it, not only a lower bound.
+     *
+     * ROUND 15 BROKE THE SECOND ONE with a single added line:
+     * `require(voting_period_ms <= MAX_VOTING_MS)` while `voting_period_ms = 1`
+     * was still accepted. A ceiling bounds how LONG a window may be and says
+     * nothing about whether it is EMPTY, which is the entire finding. So only a
+     * LOWER bound counts now - `>=`/`>` against something that is not the
+     * literal 0, a `<=`/`<` with the parameter on the right, `max(param, MIN)`,
+     * or validation delegated to a require()-bearing helper.
+     *
+     * That is only safe because the first condition got tighter at the same
+     * time. Round 14 read a whole comma-fragment as "the expression", so
+     * `now + ms_bought(funding, period_ms, fee)` made MONEY (`funding`) look
+     * like a window and an upper bound was the only thing keeping the shipped
+     * subscription template quiet. The parameter must now be a DIRECT operand
+     * of the additive join with the clock: split the expression on its
+     * top-level `+`/`-`, one term reads the clock and another IS the parameter
+     * with no call around it. A duration a function returns is the window; the
+     * arguments that function was passed are not.
+     *
+     * The one place this newly fires on shipped code is the marketplace
+     * template's `make_offer`, which had a ceiling and no floor - and its own
+     * `start_auction` already floors `duration_ms` at MIN_AUCTION_MS for
+     * exactly this reason ("an auction nobody can reach"). The template gained
+     * the matching MIN_OFFER_MS rather than the rule gaining an exception.
      *
      * Advisory, never blocking: the right minimum is a design number the gate
      * cannot know, and some windows (short auctions, heartbeats) are
@@ -1670,22 +1726,38 @@ object RellSecurityCheck {
         requireFunctions: Set<String>
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
-        val expressions = op.body.split(';', ',')
+        val expressions = statementsOf(op.body).flatMap { argumentExpressions(it) }
         parseParams(op.params).forEach { (name, type) ->
             if (!type.lowercase().contains("integer")) return@forEach
             val esc = Regex.escape(name)
             val paramRef = Regex("""\b$esc\b""")
+            // THE PARAMETER MUST BE THE WINDOW, not merely near one. It is a
+            // DIRECT operand of the additive join with the clock: split the
+            // expression on its top-level `+`/`-`, one term must read the
+            // clock and another must be the parameter with no call around it.
+            // `now + ms_bought(amount, period_ms, fee)` therefore makes NONE
+            // of those three arguments a window - the duration is what the
+            // call returns - which is what keeps the subscription template's
+            // `funding` (money) out of this rule now that an upper bound no
+            // longer silences it.
             val timed = expressions.any { expr ->
-                paramRef.containsMatchIn(expr) &&
-                    BLOCK_CLOCK_READ_REGEX.containsMatchIn(expr) &&
-                    ADDITIVE_OP_REGEX.containsMatchIn(expr)
+                if (!BLOCK_CLOCK_READ_REGEX.containsMatchIn(expr)) return@any false
+                val terms = splitTopLevel(expr, "+-")
+                terms.size > 1 && terms.any { BLOCK_CLOCK_READ_REGEX.containsMatchIn(it) } &&
+                    terms.any { t -> paramRef.containsMatchIn(t) && !t.contains('(') }
             }
             if (!timed) return@forEach
-            // Any bound at all, in either direction, against anything but 0.
-            val bounds =
-                Regex("""\b$esc\b\s*(?:>=|<=|>|<)\s*([\w.]+)""").findAll(op.body).map { it.groupValues[1] } +
-                    Regex("""([\w.]+)\s*(?:>=|<=|>|<)\s*\b$esc\b""").findAll(op.body).map { it.groupValues[1] }
-            if (bounds.any { it != "0" }) return@forEach
+            // A LOWER bound, and only a lower bound. Round 15 silenced this
+            // rule with `require(voting_period_ms <= MAX_VOTING_MS)` while
+            // `voting_period_ms = 1` was still accepted: a ceiling bounds how
+            // LONG the window is and says nothing about whether it is empty,
+            // which is the whole of this finding.
+            val lowerBounds =
+                Regex("""\b$esc\b\s*(?:>=|>)\s*([\w.]+)""").findAll(op.body).map { it.groupValues[1] } +
+                    Regex("""([\w.]+)\s*(?:<=|<)\s*\b$esc\b""").findAll(op.body).map { it.groupValues[1] }
+            if (lowerBounds.any { it != "0" }) return@forEach
+            // `max(param, MIN_MS)` is a floor spelled as arithmetic.
+            if (Regex("""\bmax\s*\([^)]*\b$esc\b[^)]*\)""").containsMatchIn(op.body)) return@forEach
             // Validation delegated to a require()-bearing helper the param is
             // passed to may bound it where this scan cannot see - stay quiet.
             val delegated = requireFunctions.any { fn ->
@@ -1696,9 +1768,9 @@ object RellSecurityCheck {
                 Finding(
                     "MEDIUM", "unbounded-voting-period", path, op.line,
                     "operation ${op.name} adds caller-supplied '$name' to the block clock to set a " +
-                        "deadline, and the only bound on it anywhere in the operation is a comparison " +
-                        "against 0 - $name = 1 closes the window in the same block it opens, e.g. a " +
-                        "voting period nobody but the proposer can act in",
+                        "deadline, and nothing in the operation bounds it from BELOW (an upper bound, " +
+                        "or a comparison against 0, is not one) - $name = 1 closes the window in the " +
+                        "same block it opens, e.g. a voting period nobody but the proposer can act in",
                     "Enforce a real minimum: require($name >= min_period) with the floor from module args " +
                         "or a named constant. Advisory: the right minimum is a design decision - if a " +
                         "near-zero window is intended here, document why and ignore this finding."
@@ -1841,7 +1913,14 @@ object RellSecurityCheck {
         val field: String,
         val flow: Flow,
         val amount: String,
-        val create: Boolean = false
+        val create: Boolean = false,
+        /**
+         * The WHOLE right-hand side, before [flowOf] took the term after the
+         * top-level `+`/`-`. `.funded_until = now + bought` has amount
+         * `bought` and rhs `now + bought`; only the rhs says the write is
+         * anchored on the clock (round 15's timestamp exclusion).
+         */
+        val rhs: String = amount
     )
 
     private val WS_REGEX = Regex("""\s+""")
@@ -1969,14 +2048,19 @@ object RellSecurityCheck {
                 }
                 items.forEach { (field, op, rhs) ->
                     val (flow, amount) = flowOf(op, rhs)
-                    out.add(AmountWrite(entity, field, flow, amount))
+                    out.add(AmountWrite(entity, field, flow, amount, rhs = rhs.trim()))
                 }
             }
             DOTTED_ASSIGN_REGEX.find(stmt)?.let { m ->
                 val path = m.groupValues[1].replace(WS_REGEX, "")
                 val base = path.substringBeforeLast('.')
                 val (flow, amount) = flowOf(m.groupValues[2], m.groupValues[3])
-                out.add(AmountWrite(alias[base] ?: base.takeIf { it in entities }, path.substringAfterLast('.'), flow, amount))
+                out.add(
+                    AmountWrite(
+                        alias[base] ?: base.takeIf { it in entities }, path.substringAfterLast('.'), flow, amount,
+                        rhs = m.groupValues[3].trim()
+                    )
+                )
             }
         }
         CREATE_STMT_REGEX.findAll(body).forEach { m ->
@@ -2054,6 +2138,110 @@ object RellSecurityCheck {
             }
         }
         return scaled
+    }
+
+    /**
+     * Top-level split of [expr] on any operator character in [ops], respecting
+     * `()`, `[]` and `{}`. Unary signs, `->` and compound assignments are not
+     * operators here (the same binary test [topLevelOperator] uses).
+     */
+    private fun splitTopLevel(expr: String, ops: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var depth = 0
+        var prev = ' '
+        var i = 0
+        while (i < expr.length) {
+            val c = expr[i]
+            val next = expr.getOrNull(i + 1) ?: ' '
+            val binary = depth == 0 && ops.indexOf(c) >= 0 && next != '=' && next != '>' &&
+                (prev.isLetterOrDigit() || prev == '_' || prev == ')' || prev == ']')
+            when {
+                c == '(' || c == '[' || c == '{' -> { depth++; cur.append(c) }
+                c == ')' || c == ']' || c == '}' -> { depth--; cur.append(c) }
+                binary -> { out.add(cur.toString()); cur.clear() }
+                else -> cur.append(c)
+            }
+            if (!c.isWhitespace()) prev = c
+            i++
+        }
+        out.add(cur.toString())
+        return out
+    }
+
+    /** The contents of every parenthesised group of [expr], one nesting level down. */
+    private fun innerExpressions(expr: String): List<String> {
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < expr.length) {
+            if (expr[i] == '(') {
+                val close = matchDelimiter(expr, i, '(', ')') ?: return out
+                out.add(expr.substring(i + 1, close))
+                i = close + 1
+            } else {
+                i++
+            }
+        }
+        return out
+    }
+
+    /**
+     * [expr] and every comma-separated argument expression nested inside it, at
+     * every level. One `create` statement is many expressions - `create motion(
+     * id = next, closes_at = op_context.last_block_time + voting_period_ms)`
+     * carries a time window in ONE of its argument slots - and the arguments of
+     * a call inside such a slot are expressions of their own.
+     */
+    private fun argumentExpressions(expr: String, depth: Int = 0): List<String> {
+        if (depth > 6) return listOf(expr)
+        val out = mutableListOf(expr)
+        innerExpressions(expr).forEach { inner ->
+            splitArgs(inner).forEach { arg -> out += argumentExpressions(arg, depth + 1) }
+        }
+        return out
+    }
+
+    /**
+     * True when a clock value is an operand of `*`, `/` or `%` anywhere in
+     * [expr]: the clock has stopped being a time and become a QUANTITY.
+     * `now + amount * period_ms / fee` is a time (the multiplication is inside
+     * the DURATION, and money over money cancels); `elapsed * stake * rate` is
+     * money that happens to have been computed from a clock.
+     */
+    private fun clockIsScaled(expr: String, clockNames: Set<String>): Boolean {
+        fun mentionsClock(t: String) =
+            TIME_SOURCE_REGEX.containsMatchIn(t) || refsOf(t).any { it in clockNames }
+        fun walk(text: String, depth: Int): Boolean {
+            if (depth > 6) return false
+            splitTopLevel(text, "+-").forEach { term ->
+                val factors = splitTopLevel(term, "*/%")
+                if (factors.size > 1 && factors.any { mentionsClock(it) }) return true
+                innerExpressions(term).forEach { if (walk(it, depth + 1)) return true }
+            }
+            return false
+        }
+        return walk(expr, 0)
+    }
+
+    /**
+     * PURE CLOCK ARITHMETIC: [rhs] is anchored on a clock read - directly, or
+     * through a local binding that is - and no clock value inside it is
+     * multiplied or divided by anything. Such a write moves a DEADLINE, and
+     * crediting a deadline mints nothing.
+     *
+     * Round 15 is why the second half exists. Round 14 excluded any credit
+     * whose field was DECLARED `timestamp`, by bare field name over the whole
+     * submission; the adversary declared the staking mint's credited balance
+     * `timestamp` (an integer alias in Rell) and the round-4 mint - `elapsed *
+     * stake * RATE / 1000` - was reported clean. A quantity does not become a
+     * time by being written into a field that is typed like one.
+     */
+    internal fun isPureClockArithmetic(rhs: String, clockNames: Set<String>, clockScaled: Set<String>): Boolean {
+        val refs = refsOf(rhs)
+        val anchored = TIME_SOURCE_REGEX.containsMatchIn(rhs) || refs.any { it in clockNames }
+        if (!anchored) return false
+        if (refs.any { it in clockScaled }) return false
+        return !clockIsScaled(rhs, clockNames)
     }
 
     /** A price read: a price/rate state field, or a call to a helper that reads one. */
@@ -2277,7 +2465,7 @@ object RellSecurityCheck {
         helpers: Map<String, List<FunctionDef>>,
         escrowedCaps: Set<Pair<String, String>>,
         mirroredCounters: Set<Pair<String?, String>>,
-        clockFields: Set<String> = emptySet()
+        timestampFields: Set<Pair<String?, String>> = emptySet()
     ): List<Finding> {
         val flat = CHAIN_ARGS_REF_REGEX.replace(flattenHelpers(op.body, helpers, entities), " ")
         val bindings = bindingsOf(flat)
@@ -2289,17 +2477,29 @@ object RellSecurityCheck {
         // A liability counter is not a payout: raising `pool.total_debt` (which
         // moves in lockstep with `loan.principal`) makes the borrower owe more,
         // and there is nothing to fund or cap. See [mirroredCounterFields].
-        // A field DECLARED `timestamp` is a time, not a quantity:
-        // `funded_until = last_block_time + ms_bought(...)` (subscription) buys
-        // time, and crediting time mints nothing. Round 14 read it as a balance
-        // because its NAME matched (fund). The exclusion is the declared type
-        // ONLY - a balance fed from elapsed time (stake * elapsed * rate) is the
-        // round-4 mint this rule exists for, and the data-flow set of clock-fed
-        // fields would have hidden it (it did, for one gate).
+        // A write of a TIME is not a credit of value: `funded_until =
+        // last_block_time + ms_bought(...)` (subscription) buys time, and
+        // crediting time mints nothing. Round 14 read it as a balance because
+        // its NAME matched (fund).
+        //
+        // TWO conditions, and round 15 found the tool failing both halves of
+        // the one it shipped. The exclusion is keyed by (ENTITY, FIELD), never
+        // by a bare name over the submission - one unrelated entity whose time
+        // field is called `balance` silenced every `balance` there is. And the
+        // declared type is not enough on its own: the write's whole right-hand
+        // side must be PURE CLOCK ARITHMETIC, because `stake * elapsed * rate`
+        // credited into a field declared `timestamp` is the round-4 mint
+        // wearing a type. `timestamp` is an integer alias in Rell and the
+        // author picks it.
+        val clockDerivedNames = derivedNames(bindings, TIME_SOURCE_NAMES, TIME_SOURCE_REGEX)
+        val clockScaledNames = scaledNames(bindings, clockDerivedNames)
         val valueCredits = writes.filter { w ->
             w.flow != Flow.DEBIT && VALUE_FIELD_NAME_REGEX.containsMatchIn(w.field) &&
                 (w.entity to w.field) !in mirroredCounters && w.amount.replace(WS_REGEX, "") != "0" &&
-                w.field !in clockFields
+                !(
+                    (w.entity to w.field) in timestampFields &&
+                        isPureClockArithmetic(w.rhs, clockDerivedNames, clockScaledNames)
+                    )
         }
         fun backedByEntity(c: AmountWrite) = c.entity != null && c.entity in debitedEntities
         fun backedByAmount(c: AmountWrite) = c.amount.replace(WS_REGEX, "") in debitAmounts
@@ -3447,6 +3647,41 @@ object RellSecurityCheck {
     private fun namesASecret(id: String): Boolean =
         id.lowercase().split('_').any { it in SECRET_ID_PARTS }
 
+    private val RETURN_EXPR_REGEX = Regex("""\breturn\b([^;]*)""")
+
+    /**
+     * WHAT THE QUERY HANDS BACK, and nothing else. A block-bodied query's
+     * return expressions; an `= expr` query's whole body. Local `val`s the
+     * return expression names are substituted in (so `val s = profile @ {...};
+     * return s.display_name;` reads as one expression), and app-owned helpers
+     * are flattened the way [unbackedConversionFindings] flattens them, so a
+     * secret published through a one-line helper is the same finding as one
+     * published inline.
+     */
+    private fun queryReturnExpression(
+        q: QueryBlock,
+        helpers: Map<String, List<FunctionDef>>,
+        entities: Set<String>
+    ): String {
+        val returns = RETURN_EXPR_REGEX.findAll(q.body).map { it.groupValues[1] }.toList()
+        val returned = if (returns.isNotEmpty()) returns else listOf(q.body)
+        val bindings = bindingsOf(q.body)
+        var text = returned.joinToString(" ; ")
+        repeat(4) {
+            if (text.length > 20_000) return@repeat
+            var next = text
+            bindings.forEach { (name, values) ->
+                if (name.contains('.') || !Regex("""[A-Za-z_]\w*""").matches(name)) return@forEach
+                val rhs = values.firstOrNull()?.trim().orEmpty()
+                if (rhs.isBlank() || Regex("""(?<![.\w])${Regex.escape(name)}\b""").containsMatchIn(rhs)) return@forEach
+                next = Regex("""(?<![.\w])${Regex.escape(name)}\b""").replace(next) { "( " + rhs + " )" }
+            }
+            if (next == text) return@repeat
+            text = next
+        }
+        return flattenHelpers(text, helpers, entities)
+    }
+
     /**
      * MEDIUM when a query can RETURN an entity attribute whose declared type
      * can hold a payload (text / byte_array / json) and whose own name, or the
@@ -3463,11 +3698,25 @@ object RellSecurityCheck {
      * reported zero findings: the verdict was decided by a word rather than by
      * what the query returns.
      *
-     * Now the scan resolves what the query READS - the attributes it projects,
-     * or every attribute of an entity it returns whole - against the
-     * submission's own entity declarations, and an attribute qualifies only if
-     * its DECLARED TYPE could hold a secret. `private_sale.total_units` is an
-     * integer and cannot be one; `secret_note.content` is a text and is.
+     * NARROWED TO THE RETURN IN ROUND 15, in both directions at once. Round 14
+     * resolved every entity NAMED anywhere in the body and every `.field` read
+     * anywhere in it, which is neither what a query publishes nor all of it:
+     *  - a query returning `profile.display_name` that touches `credential`
+     *    only inside `require(credential @? {...} != null)` was reported as
+     *    exposing `credential.owner`. An existence check publishes nothing -
+     *    a require() can only abort the query - and deleting the check made
+     *    the same query clean, so the verdict turned on an unrelated row;
+     *  - a query returning the secret through a ONE-LINE HELPER was missed
+     *    entirely, because its own body names no entity at all.
+     * So the scan now takes the query's RETURN expression (or, for the
+     * `= expr` form, its whole body), substitutes the local `val`s that
+     * expression names, and flattens app-owned helpers exactly as
+     * [unbackedConversionFindings] does - publishing a secret through a helper
+     * is the same finding as publishing it inline.
+     *
+     * The attribute then qualifies only if its DECLARED TYPE could hold a
+     * secret. `private_sale.total_units` is an integer and cannot be one;
+     * `secret_note.content` is a text and is.
      *
      * The name half is deliberate and is not evasion-proof, because the threat
      * model here is the only one that makes this rule worth having: a
@@ -3479,12 +3728,21 @@ object RellSecurityCheck {
     private fun querySecretExposureFindings(
         path: String,
         q: QueryBlock,
-        fieldsByEntity: Map<String, List<EntityField>>
+        fieldsByEntity: Map<String, List<EntityField>>,
+        helpers: Map<String, List<FunctionDef>>,
+        entities: Set<String>
     ): List<Finding> {
-        val bodyIds = IDENTIFIER_REGEX.findAll(q.body).map { it.value }.toSet()
+        // ONLY WHAT IS RETURNED. Round 15 found the rule firing on a query
+        // that returns a display name and touches `credential` only inside a
+        // require() existence check: it resolved every entity NAMED anywhere
+        // in the body and every `.field` read anywhere in it, so a check on an
+        // unrelated row published nothing and was reported as exposure. A
+        // require() can only abort a query, never widen what it hands back.
+        val returned = queryReturnExpression(q, helpers, entities)
+        val bodyIds = IDENTIFIER_REGEX.findAll(returned).map { it.value }.toSet()
         val readEntities = fieldsByEntity.keys.filter { it in bodyIds }
         if (readEntities.isEmpty()) return emptyList()
-        val projected = ATTRIBUTE_READ_REGEX.findAll(q.body).map { it.groupValues[1] }.toSet()
+        val projected = ATTRIBUTE_READ_REGEX.findAll(returned).map { it.groupValues[1] }.toSet()
         // No `.field` projection at all: the query hands back whole rows, so
         // every attribute of the entity is exposed.
         val exposed = readEntities.flatMap { e ->
