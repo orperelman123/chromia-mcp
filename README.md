@@ -195,6 +195,11 @@ claude mcp add chromia --scope user \
      -jar "C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar" --stdio
 ```
 
+No working directory is needed or honoured: the docs index is resolved from the jar's own
+location (see *The documentation index on a local install*), so the client may launch this
+command from the user's project directory - as Claude Code does - and still answer from the
+same store as a launch from the repo root.
+
 Or as MCP JSON for other stdio clients (Cursor, Claude Desktop, JetBrains):
 
 ```json
@@ -285,8 +290,15 @@ package needs an npm account: `cd packages/npm && npm publish`.
 The RAG index (`embeddings.json`, ~141 MB, 25 588 segments as of the 2026-09-04 release) is
 not in the jar. Where a boot gets it, in order:
 
-1. `CHROMIA_EMBEDDINGS_PATH`, else `build/embeddings.json` or `app/build/embeddings.json`
-   relative to the working directory (what `:app:generateEmbeddingsNoUpload` writes).
+1. `CHROMIA_EMBEDDINGS_PATH`, else the store **beside the jar** - `<jar dir>/embeddings.json`
+   or one level up, i.e. `app/build/embeddings.json` next to
+   `app/build/libs/chromia-mcp-server.jar` (what `:app:generateEmbeddingsNoUpload` writes).
+   **Resolved from the jar's own location, never from the process working directory**, so the
+   registration above needs no `cwd` and two clients launching the same jar from two different
+   directories answer from the same store. (Audit F1, 2026-09-06: they did not - the same jar
+   answered from 25 823 segments or from 3 208 depending on nothing but where it was launched.)
+   The cwd-relative `build/embeddings.json` lookup remains, deliberately, on the *generate*
+   path only, where Gradle's JavaExec working directory decides where the file is written.
 2. **The local cache**: `$CHROMIA_MCP_HOME/embeddings.bin` + `embeddings.cache.json`, default
    `~/.chromia-mcp/` — the same directory the npm launcher keeps the jar in. The downloaded
    JSON is re-encoded once into a flat binary layout (`EmbeddingStoreBinary`, 61 MB for the
@@ -298,7 +310,10 @@ not in the jar. Where a boot gets it, in order:
    is **1.4 s** for a `fetch_docs` fired the instant `initialize` returns and **0.14 s** for
    one fired 6 s later (measured 2026-09-05); stdin EOF still ends the process within
    ~0.1-0.6 s even while that load or a download is in flight. A copy younger than **7 days** is read back
-   without touching the network. An older one is refreshed from the release asset and
+   without touching the network - **unless its own `generated_at` is already past the 120-day
+   staleness limit**, in which case the refresh is attempted first however recently it was
+   downloaded, and a download older than what is already cached never replaces it. An older one
+   is refreshed from the release asset and
    replaced; if that refresh fails (offline), the old copy is still served and the answer
    says so in its `index` provenance (`cached GitHub release asset … (fetched <date>)`). A
    hand-copied `embeddings.json` in the home is honoured too (dated by its mtime).
@@ -792,6 +807,6 @@ MCP resources are the existing health JSON, `docs-repositories.json`, and `promp
 
 - Stdio mode: `./gradlew :app:run` or `java -jar app/build/libs/chromia-mcp-server.jar --stdio`
 - Fat JAR: `./gradlew :app:shadowJar` (do not run `jib` and `shadowJar` as concurrent Gradle tasks; they both write under `app/build/libs`)
-- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `build/embeddings.json` or `app/build/embeddings.json` relative to cwd, so `java -jar app/build/libs/chromia-mcp-server.jar` from the repo root finds the Gradle file), then the cache `$CHROMIA_MCP_HOME/embeddings.bin` + `embeddings.cache.json` (default `~/.chromia-mcp/`; the downloaded JSON re-encoded once into `EmbeddingStoreBinary`, reused while younger than 7 days, refreshed after, still served if the refresh fails; `CHROMIA_EMBEDDINGS_CACHE=off` disables it), and only then downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`; the repo is public since 2026-09-05 so the plain URL works with no credentials - if it is ever made private again, set `CHROMIA_EMBEDDINGS_TOKEN` / `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` and the asset is resolved through the releases API instead), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
+- Embeddings refresh (does not run on server boot): `./gradlew :app:generateEmbeddingsNoUpload` persists `embeddings.json` to `app/build/embeddings.json` (`CHROMIA_EMBEDDINGS_PATH`). Runtime `RagStore` loads that local file first (`CHROMIA_EMBEDDINGS_PATH`, else the first existing of `<jar dir>/embeddings.json` or `<jar dir>/../embeddings.json` - resolved from the jar's own location, never from the working directory, so `java -jar <anywhere>/app/build/libs/chromia-mcp-server.jar` finds the Gradle file whatever cwd the client used), then the cache `$CHROMIA_MCP_HOME/embeddings.bin` + `embeddings.cache.json` (default `~/.chromia-mcp/`; the downloaded JSON re-encoded once into `EmbeddingStoreBinary`, reused while younger than 7 days, refreshed after, still served if the refresh fails; `CHROMIA_EMBEDDINGS_CACHE=off` disables it), and only then downloads, in order: `CHROMIA_EMBEDDINGS_URL` (optional override), the `embeddings` release asset on this GitHub repo (`RagStore.GITHUB_RELEASE_URL`; the repo is public since 2026-09-05 so the plain URL works with no credentials - if it is ever made private again, set `CHROMIA_EMBEDDINGS_TOKEN` / `/etc/secrets/CHROMIA_EMBEDDINGS_TOKEN` / `GITHUB_TOKEN` and the asset is resolved through the releases API instead), then the GitLab package (`RagStore.PACKAGE_URL`). A 404, HTTP error, timeout or corrupt body at one remote moves on to the next. Local no-upload ingest 2026-08-26 19:54 IDT: 3084 documents / 25555 segments with `DocumentSplitters.recursive(1000, 150)` + heading markdown. Persisted `app/build/embeddings.json` (140.66 MiB, 25555 vectors; gitignored under `build/`).
 - Index age is not silent: at load the server logs where the index came from (local path + mtime, or the remote URL + its `Last-Modified`) and its segment count. Past 120 days (`RagStore.STALE_AFTER`) it logs a WARN and every `fetch_docs` answer ends with a `NOTE: documentation index is STALE ...` line (also `index_note` in the structured output) naming the generation date and the fix. Fresh or stale, every `fetch_docs` answer carries an `index` object in its structured output (`origin`, `generated_at`, `age_days`, `segments`, `stale`) - the text stays lean, but a client can always tell which index it was answered from. Found 2026-09-04: the published GitLab package was still the 2025-10-21 build (18.8 MB), so a server without a local file - production included - answered from a year-old store. The fix is the `Embeddings refresh` workflow (Actions tab, "Run workflow"): it regenerates, gates, and publishes the release asset the server and the Docker image download first.
 - The store is read as a stream (`EmbeddingStoreJson`, Gson `JsonReader`, 1000-entry batches into `InMemoryEmbeddingStore.addAll`), not with `InMemoryEmbeddingStore.fromFile`. Found 2026-09-04 under the production JVM flags: `fromFile`'s `Files.readAllBytes` on the 150 MB store failed with "Cannot reserve 150059434 bytes of direct buffer memory" (`-XX:MaxDirectMemorySize=64m`) and the server silently fell back to the stale package - a fresh asset alone would have changed nothing in production. Streaming loads the 25 823 segments in ~4.5 s with the file never in memory; the download path (`downloadFile`) streams to a temp file the same way instead of `body<ByteArray>()`. Loading needs a 200-224 MB heap for this store; the image's `-XX:MaxRAMPercentage` went 35 -> 50 accordingly (256 MB on a 512 MB instance, measured working set ~425 MB).

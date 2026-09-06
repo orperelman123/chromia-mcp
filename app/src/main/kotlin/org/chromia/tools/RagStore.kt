@@ -57,7 +57,17 @@ import kotlin.io.path.writeText
 open class RagStore(
     loadFromRegistry: Boolean = true,
     initialStore: InMemoryEmbeddingStore<TextSegment>? = null,
-    val localEmbeddingsPath: Path = resolveLocalEmbeddingsPath(),
+    /**
+     * The local index file. On the RUNTIME path this is resolved WITHOUT the
+     * process working directory ([resolveRuntimeEmbeddingsPath]); the
+     * cwd-relative [resolveLocalEmbeddingsPath] is the GENERATE path only,
+     * where Gradle's JavaExec cwd is the thing that decides where to write.
+     * Audit F1 (2026-09-06): the same jar answered from 25,823 segments or
+     * from 3,208 depending on nothing but the directory the client happened to
+     * launch it in, and the README's own registration sets no cwd.
+     */
+    val localEmbeddingsPath: Path =
+        if (loadFromRegistry) resolveRuntimeEmbeddingsPath() else resolveLocalEmbeddingsPath(),
     registryLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? = null,
     val embeddingModel: EmbeddingModel? = null,
     /** Where a downloaded index is kept between runs; null = download every boot, keep nothing. Unused with [registryLoader]. */
@@ -320,6 +330,19 @@ open class RagStore(
          */
         private fun keepInCache(remote: RemoteEmbeddings, cache: Path, now: Instant) {
             val file = remote.file ?: return
+            // A fallback download must never become the sticky answer: if what we
+            // just fetched was generated BEFORE what is already cached, keep the
+            // cache (audit F1 - the GitLab body clobbered a newer GitHub one).
+            val existing = readCacheMeta(cache)
+            val existingAt = existing?.let { it.lastModified ?: it.downloadedAt }
+            if (existingAt != null && remote.lastModified != null && remote.lastModified.isBefore(existingAt)) {
+                logger.warn(
+                    "Downloaded index from ${remote.url} was generated ${remote.lastModified}, older than the " +
+                        "cached copy ($existingAt); not caching it"
+                )
+                file.deleteIfExists()
+                return
+            }
             val binary = cacheBinaryPath(cache)
             val kept = runCatching {
                 cache.parent?.createDirectories()
@@ -375,9 +398,24 @@ open class RagStore(
                 logger.info("Serving the cached embeddings from ${cacheBody(cachePath)} ($why)")
                 return LoadedEmbeddings(store, cached.provenance(embeddingStoreSegments(store).size))
             }
-            if (cached != null && Duration.between(cached.downloadedAt, now) <= CACHE_REFRESH_AFTER) {
+            // A STALE cache is never sticky. The 7-day window exists to avoid
+            // re-downloading a fresh index, not to pin a year-old one: on
+            // 2026-09-05 a fallback GitLab body generated 2025-10-21 was cached
+            // while the GitHub asset was momentarily 404, and every boot for the
+            // next week answered Rell questions from 3,208 segments of a
+            // 320-day-old corpus (audit F1). When the cached body is older than
+            // STALE_AFTER, try the network FIRST and serve this copy only if the
+            // refresh fails - at which point Provenance reports it as stale.
+            val cachedIsStale = cached != null && cached.provenance(0).staleWarning(now) != null
+            if (cached != null && !cachedIsStale && Duration.between(cached.downloadedAt, now) <= CACHE_REFRESH_AFTER) {
                 serveCache("fetched ${cached.downloadedAt}, refresh after ${CACHE_REFRESH_AFTER.toDays()} days")?.let { return it }
                 logger.warn("Cached embeddings at $cachePath could not be read; downloading a fresh copy")
+            }
+            if (cachedIsStale) {
+                logger.warn(
+                    "Cached embeddings at $cachePath were generated ${cached!!.lastModified ?: cached.downloadedAt} " +
+                        "- older than the ${STALE_AFTER.toDays()}-day staleness limit; refreshing before serving them"
+                )
             }
             val remote = runCatching(download).onFailure { error ->
                 logger.warn("Embeddings download failed: ${error.message}")
@@ -503,22 +541,53 @@ open class RagStore(
 
     private val storeLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? =
         if (loadFromRegistry && initialStore == null) {
-            {
-                loadLocalEmbeddings(localEmbeddingsPath)?.also { store ->
-                    val mtime = runCatching { localEmbeddingsPath.getLastModifiedTime().toInstant() }.getOrNull()
-                    recordProvenance(Provenance("local file $localEmbeddingsPath", mtime, embeddingStoreSegments(store).size))
-                } ?: run {
-                    val remote = if (registryLoader != null) {
-                        registryLoader()?.let { LoadedEmbeddings(it, Provenance(describeRemote("injected loader"), null, embeddingStoreSegments(it).size)) }
-                    } else {
-                        loadCachedOrRemote(cacheEmbeddingsPath) { downloadRemoteEmbeddings(keepFile = cacheEmbeddingsPath != null) }
-                    }
-                    remote?.also { recordProvenance(it.provenance) }?.store
-                }
-            }
+            { loadFreshestStore()?.also { recordProvenance(it.provenance) }?.store }
         } else {
             null
         }
+
+    /**
+     * The freshest usable store, and never a stale one while something fresher
+     * can be loaded (audit F1). Order:
+     *   1. the local file at [localEmbeddingsPath] (jar-adjacent or an explicit
+     *      `CHROMIA_EMBEDDINGS_PATH`) when it is not stale - no network at all;
+     *   2. otherwise the `CHROMIA_MCP_HOME` cache / the GitHub release asset;
+     *   3. otherwise the local file even though it is stale.
+     * A stale winner is still returned - an old index beats no index - but it is
+     * recorded in [Provenance] and therefore reported on every docs answer.
+     */
+    private fun loadFreshestStore(): LoadedEmbeddings? {
+        val localGeneratedAt = runCatching {
+            localEmbeddingsPath.takeIf { it.isRegularFile() }?.getLastModifiedTime()?.toInstant()
+        }.getOrNull()
+        fun loadLocal(): LoadedEmbeddings? = loadLocalEmbeddings(localEmbeddingsPath)?.let { store ->
+            LoadedEmbeddings(
+                store,
+                Provenance("local file $localEmbeddingsPath", localGeneratedAt, embeddingStoreSegments(store).size)
+            )
+        }
+        val localIsFresh = localGeneratedAt != null &&
+            Duration.between(localGeneratedAt, Instant.now()) <= STALE_AFTER
+        if (localIsFresh) loadLocal()?.let { return it }
+
+        val remote = if (registryLoader != null) {
+            registryLoader()?.let {
+                LoadedEmbeddings(it, Provenance(describeRemote("injected loader"), null, embeddingStoreSegments(it).size))
+            }
+        } else {
+            loadCachedOrRemote(cacheEmbeddingsPath) { downloadRemoteEmbeddings(keepFile = cacheEmbeddingsPath != null) }
+        }
+        if (remote != null) {
+            val remoteAt = remote.provenance.generatedAt
+            val remoteIsOlder = localGeneratedAt != null && remoteAt != null && remoteAt.isBefore(localGeneratedAt)
+            if (!remoteIsOlder) return remote
+            logger.warn(
+                "Remote index (${remote.provenance.origin}, generated $remoteAt) is older than the local " +
+                    "$localEmbeddingsPath (generated $localGeneratedAt); answering from the local file"
+            )
+        }
+        return loadLocal()
+    }
 
     private fun recordProvenance(p: Provenance) {
         provenance = p
@@ -1137,6 +1206,57 @@ fun resolveLocalEmbeddingsPath(
         return Path.of("app", "build", RagStore.FILE_NAME)
     }
     return candidates.first()
+}
+
+/**
+ * Directory holding the running jar, or null when the code is not loaded from a
+ * jar (IDE, `gradle test`). The runtime index lives beside the jar
+ * (`<jar dir>/embeddings.json`) or one level up (`app/build/embeddings.json`
+ * next to `app/build/libs/chromia-mcp-server.jar`) - both absolute, both
+ * independent of where the client launched the process.
+ */
+fun jarDirectory(clazz: Class<*> = RagStore::class.java): Path? = runCatching {
+    val location = clazz.protectionDomain?.codeSource?.location ?: return null
+    val path = Path.of(location.toURI())
+    if (path.isRegularFile() && path.toString().endsWith(".jar")) path.parent else null
+}.getOrNull()
+
+/**
+ * Candidate local index files for the RUNTIME, in order. Every entry is derived
+ * from the jar's own location or from an absolute env path - never from the
+ * process working directory.
+ */
+fun runtimeEmbeddingsCandidates(jarDir: Path? = jarDirectory()): List<Path> =
+    listOfNotNull(jarDir?.resolve(RagStore.FILE_NAME), jarDir?.parent?.resolve(RagStore.FILE_NAME))
+        .map { it.toAbsolutePath().normalize() }
+        .distinct()
+
+/**
+ * The runtime's local index path. `CHROMIA_EMBEDDINGS_PATH` wins outright;
+ * otherwise the first existing jar-adjacent candidate; otherwise the first
+ * candidate (which does not exist, so the loader falls through to the
+ * `CHROMIA_MCP_HOME` cache and the release asset); otherwise - no jar at all,
+ * i.e. an IDE or a test - the cache path, so nothing cwd-relative is ever read.
+ *
+ * The whole point is that two clients launching the SAME jar from two different
+ * working directories resolve the SAME store. [resolveLocalEmbeddingsPath] is
+ * deliberately left cwd-relative for the generate path.
+ */
+fun resolveRuntimeEmbeddingsPath(
+    env: Map<String, String> = System.getenv(),
+    jarDir: Path? = jarDirectory(),
+    exists: (Path) -> Boolean = { it.isRegularFile() },
+    userHome: String = System.getProperty("user.home")
+): Path {
+    env[RagStore.EMBEDDINGS_PATH_ENV]?.takeIf { it.isNotBlank() }?.let {
+        return Path.of(it).toAbsolutePath().normalize()
+    }
+    val candidates = runtimeEmbeddingsCandidates(jarDir)
+    candidates.firstOrNull(exists)?.let { return it }
+    candidates.firstOrNull()?.let { return it }
+    val home = env[RagStore.HOME_ENV]?.takeIf { it.isNotBlank() }?.let { Path.of(it) }
+        ?: Path.of(userHome, ".chromia-mcp")
+    return home.resolve(RagStore.FILE_NAME).toAbsolutePath().normalize()
 }
 
 /**
