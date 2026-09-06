@@ -1,9 +1,11 @@
 package org.chromia.tools
 
 import net.postchain.client.config.PostchainClientConfig
+import net.postchain.client.defaultHttpHandler
 import net.postchain.client.impl.PostchainClientImpl
 import net.postchain.client.request.EndpointPool
 import net.postchain.common.BlockchainRid
+import net.postchain.common.tx.TransactionStatus
 import net.postchain.crypto.KeyPair
 import net.postchain.crypto.Secp256K1CryptoSystem
 import net.postchain.crypto.secp256k1_derivePubKey
@@ -12,6 +14,11 @@ import net.postchain.gtv.GtvFactory.gtv
 import net.postchain.gtv.GtvNull
 import net.postchain.gtv.merkle.makeMerkleHashCalculator
 import net.postchain.gtv.merkleHash
+import org.http4k.core.HttpHandler
+import org.http4k.core.MemoryBody
+import org.http4k.core.Request
+import org.http4k.core.Response
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -318,8 +325,36 @@ object TestnetProvisioning {
 /** One GTX operation: mount name + compact-GTV args. */
 data class TxOp(val name: String, val args: List<Gtv>)
 
-/** Outcome of posting a signed transaction. */
-data class TxOutcome(val txRidHex: String, val confirmed: Boolean, val rejectReason: String?)
+/**
+ * Outcome of posting a signed transaction.
+ *
+ * [rejectReason] is what postchain-client surfaces, and it is null in more
+ * cases than "the node gave no reason": the client's confirmation poll
+ * swallows every poll error (HTTP 4xx/5xx, node disagreement, a dropped
+ * connection) into status UNKNOWN with a null reason, and a poll that runs
+ * out of retries while the tx is still WAITING ends the same way. A caller
+ * that only sees `confirmed == false, rejectReason == null` cannot tell those
+ * apart from a rejection whose reason the node omitted - which is exactly
+ * what CI run 34005621969 (2026-09-05) left undiagnosable. [finalStatus] and
+ * [lastStatusPollResponse] carry what actually came over the wire so such a
+ * failure states its own cause.
+ *
+ * @property finalStatus the client's final TransactionStatus name: CONFIRMED,
+ *   REJECTED, WAITING (status poll ran out of retries while the tx was still
+ *   queued) or UNKNOWN (every poll failed). Null only for fake posters that do
+ *   not model the wire.
+ * @property lastStatusPollResponse the last `GET .../tx/<brid>/<rid>/status`
+ *   exchange seen, as `poll #<n> GET <url> -> HTTP <code> <body>` (or the
+ *   exception it threw). Null when the post itself was rejected before any
+ *   poll happened, and for fakes.
+ */
+data class TxOutcome(
+    val txRidHex: String,
+    val confirmed: Boolean,
+    val rejectReason: String?,
+    val finalStatus: String? = null,
+    val lastStatusPollResponse: String? = null
+)
 
 /**
  * Posts a signed GTX transaction to a chain. Test seam - unit tests never
@@ -336,23 +371,69 @@ fun interface TxPoster {
 object RealTxPoster : TxPoster {
     override fun post(urls: List<String>, bridHex: String, ops: List<TxOp>, privKey: ByteArray): TxOutcome {
         val pubKey = TestnetProvisioning.derivePubKey(privKey)
-        val brid = BlockchainRid.buildFromHex(bridHex)
         val config = PostchainClientConfig(
-            blockchainRid = brid,
+            blockchainRid = BlockchainRid.buildFromHex(bridHex),
             endpointPool = EndpointPool.default(urls),
             signers = listOf(KeyPair(pubKey, privKey))
         )
-        PostchainClientImpl(config).use { client ->
+        return postWith(config, defaultHttpHandler(config), ops)
+    }
+
+    /**
+     * The post proper, over an explicit transport, so unit tests can drive the
+     * exact wire exchanges (post accepted; status rejected / waiting / 404)
+     * without a network and prove what the outcome carries in each. Production
+     * goes through [post] with the client's own default handler (Apache client,
+     * timeouts, gzip) - the recorder wraps it, it does not replace it.
+     */
+    internal fun postWith(config: PostchainClientConfig, transport: HttpHandler, ops: List<TxOp>): TxOutcome {
+        val recorder = StatusPollRecorder(transport)
+        PostchainClientImpl(config, recorder).use { client ->
             var builder = client.transactionBuilder()
             for (op in ops) builder = builder.addOperation(op.name, *op.args.toTypedArray())
             val result = builder.sign().postAwaitConfirmation()
             return TxOutcome(
                 txRidHex = result.txRid.rid.uppercase(),
-                confirmed = result.status == net.postchain.common.tx.TransactionStatus.CONFIRMED,
-                rejectReason = result.rejectReason
+                confirmed = result.status == TransactionStatus.CONFIRMED,
+                rejectReason = result.rejectReason,
+                finalStatus = result.status.name,
+                lastStatusPollResponse = recorder.lastStatusPoll
             )
         }
     }
+
+    /**
+     * Wraps the client's HttpHandler and keeps the last `GET .../status`
+     * exchange verbatim. The body is read once here and handed back to the
+     * client as a memory body, so the client parses exactly the bytes that were
+     * recorded. Only status polls are captured: the POST body is the signed tx
+     * and query bodies can be large, and neither explains a null reject reason.
+     */
+    private class StatusPollRecorder(private val delegate: HttpHandler) : HttpHandler {
+        @Volatile
+        var lastStatusPoll: String? = null
+        private var polls = 0
+
+        override fun invoke(request: Request): Response {
+            if (!request.uri.path.endsWith("/status")) return delegate(request)
+            val n = ++polls
+            val response = try {
+                delegate(request)
+            } catch (e: Exception) {
+                lastStatusPoll = "poll #$n GET ${request.uri} threw ${e.javaClass.name}: ${e.message}"
+                throw e
+            }
+            val bytes = response.body.stream.use { it.readAllBytes() }
+            val body = String(bytes, Charsets.UTF_8)
+            val shown = if (body.length > MAX_RECORDED_BODY_CHARS) {
+                body.take(MAX_RECORDED_BODY_CHARS) + "...[${body.length} chars]"
+            } else body
+            lastStatusPoll = "poll #$n GET ${request.uri} -> HTTP ${response.status.code} $shown"
+            return response.body(MemoryBody(ByteBuffer.wrap(bytes)))
+        }
+    }
+
+    private const val MAX_RECORDED_BODY_CHARS = 2000
 }
 
 /**

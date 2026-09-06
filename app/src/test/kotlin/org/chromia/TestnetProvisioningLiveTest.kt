@@ -177,15 +177,31 @@ class TestnetProvisioningLiveTest {
             ),
             privKey = throwaway.privKey.data
         )
-        assertFalse(outcome.confirmed, "a nonexistent account must not authenticate")
-        assertNotNull(outcome.rejectReason, "rejection must carry the chain's reason")
+        // Every message below carries the raw wire outcome. CI run 34005621969
+        // (2026-09-05) failed the rejectReason assertion with nothing but
+        // "expected: not <null>" - the node's actual answer was lost, so the
+        // failure could not be diagnosed, only rerun. Never again.
+        val wire = "finalStatus=${outcome.finalStatus} rejectReason=${outcome.rejectReason} " +
+            "lastStatusPoll=${outcome.lastStatusPollResponse}"
+        // Logged on success too, so every run's JUnit XML records what the chain
+        // actually answered - the reference for pinning the expected message.
+        println("live signed tx wire outcome: $wire")
+        assertFalse(outcome.confirmed, "a nonexistent account must not authenticate ($wire)")
+        assertNotNull(
+            outcome.rejectReason,
+            "rejection must carry the chain's reason, and it did not. The client ended with status " +
+                "${outcome.finalStatus}: REJECTED means the node itself omitted the reason, WAITING means " +
+                "the tx was still queued when the status poll ran out of retries (client default 20 x 500ms), " +
+                "UNKNOWN means every status poll failed (HTTP error or connection). Last status exchange " +
+                "on the wire: ${outcome.lastStatusPollResponse}"
+        )
         // The reason should point at the missing account/auth descriptor, i.e.
         // the tx passed signature verification and reached the Rell operation.
         assertTrue(
             listOf("account", "auth", "not found", "does not exist").any {
                 outcome.rejectReason!!.lowercase().contains(it)
             },
-            "unexpected rejection: ${outcome.rejectReason}"
+            "unexpected rejection: ${outcome.rejectReason} ($wire)"
         )
     }
 }
