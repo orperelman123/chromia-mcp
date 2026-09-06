@@ -89,6 +89,23 @@ Not "fewer than last round". Coverage moving is not a pass.
    a library, an error with two frames of which the first is the innermost).
    And `ambiguous_refusal` is itself new surface: a verdict an agent can make
    the tool return on purpose is a verdict an agent can learn to ignore.
+   **Round 17 attacks the SHAPES.** Round 16 stopped widening the heuristic and
+   replaced it with two canonical test shapes (a must-fail test whose ONE
+   invoking statement is a single-op `run_must_fail`; a must-hold test whose ONE
+   invoking statement expects the call to succeed), with `ambiguous_refusal` for
+   everything else. So attack the shape recogniser, not the error text: a
+   HELPER that hides the invocation from the scan (an import alias, a helper in
+   a second test file, a chain four deep, a helper that builds the tx and
+   returns it); a `run_must_fail` on a DIFFERENT operation in the same
+   transaction, or a tx whose second op is added after the shape check would
+   have looked; `@extend` CHAINS (an extension of an extension, an extendable
+   called only from another module, an `@extend` in a file the submission does
+   not mark production); a test module that imports ANOTHER test module, so the
+   statement the shape is read from is not in the file the scan looks at. Two
+   directions count as findings and they are not symmetric: a shape the tool
+   accepts that is NOT what the author wrote (a false `load_bearing` or a false
+   `still_refused`) is the dangerous one; an honest shape the tool rejects is a
+   capability lost, and belongs in the round's report too.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /

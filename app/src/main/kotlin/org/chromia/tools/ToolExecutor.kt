@@ -1875,86 +1875,81 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      * string literal from the guard line is the guard REFUSING, whatever
      * fragment the caller supplied.
      *
-     * ROUND 15 REBUILT STEP 4 rather than patching it a fifth time. Rounds 11
-     * to 14 each answered the round before: the guard's literals, then the
-     * replacement's, then "a refused transaction is never the attack landing",
-     * then "compare the runner's failing frame with the declaration the guard
-     * lives in". Round 15 broke that comparison in four places at once - a
-     * guard in a `function` matched ANY refusing operation; substringAfterLast
-     * (':') threw the MODULE away so `x:take` read as `main:take`; the frame
-     * says which DECLARATION refused and never which TRANSACTION, so the
-     * guard's own operation refusing in a LATER transaction read as the attack
-     * being refused; and a query refusal carries no "Operation '...' failed"
-     * shape at all, so a guard that was only defence in depth behind a second
-     * guard in the same query was certified `load_bearing`, ok:true.
+     * ROUND 16 REPLACED THE HEURISTIC WITH TWO SHAPES. Rounds 11 to 15 each
+     * answered the round before - the guard's literals, then the replacement's,
+     * then "a refused transaction is never the attack landing", then "compare
+     * the runner's failing frame with the declaration the guard lives in", then
+     * the test's statement ORDER with a truncated re-run to decide it - and each
+     * was beaten one token away by the next: an `@extend` the call graph could
+     * not see, a `for` loop the statement splitter could not read, a frame-less
+     * query refusal past an empty statement list. The error text a runner
+     * happens to print is not a specification, so step 4 no longer tries to
+     * classify every red. It names the two TEST SHAPES it can prove, proves
+     * those exactly, and answers `ambiguous_refusal` - naming the shape to
+     * write - for everything else.
      *
-     * So step 4 is now built from what the two sides actually hold.
-     *
-     * WHAT THE TOOL KNOWS: the guard's FILE, its OFFSET in that file, the
-     * declaration it sits in, and - because the runner names modules the same
-     * way - that file's MODULE. It also holds the whole submission, so it can
-     * read the production call graph and the test's own statements.
+     * WHAT THE TOOL KNOWS: the guard's FILE, its OFFSET, the declaration it
+     * sits in and that file's MODULE (derived the way the RUNNER derives it),
+     * plus the whole submission - so it can read the production call graph and
+     * the test's own statements.
      * WHAT THE RUNNER GIVES: one error string per failing case, whose frames
      * are `[<module>:<declaration>(<file>:<line>)]`.
      *
-     * The rule:
-     *  1. "did not fail" is the attack landing. Unchanged, and still first.
-     *  2. THE GUARD'S OWN DECLARATIONS are computed, not guessed: the
-     *     declaration the guard sits in, module-qualified, PLUS - when that is
-     *     a `function` - every operation and query that REACHES it through the
-     *     submission's own call graph, transitively ([declarationsReaching]).
-     *     Round 14's `guardInFunction` short-circuit made every refusing
-     *     operation the guard's own, which matters because factoring a guard
-     *     into a helper is what the shipped templates do (mint_against,
-     *     accrued, escrow_of).
-     *  3. FRAMES ARE COMPARED MODULE-QUALIFIED. `x:take` is not `main:take`,
-     *     and a frame whose file is one of the submission's TEST files is the
-     *     test side of the stack, not a refusal.
-     *  4. WHICH TRANSACTION, not just which declaration. A refusal by the
-     *     guard's own declaration is the ATTACK being refused only if it came
-     *     from the FIRST statement of the test that invokes that declaration
-     *     (directly or through a test-module helper). The test-side frame
-     *     carries the failing line, so the tool locates that statement and
-     *     compares. A refusal from a LATER statement is the damage being
-     *     noticed: the attack landed in an earlier transaction.
-     *  5. WHEN IT CANNOT TELL, IT SAYS SO. `ambiguous_refusal` is a verdict
-     *     with ok:false - never `still_refused`, which would send the author
-     *     off to weaken a load-bearing test, and never `load_bearing`, which
-     *     is the direction that certifies a guard that is not.
+     * THE GUARD'S OWN DECLARATIONS are computed, not guessed: the declaration
+     * the guard sits in, module-qualified, PLUS - when that is a `function` -
+     * every operation and query that REACHES it through the submission's call
+     * graph, transitively, following name calls AND `@extend`/`@extendable`
+     * (Rell runs every `@extend` of an extendable function when the extendable
+     * is called, and no call site anywhere names the extension).
      *
-     * ROUND 15's FIFTH FIX WAS OVER-CONSERVATIVE IN TWO PLACES, and both are
-     * now decided by structure or by measurement rather than by a message list.
+     * THE SHAPES. Both require the test to invoke one of those declarations in
+     * EXACTLY ONE top-level statement - directly, or through one test-module
+     * helper chain the scan can reduce to a single call site. That is the whole
+     * point: "which invocation refused" is the question every beaten heuristic
+     * was guessing at, and a test with one invocation cannot pose it.
      *
-     *  6. A FRAME-LESS ERROR IS SEPARATED BY WHERE ITS TEXT CAN COME FROM. An
-     *     operation refusal ALWAYS carries `[module:op(file:line)] Operation
-     *     '...' failed`, so an error with no frame at all is either the TEST
-     *     MODULE failing or a production QUERY - or a function a query calls -
-     *     refusing; an operation is never a candidate (p14b shares its words
-     *     with the operation `sweep`, and that must not make the answer
-     *     ambiguous). So: `System function 'rell.test.assert_*'` is the test
-     *     measuring the damage => load_bearing. Otherwise the raw message is
-     *     matched against the string LITERALS each candidate owns - the test
-     *     files, and every production query the test invokes with its helpers
-     *     flattened. Only the test can produce it => load_bearing. Only a
-     *     query can => that query is treated as the refusing frame and goes
-     *     through the same declaration comparison an operation would (so a
-     *     guard that is only defence in depth inside that query is
-     *     `still_refused`, p15e). Both, or neither => `ambiguous_refusal`,
-     *     with the evidence naming the two colliding sources.
-     *  7. DIFFERENTIAL TRUNCATION decides "which transaction" when the runner
-     *     gave no test-side line and the guard's declaration is invoked more
-     *     than once. It is a MEASUREMENT, not a guess: build a second variant
-     *     of the test cut after the FIRST statement that invokes that
-     *     declaration (directly or through a test-module helper), keeping
-     *     everything before it, and run the SAME mutant against it. Cut test
-     *     still fails with that declaration refusing => the attack was refused
-     *     => `still_refused`. Cut test passes, or fails without that refusal
-     *     => the first invocation LANDED and the refusal in the full run is a
-     *     later transaction noticing the damage => load_bearing (p15c). When
-     *     the first invocation cannot be located exactly - a loop, or a helper
-     *     with several call sites - the cut would not measure the attack, so
-     *     the verdict stays `ambiguous_refusal` and says which. The extra run
-     *     is named in the evidence.
+     *  SHAPE A, THE MUST-FAIL TEST. That one statement is a single-operation
+     *  `rell.test.tx().op(<the declaration>(...)).run_must_fail(...)`. The
+     *  guard is load-bearing only if removing it makes that transaction
+     *  SUCCEED, which the runner reports as "did not fail". Any other red is
+     *  the attack still being REFUSED - by the guard's own declaration
+     *  (defence in depth: name it in alsoRemove), by anything else in the
+     *  stack, or by a query whose literals own a frame-less message. There is
+     *  no path from a refusal to `load_bearing` in shape A.
+     *
+     *  SHAPE B, THE MUST-HOLD TEST. That one statement expects the invocation
+     *  to SUCCEED - a single-operation `.run()`, or a direct call to the query
+     *  - and the damage is measured afterwards. Because it is the only
+     *  statement in which anything this guard reaches executes, removing the
+     *  guard cannot change what the test does BEFORE it. So: a rell.test
+     *  assert_* failure is the damage being measured (`load_bearing`); a
+     *  refusal frame naming one of the guard's own declarations is THAT
+     *  invocation being refused (`still_refused`); a refusal frame naming
+     *  anything else necessarily happened after the attack had landed
+     *  (`load_bearing`); and a frame-less error - which is never an operation,
+     *  since an operation refusal always carries a frame - is attributed to the
+     *  test module or to a production query by the string LITERALS each owns,
+     *  `still_refused` when that query is the guard's own, `ambiguous_refusal`
+     *  when both or neither can produce the words.
+     *
+     * ANYTHING ELSE IS `ambiguous_refusal`, ok:false, with the two shapes
+     * spelled out: a loop or a table-driven test, several invoking statements,
+     * a transaction carrying more than the guard's own operation, a helper with
+     * several call sites, a guard in no declaration at all. It is never
+     * `still_refused` (which would send an author off to weaken a load-bearing
+     * test) and never `load_bearing` (the direction that certifies a guard that
+     * is not). Round 15's DIFFERENTIAL TRUNCATION - a second mutant run against
+     * a cut-down test - is gone with the question it answered: it only ever
+     * arose for tests that are not one of the shapes.
+     *
+     * The steps before this one are unchanged and still carry rounds 11 to 13:
+     * comments and string literals are masked before searching (maskRellSource
+     * is length-preserving, so the match offset maps back and exactly ONE
+     * occurrence is replaced); more than one occurrence is refused as
+     * ambiguous; test ownership follows the runner - a file belongs to a test
+     * module if its module name is one a @test file declares; a CONTROL run
+     * strips only alsoRemove and must still pass; and a replacement may not
+     * change code outside the guard's own span.
      */
     private suspend fun verifyOne(
         files: Map<String, String>,
@@ -2196,191 +2191,205 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                 ownDeclarations += declarationsReaching(files, isTest, guardDecl.second)
             }
         }
-        val ownNames = ownDeclarations.mapTo(mutableSetOf()) { it.substringAfterLast(':') }
 
-        // 4b. THE RUNNER'S FRAMES, split by the MODULE each one names - never by
-        //     a file's basename (round 16: a test module in a file called
-        //     main.rell erased every production frame, and the refusal it hid
-        //     became "the damage being noticed").
+
+        // 4b. THE CANONICAL SHAPES. Five rounds of heuristics over the runner's
+        //     error text were each beaten one token away, so round 16 stopped
+        //     widening them: the tool now names the two test shapes it can
+        //     prove, proves those exactly, and answers `ambiguous_refusal` -
+        //     with the shape to write - for everything else. See the KDoc above
+        //     verifyOne.
         val frames = FRAME_REGEX.findAll(error).map {
             Frame(it.groupValues[1], it.groupValues[2], baseName(it.groupValues[3]), it.groupValues[4].toIntOrNull() ?: 0)
         }.toList()
         val productionFrames = frames.filter { it.module !in testModuleNames }
-        val testFrame = frames.lastOrNull { it.module in testModuleNames }
         val ownFrame = productionFrames.lastOrNull { "${it.module}:${it.declaration}" in ownDeclarations }
-        val invocations = testStatementsInvoking(files, isTest, test, ownNames)
-        val statements = invocations?.statements ?: emptyList()
+        val statements = testStatementsInvoking(files, isTest, test, ownDeclarations)?.statements ?: emptyList()
+        val decls = ownDeclarations.joinToString()
+
+        val shapeHelp = "The two shapes verify_guards proves, both of which invoke the guard's declaration in " +
+            "EXACTLY ONE statement of the test: SHAPE A, the must-fail test - one " +
+            "`rell.test.tx().op($decls(...)).run_must_fail(...)` carrying that ONE operation, where removing the " +
+            "guard must make the transaction SUCCEED (the runner says \"did not fail\"); SHAPE B, the must-hold test " +
+            "- one invocation that is expected to SUCCEED (a single-operation `.run()`, or a direct call to the " +
+            "query), with the damage measured AFTER it by a rell.test assert_*, by a later transaction, or by a " +
+            "test-side check. Anything else - a loop, a table, several invocations, a helper this scan cannot follow " +
+            "- leaves \"was the attack refused or was the damage noticed\" unanswerable, and those are opposite verdicts."
+
+        fun notAShape(why: String) = verdict(
+            "ambiguous_refusal",
+            "the mutant went red, but $test is neither shape this tool can read: $why Error: $error. It is NOT " +
+                "counted as proven, and that is not a reason to weaken the test - it is a reason to write the " +
+                "measurement down. $shapeHelp"
+        )
 
         fun stillRefusedByTheGuard(refusedBy: String) = verdict(
             "still_refused",
             "the attack was still REFUSED by $refusedBy with the guard removed, and that is a declaration this guard " +
-                "runs in: $error. A refusal from the guard's own declaration, in the statement that carries the attack, " +
-                "is never the attack landing. If it is defence in depth, name the refusing line in alsoRemove; otherwise " +
-                "the test is measuring a different guard"
+                "runs in: $error. The test invokes it exactly once, so this refusal IS that invocation - the attack, " +
+                "not a later transaction noticing damage. If it is defence in depth, name the refusing line in " +
+                "alsoRemove; otherwise the test is measuring a different guard"
         )
 
-        // DIFFERENTIAL TRUNCATION. When the guard's own declaration refused and
-        // the test invokes it more than once, "which transaction" is a question
-        // the runner's answer does not carry - but it is a question the tool can
-        // MEASURE instead of guessing. Cut the test after its FIRST statement
-        // that invokes that declaration, keeping everything before it, and run
-        // the SAME mutant against that. If the cut test still fails with that
-        // declaration refusing, the attack itself was refused. If it passes, or
-        // fails without that refusal, the first invocation LANDED and the
-        // refusal in the full run is a later transaction noticing the damage.
-        // The extra run is named in the evidence, because a verdict that costs
-        // a second run should say so.
-        fun truncationVerdict(refusedBy: String): JsonObject {
-            val lines = statements.joinToString { it.first.toString() }
-            fun undecided(why: String) = verdict(
-                "ambiguous_refusal",
-                "$refusedBy refused, and $test invokes it in ${statements.size} statements (lines $lines), but the " +
-                    "error carries no line in the test to place the failure in and the truncated re-run could not " +
-                    "decide it either - $why Error: $error. Split the test so the attack is the only call to " +
-                    "${ownDeclarations.joinToString()}, or assert the damage directly"
-            )
-            val inv = invocations ?: return undecided("the test's statements could not be read.")
-            val first = inv.statements.first()
-            if (!first.locatable) return undecided("the FIRST invocation cannot be located exactly (${first.why}).")
-            val testSrc = withAlso.getValue(inv.path)
-            val cut = LinkedHashMap(withAlso)
-            cut[inv.path] = testSrc.substring(0, first.end + 1) + "\n}" + testSrc.substring(inv.close + 1)
-            val cutRun = runOnly(cut).getOrElse { return undecided("the truncated re-run did not run (${it.message}).") }
-            val cutCase = cutRun.cases.singleOrNull { it.name.endsWith(test) }
-                ?: return undecided("the truncated re-run returned no case named $test.")
-            val cutError = cutCase.error.orEmpty()
-            if (environmental(cutError)) return undecided("the truncated variant is not a running dapp ($cutError).")
-            val refusedAgain = !cutCase.ok && FRAME_REGEX.findAll(cutError)
-                .any { "${it.groupValues[1]}:${it.groupValues[2]}" in ownDeclarations }
-            return if (refusedAgain) verdict(
-                "still_refused",
-                "DIFFERENTIAL TRUNCATION (one extra mutant run): with $test CUT after its FIRST call to " +
-                    "${ownDeclarations.joinToString()} (the statement ending on line ${first.last}), the mutant STILL " +
-                    "fails with that declaration refusing ($cutError) - so the ATTACK was refused, not the damage " +
-                    "noticed, and this guard is not what the test measures. The full run failed with: $error. If that " +
-                    "refusal is defence in depth, name the refusing line in alsoRemove"
-            ) else landed(
-                "DIFFERENTIAL TRUNCATION (one extra mutant run): $refusedBy refused, but with $test CUT after its " +
-                    "FIRST call to that declaration (the statement ending on line ${first.last}) the mutant " +
-                    (if (cutCase.ok) "PASSES" else "fails WITHOUT that refusal ($cutError)") +
-                    " - the attack LANDED in that first transaction, so the refusal in the full run is a later one " +
-                    "noticing the damage"
+        // Which declarations can own a FRAME-LESS error. An operation refusal
+        // always carries `[module:op(file:line)]`, so a frame-less error is
+        // either the TEST module or a production QUERY (or a function a query
+        // calls) - and which is read off the string literals each one owns.
+        fun frameLessTestOwners() = testSourcesProducing(files, isTest, error)
+        fun frameLessQueryOwners() = queriesProducing(files, isTest, error)
+            .filter { (m, q) -> testStatementsInvoking(files, isTest, test, setOf("$m:$q"))?.statements?.isNotEmpty() == true }
+            .map { (m, q) -> "$m:$q" }
+            .distinct()
+
+        // 4c. IS THIS ONE OF THE SHAPES? Everything that makes "which
+        //     invocation refused" unanswerable is refused here, by structure,
+        //     before any error text is read.
+        if (ownDeclarations.isEmpty()) {
+            return@withContext notAShape(
+                "the guard is not inside any operation, query or function, so there is no declaration whose refusal " +
+                    "could be its own and no invocation to place the red in."
             )
         }
+        val notCanonical: String? = when {
+            statements.isEmpty() ->
+                "no top-level statement of it invokes $decls - the scan follows direct calls and ONE test-module " +
+                    "helper chain, and found neither."
+            statements.size > 1 ->
+                "it invokes $decls in ${statements.size} separate statements (lines " +
+                    "${statements.joinToString { it.first.toString() }}), and the runner's error does not say which " +
+                    "of them the red belongs to."
+            else -> statements.single().why.ifEmpty { null }
+        }
+        if (notCanonical != null) return@withContext notAShape(notCanonical)
+        val stmt = statements.single()
 
-        fun decideByTransaction(refusedBy: String): JsonObject = when {
-            statements.isEmpty() -> verdict(
-                "ambiguous_refusal",
-                "$refusedBy refused, and that is a declaration this guard runs in, but no statement of $test could be " +
-                    "seen invoking it: $error. The tool will not guess whether that refusal is the attack being refused " +
-                    "or the damage being noticed. Call the declaration from the test directly rather than through " +
-                    "something this scan cannot follow"
-            )
-            testFrame == null && statements.size == 1 -> stillRefusedByTheGuard(refusedBy)
-            testFrame == null -> truncationVerdict(refusedBy)
-            statements.first().contains(testFrame.line) -> stillRefusedByTheGuard(refusedBy)
-            statements.drop(1).any { it.contains(testFrame.line) } -> landed(
-                "the refusal came from $refusedBy in a LATER statement of the test (${testFrame.file}:${testFrame.line}, " +
-                    "where the attack is the statement at line ${statements.first().first}) - the attack landed in an " +
-                    "earlier transaction and this is the damage being noticed"
-            )
-            else -> verdict(
-                "ambiguous_refusal",
-                "$refusedBy refused at ${testFrame.file}:${testFrame.line}, which is inside no statement of $test that " +
-                    "invokes it (lines ${statements.joinToString { it.first.toString() }}): $error. The tool cannot place " +
-                    "the refusal in the test's statement order, and will not guess"
-            )
+        // 4d. SHAPE A, THE MUST-FAIL TEST. The test asserts that the attack
+        //     FAILS, in its only invocation of the guard's declaration. The
+        //     single proof that the guard is load-bearing is the transaction
+        //     SUCCEEDING without it - "did not fail", answered above. So every
+        //     other red here is the attack still being refused: by the guard's
+        //     own declaration (defence in depth), by something else in the same
+        //     stack, or by a query whose literals own a frame-less message.
+        if (stmt.runMustFail) {
+            if (ownFrame != null) {
+                return@withContext stillRefusedByTheGuard(
+                    "'${ownFrame.module}:${ownFrame.declaration}' (${ownFrame.file}:${ownFrame.line})"
+                )
+            }
+            val other = productionFrames.lastOrNull()
+            if (other != null) {
+                return@withContext verdict(
+                    "still_refused",
+                    "the attack was still REFUSED - by '${other.module}:${other.declaration}' " +
+                        "(${other.file}:${other.line}), which is not a declaration this guard runs in: $error. In a " +
+                        "must-fail test (SHAPE A) the ONLY red that proves the guard is load-bearing is the " +
+                        "transaction succeeding, which the runner reports as \"did not fail\"; a transaction that " +
+                        "still fails - whoever refused it - proves nothing about this guard. Name the refusing line " +
+                        "in alsoRemove if it is defence in depth"
+                )
+            }
+            val queryOwners = frameLessQueryOwners()
+            val testOwners = frameLessTestOwners()
+            val ownQuery = queryOwners.singleOrNull()?.takeIf { testOwners.isEmpty() }
+            return@withContext when {
+                ownQuery != null && ownQuery in ownDeclarations -> stillRefusedByTheGuard(
+                    "the query '$ownQuery', whose refusal carries no frame"
+                )
+                ownQuery != null -> verdict(
+                    "still_refused",
+                    "the attack was still REFUSED: the error carries no frame, and the only declaration that can " +
+                        "produce its text is the query '$ownQuery' ($error). In a must-fail test only \"did not " +
+                        "fail\" proves the attack landed"
+                )
+                TEST_ASSERT_REGEX.containsMatchIn(error) -> notAShape(
+                    "its red is a rell.test assertion (${TEST_ASSERT_REGEX.find(error)!!.value}) rather than the " +
+                        "must-fail statement, so the test measures something beside the attack it names."
+                )
+                else -> notAShape(
+                    "its red carries NO frame and no string literal in the test module or in any production query " +
+                        "it invokes can produce that text, so what refused - if anything - cannot be established."
+                )
+            }
         }
 
-        // 4c. THE GUARD'S OWN DECLARATION REFUSED - but in WHICH transaction?
+        // 4e. SHAPE B, THE MUST-HOLD TEST. The test drives the attack with a
+        //     single `.run()` (or one direct query call) that is expected to
+        //     SUCCEED, and the damage is measured afterwards. Because that is
+        //     the ONLY statement in which any declaration this guard runs in
+        //     executes, removing the guard cannot change anything the test does
+        //     BEFORE it - so a refusal from the guard's own declarations is that
+        //     invocation being refused, and a refusal from anything else
+        //     happened after the attack had already landed.
         if (ownFrame != null) {
-            return@withContext decideByTransaction(
+            return@withContext stillRefusedByTheGuard(
                 "'${ownFrame.module}:${ownFrame.declaration}' (${ownFrame.file}:${ownFrame.line})"
             )
         }
-
-        // 4d. SOME OTHER PRODUCTION DECLARATION IS NAMED AS REFUSING.
         val other = productionFrames.lastOrNull()
         if (other != null) {
             return@withContext landed(
                 "the refusal came from '${other.module}:${other.declaration}' (${other.file}:${other.line}), which is " +
-                    "not a declaration this guard runs in - that is the damage being noticed, not the attack being refused"
+                    "not a declaration this guard runs in. $test invokes $decls in exactly one statement (line " +
+                    "${stmt.first}) and expects it to SUCCEED, so nothing this guard reaches ran before it and this " +
+                    "refusal is a later transaction NOTICING the damage"
             )
         }
-
-        // 4e. NO FRAME AT ALL. An OPERATION refusal always carries one
-        // (`[module:op(file:line)] Operation '...' failed`), so a frame-less
-        // error is either the TEST MODULE failing or a production QUERY - or a
-        // function a query calls - refusing. Round 15's fifth fix answered every
-        // one of them `ambiguous_refusal` while the test invoked the guard's
-        // declaration, which made four test-side failures unprovable and left a
-        // query's own refusal indistinguishable from them. They are separated
-        // STRUCTURALLY, by asking which declarations can produce the text:
-        // a rell.test assertion can only be the test; otherwise the raw message
-        // is matched against the string literals each candidate owns.
-        if (frames.isEmpty() && statements.isNotEmpty()) {
-            val assertion = TEST_ASSERT_REGEX.find(error)
-            if (assertion != null) {
-                return@withContext landed(
-                    "the failing text is `${assertion.value}` - a rell.test assertion, which only the TEST module can " +
-                        "produce (a refusing operation always carries a [module:declaration(file:line)] frame). The " +
-                        "test measured the damage; nothing refused it"
-                )
-            }
-            val testOwners = testSourcesProducing(files, isTest, error)
-            val queryOwners = queriesProducing(files, isTest, error)
-                .filter { (_, q) -> testStatementsInvoking(files, isTest, test, setOf(q))?.statements?.isNotEmpty() == true }
-                .map { (m, q) -> "$m:$q" }
-                .distinct()
-            when {
-                testOwners.isNotEmpty() && queryOwners.isEmpty() -> return@withContext landed(
-                    "the error carries no frame, and a refusing operation always carries one - the only source in the " +
-                        "submission that owns a string literal producing this text is the TEST module " +
-                        "(${testOwners.joinToString()}), so the test NOTICED the damage and nothing refused"
-                )
-                queryOwners.size == 1 && testOwners.isEmpty() -> {
-                    val q = queryOwners.single()
-                    return@withContext if (q in ownDeclarations) {
-                        decideByTransaction("the query '$q', whose refusal carries no frame")
-                    } else {
-                        landed(
-                            "the error carries no frame; the only declaration that can produce its text is the query " +
-                                "'$q', which is not a declaration this guard runs in - that is the damage being noticed"
-                        )
-                    }
-                }
-                else -> {
-                    val sources = mutableListOf<String>()
-                    if (testOwners.isNotEmpty()) sources += "the test module (${testOwners.joinToString()})"
-                    if (queryOwners.isNotEmpty()) {
-                        sources += "the production quer${if (queryOwners.size == 1) "y" else "ies"} " +
-                            queryOwners.joinToString()
-                    }
-                    return@withContext verdict(
-                        "ambiguous_refusal",
-                        when {
-                            sources.size >= 2 -> "the mutant went red with an error that carries NO frame: $error. Its " +
-                                "text can be produced by ${sources.joinToString(" AND ")}, which $test invokes - so a " +
-                                "refusal and the test noticing the damage are the same string here, and the two " +
-                                "verdicts they imply (still_refused and load_bearing) are opposite. Reword one of the " +
-                                "two messages so no production declaration and no test assertion share words"
-                            queryOwners.size > 1 -> "the mutant went red with an error that carries NO frame: $error. " +
-                                "More than one production query $test invokes owns a literal that produces it " +
-                                "(${queryOwners.joinToString()}), so which one refused cannot be established. Give " +
-                                "them distinct messages and run it again"
-                            else -> "the mutant went red with an error that carries NO frame: $error, and no string " +
-                                "literal in the test module or in any production query $test invokes can produce that " +
-                                "text - so whether ${ownDeclarations.joinToString()} refused the attack or the damage " +
-                                "was noticed afterwards cannot be established. It is NOT counted as proven. Make the " +
-                                "damage visible to the test itself - an assertion on the state the attack changes, or " +
-                                "a run_must_fail on the attack - or pass attackLanded naming a fragment only the " +
-                                "attack landing produces"
-                        }
+        val assertion = TEST_ASSERT_REGEX.find(error)
+        if (assertion != null) {
+            return@withContext landed(
+                "the failing text is `${assertion.value}` - a rell.test assertion, which only the TEST module can " +
+                    "produce (a refusing operation always carries a [module:declaration(file:line)] frame). The " +
+                    "test measured the damage; nothing refused it"
+            )
+        }
+        val testOwners = frameLessTestOwners()
+        val queryOwners = frameLessQueryOwners()
+        return@withContext when {
+            testOwners.isNotEmpty() && queryOwners.isEmpty() -> landed(
+                "the error carries no frame, and a refusing operation always carries one - the only source in the " +
+                    "submission that owns a string literal producing this text is the TEST module " +
+                    "(${testOwners.joinToString()}), so the test NOTICED the damage and nothing refused"
+            )
+            queryOwners.size == 1 && testOwners.isEmpty() -> {
+                val q = queryOwners.single()
+                if (q in ownDeclarations) {
+                    stillRefusedByTheGuard("the query '$q', whose refusal carries no frame")
+                } else {
+                    landed(
+                        "the error carries no frame; the only declaration that can produce its text is the query " +
+                            "'$q', which is not a declaration this guard runs in - that is the damage being noticed"
                     )
                 }
             }
+            else -> {
+                val sources = mutableListOf<String>()
+                if (testOwners.isNotEmpty()) sources += "the test module (${testOwners.joinToString()})"
+                if (queryOwners.isNotEmpty()) {
+                    sources += "the production quer${if (queryOwners.size == 1) "y" else "ies"} " +
+                        queryOwners.joinToString()
+                }
+                verdict(
+                    "ambiguous_refusal",
+                    when {
+                        sources.size >= 2 -> "the mutant went red with an error that carries NO frame: $error. Its " +
+                            "text can be produced by ${sources.joinToString(" AND ")}, which $test invokes - so a " +
+                            "refusal and the test noticing the damage are the same string here, and the two " +
+                            "verdicts they imply (still_refused and load_bearing) are opposite. Reword one of the " +
+                            "two messages so no production declaration and no test assertion share words"
+                        queryOwners.size > 1 -> "the mutant went red with an error that carries NO frame: $error. " +
+                            "More than one production query $test invokes owns a literal that produces it " +
+                            "(${queryOwners.joinToString()}), so which one refused cannot be established. Give " +
+                            "them distinct messages and run it again"
+                        else -> "the mutant went red with an error that carries NO frame: $error, and no string " +
+                            "literal in the test module or in any production query $test invokes can produce that " +
+                            "text - so whether $decls refused the attack or the damage was noticed afterwards " +
+                            "cannot be established. It is NOT counted as proven. Make the damage visible to the " +
+                            "test itself - an assertion on the state the attack changes, or a run_must_fail on the " +
+                            "attack - or pass attackLanded naming a fragment only the attack landing produces"
+                    }
+                )
+            }
         }
-        return@withContext landed("nothing in the guard's own declaration refused the attack")
     }
 
     /** `[main:take(main.rell:9)]` - one frame of the runner's stack. */
@@ -2389,27 +2398,23 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
     private data class Frame(val module: String, val declaration: String, val file: String, val line: Int)
 
     /**
-     * One top-level statement of the must-fail test that invokes the guard's
-     * own declaration: its line range (a frame's line falls inside exactly
-     * one), the offset of the `;` that ends it - which is where a truncated
-     * variant is cut - and whether the invocation inside it can be located
-     * EXACTLY. A loop, or a helper with several call sites, invokes the
-     * declaration an unknown number of times inside one statement, so cutting
-     * after it would not measure the first invocation; [locatable] is false
-     * then and [why] says which.
+     * One top-level statement of the named test that invokes the guard's own
+     * declaration: its line range, whether it ends in `run_must_fail` (SHAPE A)
+     * rather than `run()` (SHAPE B), and - in [why] - the reason it is NOT one
+     * of the two canonical shapes, empty when it is. A loop, a transaction
+     * carrying more than the guard's own operation, or a helper chain with
+     * several call sites all leave "which invocation refused" unanswerable, and
+     * that is exactly the question five rounds of heuristics kept guessing at.
      */
     private data class TestStatement(
         val first: Int,
         val last: Int,
-        val end: Int,
-        val locatable: Boolean,
+        val runMustFail: Boolean,
         val why: String
-    ) {
-        fun contains(line: Int) = line in first..last
-    }
+    )
 
-    /** The test function's file, the offset of its closing `}`, and its invoking statements in source order. */
-    private data class TestInvocations(val path: String, val close: Int, val statements: List<TestStatement>)
+    /** The test function's file and its invoking statements in source order. */
+    private data class TestInvocations(val path: String, val statements: List<TestStatement>)
 
     /** `System function 'rell.test.assert_equals'` - only a TEST module can produce this. */
     private val TEST_ASSERT_REGEX = Regex("""System function 'rell\.test\.assert_\w+'""")
@@ -2602,38 +2607,106 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             RellSecurityCheck.scanOperations(p, masked).forEach { entryPoints += "$module:${it.name}" to it.body }
             RellSecurityCheck.scanQueries(masked).forEach { entryPoints += "$module:${it.name}" to it.body }
         }
-        return entryPoints.filter { (_, body) -> reaches(bodies, body, target) }
+        val extensions = extensionsOf(files, isTest)
+        return entryPoints.filter { (_, body) -> reaches(bodies, extensions, body, target) }
             .mapTo(LinkedHashSet()) { it.first }
     }
 
-    /** True when [body]'s transitive call closure over [bodies] contains [target]. */
-    private fun reaches(bodies: Map<String, List<String>>, body: String, target: String): Boolean {
+    /**
+     * `@extend(pre_pay) function clamp_check(...)` - the extendable's name and
+     * the extension's. Rell's rule is that calling an `@extendable` function
+     * runs EVERY `@extend` of it, so an extension is reached by every caller of
+     * the extendable even though no call site anywhere names it. Round 16's
+     * p16a hid a guard behind exactly that: the guard's own operation refused,
+     * the call graph could not see the edge, and the refusal was certified
+     * load_bearing, ok:true.
+     */
+    private val EXTEND_REGEX = Regex(
+        """@extend\s*\(\s*(?:[A-Za-z_]\w*\s*\.\s*)*([A-Za-z_]\w*)\s*\)\s*(?:@\w+(?:\s*\([^)]*\))?\s*)*function\s+([A-Za-z_]\w*)"""
+    )
+
+    /** extendable name -> every production `@extend` of it, keyed on the bare name like the rest of the call graph. */
+    private fun extensionsOf(files: Map<String, String>, isTest: Map<String, Boolean>): Map<String, List<String>> {
+        val out = mutableMapOf<String, MutableList<String>>()
+        files.forEach { (p, content) ->
+            if (isTest.getValue(p)) return@forEach
+            EXTEND_REGEX.findAll(maskRellSource(content, maskStrings = true)).forEach { m ->
+                out.getOrPut(m.groupValues[1]) { mutableListOf() }.add(m.groupValues[2])
+            }
+        }
+        return out
+    }
+
+    /**
+     * True when [body]'s transitive call closure over [bodies] contains
+     * [target]. A call to an `@extendable` function reaches every `@extend` of
+     * it ([extensions]), which is the only edge in Rell that no call site
+     * spells out.
+     */
+    private fun reaches(
+        bodies: Map<String, List<String>>,
+        extensions: Map<String, List<String>>,
+        body: String,
+        target: String
+    ): Boolean {
         val seen = mutableSetOf<String>()
         val work = ArrayDeque(RellSecurityCheck.calledNames(body))
         while (work.isNotEmpty()) {
             val n = work.removeFirst()
             if (!seen.add(n)) continue
             if (n == target) return true
+            extensions[n]?.forEach { if (it !in seen) work.add(it) }
             bodies[n]?.forEach { b -> RellSecurityCheck.calledNames(b).forEach { if (it !in seen) work.add(it) } }
         }
         return false
     }
 
     /**
-     * The line span of every top-level statement of the test function [test]
-     * that invokes one of [names] - directly, or through a function of the same
-     * test module that does - IN SOURCE ORDER. The first of them carries the
-     * attack; anything later runs after it.
+     * Every top-level statement of the test function [test] that invokes one of
+     * [declarations] (module-qualified, `module:name`) - directly, or through a
+     * function of the same test module that does - IN SOURCE ORDER, each
+     * classified against the two canonical shapes.
+     *
+     * A "top-level statement" ends at a `;` at brace depth zero OR at the `}`
+     * that closes a depth-zero block, so a `for`/`while`/`if` block is ONE
+     * statement rather than none: round 16's p16b drove the same two
+     * transactions from a table, the splitter saw no statement at all, and the
+     * whole shape analysis was skipped.
+     *
+     * A call site counts only when its QUALIFIER can be the declaration's own
+     * module: `x.take(...)` is not `main.take(...)` (round 15's p15b, from the
+     * other side - the call graph is keyed on bare names, so without this a
+     * same-named operation in another module would add a second "invoking"
+     * statement and cost an `ambiguous_refusal`). An unqualified call is
+     * accepted (`import main.*`); a call through an import ALIAS is not
+     * recognised and leaves the test outside both shapes, which is the safe
+     * direction.
      */
     private fun testStatementsInvoking(
         files: Map<String, String>,
         isTest: Map<String, Boolean>,
         test: String,
-        names: Set<String>
+        declarations: Set<String>
     ): TestInvocations? {
-        if (names.isEmpty()) return null
-        val callSite = Regex("""\b(?:${names.joinToString("|") { Regex.escape(it) }})\s*\(""")
+        if (declarations.isEmpty()) return null
+        val modulesByName = mutableMapOf<String, MutableSet<String>>()
+        declarations.forEach { d ->
+            val module = d.substringBeforeLast(':')
+            modulesByName.getOrPut(d.substringAfterLast(':')) { mutableSetOf() }
+                .addAll(listOf(module, module.substringAfterLast('.')))
+        }
+        val bare = modulesByName.keys
+        val callSite = Regex(
+            """(?:([A-Za-z_]\w*)\s*\.\s*)?\b(${bare.joinToString("|") { Regex.escape(it) }})\s*\("""
+        )
+        fun invocationsIn(text: String) = callSite.findAll(text).count { m ->
+            val qualifier = m.groupValues[1]
+            qualifier.isEmpty() || qualifier in modulesByName.getValue(m.groupValues[2])
+        }
         val loopRx = Regex("""\b(?:for|while)\b""")
+        val opRx = Regex("""\.\s*op\s*\(""")
+        val mustFailRx = Regex("""\brun_must_fail\s*\(""")
+        val callee = Regex("""([A-Za-z_]\w*)\s*\(""")
         files.forEach { (p, content) ->
             if (!isTest.getValue(p)) return@forEach
             val masked = maskRellSource(content, maskStrings = true)
@@ -2645,49 +2718,89 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             RellSecurityCheck.functionDefinitions(masked).forEach { d ->
                 helperBodies.getOrPut(d.name) { mutableListOf() }.add(d.body)
             }
-            val reaching = helperBodies.keys.filterTo(mutableSetOf()) { h ->
-                names.any { n -> helperBodies.getValue(h).any { b -> reaches(helperBodies, b, n) } }
+            // A test-module helper "reaches" the declaration when its own body
+            // invokes it, or when it calls another helper that does.
+            val reaching = mutableSetOf<String>()
+            var grew = true
+            while (grew) {
+                grew = false
+                helperBodies.forEach { (h, bodies) ->
+                    if (h in reaching) return@forEach
+                    val hit = bodies.any { b ->
+                        invocationsIn(b) > 0 || RellSecurityCheck.calledNames(b).any { it in reaching }
+                    }
+                    if (hit) { reaching += h; grew = true }
+                }
             }
-            val wanted = names + reaching
+            /** The text a statement really executes: itself plus every reaching helper it calls. */
+            fun flatten(text: String, depth: Int, seen: MutableSet<String>): String {
+                if (depth > 4) return text
+                val sb = StringBuilder(text)
+                RellSecurityCheck.calledNames(text).filter { it in reaching }.forEach { h ->
+                    if (seen.add(h)) {
+                        helperBodies.getValue(h).forEach { sb.append('\n').append(flatten(it, depth + 1, seen)) }
+                    }
+                }
+                return sb.toString()
+            }
+            /** How many times the statement invokes the declaration, helpers expanded. */
+            fun sites(text: String, depth: Int): Int {
+                if (depth > 4) return 99
+                var n = invocationsIn(text)
+                RellSecurityCheck.calledNames(text).filter { it in reaching }.forEach { h ->
+                    val here = Regex("\\b${Regex.escape(h)}\\s*\\(").findAll(text).count()
+                    if (here > 0) n += here * helperBodies.getValue(h).sumOf { sites(it, depth + 1) }
+                }
+                return n
+            }
             val spans = mutableListOf<TestStatement>()
             var from = brace + 1
             var depth = 0
             var i = brace + 1
+            fun record(endAt: Int) {
+                val statement = masked.substring(from, endAt)
+                val siteCount = sites(statement, 0)
+                if (siteCount > 0) {
+                    val flat = flatten(statement, 0, mutableSetOf())
+                    val ops = opRx.findAll(flat).count()
+                    val opName = opRx.find(flat)
+                        ?.let { callee.find(flat, it.range.last + 1) }
+                        ?.groupValues?.get(1)
+                    val mustFail = mustFailRx.containsMatchIn(flat)
+                    spans += TestStatement(
+                        masked.substring(0, from).count { c -> c == '\n' } + 1,
+                        masked.substring(0, endAt).count { c -> c == '\n' } + 1,
+                        mustFail,
+                        when {
+                            loopRx.containsMatchIn(flat) ->
+                                "the statement that invokes it is a LOOP (or a table driven from one), so it invokes " +
+                                    "the declaration an unknown number of times and no single transaction can be " +
+                                    "named as the attack."
+                            siteCount != 1 ->
+                                "the statement invokes the declaration $siteCount times (directly, or through a " +
+                                    "test-module helper this scan cannot reduce to one call site)."
+                            ops > 1 ->
+                                "the transaction it runs carries $ops operations, so a refusal from it need not be " +
+                                    "the guard's own operation being refused."
+                            ops == 1 && opName != null && opName !in bare ->
+                                "the one operation in that transaction is `$opName`, which is not a declaration this " +
+                                    "guard runs in - the declaration is reached some other way inside the statement."
+                            else -> ""
+                        }
+                    )
+                }
+                from = endAt + 1
+            }
             while (i < close) {
                 when (masked[i]) {
                     '(', '[', '{' -> depth++
-                    ')', ']', '}' -> depth--
-                    ';' -> if (depth == 0) {
-                        val statement = masked.substring(from, i)
-                        val called = RellSecurityCheck.calledNames(statement)
-                        if (called.any { it in wanted }) {
-                            val direct = called.any { it in names }
-                            val helpers = called.filter { it in reaching }
-                            val sites = helpers
-                                .flatMap { h -> helperBodies.getValue(h) }
-                                .map { b -> callSite.findAll(b).count() }
-                                .sum()
-                            val loop = loopRx.containsMatchIn(statement)
-                            spans += TestStatement(
-                                masked.substring(0, from).count { c -> c == '\n' } + 1,
-                                masked.substring(0, i).count { c -> c == '\n' } + 1,
-                                i,
-                                !loop && (direct || (helpers.size == 1 && sites == 1)),
-                                when {
-                                    loop -> "it is a loop, so one statement invokes the declaration an unknown number of times"
-                                    direct -> ""
-                                    helpers.isEmpty() -> "no test-module helper in it reaches the declaration"
-                                    helpers.size > 1 -> "it goes through ${helpers.size} test helpers (${helpers.joinToString()})"
-                                    else -> "the helper ${helpers.single()} calls the declaration $sites times"
-                                }
-                            )
-                        }
-                        from = i + 1
-                    }
+                    ')', ']' -> depth--
+                    '}' -> { depth--; if (depth == 0) record(i) }
+                    ';' -> if (depth == 0) record(i)
                 }
                 i++
             }
-            if (spans.isNotEmpty()) return TestInvocations(p, close, spans)
+            if (spans.isNotEmpty()) return TestInvocations(p, spans)
         }
         return null
     }

@@ -79,34 +79,49 @@ standard, and `verify_guards` runs the same check on **your** dapp: name a guard
 must-fail test that depends on it, and the tool checks the test passes as-is, deletes (or
 weakens, via `replacement`) the guard, reruns only that test, and reads *why* it failed:
 
-- `load_bearing` — failed because the attack landed (`run_must_fail` reports "did not fail")
+- `load_bearing` — failed because the attack landed
 - `vacuous` — stayed green without the guard; the test does not exercise it
-- `still_refused` — the guard's own declaration still refused the attack (another `require` in
-  it, or a `module_args` bound); name it in `alsoRemove`. A refusal counts as the guard's own
-  when the runner's frame — `[module:declaration(file:line)]` — names the declaration the guard
-  sits in, **module included**, or (for a guard in a `function`) any operation or query that
-  reaches it through your own call graph; and when it came from the **first** statement of the
-  test that invokes that declaration. A refusal by any other declaration, by the same one in a
-  *later* statement, or a test-side assertion, is the damage being noticed and counts as
-  `load_bearing`. An error with **no frame at all** is never an operation — a refusing operation
-  always carries one — so it is the test module or a **query**, and which one is read off the
-  string literals each owns: a query whose own second guard refuses is `still_refused`, while a
-  `rell.test.assert_*` or a test-side `require` is the damage being measured. When the frame
-  names the guard's declaration and the test invokes it **more than once**, the tool cuts the
-  test after the first such statement and runs the mutant again (*differential truncation*):
-  still refused there means the attack was refused; green there means it landed
-- `ambiguous_refusal` — red, and the tool cannot say which of those two it is: a frame-less error
-  whose words **both** the test module and a production query the test invokes can produce (or
-  that neither can), or a repeated invocation whose first call cannot be located exactly — a loop,
-  or a helper with several call sites — so the truncated re-run would not measure the attack.
-  Never counted as proven, and never a reason to weaken the test — the evidence text says what
-  to add
+- `still_refused` — something refused the attack anyway (another `require`, a second guard, a
+  `module_args` bound); name it in `alsoRemove` if it is defence in depth
+- `ambiguous_refusal` — red, and the tool **will not guess** whether that red is the attack being
+  refused or the damage being noticed. Never counted as proven, and never a reason to weaken the
+  test — the evidence names the shape to write
 - `environmental` — the mutant did not compile or lacked `moduleArgs`; proves nothing
 - `baseline_red` / `guard_not_found` / `guard_ambiguous` / `test_not_found` — the inputs cannot be verified yet
 - `replacement_rejected` / `also_remove_overlaps_guard` — the mutation itself is refused: a
   replacement may change nothing outside the guard's own span (no opening a comment or a string),
   and `alsoRemove` must be disjoint from the guard. Round 12 got three false verdicts through
   those two inputs; the tool now refuses them instead of guessing.
+
+### The two shapes
+
+Rounds 11–15 each widened a heuristic over the runner's error text, and each was beaten one
+token away — an `@extend` the call graph could not see, a `for` loop the statement splitter
+could not read, a frame-less query refusal past an empty statement list. The error text a
+runner happens to print is not a specification, so the tool no longer tries to classify every
+red. It names the two shapes it can prove and refuses the rest.
+
+Both shapes require the test to invoke the guard's declaration — the one it sits in, or (for a
+guard in a `function`) any operation or query that reaches it through your call graph, following
+name calls **and `@extend`/`@extendable`** — in **exactly one** top-level statement, directly or
+through one test-module helper. That is the whole point: *which invocation refused* is the
+question every beaten heuristic was guessing at, and a test with one invocation cannot pose it.
+
+- **Shape A, the must-fail test.** That one statement is a single-operation
+  `rell.test.tx().op(<the declaration>(...)).run_must_fail(...)`. The guard is proven only when
+  removing it makes the transaction **succeed** — the runner says "did not fail". Any other red
+  is the attack still being refused, whoever refused it.
+- **Shape B, the must-hold test.** That one statement expects the call to **succeed** (a
+  single-operation `.run()`, or a direct call to the query) and the damage is measured after it.
+  A `rell.test.assert_*` failure is the damage being measured; a refusal naming one of the
+  guard's own declarations is that invocation being refused; a refusal naming anything else
+  happened after the attack had already landed. A frame-less error — never an operation, since an
+  operation refusal always carries a frame — is attributed to the test module or to a production
+  query by the string literals each owns.
+
+Anything else is `ambiguous_refusal`, `ok:false`: a loop or a table-driven test, several invoking
+statements, a transaction carrying more than that one operation, a helper with several call
+sites. Rewrite the test in one of the two shapes and the same dapp answers on its own.
 
 `ok` is true only when every named guard is `load_bearing`. It says nothing about guards you
 did not name, and it does not replace an audit — it turns the guards you did name from a

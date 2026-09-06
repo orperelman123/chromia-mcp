@@ -1129,11 +1129,21 @@ class VerifyGuardsProbeTest {
     }
 
     /**
-     * P15C. THE GUARD'S OWN OPERATION, IN A LATER TRANSACTION. The attack lands
-     * in transaction 2 and transaction 3 is refused BY THE SAME OPERATION,
-     * because the damage is already done. The frame names the declaration and
-     * never the transaction, so this reads as the attack being refused.
-     * TRUE VERDICT: load_bearing.
+     * P15C, RE-PINNED IN ROUND 16. The attack lands in transaction 2 and
+     * transaction 3 is refused BY THE SAME OPERATION, because the damage is
+     * already done. Round 15 answered `load_bearing` by CUTTING the test after
+     * its first call to main:take and running the mutant again - and that
+     * differential truncation is exactly what round 16 beat, twice, one token
+     * away (a `for` loop, a helper with two call sites). The tool now proves
+     * two shapes and refuses to guess outside them, and this test is outside
+     * both: it invokes main:take in TWO statements, so "which invocation
+     * refused" is a question the runner's error does not answer. TRUE VERDICT
+     * UNDER THE SHAPES: ambiguous_refusal, ok:false - and the evidence names
+     * the shape to write. p14a's control is that shape: the same guard, the
+     * same attack, ONE `.run()` and an assertion on the state afterwards, and
+     * it is `load_bearing`. A verdict of `still_refused` here would be worse
+     * than useless (it would send the author off to weaken a load-bearing
+     * test); `load_bearing` would be a guess in the direction that certifies.
      */
     private val r15LaterTxMain = """
         module;
@@ -1165,6 +1175,28 @@ class VerifyGuardsProbeTest {
     fun p15cTheGuardsOwnOperationRefusingLaterIsNotTheAttackBeingRefused() {
         val r = run(
             mapOf("main.rell" to r15LaterTxMain, "main_test.rell" to r15LaterTxTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("ambiguous_refusal", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
+        assertTrue(evidence(r).contains("2 separate statements"), evidence(r))
+        assertTrue(evidence(r).contains("SHAPE B"), evidence(r))
+    }
+
+    /**
+     * The shape p15c should be written as: the SAME dapp and the same attack
+     * with ONE call to main:take and the state asserted afterwards. Shape B,
+     * and the tool proves it. Without this the re-pin above would be a
+     * capability lost rather than a question refused.
+     */
+    @Test
+    fun p15cShapeTheSameDamageWithOneCallAndAnAssertion() {
+        val oneCall = r15LaterTxTests.replace(
+            "    rell.test.tx().op(main.take(1)).run();\n",
+            ""
+        )
+        val r = run(
+            mapOf("main.rell" to r15LaterTxMain, "main_test.rell" to oneCall),
             guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
         )
         assertEquals("load_bearing", verdict(r), r.toString())
@@ -1248,17 +1280,17 @@ class VerifyGuardsProbeTest {
     }
 
     /**
-     * P15F. THE TRUNCATION PATH ITSELF, from the other side. The shape is
-     * p15c's exactly - the guard's own operation refuses, the test invokes it
-     * twice, and the runner's error places the failure in neither statement -
-     * but here the refusal IS the attack being refused: a second guard in the
-     * same operation catches the unclamped amount on the FIRST call. Nothing
-     * in the full run's error distinguishes this from p15c, so the verdict is
-     * decided by the truncated variant: the test cut after its first call to
-     * main:take still fails with main:take refusing.
-     * TRUE VERDICT: still_refused - and p15c, the same measurement, is
-     * load_bearing. One extra mutant run separates two verdicts that a string
-     * could not.
+     * P15F, RE-PINNED IN ROUND 16. The shape is p15c's exactly - the guard's
+     * own operation refuses and the test invokes it twice - but here the
+     * refusal IS the attack being refused: a second guard in the same
+     * operation catches the unclamped amount on the FIRST call. Nothing in the
+     * error distinguishes this from p15c, which is the point: round 15
+     * separated them with a truncated re-run, and round 16 beat that re-run in
+     * two ways. Under the shapes both are the same answer, and it is the
+     * honest one - the test is outside both shapes, so TRUE VERDICT:
+     * ambiguous_refusal. Written as shape B (one call, then the assertion) the
+     * two dapps separate on their own: p15c's is load_bearing and this one is
+     * still_refused, which the control below measures.
      */
     private val r15FirstCallRefusedMain = """
         module;
@@ -1292,8 +1324,30 @@ class VerifyGuardsProbeTest {
             mapOf("main.rell" to r15FirstCallRefusedMain, "main_test.rell" to r15TwoCallTests),
             guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
         )
+        assertEquals("ambiguous_refusal", verdict(r), r.toString())
+        assertEquals("false", r["loadBearing"]!!.jsonPrimitive.content, r.toString())
+        assertTrue(evidence(r).contains("2 separate statements"), evidence(r))
+    }
+
+    /**
+     * p15f written as SHAPE B: one call to main:take, the state asserted
+     * afterwards. The second guard in the same operation refuses that one call,
+     * so the clamp proves nothing - still_refused, with no second run and no
+     * statement order to read. The pair (this and p15cShape...) is the whole
+     * argument for the shapes: the two dapps that a truncated re-run separated
+     * separate by themselves once the test invokes the declaration once.
+     */
+    @Test
+    fun p15fShapeTheSameDappWithOneCallIsStillRefused() {
+        val oneCall = r15TwoCallTests.replace(
+            "    rell.test.tx().op(main.take(1)).run();\n",
+            ""
+        )
+        val r = run(
+            mapOf("main.rell" to r15FirstCallRefusedMain, "main_test.rell" to oneCall),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
         assertEquals("still_refused", verdict(r), r.toString())
-        assertTrue(evidence(r).contains("DIFFERENTIAL TRUNCATION"), evidence(r))
     }
 
     /**
@@ -1370,5 +1424,188 @@ class VerifyGuardsProbeTest {
             guard(depthGuard, "test_overdraft_must_fail", alsoRemove = listOf(depthSecond))
         )
         assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    // ================= ROUND 16: THE SHAPES THEMSELVES =====================
+    // Rounds 11-15 each widened a heuristic over the runner's error text and
+    // each was beaten one token away. Round 16 names the two shapes the tool
+    // PROVES and refuses everything else. These probes pin the shapes from both
+    // sides: one per shape that must be proven, and one per rejected shape that
+    // must come back `ambiguous_refusal` with the shape to write. A shape that
+    // is not pinned from both sides is a rule that can rot in either direction:
+    // silently narrowing (every honest test becomes ambiguous) or silently
+    // widening (the guessing comes back).
+
+    /** SHAPE A, proven: one single-op run_must_fail, and without the guard the transaction succeeds. */
+    @Test
+    fun p16ShapeAOneMustFailStatementIsProven() {
+        val r = run(mapOf("main.rell" to p4Main, "main_test.rell" to tests), guard(bal, "test_overdraft_must_fail"))
+        assertEquals("load_bearing", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("did not fail"), evidence(r))
+    }
+
+    /** SHAPE A, refused by the guard's own declaration: defence in depth is not proof. */
+    @Test
+    fun p16ShapeARefusedByItsOwnDeclarationIsStillRefused() {
+        val r = run(
+            mapOf("main.rell" to depthMain, "main_test.rell" to depthTests),
+            guard(depthGuard, "test_overdraft_must_fail")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+    }
+
+    /** SHAPE B, proven: one `.run()` that must SUCCEED, and the assertion afterwards measures the damage. */
+    @Test
+    fun p16ShapeBOneRunAndAnAssertionIsProven() {
+        val r = run(
+            mapOf("main.rell" to r14ClampMain, "main_test.rell" to r14QueryTests),
+            guard(r14Clamp, "test_overdraft_must_fail", replacement = r14Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("rell.test assertion"), evidence(r))
+    }
+
+    /**
+     * THE CALL GRAPH THROUGH @extend. Rell runs every `@extend` of an
+     * `@extendable` function when the extendable is called, and NO call site
+     * anywhere names the extension - so a guard factored into an `@extend`
+     * helper had no callers at all, its own operation's refusal counted as
+     * "some other declaration", and the guard was certified load_bearing,
+     * ok:true (round 16, p16a). TRUE VERDICT: still_refused - the clamp is
+     * defence in depth behind a second require in the same operation.
+     */
+    private val extendHooks = """
+        module;
+        @extendable function pre_pay(available: integer, n: integer);
+    """.trimIndent()
+
+    private val extendMain = """
+        module;
+        import hooks.*;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        @extend(pre_pay) function clamp_check(available: integer, n: integer) {
+            require(n <= available, "insufficient");
+        }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            pre_pay(p.balance, amount);
+            require(p.balance - amount >= 0, "the pot would go negative");
+            update p ( .balance -= amount );
+        }
+    """.trimIndent()
+
+    @Test
+    fun p16ExtendChainMakesTheCallersRefusalTheGuardsOwn() {
+        val r = run(
+            mapOf("hooks.rell" to extendHooks, "main.rell" to extendMain, "main_test.rell" to tests),
+            guard("require(n <= available, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("main:take"), evidence(r))
+    }
+
+    /** The control: the same dapp with the extension called BY NAME. Same verdict, so p16a is a wrong answer. */
+    @Test
+    fun p16ExtendControlTheSameGuardCalledByName() {
+        val byName = extendMain
+            .replace("import hooks.*;\n", "")
+            .replace("@extend(pre_pay) function clamp_check", "function clamp_check")
+            .replace("pre_pay(p.balance, amount);", "clamp_check(p.balance, amount);")
+        val r = run(
+            mapOf("main.rell" to byName, "main_test.rell" to tests),
+            guard("require(n <= available, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+    }
+
+    /** A test-module helper with ONE call site is followed, so the shape is still readable. */
+    @Test
+    fun p16ShapeAThroughATestHelperWithOneCallSiteIsStillAShape() {
+        val viaHelper = """
+            @test module;
+            import main;
+            function attack() {
+                rell.test.tx().op(main.take(11)).run_must_fail("does not hold");
+            }
+            function test_overdraft_must_fail() {
+                rell.test.tx().op(main.seed(10)).run();
+                attack();
+            }
+        """.trimIndent()
+        val r = run(
+            mapOf("main.rell" to depthMain, "main_test.rell" to viaHelper),
+            guard(depthGuard, "test_overdraft_must_fail")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+    }
+
+    // ---- REJECTED SHAPES: every one of these is ambiguous_refusal ----------
+
+    /** A LOOP over the invocation: one statement, an unknown number of transactions. */
+    @Test
+    fun p16RejectedShapeALoopOverTheInvocation() {
+        val loopTests = """
+            @test module;
+            import main;
+            function test_overdraft_must_fail() {
+                rell.test.tx().op(main.seed(10)).run();
+                for (n in [11, 1]) {
+                    rell.test.tx().op(main.take(n)).run();
+                }
+                assert_equals(main.left(), 0);
+            }
+        """.trimIndent()
+        val r = run(
+            mapOf("main.rell" to r15LaterTxMain, "main_test.rell" to loopTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("ambiguous_refusal", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("LOOP"), evidence(r))
+        assertTrue(evidence(r).contains("SHAPE A") && evidence(r).contains("SHAPE B"), evidence(r))
+    }
+
+    /** A TRANSACTION CARRYING TWO OPERATIONS: a refusal from it need not be the guard's op. */
+    @Test
+    fun p16RejectedShapeATransactionWithTwoOperations() {
+        val main = p4Main + "\noperation audit() {\n    val p = pot @ { .id == 1 };\n" +
+            "    require(p.balance >= 0, \"the pot has gone negative\");\n}\n"
+        val twoOps = """
+            @test module;
+            import main;
+            function test_overdraft_must_fail() {
+                rell.test.tx().op(main.seed(10)).run();
+                rell.test.tx().op(main.take(11)).op(main.audit()).run_must_fail("insufficient");
+            }
+        """.trimIndent()
+        val r = run(mapOf("main.rell" to main, "main_test.rell" to twoOps), guard(bal, "test_overdraft_must_fail"))
+        assertEquals("ambiguous_refusal", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("2 operations"), evidence(r))
+    }
+
+    /** A TEST HELPER WITH TWO CALL SITES: one statement, two transactions inside it. */
+    @Test
+    fun p16RejectedShapeAHelperWithTwoCallSites() {
+        val viaHelper = """
+            @test module;
+            import main;
+            function twice(a: integer, b: integer) {
+                rell.test.tx().op(main.take(a)).run();
+                rell.test.tx().op(main.take(b)).run();
+            }
+            function test_overdraft_must_fail() {
+                rell.test.tx().op(main.seed(10)).run();
+                twice(11, 1);
+                assert_equals(main.left(), 0);
+            }
+        """.trimIndent()
+        val r = run(
+            mapOf("main.rell" to r15LaterTxMain, "main_test.rell" to viaHelper),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("ambiguous_refusal", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("2 times"), evidence(r))
     }
 }
