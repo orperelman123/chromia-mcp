@@ -522,6 +522,37 @@ class DappScaffoldSecureTemplatesTest {
             "the fee must accrue PRO RATA across the period"
         )
         assertFalse(Regex("/ s\\.period_ms \\+ 1").containsMatchIn(code), "a whole period falling due at its start is round 13's step")
+        // FUNDING BUYS TIME FORWARD - round 14. The billable stretch is FUNDED time that
+        // has elapsed, so the ceiling on it is a timestamp the payer bought and not the
+        // current funding: `periods_funded = funded(s) / amount_per_period + 1` let a
+        // top-up after eleven unfunded months pay for the eleven months in the block it
+        // landed (alice 10000 -> 0, trudy 10000 -> 20000).
+        assertTrue(code.contains("val billable_to = min(at, s.funded_until);"), "accrual must be bounded by the time the escrow REACHES, not by the current funding")
+        assertFalse(Regex("periods_funded").containsMatchIn(code), "a ceiling on time derived from the current funding is round 14's lapse ratchet")
+        val fund = opBody(code, "fund_subscription")
+        assertTrue(
+            fund.contains("if (now >= s.funded_until) {") && fund.contains(".accrual_start = s.accrual_start + (now - s.funded_until),"),
+            "a payment that lands after the escrow ran out must step the accrual anchor OVER the unfunded gap"
+        )
+        assertEquals(
+            1,
+            Regex("\\.accrual_start = ").findAll(code).count(),
+            "the accrual anchor may be moved by exactly one operation, and it is the one only the PAYER may call"
+        )
+        assertEquals(
+            2,
+            Regex("\\.funded_until = ").findAll(code).count(),
+            "and so may the funded horizon - both branches of fund_subscription and nothing else"
+        )
+        // A BOUNDED STEP AT THE BOUNDARY - round 14's prose defect. The step is
+        // amount_per_period * block_ms / period_ms, not the "ONE UNIT" this header claimed:
+        // measured at 2778 units, 27.8% of the funding, on MAX_AMOUNT over MIN_PERIOD_MS.
+        assertTrue(main.contains("val MIN_MS_PER_UNIT ="), "the fee must be bounded against the period, not described")
+        assertTrue(
+            opBody(code, "open_subscription").contains("require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, \"fee too large for this period\");"),
+            "open_subscription must refuse a fee larger than one unit per second of its period"
+        )
+        assertFalse(main.contains("staircase of"), "the header must not borrow streaming's one-unit bound: round 14 measured 2778")
         assertTrue(code.contains("require(owed > 0, \"nothing is due\");"), "a merchant must not be paid for time that has not elapsed")
         // ALWAYS CANCELLABLE. There is no term that can say otherwise: in a pull model an
         // authorisation that cannot be revoked is a standing claim on a person.
@@ -539,8 +570,12 @@ class DappScaffoldSecureTemplatesTest {
         listOf("amount_per_period: integer;", "period_ms: integer;", "started_at: timestamp;").forEach {
             assertTrue(entity.contains(it), "a subscription's terms must be immutable: $it")
         }
-        assertEquals(2, Regex("mutable ").findAll(entity).count(), "the only mutable fields are the two monotone counters")
+        assertEquals(4, Regex("mutable ").findAll(entity).count(), "the only mutable fields are the two monotone counters and the two billing clocks")
         assertTrue(entity.contains("mutable escrow: integer = 0;") && entity.contains("mutable charged: integer = 0;"))
+        assertTrue(
+            entity.contains("mutable accrual_start: timestamp;") && entity.contains("mutable funded_until: timestamp;"),
+            "the two billing clocks are fields, so the lapse is recorded rather than recomputed from the funding"
+        )
         assertEquals(1, Regex("started_at = op_context").findAll(code).count(), "the accrual clock must be written exactly once, by open_subscription")
         assertEquals(1, Regex("create subscription\\(").findAll(code).count())
         // Bounds, and the operation list: no operation names a party it was not authorised by.
@@ -555,9 +590,13 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(code.contains("require(merchant != acct.id, \"cannot subscribe to yourself\");"))
         assertTrue(code.contains("require(amount_per_period >= MIN_FEE and amount_per_period <= MAX_AMOUNT"), "the fee must be bounded at both ends")
         // The header COUNTS its guards.
-        assertTrue(main.contains("Eight guards are STRUCTURAL"), "the subscription header must state its guard count")
-        assertTrue(main.contains("val MIN_FEE ="), "a fee below one whole unit accrues nothing - it must have a real floor")
-        assertEquals(8, guardCount(main), "the subscription header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the subscription header must state its guard count")
+        assertTrue(main.contains("val MIN_FEE ="), "a fee below one whole unit accrues nothing, and a fee of zero divides by zero in ms_bought()")
+        assertFalse(
+            main.contains("unbounded-voting-period"),
+            "round 14: a constant may not justify itself by keeping a name-keyed advisory quiet - the rule is what is wrong"
+        )
+        assertEquals(9, guardCount(main), "the subscription header's stated count must be the number of guards it lists")
         assertTrue(
             main.contains("A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE"),
             "the header must admit what the escrow costs"
@@ -1938,7 +1977,10 @@ class DappScaffoldSecureTemplatesTest {
             "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
             "test_round13_the_period_boundary_is_not_a_whole_fee_step_must_fail",
             "test_terms_and_ownership",
-            "test_cancellation_pays_the_merchant_first"
+            "test_cancellation_pays_the_merchant_first",
+            "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
+            "test_r14_the_shortest_period_lapse_is_not_billable_either_must_fail",
+            "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail"
         )
     )
 
@@ -2194,24 +2236,73 @@ class DappScaffoldSecureTemplatesTest {
     )
 
     /**
-     * ROUND 13, THE CLAIM. Take the escrow cap off the accrual and a pull authorisation is
-     * a claim that grows for ever again - the shape round 13 drained, where charge() took
+     * ROUND 13, THE CLAIM. Take the bound off the accrual and a pull authorisation is a
+     * claim that grows for ever again - the shape round 13 drained, where charge() took
      * `min(owed, payer.balance)` and one call eighty-three years later took all 9990
-     * points the payer held. The replay requires the charge after those years to be
-     * refused "nothing is due"; without the cap it is owed a fee for time the payer never
-     * funded, so run_must_fail reports that the transaction did not fail.
+     * points the payer held. Since round 14 the accrual has TWO bounds and both come off
+     * here: the funded horizon (a timestamp the payer bought) and the escrow cap behind
+     * it. The replay requires the charge after those years to be refused "nothing is due";
+     * unbounded it is owed a fee for time the payer never funded, so run_must_fail reports
+     * that the transaction did not fail. Deleting either line outright would leave a
+     * function that does not compile, and a mutant that fails to build proves nothing, so
+     * each is replaced by the unbounded expression instead.
      */
     @Test
     fun subscriptionR13ReplayGoesRedWithoutTheEscrowCap() = assertGuardMutationRedensExploitTest(
         "subscription",
-        "    return min(total_funded, earned);",
-        // Deleting the line would leave a function with no return on that path, which
-        // would not compile - a mutant that fails to build proves nothing. So the cap is
-        // taken off and the accrual is left: exactly the shape round 13 drained.
-        "    return earned;",
+        "    val billable_to = min(at, s.funded_until);",
+        "    val billable_to = at;",
         "test_round13_a_pull_authorisation_cannot_take_everything_must_fail",
         "insufficient balance",
+        attackLanded,
+        alsoReplace = listOf("    return min(total_funded, earned);" to "    return earned;")
+    )
+
+    /**
+     * ROUND 14, THE LAPSE RATCHET. Put back the funding that buys time BACKWARDS - a
+     * top-up that extends the funded horizon from where the escrow ran out even when that
+     * was months ago, which is what the old `periods_funded = funded(s) / amount_per_period
+     * + 1` ceiling did - and the eleven unfunded months become billable again the moment
+     * the payer funds. The replay requires the charge in the block after the top-up to be
+     * refused "nothing is due" (round 14 measured 10000 taken there, alice 10000 -> 0 and
+     * trudy 10000 -> 20000), so the mutant makes run_must_fail report that the transaction
+     * did not fail. The escrow cap is untouched and cannot be what changed: the drain is
+     * inside the cap, because the payer funded that money.
+     */
+    @Test
+    fun subscriptionR14ReplayGoesRedWhenATopUpBuysTimeAlreadyGone() = assertGuardMutationRedensExploitTest(
+        "subscription",
+        listOf(
+            "            if (now >= s.funded_until) {",
+            "                update s (",
+            "                    .accrual_start = s.accrual_start + (now - s.funded_until),",
+            "                    .funded_until = now + bought,",
+            "                    .escrow = s.escrow + amount",
+            "                );",
+            "            } else {",
+            "                update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
+            "            }"
+        ).joinToString("\n"),
+        "            update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );",
+        "test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail",
+        "no such subscription",
         attackLanded
+    )
+
+    /**
+     * ROUND 14, THE PROSE. The header used to bound the boundary step at "a staircase of
+     * ONE UNIT"; the height is amount_per_period * block_ms / period_ms, and on the largest
+     * fee and shortest period open_subscription used to accept that is 2778 units - 27.8%
+     * of everything either subscriber funded. Strip the fee-against-period floor and that
+     * configuration is writable again: the open the replay REQUIRES to be refused goes
+     * through, so run_must_fail reports that the transaction did not fail.
+     */
+    @Test
+    fun subscriptionR14ReplayGoesRedWithoutTheFeeAgainstPeriodFloor() = assertGuardRemovalRedensExploitTest(
+        "subscription",
+        "            require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, \"fee too large for this period\");",
+        "test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail",
+        "fee out of range"
     )
 
     /**

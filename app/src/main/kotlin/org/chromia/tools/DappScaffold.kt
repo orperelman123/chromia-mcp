@@ -3969,7 +3969,7 @@ object DappScaffold {
         // escrowed. Reverse that into a pull model and the same terms become an
         // irrevocable, uncapped, unescrowed claim on everything the payer will ever hold -
         // which is what round 13 built from that redirect, and drained.
-        // Eight guards are STRUCTURAL - they live in the entities and the accrual
+        // Nine guards are STRUCTURAL - they live in the entities and the accrual
         // function, not in a require() a future operation can forget:
         //   THE CLAIM IS   - a merchant can NEVER be paid a point the payer did not put
         //     THE ESCROW     into THIS subscription. `escrow` is what the payer has put in
@@ -3978,7 +3978,6 @@ object DappScaffold {
         //                    ever funded with. Accrual is capped at that sum, and charge()
         //                    DEBITS the escrow in the same operation that credits the
         //                    merchant - it touches no balance the payer owns.
-        //                    A payer who wants the claim to stop simply stops funding it.
         //                    THIS is the guard that does not carry over from streaming and
         //                    that nothing in the old guidance replaced: round 13's build
         //                    took `min(owed, payer.balance)` straight out of the payer's
@@ -3987,6 +3986,31 @@ object DappScaffold {
         //                    point that ever arrived afterwards was taken in the block it
         //                    landed - because charge() is permissionless and the claim was
         //                    on her, not on an escrow.
+        //   FUNDING BUYS   - a payment buys time FORWARD from the block it arrives in, or
+        //     TIME FORWARD   from the end of the time the escrow already reaches, whichever
+        //                    is LATER. It never buys time that has already passed, so a
+        //                    merchant who delivered nothing through a lapse is owed nothing
+        //                    for it, and "a payer who wants the claim to stop simply stops
+        //                    funding it" is literally true: stopping ends the claim and
+        //                    starting again does not revive it. TWO fields say so -
+        //                    `funded_until`, how far the escrow reaches, and
+        //                    `accrual_start`, where billing resumed after the last unfunded
+        //                    gap - and fund_subscription steps `accrual_start` OVER the gap
+        //                    in the same operation that extends `funded_until`, so what is
+        //                    owed the block after a top-up is exactly what was owed the
+        //                    block before it. Round 14 measured the version that derived
+        //                    the time ceiling from the CURRENT funding
+        //                    (`periods_funded = funded(s) / amount_per_period + 1`): alice
+        //                    funded ONE month at 1000 a month, the merchant delivered
+        //                    nothing and collected nothing for ELEVEN, and her 9000-point
+        //                    top-up for the year ahead was taken WHOLE in the block it
+        //                    landed - alice 10000 -> 0, trudy 10000 -> 20000, and
+        //                    cancelling straight afterwards refunded nothing, because
+        //                    cancellation pays before it refunds. Raising the funding had
+        //                    raised the ceiling over time that had already passed, and
+        //                    nothing recorded WHEN a point was funded. The same held at the
+        //                    module's smallest scale: one unit an hour, one hour funded,
+        //                    ten thousand hours of silence, a 9999-point top-up taken whole.
         //   NEVER IN       - the fee ACCRUES ACROSS the period rather than falling due at
         //     ADVANCE        its start: due(now) is what has elapsed, never what is to
         //                    come, so in the first block nothing is due and a merchant can
@@ -3994,19 +4018,40 @@ object DappScaffold {
         //                    billed `elapsed / period + 1` whole periods, so the first
         //                    charge took a whole month before a day of it existed - and
         //                    that is also where its boundary step came from.
-        //   NO STEP AT     - because accrual is pro rata, cancelling one block either side
-        //     THE PERIOD     of a period boundary differs by ONE BLOCK'S worth of fee and
+        //   A BOUNDED      - because accrual is pro rata, cancelling one block either side
+        //     STEP AT THE    of a period boundary differs by ONE BLOCK'S WORTH OF FEE and
         //     BOUNDARY       not by a period's. Round 13 measured the whole-period version:
         //                    two identical subscribers on identical 1000-a-month terms, one
         //                    cancelling in the last block before the boundary and one in the
         //                    first block after it, TEN MINUTES apart in a thirty-day period,
         //                    paid 1000 and 2000 - a full period's fee on the timing of one
         //                    block, with the merchant the party who reads the boundary best.
-        //                    The streaming header bounds this residual at "a staircase of
-        //                    ONE UNIT"; that bound is only true of a pro-rata accrual, and
-        //                    it is true here. What is left is integer truncation: a
-        //                    subscription whose fee is small in whole units has wide steps,
-        //                    so denominate in the asset's smallest unit.
+        //                    THE HEIGHT OF WHAT IS LEFT IS NOT ONE UNIT, and this header
+        //                    used to say it was, borrowing the streaming header's "staircase
+        //                    of ONE UNIT". The height is
+        //                        amount_per_period * block_ms / period_ms
+        //                    and round 14 measured it: two identical subscribers opening in
+        //                    the SAME BLOCK on the largest fee and shortest period this
+        //                    module used to accept (MAX_AMOUNT over MIN_PERIOD_MS), funding
+        //                    10000 each and cancelling ONE BLOCK apart, differed by
+        //                    1000000 * 10000 / 3600000 = 2778 units - 27.8% of everything
+        //                    either of them had funded, against a claimed bound of one. The
+        //                    remedy the sentence offered made it worse: denominating in the
+        //                    asset's smallest unit makes amount_per_period LARGER in whole
+        //                    units and so makes this step BIGGER.
+        //                    So the fee is BOUNDED AGAINST THE PERIOD instead of described:
+        //                    open_subscription refuses amount_per_period unless it is at
+        //                    most ONE UNIT PER SECOND of the period
+        //                    (amount_per_period * MIN_MS_PER_UNIT <= period_ms), which makes
+        //                    the step at most one unit per SECOND of the chain's block
+        //                    interval - TEN UNITS on the ten-second blocks this template's
+        //                    tests run on, where 2778 was measured, and it is pinned there
+        //                    by test_r14_the_boundary_step_is_bounded_by_the_fee_floor.
+        //                    A chain with slower blocks has a proportionally taller step:
+        //                    it is block_ms / 1000 units, so read that number off YOUR
+        //                    chain and size period_ms against it. The other half of the
+        //                    residual is unchanged and is integer truncation, which favours
+        //                    the payer at at most one unit per collection.
         //   ALWAYS         - EITHER PARTY MAY CANCEL, ALWAYS, and there is no term that
         //     CANCELLABLE    says otherwise. There is deliberately no `cancellable` field
         //                    here, and that is the deepest difference from streaming: there,
@@ -4025,11 +4070,17 @@ object DappScaffold {
         //                    them. Repricing is cancel and re-authorise, which the payer
         //                    has to sign; a merchant who could raise the fee would need no
         //                    other exploit.
-        //   ONE CLOCK,     - started_at is written ONCE, by open_subscription, and no
-        //     WRITTEN ONCE   operation writes a timestamp at all - cancellation DELETES the
-        //                    row rather than stamping it. The two mutable fields are
-        //                    monotone counters. Round 12's exchange drain and round 8's
-        //                    streaming grief were both a clock a second party could move;
+        //   CLOCKS ONLY    - started_at is written ONCE, by open_subscription, and the two
+        //     THE PAYER      clocks that bill - accrual_start and funded_until - are written
+        //     MOVES          by exactly one other operation, fund_subscription, which only
+        //                    the PAYER may call. Both move FORWARD only, and every step
+        //                    either of them takes is one the payer just paid for: extending
+        //                    funded_until is the time the payment buys, and stepping
+        //                    accrual_start over a gap can only REDUCE what is owed. No
+        //                    merchant and no stranger writes a timestamp here; charge()
+        //                    writes two counters and cancellation DELETES the row rather
+        //                    than stamping it. Round 12's exchange drain and round 8's
+        //                    streaming grief were both a clock a SECOND PARTY could move;
         //                    there is no such field here to move.
         //   PAID BEFORE    - cancel_subscription pays the merchant everything accrued up to
         //     REFUNDED       the cancelling block FIRST and refunds the payer only what is
@@ -4042,10 +4093,12 @@ object DappScaffold {
         //                    and the shipped conservation test asserts it at every step.
         // What no template can fix, and this header will not pretend otherwise:
         //   - A SUBSCRIPTION YOU FUND IS A SUBSCRIPTION YOU CAN LOSE. The escrow is the
-        //     merchant's claim: fund one period at a time and the most a merchant who stops
-        //     delivering can take is the period you are in. Funding a year in advance is
-        //     your choice and it is exactly as safe as prepaying a year, which is to say it
-        //     is not a payment schedule any more.
+        //     merchant's claim, and it is a claim on TIME THAT HAS ELAPSED SINCE YOU PAID:
+        //     fund one period at a time and the most a merchant who stops delivering can
+        //     take is the period you are in. Funding a year in advance is your choice and
+        //     it is exactly as safe as prepaying a year, which is to say it is not a
+        //     payment schedule any more - but it is a year FORWARD, and a lapse before it
+        //     is never billed. Round 14 drained the version where it was.
         //   - COLLECTION IS PERMISSIONLESS, deliberately: anyone may call charge(), and it
         //     can only ever move accrued escrow to the merchant it was authorised for. A
         //     merchant who never collects leaves the money escrowed, and the payer gets it
@@ -4059,16 +4112,23 @@ object DappScaffold {
             mutable balance: integer = 0;
         }
 
-        // A PULL AUTHORISATION. Every term is written once, by the payer who signed it.
-        // The two mutable fields are counters that only go up, and their difference is the
-        // escrow this subscription holds - it is not a stored field, so it cannot drift.
+        // A PULL AUTHORISATION. Every TERM is written once, by the payer who signed it.
+        // The four mutable fields all move in one direction only, and every one of them is
+        // written by an operation the PAYER signs, except the two counters charge() moves.
         entity subscription {
             key id: integer;
             index payer: byte_array;
             index merchant: byte_array;
             amount_per_period: integer;   // the fee for one whole period - never changes
             period_ms: integer;           // never changes
-            started_at: timestamp;        // the accrual clock - written ONCE
+            started_at: timestamp;        // when the payer signed it - written ONCE
+            // THE TWO BILLING CLOCKS, and only fund_subscription moves either of them.
+            // Billable time is [accrual_start, min(now, funded_until)): funded time that
+            // has elapsed. accrual_start steps FORWARD over a gap the payer did not fund,
+            // which can only reduce what is owed; funded_until is how far the escrow
+            // reaches, and it steps forward by exactly the time each payment buys.
+            mutable accrual_start: timestamp;
+            mutable funded_until: timestamp;
             mutable escrow: integer = 0;  // what the payer has put in and nobody has taken
             mutable charged: integer = 0; // MONOTONE: every point the merchant has taken
         }
@@ -4083,12 +4143,22 @@ object DappScaffold {
         // longest. A period of one millisecond is a fee per millisecond, and the payer
         // signing it would not read it as one.
         val MIN_PERIOD_MS = 60 * 60 * 1000;
-        // A fee of at least one whole unit. Accrual truncates DOWN, so a fee below one
-        // unit a period accrues nothing at all and the subscription is free - and the
-        // gate's unbounded-voting-period advisory fires on any `_period` parameter that
-        // is only compared against zero, which this one was.
+        // A fee of at least one whole unit, and it stands on its own arithmetic: accrual
+        // truncates DOWN, so a fee below one unit a period accrues nothing at all and the
+        // subscription is free; and the time a payment buys is amount * period_ms / fee, so
+        // a fee of zero is a division by zero rather than a cheap plan. (This constant used
+        // to justify itself partly by keeping a name-keyed gate advisory quiet. That is not
+        // a reason for a constant to exist in a template - the rule is what is wrong - and
+        // the sentence is gone.)
         val MIN_FEE = 1;
         val MAX_PERIOD_MS = 365 * 24 * 60 * 60 * 1000;
+        // THE BOUNDARY STEP, BOUNDED. Cancelling one block either side of any moment
+        // differs by amount_per_period * block_ms / period_ms, so the fee per unit of time
+        // is what bounds that step. A fee is at most ONE UNIT PER SECOND of its period,
+        // which makes the step at most one unit per second of the chain's block interval.
+        // Round 14 measured 2778 units - 27.8% of the funding - at MAX_AMOUNT over
+        // MIN_PERIOD_MS, which this refuses. A constant, never a parameter.
+        val MIN_MS_PER_UNIT = 1000;
 
         // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
         // contains_all(), and contains_all([]) is always true - never weaken this default.
@@ -4106,22 +4176,33 @@ object DappScaffold {
         // than on a person.
         function funded(s: subscription): integer = s.escrow + s.charged;
 
+        // THE TIME A PAYMENT BUYS. A fee of amount_per_period buys one period_ms, so
+        // `amount` buys amount * period_ms / amount_per_period, rounded DOWN: truncation
+        // buys the payer slightly LESS time than they paid for, and what that leaves in the
+        // escrow comes back to them when they cancel. Bounded before it is multiplied -
+        // amount <= MAX_AMOUNT and period_ms <= MAX_PERIOD_MS, so the product is under
+        // 2^55 and Rell's 64-bit integers cannot overflow here.
+        function ms_bought(amount: integer, period_ms: integer, amount_per_period: integer): integer =
+            amount * period_ms / amount_per_period;
+
         // WHAT HAS BEEN EARNED, and the whole of the billing model. It is PRO RATA across
-        // the period - elapsed time, never a whole period in advance - and it is CAPPED AT
-        // THE ESCROW, which is what makes a pull authorisation a claim on a sum rather than
-        // on a person.
+        // the period - elapsed time, never a whole period in advance - and the time it
+        // measures is FUNDED time: from accrual_start, where billing resumed after the last
+        // unfunded gap, to whichever comes first of now and funded_until, where the escrow
+        // runs out. Round 14 drained the version that derived that ceiling from the CURRENT
+        // funding, so a top-up bought time that had already passed.
         function accrued(s: subscription, at: timestamp): integer {
-            if (at <= s.started_at) return 0;
-            // Bounded BEFORE it is multiplied. Rell integers are 64-bit and an overflow
-            // aborts, and the escrow is the ceiling anyway, so time past the point where
-            // the escrow is exhausted is the same number as time at it: a subscription
-            // nobody collected on for eighty years must not become an abort.
+            val billable_to = min(at, s.funded_until);
+            if (billable_to <= s.accrual_start) return 0;
+            val elapsed = billable_to - s.accrual_start;
+            val whole = elapsed / s.period_ms;
+            val part = elapsed % s.period_ms;
             val total_funded = funded(s);
-            val periods_funded = total_funded / s.amount_per_period + 1;
-            val bounded = min(at - s.started_at, periods_funded * s.period_ms);
-            val whole = bounded / s.period_ms;
-            val part = bounded % s.period_ms;
             val earned = s.amount_per_period * whole + s.amount_per_period * part / s.period_ms;
+            // The escrow is still the ceiling, and now it is a second one: ms_bought()
+            // truncates DOWN, so funded time can never be worth more than the money that
+            // bought it, and this min() can only bind on that rounding. A subscription
+            // nobody collected on for eighty years is still a number and never an abort.
             return min(total_funded, earned);
         }
 
@@ -4153,9 +4234,16 @@ object DappScaffold {
             require(account @? { .owner == merchant } != null, "merchant is not registered");
             require(amount_per_period >= MIN_FEE and amount_per_period <= MAX_AMOUNT, "fee out of range");
             require(period_ms >= MIN_PERIOD_MS and period_ms <= MAX_PERIOD_MS, "period out of range");
+            // THE BOUNDARY STEP IS BOUNDED HERE, and nowhere else: one block either side of
+            // a boundary differs by amount_per_period * block_ms / period_ms, so a fee of at
+            // most one unit per SECOND of the period makes that step at most one unit per
+            // second of block interval. Round 14 measured 2778 units at MAX_AMOUNT over
+            // MIN_PERIOD_MS, which this refuses.
+            require(amount_per_period * MIN_MS_PER_UNIT <= period_ms, "fee too large for this period");
             require(funding > 0 and funding <= MAX_AMOUNT, "funding out of range");
             require(payer.balance >= funding, "insufficient balance");
-            // 3. ESCROW IN THE SAME OPERATION THAT CREATES THE ROW.
+            // 3. ESCROW IN THE SAME OPERATION THAT CREATES THE ROW, and the escrow buys
+            //    time FORWARD from this block.
             update payer ( .balance -= funding );
             create subscription(
                 id = book.next_id,
@@ -4164,6 +4252,8 @@ object DappScaffold {
                 amount_per_period = amount_per_period,
                 period_ms = period_ms,
                 started_at = op_context.last_block_time,
+                accrual_start = op_context.last_block_time,
+                funded_until = op_context.last_block_time + ms_bought(funding, period_ms, amount_per_period),
                 escrow = funding
             );
             book.next_id += 1;
@@ -4179,8 +4269,24 @@ object DappScaffold {
             require(funded(s) + amount <= MAX_AMOUNT, "subscription escrow cap reached");
             val payer = account_of(acct.id);
             require(payer.balance >= amount, "insufficient balance");
+            val now = op_context.last_block_time;
+            val bought = ms_bought(amount, s.period_ms, s.amount_per_period);
             update payer ( .balance -= amount );
-            update s ( .escrow += amount );
+            // FUNDING BUYS TIME FORWARD. If the escrow ran out before this block then the
+            // stretch between then and now was never funded and is never billable: the
+            // accrual anchor steps OVER that gap and this payment starts buying time here.
+            // Otherwise it extends the stretch the escrow already reaches to. Either way
+            // what the merchant is owed in this block is exactly what they were owed in the
+            // one before it - which is what makes "stop funding it" a way to stop the claim.
+            if (now >= s.funded_until) {
+                update s (
+                    .accrual_start = s.accrual_start + (now - s.funded_until),
+                    .funded_until = now + bought,
+                    .escrow = s.escrow + amount
+                );
+            } else {
+                update s ( .funded_until = s.funded_until + bought, .escrow = s.escrow + amount );
+            }
         }
 
         // COLLECTION, permissionless like the streaming template's: anybody may call it and
@@ -4230,7 +4336,8 @@ object DappScaffold {
             return if (s != null)
                 (payer = s.payer, merchant = s.merchant, amount_per_period = s.amount_per_period,
                  period_ms = s.period_ms, started_at = s.started_at, funded = funded(s),
-                 charged = s.charged, escrow = s.escrow)
+                 charged = s.charged, escrow = s.escrow,
+                 accrual_start = s.accrual_start, funded_until = s.funded_until)
             else null;
         }
 
@@ -4259,6 +4366,12 @@ object DappScaffold {
         // The subscription template's invariant tests. They are real: FT4 test accounts,
         // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
         // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The three test_r14_* functions replay adversary round 14, which attacked this
+        // template the round it shipped and found the lapse ratchet: funding bought time
+        // that had already passed, so a top-up after eleven unfunded months paid for the
+        // eleven months in the block it landed. They REQUIRE that to fail too, and the
+        // third pins the boundary step this header used to describe as one unit.
         //
         // The two test_round13_* functions replay adversary round 13's pull-billing drains
         // and REQUIRE them to fail. There, an authorisation built from the
@@ -4487,6 +4600,141 @@ object DappScaffold {
             assert_equals(main.get_balance(trudy.account.id), 10500);
             assert_equals(main.get_balance(alice.account.id), 9500);
             assert_equals(main.get_subscription(1), null);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 14, THE LAPSE RATCHET, measured on a running chain
+        // against this template's first shipped version. accrued() bounded elapsed time by
+        // `periods_funded = funded(s) / amount_per_period + 1` - a ceiling derived from the
+        // CURRENT funding - so raising the funding raised the ceiling over time that had
+        // ALREADY PASSED, and nothing recorded WHEN a point was funded. alice funded ONE
+        // month at 1000 a month; trudy delivered nothing and collected nothing for ELEVEN
+        // months; alice topped up 9000 for the year ahead and trudy charged 10000 IN THE
+        // BLOCK IT LANDED - alice 10000 -> 0, trudy 10000 -> 20000, escrow 0 - and
+        // cancelling immediately afterwards refunded nothing, because cancellation pays
+        // before it refunds. Both the header's central guard ("a payer who wants the claim
+        // to stop simply stops funding it") and its residual ("fund one period at a time
+        // and the most a merchant who stops delivering can take is the period you are in")
+        // were false by that one line.
+        //
+        // Here a payment buys time FORWARD from the block it arrives in: the eleven
+        // unfunded months are stepped over and are never billable.
+        function test_r14_topping_up_after_a_lapse_pays_only_forward_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            // ONE PERIOD, funded one period at a time - exactly what the residual says.
+            signed(alice.keypair, main.open_subscription(trudy.account.id, 1000, MONTH, 1000));
+            assert_equals(main.get_balance(alice.account.id), 9000);
+            assert_equals(main.get_subscription(1)!!.escrow, 1000);
+
+            // ELEVEN MONTHS in which nothing is delivered and nothing is collected.
+            after(11 * MONTH);
+            // The claim is still capped at the escrow: one month, and only one.
+            assert_equals(main.outstanding(1), 1000);
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 11000);
+            assert_equals(main.get_subscription(1)!!.escrow, 0);
+
+            // THE TOP-UP: the year ahead, 9000 points. Round 14 measured the whole of it
+            // due in the block it landed.
+            signed(alice.keypair, main.fund_subscription(1, 9000));
+            assert_equals(main.get_balance(alice.account.id), 0);
+            assert_equals(main.get_subscription(1)!!.escrow, 9000);
+            // THE DRAIN, and it is the FIRST thing after the top-up so a mutant reddens
+            // here: no time has elapsed since the money arrived, so nothing is due.
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.outstanding(1), 0);
+
+            // ...and the year she funded is still hers to take back. Round 14 measured 0.
+            signed(alice.keypair, main.cancel_subscription(1));
+            assert_equals(main.get_balance(alice.account.id), 9000);
+            assert_equals(main.get_balance(trudy.account.id), 11000);
+            assert_conserved();
+            assert_equals(main.points_in_circulation(), 20000);
+        }
+
+        // EXPLOIT MUST FAIL. The same defect at the smallest scale the module admits, which
+        // is how round 14 showed that the old `periods_funded` cap was a ceiling on TIME
+        // and not a defence: MIN_FEE per MIN_PERIOD_MS, one hour funded, ten thousand hours
+        // of silence, and one top-up of 9999 taken whole - trudy 10000 -> 20000.
+        function test_r14_the_shortest_period_lapse_is_not_billable_either_must_fail() {
+            val alice = register_alice();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_account());
+            signed(trudy.keypair, main.register_account());
+            signed(alice.keypair, main.open_subscription(trudy.account.id, main.MIN_FEE, main.MIN_PERIOD_MS, 1));
+            assert_equals(main.get_balance(alice.account.id), 9999);
+
+            after(10000 * main.MIN_PERIOD_MS);       // fourteen months of silence
+            assert_equals(main.outstanding(1), 1);   // capped at the escrow: the guard works
+            signed(trudy.keypair, main.charge(1));
+            assert_equals(main.get_balance(trudy.account.id), 10001);
+
+            // The top-up, meant for the next 9999 hours.
+            signed(alice.keypair, main.fund_subscription(1, 9999));
+            assert_equals(main.get_balance(alice.account.id), 0);
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            assert_equals(main.get_balance(trudy.account.id), 10001);
+            assert_equals(main.outstanding(1), 0);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 14, THE PROSE: this header bounded the boundary step at
+        // "a staircase of ONE UNIT", borrowed from the streaming header. The height is
+        // amount_per_period * block_ms / period_ms, and open_subscription used to accept
+        // amount_per_period up to MAX_AMOUNT and period_ms down to MIN_PERIOD_MS - so two
+        // identical subscribers opening in the SAME BLOCK, funding 10000 each and
+        // cancelling ONE BLOCK apart, differed by 1000000 * 10000 / 3600000 = 2778 units,
+        // 27.8% of everything either of them funded. The remedy the same sentence offered -
+        // denominate in the asset's smallest unit - makes amount_per_period LARGER in whole
+        // units and so makes the step BIGGER.
+        //
+        // The fee is now bounded against the period at one unit per SECOND of it, so the
+        // step is one unit per second of the chain's block interval - TEN here.
+        function test_r14_the_boundary_step_is_bounded_by_the_fee_floor_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            for (k in [alice, bob, trudy]) signed(k.keypair, main.register_account());
+
+            // ROUND 14'S CONFIGURATION, REFUSED.
+            signed_must_fail(alice.keypair,
+                main.open_subscription(trudy.account.id, main.MAX_AMOUNT, main.MIN_PERIOD_MS, 10000),
+                "fee too large for this period");
+            // The largest fee this period admits is one unit per second of it, and one
+            // unit more is refused.
+            val fee = main.MIN_PERIOD_MS / main.MIN_MS_PER_UNIT;
+            assert_equals(fee, 3600);
+            signed_must_fail(alice.keypair,
+                main.open_subscription(trudy.account.id, fee + 1, main.MIN_PERIOD_MS, 10000),
+                "fee too large for this period");
+
+            // Two identical subscribers, opening in the SAME BLOCK so their clocks agree.
+            rell.test.block()
+                .tx(rell.test.tx().op(ft_auth_operation_for(alice.keypair.pub))
+                    .op(main.open_subscription(trudy.account.id, fee, main.MIN_PERIOD_MS, 10000)).nop().sign(alice.keypair))
+                .tx(rell.test.tx().op(ft_auth_operation_for(bob.keypair.pub))
+                    .op(main.open_subscription(trudy.account.id, fee, main.MIN_PERIOD_MS, 10000)).nop().sign(bob.keypair))
+                .run();
+            assert_equals(main.get_subscription(1)!!.started_at, main.get_subscription(2)!!.started_at);
+
+            signed(alice.keypair, main.cancel_subscription(1));
+            val alice_kept = main.get_balance(alice.account.id);
+            // What ONE BLOCK of this fee is worth, read off the sibling subscription in
+            // the same block rather than assumed: the two are identical.
+            val one_block = main.outstanding(2);
+            signed(bob.keypair, main.cancel_subscription(2));
+            val bob_kept = main.get_balance(bob.account.id);
+
+            val step = alice_kept - bob_kept;
+            assert_equals(step, 10000 - alice_kept);
+            assert_equals(step, one_block);
+            // TEN UNITS - one per second of this runner's ten-second blocks - where round
+            // 14 measured 2778 on the configuration refused above.
+            assert_equals(step, 10);
+            assert_true(step * main.MIN_PERIOD_MS <= 10000 * fee);
             assert_conserved();
         }
     """.trimIndent() + "\n"
