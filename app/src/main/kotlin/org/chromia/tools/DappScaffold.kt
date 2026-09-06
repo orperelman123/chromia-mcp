@@ -4513,8 +4513,8 @@ object DappScaffold {
         //                    paid 1000 and 2000 - a full period's fee on the timing of one
         //                    block, with the merchant the party who reads the boundary best.
         //                    THE HEIGHT OF WHAT IS LEFT IS NOT ONE UNIT, and this header
-        //                    used to say it was, borrowing the streaming header's "staircase
-        //                    of ONE UNIT". The height is
+        //                    used to say it was, borrowing the streaming header's ONE-UNIT
+        //                    bound for a residual that is not one unit here. The height is
         //                        amount_per_period * block_ms / period_ms
         //                    and round 14 measured it: two identical subscribers opening in
         //                    the SAME BLOCK on the largest fee and shortest period this
@@ -4932,6 +4932,11 @@ object DappScaffold {
             // The payer decides to continue, and only the payer can.
             signed_must_fail(trudy.keypair, main.fund_subscription(1, 1000), "not your subscription");
             signed(alice.keypair, main.fund_subscription(1, 1000));
+            // FUNDING BUYS TIME FORWARD: the month she has just paid for is AHEAD of her,
+            // and the unfunded month behind her is not billable. Round 14 drained the
+            // version where this charge took the whole top-up in the block it landed.
+            signed_must_fail(trudy.keypair, main.charge(1), "nothing is due");
+            after(MONTH);
             signed(trudy.keypair, main.charge(1));
             assert_equals(main.get_balance(trudy.account.id), 13000);
             assert_equals(main.get_balance(alice.account.id), 7000);
@@ -5414,8 +5419,9 @@ object DappScaffold {
             created_at: timestamp;       // the ESCROW's clock - written ONCE
             mutable filled: integer = 0; // monotone, and always < qty while the row lives
             // The maker has taken the quote off the market. The matcher stops seeing it in
-            // the same block; the escrow behind it stays committed until created_at +
-            // MIN_RESTING_MS, and the row keeps its MAX_RESTING_ORDERS slot until then.
+            // the same block; the points or units behind it stay committed until
+            // created_at + MIN_RESTING_MS, and the row keeps its MAX_RESTING_ORDERS slot
+            // until then.
             mutable cancelled: boolean = false;
             // What the matcher's where-clause needs INDEXED: a taker asks for one side at
             // one limit, so the runner seeks to the crossing rows instead of reading the
@@ -5854,8 +5860,12 @@ object DappScaffold {
             // matcher stops seeing it at once.
             signed(alice.keypair, main.cancel_order(1));
             assert_true(main.get_order(1)!!.cancelled);
-            signed(trudy.keypair, main.place_order(true, 30, 1));
+            // A crossing bid that would have taken 34 more units off her finds nothing to
+            // take: a cancelled row leaves the matcher's where-clause in the block it is
+            // cancelled, so this rests instead of filling.
+            signed(trudy.keypair, main.place_order(true, 30, 34));
             assert_equals(main.get_order(1)!!.remaining, 97);
+            assert_equals(main.get_order(2)!!.remaining, 34);
             // ...but the CAPITAL is committed on HER hour, not on the last stranger's fill.
             signed_must_fail(alice.keypair, main.withdraw_escrow(1), "the escrow has not rested long enough");
 
