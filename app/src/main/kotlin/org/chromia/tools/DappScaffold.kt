@@ -445,10 +445,10 @@ object DappScaffold {
         //     MAX_MINTS_PER_PERIOD ROWS, which is what keeps that sum a bounded scan and
         //     not an unbounded one. THE ROW BOUND IS CHARGED IN VALUE AND NOT IN
         //     TRANSACTIONS, which is round 16's fix: a mint below min_row_units() -
-        //     period_mint_cap() / MAX_MINTS_PER_PERIOD, 1562 at the shipped 100000 over
-        //     64 - is added to the open DUST ROW rather than opening one of its own, so
+        //     period_mint_cap() / MAX_MINTS_PER_PERIOD, which is 1562 at the 100000 the
+        //     scaffolded test yml configures - is added to the open DUST ROW rather than opening one of its own, so
         //     at most one row in a window is below that share and reaching the row bound
-        //     costs 63 * 1562 = 98,406 units, 98.4% of the period cap. The version that
+        //     costs 63 * 1562 = 98,406 units at that cap, 98.4% of it. The version that
         //     gave every mint a row was measured at 64 burns of ONE UNIT - 64 units, 128
         //     transactions from the two relayers that make a threshold - refusing an
         //     honest 50000 for a full MINT_PERIOD_MS: 64 units denying up to 99,936,
@@ -689,9 +689,10 @@ object DappScaffold {
         // 1:1561 against the lever this template actually prices - repeatable every
         // period for 128 transactions a day. So a row is worth a SHARE OF THE PERIOD CAP,
         // and a mint smaller than that does not get one. Filling the row budget now costs
-        // (MAX_MINTS_PER_PERIOD - 1) shares of the cap: at the shipped 100000 over 64
-        // that is 63 * 1562 = 98,406 units, 98.4% of the cap itself, so the row bound can
-        // no longer be reached more cheaply than the cap it exists to make computable.
+        // (MAX_MINTS_PER_PERIOD - 1) shares of the cap: at the 100000 the scaffolded test
+        // yml configures that is 63 * 1562 = 98,406 units, 98.4% of the cap itself, so
+        // the row bound can no longer be reached more cheaply than the cap it exists to
+        // make computable.
         function min_row_units(): integer {
             val u = period_mint_cap() / MAX_MINTS_PER_PERIOD;
             return if (u < 1) 1 else u;
