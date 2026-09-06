@@ -50,8 +50,7 @@ object ChromiaYmlValidator {
      * them and `chr build` accepts that (real-world round 2 D3). Genuinely
      * build-breaking findings (a rellVersion newer than the CLI's compiler, a
      * present-but-wrong merkle value, malformed values) stay errors regardless.
-     */
-    /**
+     *
      * AUDIT F7 (2026-09-06): `validate_chromia_yml` answered
      * {"ok":true,"errors":[],"warnings":[]} on a chromia.yml that had had the
      * whole FT4 configuration deleted from it - blockchains.<name>.moduleArgs
@@ -90,7 +89,10 @@ object ChromiaYmlValidator {
     internal fun moduleArgsFindings(yaml: String, rell: Map<String, String>): List<String> {
         val set = ChromiaYmlModuleArgs.merged(yaml)
         val findings = mutableListOf<String>()
-        rell.forEach { (path, source) ->
+        // Scaffold-shaped keys (src/test/main_test.rell) otherwise derive the
+        // module src.test.main_test - the same normalisation rell_check and
+        // run_rell_tests apply, so the module names match what chr will see.
+        RellCheck.normalizeSourceRoots(rell).forEach { (path, source) ->
             if (!MODULE_ARGS_DECL.containsMatchIn(source)) return@forEach
             val module = RunRellTests.moduleNameForPath(path, source)
             if (module.isNotEmpty() && module !in set) {
