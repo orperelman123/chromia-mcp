@@ -1521,7 +1521,7 @@ class RunRellTestsStrategy : BaseToolStrategy() {
         // does this, so scaffold_dapp -> run_rell_tests needs no hand-merging.
         val yamlFromFiles = submitted.entries
             .firstOrNull { (path, _) ->
-                val name = path.substringAfterLast('/').substringAfterLast('\').lowercase()
+                val name = path.substringAfterLast('/').substringAfterLast('\\').lowercase()
                 name == "chromia.yml" || name == "chromia.yaml"
             }
         val files = LinkedHashMap(submitted).also { map -> yamlFromFiles?.let { map.remove(it.key) } }
@@ -1581,7 +1581,7 @@ class RunRellTestsStrategy : BaseToolStrategy() {
 
         // An explicit moduleArgs argument always wins; the yml only fills a gap.
         val derived = if (moduleArgs.isEmpty() && yaml != null) ChromiaYmlModuleArgs.merged(yaml) else emptyMap()
-        val effectiveModuleArgs = moduleArgs.ifEmpty { derived }
+        val effectiveModuleArgs = if (moduleArgs.isEmpty()) derived else moduleArgs
 
         return runCatching {
             val result = withContext(Dispatchers.IO) {
