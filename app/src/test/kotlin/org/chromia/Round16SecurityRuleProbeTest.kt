@@ -16,48 +16,62 @@ import java.io.File
  * timestamp exclusion per (entity, field) with pure clock arithmetic, the
  * lower-bound requirement on `unbounded-voting-period`, the relative floor on
  * `majority-without-quorum`, and reading the RETURN expression for
- * `query-returns-secret-data`. This recorder runs the analyzer over the eight
- * round-16 samples (four attack/control PAIRS, one variable apart) and writes
- * what it said to `realworld/adversary-round16/seccheck/raw.json`, so the CORPUS
- * rows that pin them are written from a measurement rather than a prediction.
+ * `query-returns-secret-data`. Round 16 evaded three of them with a one-token
+ * change and found the fourth shape missed outright, and this class recorded
+ * what the analyzer said over the eight samples (four attack/control PAIRS, one
+ * variable apart) into `realworld/adversary-round16/seccheck/raw.json`, so the
+ * CORPUS rows that pinned them were written from a measurement.
+ *
+ * ON THIS BRANCH IT IS THE OTHER HALF OF THAT. `raw.json` is FROZEN: it is
+ * round 16's measurement of the analyzer as the round found it, cited line by
+ * line in the round README, and a recorder that overwrites its own evidence on
+ * every build destroys the only record of what was wrong. So the run writes
+ * `raw-after-fix.json` beside it and ASSERTS the true verdict for every sample -
+ * all eight caught, each by the rule its CORPUS row names. The fixes themselves
+ * are pinned structurally in [Round16SecurityRuleFixTest] and against renames in
+ * [RuleRenameInvarianceTest]; this class is the round's own eight files,
+ * asserted as a set.
  */
 class Round16SecurityRuleProbeTest {
 
     private val samples = File("src/test/resources/exploit-corpus/samples")
     private val out = File("src/test/resources/exploit-corpus/realworld/adversary-round16/seccheck")
 
-    private val ids = listOf(
-        "r16-clock-mint-declared-as-a-timestamp",
-        "r16-clock-mint-control-declared-as-an-integer",
-        "r16-voting-floor-is-a-constant-zero",
-        "r16-voting-floor-control-the-same-zero-inline",
-        "r16-quorum-floor-written-by-the-proposer",
-        "r16-quorum-floor-control-a-literal-two",
-        "r16-secret-published-through-an-accumulator",
-        "r16-secret-control-returned-as-a-projection"
+    /** Every round-16 seccheck sample with the rule that must catch it now. */
+    private val expected = listOf(
+        "r16-clock-mint-declared-as-a-timestamp" to "unbacked-conversion-credit",
+        "r16-clock-mint-control-declared-as-an-integer" to "unbacked-conversion-credit",
+        "r16-voting-floor-is-a-constant-zero" to "unbounded-voting-period",
+        "r16-voting-floor-control-the-same-zero-inline" to "unbounded-voting-period",
+        "r16-quorum-floor-written-by-the-proposer" to "majority-without-quorum",
+        "r16-quorum-floor-control-a-literal-two" to "majority-without-quorum",
+        "r16-secret-published-through-an-accumulator" to "query-returns-secret-data",
+        "r16-secret-control-returned-as-a-projection" to "query-returns-secret-data"
     )
 
     @Test
-    fun `record what the four rebuilt rules say about the round 16 samples`() {
+    fun `every round 16 sample and its control is caught by the rule that should catch it`() {
         out.mkdirs()
         val lines = mutableListOf<String>()
+        val misses = mutableListOf<String>()
         val rows = buildJsonArray {
-            for (id in ids) {
+            for ((id, rule) in expected) {
                 val dir = File(samples, id)
                 assertTrue(dir.isDirectory, "missing sample " + dir.absolutePath)
                 val rellFiles = dir.walkTopDown().filter { it.isFile && it.name.endsWith(".rell") }.toList()
                 assertTrue(rellFiles.isNotEmpty(), id + " has no .rell files")
                 val fileMap = rellFiles.associate { f -> f.name to f.readText() }
                 val result = RellSecurityCheck.analyze(fileMap)
-                lines += "%-52s ok=%-6s %s".format(
-                    id,
-                    result.ok,
-                    result.findings.joinToString("; ") { it.severity + "/" + it.rule }
-                        .ifEmpty { "no findings" }
-                )
+                val summary = result.findings.joinToString("; ") { it.severity + "/" + it.rule }
+                    .ifEmpty { "no findings" }
+                lines += "%-52s ok=%-6s %s".format(id, result.ok, summary)
+                if (result.findings.none { it.rule == rule }) {
+                    misses += "$id: expected $rule, got $summary"
+                }
                 add(
                     buildJsonObject {
                         put("sample", id)
+                        put("expectedRule", rule)
                         put("ok", result.ok)
                         put("findingCount", result.findings.size)
                         put(
@@ -79,9 +93,15 @@ class Round16SecurityRuleProbeTest {
                 )
             }
         }
-        File(out, "raw.json").writeText(
+        File(out, "raw-after-fix.json").writeText(
             Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
         )
         println("ROUND16-SECCHECK\n" + lines.joinToString("\n"))
+        assertTrue(
+            misses.isEmpty(),
+            "round 16 evaded three of the four rebuilt rules with one token each and missed a fourth " +
+                "shape outright. Each sample must now draw the rule its CORPUS row names:\n" +
+                misses.joinToString("\n")
+        )
     }
 }

@@ -361,7 +361,82 @@ internal const val MAX_PAGINATION_LIMIT = 1000
  * is filed the way [placeSingleSource] files it.
  */
 internal fun extractRellSourcesArg(args: Map<String, Any>): Any? =
-    args["files"] ?: args["rell"] ?: args["source"] ?: args["src"] ?: args["code"]
+    RELL_SOURCE_ALIASES.firstNotNullOfOrNull { key -> args[key]?.takeIf { it !is JsonNull } }
+
+/**
+ * Every spelling of "the Rell sources", canonical first. The order is the
+ * PRECEDENCE, and [rellSourceAliasConflict] makes sure it is never the thing
+ * that decides what gets analysed.
+ *
+ * The SET comes from [ArgumentVocabulary], which round 16 found was "a
+ * schema-ordering lint and is not called at runtime" - so a spelling added
+ * there and forgotten here would be a silently discarded alias all over again.
+ * A name the vocabulary knows and this order does not is appended rather than
+ * dropped.
+ */
+private val RELL_SOURCE_PRECEDENCE = listOf("files", "rell", "source", "src", "code")
+
+internal val RELL_SOURCE_ALIASES: List<String> = run {
+    val known = ArgumentVocabulary.RELL_SOURCES.all
+    RELL_SOURCE_PRECEDENCE.filter { it in known } + (known - RELL_SOURCE_PRECEDENCE.toSet()).sorted()
+}
+
+/**
+ * TWO ALIASES WITH DIFFERENT CONTENT ARE AN ERROR, NOT A PRECEDENCE.
+ *
+ * ROUND 16, on the audit-F10 alias chain itself: `args["files"] ?: args["rell"]
+ * ?: args["source"] ...` returns the FIRST one present and drops the rest
+ * without a word. Passing `files` with clean code and `source` with the tree
+ * actually being shipped returned `ok:true` about a tree the tool never saw -
+ * on `rell_check`, `rell_security_check`, `run_rell_tests` AND `verify_guards`,
+ * the four tools an agent's security claim rests on. Aliases exist so an agent
+ * carrying a name from its last call is not punished for it; they were never a
+ * way to say two different things in one call, and an agent that sent both
+ * meant SOMETHING - which of the two it meant is not ours to guess.
+ *
+ * Identical content under two names is exactly the harmless case aliases are
+ * for and stays silent. Comparison is on the CANONICAL file map each spelling
+ * produces, so `files={"main.rell": X}` and `source=X` are the same submission.
+ */
+internal fun rellSourceAliasConflict(args: Map<String, Any>, tool: String): String? {
+    val present = RELL_SOURCE_ALIASES.mapNotNull { key ->
+        canonicalRellSourceArg(args[key])?.let { key to it }
+    }
+    if (present.size < 2 || present.map { it.second }.distinct().size == 1) return null
+    val names = present.map { it.first }
+    return "$tool was given the Rell sources twice, under `${names.joinToString("` and `")}`, " +
+        "with DIFFERENT content. These are aliases for one argument, so one of them would be " +
+        "silently discarded and the answer would be about a tree you did not send. Pass the " +
+        "sources once - `files` is the canonical name ({\"src/main.rell\": \"module; ...\"}) - " +
+        "or, if these are different parts of one project, merge them into a single `files` map."
+}
+
+/** The {path: source} map a single alias value stands for, as a comparable string. */
+private fun canonicalRellSourceArg(value: Any?): String? {
+    if (value == null || value is JsonNull) return null
+    val single = when {
+        value is String -> value
+        value is JsonPrimitive && value.isString -> value.content
+        else -> null
+    }
+    if (single != null) {
+        val files = linkedMapOf<String, String>()
+        placeSingleSource(single, files)
+        return canonicalFileMap(files, emptyList())
+    }
+    if (value is JsonPrimitive) return "prim:" + value.content
+    if (value is JsonObject) {
+        val (files, invalid) = extractRellFilesMap(value)
+        if (files.isEmpty() && invalid.isEmpty()) return null
+        return canonicalFileMap(files, invalid)
+    }
+    return "raw:" + value.toString()
+}
+
+private fun canonicalFileMap(files: Map<String, String>, invalid: List<String>): String =
+    (files.entries.map { it.key to it.value } + invalid.map { it to "<non-string>" })
+        .sortedBy { it.first }
+        .joinToString(" | ") { "${it.first} => ${it.second}" }
 
 internal fun extractRellFilesMap(filesArg: Any?): Pair<LinkedHashMap<String, String>, List<String>> {
     val files = linkedMapOf<String, String>()
@@ -1548,6 +1623,7 @@ class RellCheckStrategy : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
+        rellSourceAliasConflict(args, "rell_check")?.let { return toolErrorResult(it) }
         val source = extractString(args, "source")
         val filesArg = args["files"] ?: args["rell"]
         val modules = extractStringList(args, "modules")
@@ -1583,6 +1659,7 @@ class RellSecurityCheckStrategy : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
+        rellSourceAliasConflict(args, "rell_security_check")?.let { return toolErrorResult(it) }
         val source = extractString(args, "source")
         val filesArg = args["files"] ?: args["rell"]
         val allowAdminModules = extractBoolean(args, "allowAdminModules") ?: false
@@ -1634,6 +1711,7 @@ class RunRellTestsStrategy : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
+        rellSourceAliasConflict(args, "run_rell_tests")?.let { return toolErrorResult(it) }
         val filesArg = extractRellSourcesArg(args)
         val (submitted, invalidKeys) = extractRellFilesMap(filesArg)
         if (invalidKeys.isNotEmpty()) {
@@ -1706,9 +1784,23 @@ class RunRellTestsStrategy : BaseToolStrategy() {
             else -> return toolErrorResult("`tests` must be an array of test-name patterns; got ${testsArg::class.simpleName}")
         }
 
-        // An explicit moduleArgs argument always wins; the yml only fills a gap.
-        val derived = if (moduleArgs.isEmpty() && yaml != null) ChromiaYmlModuleArgs.merged(yaml) else emptyMap()
-        val effectiveModuleArgs = if (moduleArgs.isEmpty()) derived else moduleArgs
+        // THE PRECEDENCE, PINNED (round 16). Two readings of "moduleArgs plus a
+        // yaml" were possible and the code shipped a third: `moduleArgs.isEmpty()`
+        // made `moduleArgs: {}` - an explicit "run with NO module args" - the
+        // same call as sending none at all, so the yml's args ran instead and
+        // the run was configured by a file the caller may only have passed for
+        // its `.rell` neighbours.
+        //
+        // The rule now is the one an agent cannot get wrong: THE ARGUMENT YOU
+        // PASSED IS THE ARGUMENT THAT RUNS. If `moduleArgs` is present at all -
+        // `{}` included - it is the WHOLE set and the yaml contributes nothing.
+        // The yaml is read only when `moduleArgs` is absent or null. Per-key
+        // merging was the alternative and it is the one that goes wrong
+        // silently: setting one module's args would inherit every other
+        // module's from a file, and no answer the tool returns would say so.
+        val moduleArgsProvided = moduleArgsArg != null && moduleArgsArg !is JsonNull
+        val derived = if (!moduleArgsProvided && yaml != null) ChromiaYmlModuleArgs.merged(yaml) else emptyMap()
+        val effectiveModuleArgs = if (moduleArgsProvided) moduleArgs else derived
 
         return runCatching {
             val result = withContext(Dispatchers.IO) {
@@ -1736,6 +1828,38 @@ class RunRellTestsStrategy : BaseToolStrategy() {
                         "moduleArgsUsed",
                         buildJsonObject {
                             derived.forEach { (m, a) -> put(m, buildJsonObject { a.forEach { (k, v) -> put(k, v) } }) }
+                        }
+                    )
+                }
+            } else if (moduleArgsProvided && yaml != null) {
+                // THE YAML WAS THERE AND WAS NOT USED. Silence here is what let
+                // `moduleArgs: {}` mean two different things; the answer says
+                // which set the run actually had.
+                buildJsonObject {
+                    result.forEach { (k, v) ->
+                        if (k == "notes") {
+                            put(
+                                k,
+                                (v as? JsonPrimitive)?.content.orEmpty() +
+                                    " You passed BOTH an explicit `moduleArgs` and a chromia.yml" +
+                                    (if (yamlFromFiles != null) " in `files`" else "") +
+                                    ", and the explicit argument is the whole set: the run used " +
+                                    (
+                                        if (moduleArgs.isEmpty()) "NO module args at all (`moduleArgs: {}` means none, not \"whatever the yml says\")"
+                                        else "your ${moduleArgs.keys.sorted().joinToString(", ")} and nothing from the yml"
+                                        ) +
+                                    ". Omit `moduleArgs` entirely to have the yml's " +
+                                    "blockchains.<name>.moduleArgs and test.moduleArgs used instead."
+                            )
+                        } else {
+                            put(k, v)
+                        }
+                    }
+                    put("moduleArgsSource", "moduleArgs argument")
+                    put(
+                        "moduleArgsUsed",
+                        buildJsonObject {
+                            moduleArgs.forEach { (m, a) -> put(m, buildJsonObject { a.forEach { (k, v) -> put(k, v) } }) }
                         }
                     )
                 }
@@ -1781,6 +1905,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
+        rellSourceAliasConflict(args, "verify_guards")?.let { return toolErrorResult(it) }
         val (files, invalidKeys) = extractRellFilesMap(extractRellSourcesArg(args))
         if (invalidKeys.isNotEmpty()) {
             return toolErrorResult(
@@ -3468,8 +3593,17 @@ class DeploymentPreflightStrategy(
         // accepted as an alias (same pattern as CheckDappProjectStrategy):
         // rell_check and run_rell_tests take `files`, and a silently dropped
         // `files` here would skip the source gate and still report ready:true
-        // on a testnet target. `rell` wins when both are present; the alias
-        // is noted.
+        // on a testnet target.
+        //
+        // ROUND 16 fixed the comment that used to stand here: it said "`rell`
+        // wins when both are present; the alias is noted", and the very next
+        // line reads `files` FIRST and notes nothing. An agent that read the
+        // comment and passed both would have shipped the wrong tree past the
+        // deployment gate believing the other one was checked. `files` is the
+        // canonical name (audit F10) and it is read first; `rell` and `source`
+        // are the aliases, in that order. Sending two of them with DIFFERENT
+        // content is an error on the four code-taking tools
+        // ([rellSourceAliasConflict]) - do not rely on this order to choose.
         val rell = extractStringMap(args, "files")
             ?: extractStringMap(args, "rell")
             ?: extractStringMap(args, "source")
