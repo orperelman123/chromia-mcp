@@ -2114,15 +2114,29 @@ object McpTools {
                                        A refusal by any other declaration, by the same one in a
                                        LATER statement, or a test-side failure, is the damage
                                        being noticed and counts as load_bearing.
+                                       An error with NO frame is never an operation (a refusing
+                                       operation always carries one): it is the test module or a
+                                       QUERY, and which one is read off the string literals each
+                                       owns - so a query whose own second guard refuses is
+                                       still_refused, while a rell.test assert_* or a test-side
+                                       require is the damage being measured.
+                                       When the frame names the guard's declaration and the test
+                                       invokes it more than once, the tool CUTS the test after
+                                       the first such statement and runs the mutant again
+                                       (DIFFERENTIAL TRUNCATION): still refused there means the
+                                       attack was refused; passing there means it landed.
               ambiguous_refusal      - the mutant went red and the tool CANNOT SAY which of the
-                                       two it is: the error carries no frame it recognises while
-                                       the test does invoke the guard's own declaration, or that
-                                       declaration is invoked more than once and the error gave
-                                       no line in the test to place the failure in. Never
-                                       proven, and never a reason to weaken the test - the
-                                       evidence text says what to add (an assertion on the state
-                                       the attack changes, a run_must_fail on the attack, or one
-                                       call to the declaration instead of several).
+                                       two it is: a frame-less error whose words BOTH the test
+                                       module and a production query the test invokes can
+                                       produce (or that neither can), or a repeated invocation
+                                       whose first call cannot be located exactly - a loop, or a
+                                       helper with several call sites - so the truncated re-run
+                                       would not measure the attack. Never proven, and never a
+                                       reason to weaken the test - the evidence text says what
+                                       to add (an assertion on the state the attack changes, a
+                                       run_must_fail on the attack, distinct wording for the two
+                                       messages, or one call to the declaration instead of
+                                       several).
               environmental          - the mutant is not a running dapp (compile error, missing
                                        module_args). A failure for that reason proves nothing.
               red_for_another_reason - red, but not the attack; read the error before counting it.

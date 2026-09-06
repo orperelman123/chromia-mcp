@@ -1246,4 +1246,87 @@ class VerifyGuardsProbeTest {
         )
         assertEquals("still_refused", verdict(r), r.toString())
     }
+
+    /**
+     * P15F. THE TRUNCATION PATH ITSELF, from the other side. The shape is
+     * p15c's exactly - the guard's own operation refuses, the test invokes it
+     * twice, and the runner's error places the failure in neither statement -
+     * but here the refusal IS the attack being refused: a second guard in the
+     * same operation catches the unclamped amount on the FIRST call. Nothing
+     * in the full run's error distinguishes this from p15c, so the verdict is
+     * decided by the truncated variant: the test cut after its first call to
+     * main:take still fails with main:take refusing.
+     * TRUE VERDICT: still_refused - and p15c, the same measurement, is
+     * load_bearing. One extra mutant run separates two verdicts that a string
+     * could not.
+     */
+    private val r15FirstCallRefusedMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            require(paid <= p.balance, "the pot is short");
+            update p ( .balance -= paid );
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private val r15TwoCallTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            rell.test.tx().op(main.take(1)).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    @Test
+    fun p15fTruncationShowsTheFirstInvocationWasRefused() {
+        val r = run(
+            mapOf("main.rell" to r15FirstCallRefusedMain, "main_test.rell" to r15TwoCallTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("DIFFERENTIAL TRUNCATION"), evidence(r))
+    }
+
+    /**
+     * P15G. THE SAME WORDS IN THE TEST AND IN THE GUARD'S OWN QUERY. A
+     * frame-less error is attributed by asking which declarations own a string
+     * literal that produces it - p14b is the test module's, p15e is the
+     * query's. Here BOTH own those words: the test's own assertion says "the
+     * pot is short" and so does the second guard inside the query the clamp
+     * lives in. The two readings give OPPOSITE verdicts (load_bearing if the
+     * test measured the damage, still_refused if the query refused), so the
+     * tool must say it cannot separate them rather than pick one.
+     * TRUE VERDICT: ambiguous_refusal, naming the collision.
+     */
+    private val r15SharedQueryWordsTests = """
+        @test module;
+        import main;
+        function pot_is_sound(v: integer) {
+            require(v >= 0, "the pot is short");
+        }
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            pot_is_sound(main.payout(11));
+        }
+    """.trimIndent()
+
+    @Test
+    fun p15gTheSameWordsInTheTestAndInTheQueryAreNotSeparable() {
+        val r = run(
+            mapOf("main.rell" to r15QueryMain, "main_test.rell" to r15SharedQueryWordsTests),
+            guard(r15Clamp, "test_overdraft_must_fail", replacement = r15Unclamped)
+        )
+        assertEquals("ambiguous_refusal", verdict(r), r.toString())
+        assertTrue(evidence(r).contains("main:payout"), evidence(r))
+        assertTrue(evidence(r).contains("main_test.rell"), evidence(r))
+    }
 }
