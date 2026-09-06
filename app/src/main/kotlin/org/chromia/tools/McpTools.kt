@@ -1944,10 +1944,12 @@ object McpTools {
               still_refused          - something else refused the attack (another require, a
                                        second guard, a module_args bound). Name it in alsoRemove
                                        if it is defence in depth, else the test measures a
-                                       different guard. A REFUSED TRANSACTION IS NEVER THE ATTACK
-                                       LANDING: any production message or "Operation ... failed"
-                                       in the mutant's error is this verdict, whatever
-                                       attackLanded says.
+                                       different guard. A refusal by the GUARD'S OWN operation
+                                       (the runner's "Operation '...' failed" frame, compared
+                                       with the declaration the guard lives in) is this verdict
+                                       whatever attackLanded says; a refusal by a LATER
+                                       operation, or a test-side failure, is the damage being
+                                       noticed and counts as load_bearing.
               environmental          - the mutant is not a running dapp (compile error, missing
                                        module_args). A failure for that reason proves nothing.
               red_for_another_reason - red, but not the attack; read the error before counting it.

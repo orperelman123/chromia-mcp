@@ -62,6 +62,17 @@ Not "fewer than last round". Coverage moving is not a pass.
    a production literal short enough (under four characters) to slip the
    filter, or one that also names the test's assertion; a test whose only
    evidence of the attack is a query result rather than a transaction.
+   Round 14 found three of those (a later operation's refusal, a test-side
+   `require()` in production words, a nested `but was <...>`), all in the
+   CONSERVATIVE direction - a load-bearing guard reported `still_refused`,
+   whose "fix" is to weaken the test until the tool agrees. The rule now
+   compares the runner's failing FRAME with the declaration the guard lives
+   in and consults no string literal at all. So round 15 attacks the frame:
+   a guard in a `function` called by several operations (any refusal counts
+   there - is that exploitable?); an operation name that is a suffix of
+   another (`take` / `retake`); a refusal from the guard's own operation in
+   a LATER transaction of the test after the attack landed in an earlier one;
+   a query-side guard; a test that never runs the attacked operation at all.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /

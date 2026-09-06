@@ -1816,48 +1816,50 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
         val error = case.error.orEmpty()
 
-        // 4. WHY did it fail. Round 13: a REFUSED TRANSACTION IS NEVER THE ATTACK
-        //    LANDING, whatever fragment the caller supplied. Round 11 read the
-        //    guard's own literals, round 12 the replacement's, and neither read
-        //    any OTHER production line - so a second require() refusing the same
-        //    attack (defence in depth), or a bound living in module_args, was
-        //    reported load_bearing the moment the caller's attackLanded matched
-        //    its message. The rule is now structural: the runner's own
-        //    "Operation '...' failed" shape, or any string literal from ANY
-        //    production file in the mutant, is a refusal. The caller's fragment
-        //    is consulted only for what remains - a test-side assertion such as
-        //    a conservation check - and "did not fail" is read before anything.
-        //    run_must_fail reports "expected to contain <X> but was <Y>": only Y
-        //    is the chain's answer, so the guard's own message inside X (the
-        //    test quoting it) cannot masquerade as a refusal either.
-        val actual = Regex("but was <(.*)>", RegexOption.DOT_MATCHES_ALL).find(error)?.groupValues?.get(1) ?: error
-        if (actual.contains("did not fail", ignoreCase = true)) {
+        // 4. WHY did it fail. Round 14: A REFUSAL COUNTS ONLY IF IT CAME FROM THE
+        //    GUARD'S OWN DECLARATION. Round 13 made "a refused transaction is
+        //    never the attack landing" structural, and round 14 found the three
+        //    ways a refusal in the error is NOT the attack being refused: a LATER
+        //    operation refusing after the attack landed, a test-side require()
+        //    that happens to use production words, and a diagnostic string that
+        //    carries its own "but was <...>". So the rule reads the runner's
+        //    frame - "Operation 'main:take' failed" - and compares the failing
+        //    declaration with the declaration the guard lives in. No string
+        //    literals are consulted any more: "did not fail" is the attack
+        //    landing, a refusal from the guard's declaration is still_refused, a
+        //    refusal from anywhere else or a test-side failure is the damage
+        //    being noticed - which, for a test that was GREEN with the guard, is
+        //    load-bearing evidence. attackLanded is a pin the caller may add on
+        //    top (absent => red_for_another_reason), never the decider.
+        if (error.contains("did not fail", ignoreCase = true)) {
             return@withContext verdict("load_bearing", "with the guard removed the test fails because the attack LANDED: $error", loadBearing = true)
         }
-        val literal = Regex("\"((?:[^\"\\\\]|\\\\.)*)\"")
-        val productionMessages = withAlso.filterKeys { !isTest.getValue(it) }.values
-            .flatMap { src -> literal.findAll(maskRellSource(src, maskStrings = false)).map { it.groupValues[1] } }
-            .filter { it.isNotBlank() && it.trim().length >= 4 }
-            .toSet()
-        val refusedBy = productionMessages.firstOrNull { actual.contains(it) }
-        val refusalShape = Regex("Operation '[^']*' failed").containsMatchIn(actual)
-        if (refusedBy != null || refusalShape) {
-            val guardOwn = (literal.findAll(guard).map { it.groupValues[1] } + literal.findAll(replacement).map { it.groupValues[1] }).any { it.isNotBlank() && actual.contains(it) }
+        val declRx = Regex("\\b(operation|query|function)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(")
+        val guardDecl = declRx.findAll(maskRellSource(src, maskStrings = true)).lastOrNull { it.range.first < at }
+            ?.let { it.groupValues[1] to it.groupValues[2] }
+        val guardInFunction = guardDecl == null || guardDecl.first == "function"
+        val refusal = Regex("(Operation|Query) '([^']*)' failed").find(error)
+        val refusingName = refusal?.groupValues?.get(2)?.substringAfterLast(':')
+        val refusedByGuardDecl = refusal != null && (guardInFunction || refusingName == guardDecl!!.second)
+        if (refusedByGuardDecl) {
+            val where = if (guardInFunction) "the guard is inside a function, so any refusing operation counts as the guard's own"
+                        else "'${refusingName}' is the ${guardDecl!!.first} the guard lives in"
             return@withContext verdict(
                 "still_refused",
-                if (guardOwn) "the test failed with the guard's OWN message in the error: $error - the mutant still refused the attack, " +
-                    "so what was replaced was not the line that refuses it, or the replacement still refuses"
-                else "the transaction was still REFUSED with the guard removed" + (if (refusedBy != null) " ('$refusedBy' is a production message)" else "") +
-                    ": $error. A refusal is never the attack landing. If that is defence in depth, name the refusing line in alsoRemove; otherwise the test is measuring a different guard"
+                "the transaction was still REFUSED by ${refusal!!.groupValues[1].lowercase()} '${refusal.groupValues[2]}' with the guard removed ($where): $error. " +
+                    "A refusal from the guard's own declaration is never the attack landing. If that is defence in depth, name the refusing line in alsoRemove; " +
+                    "otherwise the test is measuring a different guard"
             )
         }
         if (stillRefused != null && error.contains(stillRefused)) {
             return@withContext verdict("still_refused", "the attack was still refused, by something other than this guard: $error. If that is defence in depth, name it in alsoRemove; otherwise the test is measuring a different guard")
         }
-        if (error.contains(attackLanded, ignoreCase = true)) {
-            return@withContext verdict("load_bearing", "with the guard removed the test fails because the attack LANDED ('$attackLanded' in a test-side failure, no production refusal in the error): $error", loadBearing = true)
+        val callerPinned = attackLanded.isNotBlank() && !attackLanded.equals("did not fail", ignoreCase = true)
+        if (callerPinned && !error.contains(attackLanded, ignoreCase = true)) {
+            return@withContext verdict("red_for_another_reason", "the test went red without the guard and nothing in the guard's declaration refused, but the fragment you pinned ('$attackLanded') is absent: $error. Read it before counting this guard as proven")
         }
-        verdict("red_for_another_reason", "the test went red without the guard, but not because the attack landed ('$attackLanded' absent, no production refusal in the error): $error. Read it before counting this guard as proven")
+        val later = if (refusal != null) " (a LATER ${refusal.groupValues[1].lowercase()} '${refusal.groupValues[2]}' refused, which is the damage being noticed, not the attack being refused)" else ""
+        verdict("load_bearing", "with the guard removed the test fails and nothing in the guard's own declaration refused the attack$later: $error", loadBearing = true)
     }
 }
 

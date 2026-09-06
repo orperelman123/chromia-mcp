@@ -686,10 +686,13 @@ class VerifyGuardsProbeTest {
     // reddens through whatever notices the damage: a later operation, or a
     // test-side assertion whose words happen to be a production message.
     //
-    // In all three failing probes below the attack LANDED - the pot went
-    // negative - and the tool reports still_refused. They are pinned to the TRUE
-    // verdict and are RED until the tool is fixed; an adversary round pins the
-    // true verdict and does not fix the tool. Each has a CONTROL beside it in
+    // In all three probes below the attack LANDED - the pot went negative -
+    // and the tool reported still_refused. They are pinned to the TRUE verdict;
+    // they were RED until the tool was fixed the same day: a refusal now counts
+    // only when the runner's failing frame ("Operation 'main:take' failed")
+    // names the declaration the guard lives in, no string literal is consulted
+    // at all, and a red test that was green with the guard and was not refused
+    // by that declaration is the damage being noticed. Each has a CONTROL in
     // which the same guard, the same attack and the same damage are reported
     // load_bearing, so the wrong answer is a wrong answer and not a
     // conservative one. Raw verdicts:
