@@ -492,6 +492,10 @@ object DappScaffold {
         entity relayer {
             key account_id: byte_array;
             enrolled_at: timestamp;
+            // A retired relayer is NOT deleted: its attestations and its votes reference
+            // this row and are the record of what it said. It counts for nothing from the
+            // block this is cleared in, and re-enrolling it is another threshold vote.
+            mutable active: boolean = true;
         }
 
         // THE PROCESSED-BURNS REGISTRY. The key IS the burn's identity on the source
@@ -621,7 +625,7 @@ object DappScaffold {
         function witness_of(account_id: byte_array): relayer {
             require(bridge_state.relayer_set_closed, "the relayer set is not closed yet");
             return require(
-                relayer @? { .account_id == account_id },
+                relayer @? { .account_id == account_id, .active == true },
                 "a burn attestation must be signed by an enrolled relayer"
             );
         }
@@ -676,7 +680,7 @@ object DappScaffold {
             require(not bridge_state.relayer_set_closed, "the relayer set is closed");
             require(candidate.size() == 32, "a relayer must be a 32-byte account id");
             require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
-            create relayer(account_id = candidate, enrolled_at = op_context.last_block_time);
+            create relayer(account_id = candidate, enrolled_at = op_context.last_block_time, active = true);
             bridge_state.relayer_count += 1;
         }
 
@@ -700,7 +704,7 @@ object DappScaffold {
             val account = auth.authenticate();
             val witness = witness_of(account.id);
             require(candidate.size() == 32, "a relayer must be a 32-byte account id");
-            val enrolled = relayer @? { .account_id == candidate };
+            val enrolled = relayer @? { .account_id == candidate, .active == true };
             if (add) {
                 require(enrolled == null, "that account is already a relayer");
                 require(bridge_state.relayer_count < MAX_RELAYERS, "the relayer set is full");
@@ -723,10 +727,15 @@ object DappScaffold {
             update change ( .votes = voices );
             if (voices == relayer_threshold()) {
                 if (add) {
-                    create relayer(account_id = candidate, enrolled_at = now);
+                    val retired = relayer @? { .account_id == candidate };
+                    if (retired == null) {
+                        create relayer(account_id = candidate, enrolled_at = now, active = true);
+                    } else {
+                        update retired ( .active = true );
+                    }
                     bridge_state.relayer_count += 1;
                 } else {
-                    delete relayer @ { .account_id == candidate };
+                    update relayer @ { .account_id == candidate } ( .active = false );
                     bridge_state.relayer_count -= 1;
                 }
                 bridge_state.set_epoch += 1;
@@ -891,7 +900,8 @@ object DappScaffold {
 
         query bridge_is_paused(): boolean = bridge_state.paused;
 
-        query is_relayer(account_id: byte_array): boolean = relayer @? { .account_id == account_id } != null;
+        query is_relayer(account_id: byte_array): boolean =
+            relayer @? { .account_id == account_id, .active == true } != null;
 
         query holder_count(): integer = holding @* {} ( .owner ).size();
 
@@ -1208,11 +1218,13 @@ object DappScaffold {
             at(T0 + 1);  attest(2, 1, alice.account.id, 1);
             assert_equals(main.minted_total(), 1);
 
-            // The LAST millisecond of that window (elapsed = DAY-1): fill it to the cap.
+            // The LAST millisecond of that window: fill it to the cap. (A mint is
+            // stamped with op_context.last_block_time, which is the block BEFORE the one
+            // its transaction lands in, so the windows below are read from the stamps
+            // rather than from the transaction's own block.)
             at(T0 + DAY - 1);  attest(1, 2, alice.account.id, 99999);
             at(T0 + DAY);      attest(2, 2, alice.account.id, 99999);
             assert_equals(main.minted_total(), 100000);
-            assert_equals(main.minted_in_window(T0 + DAY), 100000);
 
             // THE ATTACK, two milliseconds later: round 15 got a fresh cap here and took
             // 200000 - exactly twice the cap - between block time T0+DAY and block time
@@ -1223,9 +1235,14 @@ object DappScaffold {
             attest_must_fail(2, 3, alice.account.id, 100000, "the bridge's mint cap for this period is reached");
             assert_equals(main.minted_total(), 100000);
             assert_equals(main.get_balance(alice.account.id), 100000);
+            // ...because the period the third mint would have joined already holds
+            // 99999 of the second, whatever the boundary between them is called.
+            assert_equals(main.minted_in_window(T0 + DAY + 2), 99999);
 
             // The burn is not lost: it lands once the 99999 has aged out of the window,
             // which is the cost the header states.
+            at(T0 + 2 * DAY);
+            rell.test.block().run();
             at(T0 + 2 * DAY + 1);
             attest(2, 3, alice.account.id, 100000);
             assert_equals(main.minted_total(), 200000);

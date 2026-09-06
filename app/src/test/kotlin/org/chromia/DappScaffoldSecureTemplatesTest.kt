@@ -1961,8 +1961,12 @@ class DappScaffoldSecureTemplatesTest {
             "a change to the set must need the threshold of the EXISTING relayers"
         )
         assertTrue(opBody(code, "vote_relayer_change").contains("val witness = witness_of(account.id);"))
+        assertFalse(
+            code.contains("delete relayer"),
+            "a retired relayer's attestations reference its row: it is deactivated, never deleted"
+        )
         assertTrue(
-            code.contains("relayer @? { .account_id == account_id },"),
+            code.contains("relayer @? { .account_id == account_id, .active == true },"),
             "the attesting relayer must be the AUTHENTICATED account looked up by its own id"
         )
         assertTrue(opBody(code, "attest_burn").contains("val witness = witness_of(account.id);"))
@@ -4475,6 +4479,8 @@ class DappScaffoldSecureTemplatesTest {
         "    require(qty_a == s.qty_a, \"a swap settles in full or not at all\");\n" +
             "    require(taker.asset_b >= s.qty_b, \"insufficient asset B\");\n" +
             "    val maker = trader_of(s.maker);\n" +
+            "    // BOTH LEGS, IN THIS ONE OPERATION. The maker's leg has been escrowed since\n" +
+            "    // the row was written; the taker's is taken here and delivered here.\n" +
             "    update taker ( .asset_b -= s.qty_b, .asset_a += s.qty_a );\n" +
             "    update maker ( .asset_b += s.qty_b );\n" +
             "    update s ( .status = STATUS_SETTLED );",
