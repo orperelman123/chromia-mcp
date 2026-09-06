@@ -671,4 +671,278 @@ class VerifyGuardsProbeTest {
         assertEquals("load_bearing", verdict(r), r.toString())
     }
 
+
+    // ======================= ROUND 14 ======================================
+    // Rounds 11, 12 and 13 each read ONE MORE source of refusal messages and
+    // were beaten by the next. Round 13 replaced the list with a STRUCTURE:
+    // "a refused transaction is never the attack landing", read from the
+    // chain's half of a run_must_fail mismatch. Round 14 attacks the structure.
+    //
+    // Its blind spot is that the error it classifies is the LAST failure in the
+    // test, which need NOT be the transaction that carried the attack, and need
+    // not be a transaction at all. A must-HOLD test - one that drives the attack
+    // with .run() and proves it was harmless by reading the state afterwards -
+    // is the ordinary shape for a guard that CLAMPS rather than refuses, and it
+    // reddens through whatever notices the damage: a later operation, or a
+    // test-side assertion whose words happen to be a production message.
+    //
+    // In all three failing probes below the attack LANDED - the pot went
+    // negative - and the tool reports still_refused. They are pinned to the TRUE
+    // verdict and are RED until the tool is fixed; an adversary round pins the
+    // true verdict and does not fix the tool. Each has a CONTROL beside it in
+    // which the same guard, the same attack and the same damage are reported
+    // load_bearing, so the wrong answer is a wrong answer and not a
+    // conservative one. Raw verdicts:
+    // exploit-corpus/realworld/adversary-round14/vg/.
+
+    /** A guard that CLAMPS: the attack transaction succeeds in both states. */
+    private val r14ClampMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        operation audit() {
+            val p = pot @ { .id == 1 };
+            require(p.balance >= 0, "the pot has gone negative");
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private val r14Clamp = "val paid = min(amount, p.balance);"
+    private val r14Unclamped = "val paid = amount;"
+
+    /** The damage is noticed by a LATER transaction, one line after the attack. */
+    private val r14LaterOpTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            rell.test.tx().op(main.audit()).run();
+        }
+    """.trimIndent()
+
+    /** The same damage, noticed by a test-side assertion instead. */
+    private val r14QueryTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            assert_equals(main.left(), 0);
+        }
+    """.trimIndent()
+
+    /**
+     * P14A. THE ATTACK LANDED AND A LATER OPERATION REFUSED. take(11) against a
+     * pot of 10 succeeds with the clamp gone and leaves -1; audit(), a DIFFERENT
+     * transaction, then refuses with a production message. The tool reads that
+     * refusal as "the attack did not land". TRUE VERDICT: load_bearing.
+     */
+    @Test
+    fun p14aAttackThatLandedAndALaterOperationRefused() {
+        val r = run(
+            mapOf("main.rell" to r14ClampMain, "main_test.rell" to r14LaterOpTests),
+            guard(r14Clamp, "test_overdraft_must_fail", replacement = r14Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * The control: the SAME guard and the SAME damage, with the evidence moved
+     * to a test-side assertion and the fragment named. load_bearing, ok:true.
+     */
+    @Test
+    fun p14aControlTheSameGuardWithATestSideAssertion() {
+        val r = run(
+            mapOf("main.rell" to r14ClampMain, "main_test.rell" to r14QueryTests),
+            guard(r14Clamp, "test_overdraft_must_fail", replacement = r14Unclamped, attackLanded = "but was <-1>")
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * P14B. A TEST-SIDE ASSERTION IN PRODUCTION WORDS. The require() that
+     * notices the damage lives in the TEST module and says "the pot is short";
+     * an unrelated production operation says the same thing, so those words are
+     * in the production literal set. NOTHING refused - the whole error text IS
+     * the test's own assertion - and the tool answers still_refused.
+     * TRUE VERDICT: load_bearing.
+     */
+    private val r14SharedWordsMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        operation sweep() {
+            val p = pot @ { .id == 1 };
+            require(p.balance > 0, "the pot is short");
+            update p ( .balance = 0 );
+        }
+        query left(): integer = pot @ { .id == 1 } ( .balance );
+    """.trimIndent()
+
+    private fun r14SharedWordsTests(message: String) = """
+        @test module;
+        import main;
+        function pot_is_sound(v: integer) {
+            require(v >= 0, "MSG");
+        }
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            pot_is_sound(main.left());
+        }
+    """.trimIndent().replace("MSG", message)
+
+    @Test
+    fun p14bATestSideAssertionInProductionWordsIsNotARefusal() {
+        val r = run(
+            mapOf("main.rell" to r14SharedWordsMain, "main_test.rell" to r14SharedWordsTests("the pot is short")),
+            guard(r14Clamp, "test_overdraft_must_fail", replacement = r14Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * The control: the identical guard, attack and damage, with the assertion
+     * reworded so it shares no words with production. load_bearing, ok:true -
+     * so the verdict above turns on the WORDING of a test-side message.
+     */
+    @Test
+    fun p14bControlTheSameAssertionInDifferentWords() {
+        val r = run(
+            mapOf("main.rell" to r14SharedWordsMain, "main_test.rell" to r14SharedWordsTests("R14 assertion: below zero")),
+            guard(r14Clamp, "test_overdraft_must_fail", replacement = r14Unclamped, attackLanded = "below zero")
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * P14C. TWO "but was <...>" HALVES. The chain's half is read with a GREEDY
+     * capture, so it spans from the FIRST occurrence to the LAST '>': a
+     * diagnostic string that carries its own mismatch merges both halves into
+     * one `actual`, and every literal in either of them is then read as the
+     * chain's answer. Nothing refused here either - it is an assert_equals on a
+     * query result. TRUE VERDICT: load_bearing.
+     */
+    private val r14NestedMain = """
+        module;
+        entity pot { key id: integer; mutable balance: integer = 0; }
+        operation seed(amount: integer) {
+            create pot(id = 1, balance = amount);
+        }
+        operation take(amount: integer) {
+            val p = pot @ { .id == 1 };
+            val paid = min(amount, p.balance);
+            update p ( .balance -= paid );
+        }
+        query status(): text {
+            val p = pot @ { .id == 1 };
+            if (p.balance < 0) return "drained: expected to contain <sound> but was <the pot has gone negative>";
+            return "sound";
+        }
+    """.trimIndent()
+
+    private val r14NestedTests = """
+        @test module;
+        import main;
+        function test_overdraft_must_fail() {
+            rell.test.tx().op(main.seed(10)).run();
+            rell.test.tx().op(main.take(11)).run();
+            assert_equals(main.status(), "sound");
+        }
+    """.trimIndent()
+
+    @Test
+    fun p14cTwoButWasHalvesAreNotOneChainAnswer() {
+        val r = run(
+            mapOf("main.rell" to r14NestedMain, "main_test.rell" to r14NestedTests),
+            guard(r14Clamp, "test_overdraft_must_fail", replacement = r14Unclamped)
+        )
+        assertEquals("load_bearing", verdict(r), r.toString())
+    }
+
+    /**
+     * P14D, PROBED AND HELD. A production literal of THREE characters is the
+     * whole refusal, so the length filter drops it - and the runner's own
+     * `Operation '...' failed` shape catches it anyway. The backstop is the
+     * backstop.
+     */
+    @Test
+    fun p14dAThreeCharacterProductionLiteralIsStillARefusal() {
+        val main = """
+            module;
+            entity pot { key id: integer; mutable balance: integer = 0; }
+            operation seed(amount: integer) {
+                create pot(id = 1, balance = amount);
+            }
+            operation take(amount: integer) {
+                val p = pot @ { .id == 1 };
+                require(amount <= p.balance, "cap");
+                require(amount <= 5, "max");
+                update p ( .balance -= amount );
+            }
+        """.trimIndent()
+        val t = """
+            @test module;
+            import main;
+            function test_overdraft_must_fail() {
+                rell.test.tx().op(main.seed(10)).run();
+                rell.test.tx().op(main.take(11)).run_must_fail("cap");
+            }
+        """.trimIndent()
+        val r = run(
+            mapOf("main.rell" to main, "main_test.rell" to t),
+            guard("require(amount <= p.balance, \"cap\");", "test_overdraft_must_fail")
+        )
+        assertEquals("still_refused", verdict(r), r.toString())
+    }
+
+    /**
+     * P14E, PROBED AND HELD. A run_must_fail whose expected fragment appears
+     * inside the OTHER guard's message: the assertion passes on the wrong
+     * refusal and the test stays green, which is exactly what `vacuous` is for.
+     */
+    @Test
+    fun p14eAnExpectedFragmentMatchingAnotherRefusalIsVacuousNotProven() {
+        val main = """
+            module;
+            entity pot { key id: integer; mutable balance: integer = 0; }
+            operation seed(amount: integer) {
+                create pot(id = 1, balance = amount);
+            }
+            operation take(amount: integer) {
+                val p = pot @ { .id == 1 };
+                require(amount <= p.balance, "insufficient");
+                require(amount <= 5, "insufficient authority for a large withdrawal");
+                update p ( .balance -= amount );
+            }
+        """.trimIndent()
+        val t = """
+            @test module;
+            import main;
+            function test_overdraft_must_fail() {
+                rell.test.tx().op(main.seed(10)).run();
+                rell.test.tx().op(main.take(11)).run_must_fail("insufficient");
+            }
+        """.trimIndent()
+        val r = run(
+            mapOf("main.rell" to main, "main_test.rell" to t),
+            guard("require(amount <= p.balance, \"insufficient\");", "test_overdraft_must_fail")
+        )
+        assertEquals("vacuous", verdict(r), r.toString())
+    }
 }
