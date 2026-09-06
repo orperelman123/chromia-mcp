@@ -4564,9 +4564,10 @@ class DappScaffoldSecureTemplatesTest {
         BRIDGE_THRESHOLD_GUARD,
         BRIDGE_MINT_ON_EVERY_ATTESTATION,
         "test_round14_one_burn_cannot_be_minted_twice_must_fail",
-        // Wrong reason: the repeat still refused by the attestation key, which
-        // names that table. Right reason is the transaction not failing at all.
-        "attestation",
+        // Wrong reason: the repeat still refused by the attestation key, which the
+        // database reports in those words. Keyed on the REFUSAL and not on the table's
+        // name, because a stack frame naming attest_burn is not a refusal.
+        "duplicate key value",
         attackLanded,
         alsoRemove = listOf(
             "    create attestation(burn = burn, witness = witness, round = burn.round, claim = claim, attested_at = now);",
