@@ -1914,6 +1914,25 @@ object RellSecurityCheck {
      * exactly this reason ("an auction nobody can reach"). The template gained
      * the matching MIN_OFFER_MS rather than the rule gaining an exception.
      *
+     * ROUND 16 BROKE THE SAME CONDITION FROM INSIDE. `lowerBounds.any { it !=
+     * "0" }` reads the bound's TERM and never its VALUE, so `val MIN_VOTING_MS
+     * = 0;` with `require(voting_period_ms >= MIN_VOTING_MS)` is a floor and a
+     * period of 0 is accepted - one identifier away from the control, which is
+     * the same zero written inline and fires. A FLOOR IS A POSITIVE QUANTITY,
+     * so the bound's value is resolved now: a literal, a module-level `val`
+     * ([numericConstants]), or a `struct module_args` field's declared default
+     * ([moduleArgDefaults]). A bound worth 0 is no bound; a term that cannot be
+     * resolved at all - a field read, a call, an expression - still counts,
+     * because guessing there is how a rule starts firing on correct code.
+     *
+     * A bound that is a MODULE ARG is its own finding rather than silence or
+     * the ordinary one: `>= chain_context.args.min_voting_ms` bounds nothing
+     * this scan, or a deploying agent, can see when the struct declares no
+     * default, so the floor the chain runs with is whatever the yml happens to
+     * say. The fix says to give the arg a default greater than 0 - the author
+     * already wrote the require(). A default that IS greater than 0 is a real
+     * floor and stays quiet.
+     *
      * Advisory, never blocking: the right minimum is a design number the gate
      * cannot know, and some windows (short auctions, heartbeats) are
      * legitimately tiny.
@@ -1960,12 +1979,16 @@ object RellSecurityCheck {
             // `max(param, MIN_MS)` is a floor spelled as arithmetic - and it is
             // worth exactly what MIN_MS is worth, so its other operands are
             // resolved on the same terms as a comparison's.
-            val maxFloors = MAX_CALL_REGEX.findAll(op.body)
-                .filter { m -> paramRef.containsMatchIn(m.groupValues[1]) }
-                .flatMap { m -> splitArgs(m.groupValues[1]).asSequence() }
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && !paramRef.matches(it) }
-                .toList()
+            val maxFloors = mutableListOf<String>()
+            MAX_CALL_REGEX.findAll(op.body).forEach { m ->
+                val open = op.body.indexOf('(', m.range.first)
+                val close = matchDelimiter(op.body, open, '(', ')') ?: return@forEach
+                val args = op.body.substring(open + 1, close)
+                if (!paramRef.containsMatchIn(args)) return@forEach
+                splitArgs(args).map { it.trim() }
+                    .filter { it.isNotEmpty() && !paramRef.matches(it) }
+                    .forEach { maxFloors.add(it) }
+            }
             val bounds = (lowerBounds + maxFloors).map { resolveBound(it, constants, moduleArgDefaults) }
             // A FLOOR IS A POSITIVE QUANTITY. Round 15's test read the TERM and
             // never its value (`lowerBounds.any { it != "0" }`), so round 16
@@ -1975,7 +1998,7 @@ object RellSecurityCheck {
             // `val`, or a module_args field's default - and a bound worth 0 is
             // no bound. A term this scan cannot resolve (a field read, a call,
             // an expression) still gets the benefit of the doubt.
-            if (bounds.any { it.moduleArg == null && (it.literal == null || it.literal > 0) }) return@forEach
+            if (bounds.any { it.moduleArg == null && (it.literal ?: 1L) > 0L }) return@forEach
             // A MODULE ARG IS A PROMISE, NOT A FLOOR, UNTIL IT HAS A DEFAULT.
             // `require(period >= chain_context.args.min_voting_ms)` bounds
             // nothing this scan (or a deploying agent) can see when the struct
@@ -2028,7 +2051,7 @@ object RellSecurityCheck {
         return findings
     }
 
-    private val MAX_CALL_REGEX = Regex("""\bmax\s*\(([^()]*)\)""")
+    private val MAX_CALL_REGEX = Regex("""\bmax\s*\(""")
     private val MODULE_ARG_TERM_REGEX = Regex("""^chain_context\s*\.\s*args\s*\.\s*([A-Za-z_]\w*)$""")
 
     /**

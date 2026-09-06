@@ -298,32 +298,48 @@ class Round16SecurityRuleFixTest {
     // (d) an elapsed term is itself a quantity
     // =====================================================================
 
-    private fun faucet(declaredType: String) = """
-        module;
-        entity subscriber {
-            key owner: byte_array;
-            mutable credit_balance: $declaredType = 0;
-            mutable last_claim: timestamp = 0;
+    private fun faucet(declaredType: String, spendable: Boolean = true): String {
+        val spend = if (spendable) {
+            """
+            operation spend(to: byte_array, amount: integer) {
+                val me = require(subscriber @? { .owner == op_context.get_signers()[0] }, "register first");
+                val m = require(merchant @? { .owner == to }, "no merchant");
+                require(amount > 0, "amount out of range");
+                require(me.credit_balance >= amount, "insufficient credit");
+                update me ( .credit_balance -= amount );
+                update m ( .takings += amount );
+            }
+            """.trimIndent()
+        } else {
+            // The identical field, never taken FROM: a stored clock rather than
+            // a balance, which is what the round-15 exclusion was written for.
+            """
+            query credit_of(owner: byte_array): integer {
+                val me = require(subscriber @? { .owner == owner }, "register first");
+                return me.credit_balance;
+            }
+            """.trimIndent()
         }
-        entity merchant { key owner: byte_array; mutable takings: integer = 0; }
-        operation register() {
-            require(op_context.is_signer(op_context.get_signers()[0]), "sign it");
-            create subscriber(owner = op_context.get_signers()[0], last_claim = op_context.last_block_time);
-        }
-        operation claim_credit() {
-            val me = require(subscriber @? { .owner == op_context.get_signers()[0] }, "register first");
-            update me ( .credit_balance += op_context.last_block_time - me.last_claim );
-            update me ( .last_claim = op_context.last_block_time );
-        }
-        operation spend(to: byte_array, amount: integer) {
-            val me = require(subscriber @? { .owner == op_context.get_signers()[0] }, "register first");
-            val m = require(merchant @? { .owner == to }, "no merchant");
-            require(amount > 0, "amount out of range");
-            require(me.credit_balance >= amount, "insufficient credit");
-            update me ( .credit_balance -= amount );
-            update m ( .takings += amount );
-        }
-    """.trimIndent()
+        return """
+            module;
+            entity subscriber {
+                key owner: byte_array;
+                mutable credit_balance: $declaredType = 0;
+                mutable last_claim: timestamp = 0;
+            }
+            entity merchant { key owner: byte_array; mutable takings: integer = 0; }
+            operation register() {
+                require(op_context.is_signer(op_context.get_signers()[0]), "sign it");
+                create subscriber(owner = op_context.get_signers()[0], last_claim = op_context.last_block_time);
+            }
+            operation claim_credit() {
+                val me = require(subscriber @? { .owner == op_context.get_signers()[0] }, "register first");
+                update me ( .credit_balance += op_context.last_block_time - me.last_claim );
+                update me ( .last_claim = op_context.last_block_time );
+            }
+            $spend
+        """.trimIndent()
+    }
 
     @Test
     fun `a clock difference credited to a spendable balance is a mint in either declared type`() {
@@ -370,19 +386,15 @@ class Round16SecurityRuleFixTest {
 
     @Test
     fun `the timestamp exclusion is withdrawn only from fields the submission debits`() {
-        // The same clock arithmetic, same declared type, one difference: this
-        // field is spent. That is the whole of the round-16 narrowing.
-        val spent = faucet("timestamp")
-        val neverSpent = spent.replace(
-            "            update me ( .credit_balance -= amount );\n",
-            ""
-        ).replace(
-            "            require(me.credit_balance >= amount, \"insufficient credit\");\n",
-            ""
-        ).replace("update m ( .takings += amount );", "update m ( .takings += 0 );")
-        assertTrue(findings("main.rell" to spent).any { it.rule == "unbacked-conversion-credit" })
+        // The same clock arithmetic, the same declared type, one difference:
+        // this field is spent. That is the whole of the round-16 narrowing.
         assertTrue(
-            findings("main.rell" to neverSpent).none { it.rule == "unbacked-conversion-credit" },
+            findings("main.rell" to faucet("timestamp", spendable = true))
+                .any { it.rule == "unbacked-conversion-credit" }
+        )
+        assertTrue(
+            findings("main.rell" to faucet("timestamp", spendable = false))
+                .none { it.rule == "unbacked-conversion-credit" },
             "with no debit of the field anywhere it is a stored clock, and the round-15 exclusion still holds"
         )
     }
