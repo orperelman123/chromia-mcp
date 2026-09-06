@@ -2,8 +2,9 @@ package org.chromia
 
 import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.segment.TextSegment
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -55,7 +56,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolUnknownNameReturnsErrorText() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "not_a_real_tool",
                 arguments = buildJsonObject { put("network", "mainnet") }
             )
@@ -74,7 +75,7 @@ class ToolExecutorTest {
             buildJsonObject { put("countAllAccounts", 9) }
         )
         val result = executor(repo).executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_network_stats",
                 arguments = buildJsonObject { put("network", "testnet") }
             )
@@ -93,7 +94,7 @@ class ToolExecutorTest {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("explorer HTTP 503")
         val result = executor(repo).executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_network_stats",
                 arguments = buildJsonObject { put("network", "mainnet") }
             )
@@ -109,7 +110,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolWrapsStrategyException() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject { put("query", "rell.get_app_structure") }
             )
@@ -136,7 +137,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolBlankRidIsMissingRequiredParameterAndIsError() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_blockchain_details",
                 arguments = buildJsonObject {
                     put("rid", "   ")
@@ -153,7 +154,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolBlankAssetIdIsMissingRequiredParameterAndIsError() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_top_holders",
                 arguments = buildJsonObject {
                     put("assetId", "")
@@ -170,7 +171,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolWhitespaceAssetIdIsMissingRequiredParameterAndIsError() = runBlocking {
         val result = executor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_distribution",
                 arguments = buildJsonObject {
                     put("assetId", " \t")
@@ -187,7 +188,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolSearchReturnsStableIdsAndStructuredContent() = runBlocking {
         val result = ragExecutor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             )
@@ -209,7 +210,7 @@ class ToolExecutorTest {
     fun executeToolFetchDocsThenFetchHitsExactSegment() = runBlocking {
         val executor = ragExecutor()
         val docs = executor.executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             )
@@ -223,7 +224,7 @@ class ToolExecutorTest {
         assertTrue(docs.structuredContent!!["text"]!!.jsonPrimitive.content.contains(id))
 
         val fetch = executor.executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", id) }
             )
@@ -242,7 +243,7 @@ class ToolExecutorTest {
     @Test
     fun executeToolFetchUnknownIdReturnsErrorShape() = runBlocking {
         val result = ragExecutor().executeTool(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "missing-doc") }
             )

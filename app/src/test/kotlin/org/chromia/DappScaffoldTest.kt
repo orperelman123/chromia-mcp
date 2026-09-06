@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -92,7 +93,7 @@ class DappScaffoldTest {
     @Test
     fun scaffoldDappToolReturnsPinsAndForbiddenList() = runBlocking {
         val result = ScaffoldDappStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "scaffold_dapp",
                 arguments = buildJsonObject { put("name", "wallet") }
             ),

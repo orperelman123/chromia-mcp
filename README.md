@@ -143,13 +143,55 @@ Three tools let an agent take a dapp from sources to a live **testnet** chain wi
 
 If no funding account is usable the tools degrade to dryRun and state the exact setup step. If the configured key's FT4 account does not exist on the Economy Chain, the tools report the precise one-time bootstrap (send ≥ 20 tCHR to the derived account id; a pending fee-strategy transfer is then completed headlessly, 10 tCHR registration fee). A registered account with **zero balance is not a blocker** — the faucet claim is the first automatic step.
 
+## Transports
+
+Three, from one jar:
+
+| Transport | How to start it | Endpoint | Who uses it |
+| --- | --- | --- | --- |
+| stdio | `java -jar chromia-mcp-server.jar --stdio` | — | Claude Code, Cursor, most desktop clients |
+| Streamable HTTP | `--sse` (or `--http`) | `POST/GET/DELETE <base>/mcp` | every current URL-based MCP client; the transport the spec moved to in 2025-03-26 |
+| HTTP+SSE (legacy) | the same `--sse` server | `GET <base>/` + `POST <base>/?sessionId=…` | older connectors, including what ChatGPT's own docs still show |
+
+One process, one port, one `/health`. The HTTP server serves **both** HTTP
+transports at once, behind the same bearer token, the same CORS rule and the same
+`Host` allow-list, so pointing a client at `/mcp` or at `/` is a client-side
+choice, not a deployment. `--http` is an alias for `--sse` for clients that only
+know the newer name.
+
+Streamable HTTP here is **stateful**: the first `POST /mcp` (an `initialize`)
+answers with an `Mcp-Session-Id`, every later request echoes it, and `DELETE /mcp`
+ends the session. A `GET /mcp` opens the server-to-client stream and is kept alive
+with an SSE heartbeat every 15s, the same trick the legacy endpoint uses so an idle
+tunnel or load balancer does not cut a quiet session.
+
 ## Hosted Options
 
+- `CHROMIA_MCP_PROFILE=public` (or `--profile public`) — see
+  [Publish it to ChatGPT](#publish-it-to-chatgpt-serve-publicps1). Disables every tool that
+  acts on the machine or uses a key. Reported in `/health` and in the MCP `serverInfo` title.
 - `CHROMIA_MCP_AUTH_TOKEN=<secret>` — require `Authorization: Bearer <secret>` on every request
   except `/health`. Off by default (ChatGPT's no-auth connector needs the open mode).
+- `CHROMIA_MCP_ALLOWED_HOSTS=<hosts>` — comma-separated extra `Host` values the MCP endpoints
+  accept. `localhost`, `127.0.0.1`, `[::1]` and `*.trycloudflare.com` are always allowed, as is
+  the interface you bind with `--host` when it is a concrete address. This is DNS-rebinding
+  protection: a browser page on `evil.com` that resolves to `127.0.0.1` still sends
+  `Host: evil.com`, and is refused with 403 before any tool runs. **Serving a custom domain
+  needs an entry here** (`CHROMIA_MCP_ALLOWED_HOSTS=mcp.example.com`); `*` turns the check off
+  and logs a warning. `/health` is exempt so an IP-addressed load-balancer probe keeps working.
+  (A tunnel that terminates on this machine — the OpenAI Secure MCP Tunnel, an SSH forward —
+  needs no entry: the request arrives from loopback.)
 - `CHROMIA_MCP_ALLOWED_ORIGINS=<origins>` — comma-separated list of browser origins allowed by
   CORS (e.g. `https://app.example.com,http://localhost:5173`). Unset or `*` allows any origin;
-  credentials are never allowed cross-origin.
+  credentials are never allowed cross-origin. The `Mcp-Session-Id` header is allowed on
+  requests and exposed on responses, so a browser client can hold a Streamable HTTP session.
+- `CHROMIA_MCP_HTTP_MAX_SESSIONS=<n>` (default 256) and
+  `CHROMIA_MCP_HTTP_SESSION_IDLE_MS=<ms>` (default 1800000) — bounds on the Streamable
+  HTTP session table. A session outlives the request that made it and holds a whole
+  tool registry, so on a no-auth URL `initialize` is an unauthenticated allocation:
+  minting one first reclaims anything idle past the timeout, and a mint that would
+  exceed the cap is refused with 503 instead of served. `DELETE /mcp` is still the
+  explicit way to end a session.
 - `CHROMIA_MCP_TEST_TIMEOUT_SECONDS=<1..90>` — tighten-only override of the per-call
   `run_rell_tests` execution timeout (default 90s). Useful on small instances where a runaway
   test pins a core; values outside 1..90 or non-numeric fall back to the default.
@@ -235,10 +277,10 @@ $claude = Join-Path (Split-Path (Get-Command claude).Source) 'node_modules\@anth
   -jar C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar --stdio
 ```
 
-### Shape 2: local SSE server (clients that want a URL)
+### Shape 2: local HTTP server (clients that want a URL)
 
 For ChatGPT-style connectors, browser clients, or anything else on this machine or LAN
-that connects by URL:
+that connects by URL. One server, both HTTP transports (see [Transports](#transports)):
 
 ```powershell
 .\serve-local.ps1        # or double-click serve-local.cmd
@@ -256,11 +298,98 @@ limit; measured steady state is ~1.5 GB), waits for `/health`, and prints the UR
     Health check     : http://127.0.0.1:3010/health
 ```
 
-Connect any URL-based MCP client with `{ "url": "http://127.0.0.1:<port>/" }`.
+Connect any URL-based MCP client with `{ "url": "http://127.0.0.1:<port>/mcp" }`
+(Streamable HTTP — prefer this), or `{ "url": "http://127.0.0.1:<port>/" }` for the
+legacy SSE endpoint. Both are live on that port at the same time.
 Ctrl+C stops it cleanly and frees the port. Options: `-Port 3005` pins a port,
 `-BindHost 0.0.0.0` serves the LAN (set `CHROMIA_MCP_AUTH_TOKEN` first!), `-Heap 4g`,
 `-NoDb`, `-Jar <path>`. Auto-start on login (optional, nothing installed by default) is
 documented in [docs/Deployment.md](docs/Deployment.md#optional-auto-start-the-sse-server-on-login-windows).
+
+## Publish it to ChatGPT (`serve-public.ps1`)
+
+`serve-local.ps1` gives you a URL on this machine. To hand ChatGPT a URL it can
+reach, you need a tunnel — and a public URL means *whoever has it can call every
+advertised tool*. `serve-public.ps1` is the same server with that fact designed in:
+
+```powershell
+.\serve-public.ps1              # or double-click serve-public.cmd
+.\serve-public.ps1 -NoTunnel    # dry run: start, print what WOULD be published, stop
+```
+
+It starts the server on `127.0.0.1` with `--profile public`, refuses to go further
+unless `/health` confirms that profile, then runs
+`cloudflared tunnel --url http://127.0.0.1:<port>` (a **quick tunnel**: no
+Cloudflare account, no login, nothing to accept) and prints the
+`https://<random>.trycloudflare.com` URL with both endpoints and the exact ChatGPT
+steps. Ctrl+C takes the tunnel down first, then the server, and verifies the port
+is free. `cloudflared` is expected on `PATH` or at
+`C:\Program Files (x86)\cloudflared\cloudflared.exe` (`-Cloudflared <path>` overrides).
+
+### What the `public` profile is
+
+`CHROMIA_MCP_PROFILE=public` disables **exactly** the tools that act on your
+machine or use a key:
+
+| Disabled | Why |
+| --- | --- |
+| `local_chain_up` | boots an embedded Postchain node against your PostgreSQL and leaves it running |
+| `provision_testnet_container` | generates a key pair, writes it to the deploy keystore, signs a funded transaction |
+| `claim_testnet_tchr` | signs a faucet claim with your funding key |
+| `deploy_testnet_chain` | reads a private key from the deploy keystore or the environment and runs the `chr` CLI |
+
+Everything else stays, because that is the product: the compiler loop
+(`rell_check`, `rell_security_check`, `run_rell_tests`, `verify_guards`,
+`check_dapp_project`, `scaffold_dapp`), the docs tools (`search`, `fetch`,
+`fetch_docs`, `chromia_help`), the explorer/analytics queries, `chromia_dapp_query`,
+the deployment advisors (`write_deployment_config`, `deployment_preflight`,
+`verify_deployment`) and `get_prompts`. A disabled tool is not merely hidden from
+`tools/list`: calling it by name answers with a refusal that names the gate and a
+working alternative.
+
+`serve-public.ps1` also clears `CHROMIA_TEST_DATABASE_URL` unless you pass
+`-WithDb`, so a public caller cannot run tests against your local database, and
+warns when `CHROMIA_MCP_AUTH_TOKEN` is unset. `-Profile full` needs an explicit
+`-IUnderstandFullProfileIsDangerous`.
+
+The profile is not a secret: `/health` reports `"profile": "public"` and the MCP
+`serverInfo.title` is `Chromia MCP Server (profile: public)`, so a connector — and
+you, before you paste the URL anywhere — can see what is on the other end.
+`ToolProfilesTest` pins the disabled set against a `touchesLocalMachine` marker that
+every tool strategy must declare, so a tool added later cannot drift into the public
+surface by omission (it does not compile until someone classifies it).
+
+### ChatGPT connector steps
+
+Settings → Connectors → Advanced → **Developer mode**, then Create:
+
+- **MCP server URL**: `https://<name>.trycloudflare.com/mcp` — Streamable HTTP, prefer this.
+  Use `https://<name>.trycloudflare.com/sse` only if the connector insists on SSE
+  (ChatGPT's own docs still show the `/sse` shape).
+- **Authentication**: *No authentication*, or API key / Bearer set to your
+  `CHROMIA_MCP_AUTH_TOKEN` if you set one.
+- ChatGPT calls `search` and `fetch` for research; developer mode exposes the rest.
+
+### Alternative: OpenAI's Secure MCP Tunnel
+
+If you would rather not publish a URL at all, OpenAI's
+[`tunnel-client`](https://github.com/openai/tunnel-client) dials **out** from your
+machine, so nothing is listening on the internet and the server sees loopback
+traffic (no `Host` allow-list entry needed):
+
+```bash
+# the full local toolset over stdio - nothing binds a port at all
+tunnel-client --mcp-command "java -jar app/build/libs/chromia-mcp-server.jar --stdio"
+
+# or point it at a server you already have running
+.\serve-local.ps1                      # in another terminal
+tunnel-client --mcp-server-url http://127.0.0.1:3001/mcp
+```
+
+The stdio form is the private full-toolset shape: no port, no profile needed, and
+the tools run as you. The `--mcp-server-url` form reaches whatever profile that
+server was started with — use `serve-public.ps1 -NoTunnel` if you want the public
+subset without a Cloudflare tunnel.
 
 ## Install (one command)
 
@@ -335,8 +464,9 @@ the only margin) and `render.yaml`. The Dockerfile is still live for the
 `claude-code-chromia/` image. The hosted-only pieces — `scripts/hosted-check.mjs` and the
 6-hourly `hosted-check.yml` drift monitor — were removed with the service. Memory measurements
 for the hosted shape are kept in [docs/Deployment.md](docs/Deployment.md). ChatGPT's `search`
-/ `fetch` contract tools are still in the server; point a connector at a local SSE server
-(Shape 2 above) or at ChromaWay's own `https://mcp.chromia.dev/sse`.
+/ `fetch` contract tools are still in the server; point a connector at
+[`serve-public.ps1`](#publish-it-to-chatgpt-serve-publicps1), at a local server (Shape 2
+above), or at ChromaWay's own `https://mcp.chromia.dev/sse`.
 
 ## Upstreaming
 
@@ -432,7 +562,7 @@ Run the application using gradle run in sse mode:
 
 This will start the MCP server in SSE mode on `127.0.0.1:3001` by default.
 
-> **Note for local development**: When running locally, configure your MCP client to use `http://127.0.0.1:3001/` (this fork serves the SSE endpoint at the root path, not `/sse`) instead of `https://mcp.chromia.dev/sse`.
+> **Note for local development**: When running locally, point your MCP client at `http://127.0.0.1:3001/mcp` (Streamable HTTP) instead of `https://mcp.chromia.dev/sse`. The legacy SSE endpoint is also live on the same port, at the **root** path (`http://127.0.0.1:3001/`) rather than `/sse` — see [Transports](#transports).
 
 ## Setup
 
@@ -489,14 +619,22 @@ All AI assistants use the same MCP configuration format. Add the following JSON 
 
 **ChatGPT:**
 
-1. Enable developer mode: Go to Settings → Connectors → Advanced → Developer mode
-2. Import Chromia MCP:
-   - Open Workspace settings → Connectors → Create
-   - Enter the following:
-     - MCP Server URL: `https://mcp.chromia.dev/sse` (or `http://127.0.0.1:3001/` for local development - root path on this fork)
-     - Authentication: No authentication
-   - Click Create
-   - In connector details, new tool lists and descriptions from the MCP server will be shown
+ChatGPT reaches an MCP server over HTTP, so it needs a URL it can resolve — a
+`127.0.0.1` address only works if ChatGPT is running on this machine. The full
+walkthrough, including the tunnel, is
+[Publish it to ChatGPT](#publish-it-to-chatgpt-serve-publicps1). In short:
+
+1. Enable developer mode: Settings → Connectors → Advanced → Developer mode
+2. Get a URL: `.\serve-public.ps1` (Cloudflare quick tunnel, `public` profile), or
+   OpenAI's [`tunnel-client`](https://github.com/openai/tunnel-client) if you would
+   rather not publish one.
+3. Connectors → Create:
+   - **MCP Server URL**: `<base>/mcp` — Streamable HTTP. `<base>/sse` also works and is
+     what ChatGPT's own docs show; both are served by the same process.
+     ChromaWay's hosted instance is `https://mcp.chromia.dev/sse`.
+   - **Authentication**: No authentication, or Bearer/API key = your `CHROMIA_MCP_AUTH_TOKEN`.
+4. Create. The connector detail page lists the tools the server advertises — that
+   list is the profile you published; `/health` names it too.
 
 > The MCP server will be available in the MCP panel
 

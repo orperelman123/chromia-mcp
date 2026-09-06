@@ -1,7 +1,10 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -79,7 +82,7 @@ class DeploymentPreflightToolTest {
 
     private fun call(args: JsonObject) = runBlocking {
         ToolExecutor(repo, PromptManager())
-            .executeTool(CallToolRequest(name = "deployment_preflight", arguments = args))
+            .executeTool(callToolRequest(name = "deployment_preflight", arguments = args))
     }
 
     private fun findings(s: JsonObject): List<JsonObject> =
@@ -430,10 +433,10 @@ class DeploymentPreflightToolTest {
         assertEquals("deployment_preflight", tool.name)
         assertEquals(listOf("yaml", "target"), tool.inputSchema.required)
         listOf("yaml", "target", "rell", "files", "strict")
-            .forEach { assertNotNull(tool.inputSchema.properties[it], "inputSchema missing $it") }
+            .forEach { assertNotNull(tool.inputSchema.propertiesOrEmpty[it], "inputSchema missing $it") }
         val out = tool.outputSchema!!
         listOf("ready", "target", "network", "findings", "blockers", "nextAction", "notes")
-            .forEach { assertNotNull(out.properties[it], "outputSchema missing $it") }
+            .forEach { assertNotNull(out.propertiesOrEmpty[it], "outputSchema missing $it") }
         // The policy is part of the contract: read-only, never signs.
         assertTrue(tool.description!!.contains("no signing"))
         // Honest ready semantics: only a MAINNET target is blocked on a missing

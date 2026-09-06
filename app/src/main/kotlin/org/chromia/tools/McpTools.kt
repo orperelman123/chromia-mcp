@@ -1,6 +1,7 @@
 package org.chromia.tools
 
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
 
 object McpTools {
@@ -40,7 +41,7 @@ object McpTools {
             nodes do not serve returns an actionable error (usually: pass the dapp's own node URL
             as network) instead of crawling every endpoint for minutes.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -93,7 +94,7 @@ object McpTools {
                 - Block height and transaction count
             - Can be used to get Blockchain's RID
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -116,7 +117,7 @@ object McpTools {
         description = """
            - Returns transaction counts grouped by cluster on a specific network, 
         """,
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -137,7 +138,7 @@ object McpTools {
     fun getAllAssetsTool() = Tool(
         name = "get_all_assets",
         description = "Get information about all assets on a specific network",
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -158,7 +159,7 @@ object McpTools {
     fun getTotalRewardsPaidTool() = Tool(
         name = "get_total_rewards_paid",
         description = "Get the total rewards paid on a specific network",
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -179,7 +180,7 @@ object McpTools {
     fun getAssetDistributionTool() = Tool(
         name = "get_asset_distribution",
         description = "Get distribution information for a specific asset across different blockchains and account types",
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "assetId" to JsonObject(
@@ -274,7 +275,7 @@ object McpTools {
                 - Understanding asset holder demographics by account type
                 - Cross-chain asset holder analysis
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "assetId" to JsonObject(
@@ -362,7 +363,7 @@ object McpTools {
     fun getBlockchainAnalyticsTool() = Tool(
         name = "get_blockchain_analytics",
         description = "Get detailed analytics for a specific blockchain including transaction counts, operation counts, and active accounts over time",
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "brid" to JsonObject(
@@ -395,7 +396,7 @@ object McpTools {
     fun getMonthlyActiveAccountsPerChainTool() = Tool(
         name = "get_monthly_active_accounts_per_chain",
         description = "Get the number of monthly active accounts for a specific blockchain",
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "brid" to JsonObject(
@@ -442,7 +443,7 @@ object McpTools {
                 - Checking if a blockchain is a system chain or user application
                 - Determining which cluster hosts a specific blockchain
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "rid" to JsonObject(
@@ -495,7 +496,7 @@ object McpTools {
                 - Checking the operational status of blockchains
                 - Discovering blockchains in specific clusters or containers
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -603,7 +604,7 @@ object McpTools {
                 - Monitoring account activity and asset transfers
                 - Building transaction reports and analytics
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -783,7 +784,7 @@ object McpTools {
                 - Building operation-based filters for transaction queries
                 - Understanding the capabilities of different dApps and system chains
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -829,7 +830,7 @@ object McpTools {
                 - Market research and asset discovery
                 - Understanding asset characteristics and usage patterns
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -914,7 +915,7 @@ object McpTools {
                 - Identifying major CHR holders and their activity patterns
                 - Compliance and auditing of CHR token movements
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -978,7 +979,7 @@ object McpTools {
                 - Planning cross-chain asset strategies and integrations
                 - Auditing asset presence and activity across the ecosystem
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -1019,7 +1020,7 @@ object McpTools {
                 - Compliance and auditing of user activities across the ecosystem
                 - Understanding user distribution and blockchain adoption patterns
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -1062,7 +1063,7 @@ object McpTools {
                 - Understanding account distribution and blockchain adoption patterns
                 - Comparing transaction vs transfer activity for accounts
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -1106,7 +1107,7 @@ object McpTools {
                 - Planning maintenance windows and understanding impact
                 - Auditing node operator performance
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -1160,7 +1161,7 @@ object McpTools {
                 - Analyzing cluster distribution and load balancing
                 - Quick network status checks and health monitoring
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -1197,7 +1198,7 @@ object McpTools {
                 - Finding example prompts for common tasks
                 - Learning the parameter requirements for tools
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "category" to JsonObject(
@@ -1242,7 +1243,7 @@ object McpTools {
             - Returns the most semantically relevant sections, even if they don't match exact keywords
             - Much more efficient than returning entire documentation files
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "query" to JsonObject(
@@ -1256,7 +1257,7 @@ object McpTools {
             required = listOf("query")
         ),
         title = "Search relevant documentation about Chromia platform",
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "text" to JsonObject(
@@ -1327,7 +1328,7 @@ object McpTools {
             and work across process restarts without a prior search. A miss is not-found.
             Prefer fetch_docs for Chromia documentation search; use this after search or fetch_docs when an id is required.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "id" to JsonObject(
@@ -1344,7 +1345,7 @@ object McpTools {
         ),
         title = "Fetch Document",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "id" to JsonObject(
@@ -1391,7 +1392,7 @@ object McpTools {
             ChatGPT-compatible search. Semantic documentation search over the same RAG store as fetch_docs.
             Prefer fetch_docs for Chromia documentation; this returns id/title/url results for ChatGPT.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "query" to JsonObject(
@@ -1406,7 +1407,7 @@ object McpTools {
         ),
         title = "Search Documentation",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "results" to JsonObject(
@@ -1504,7 +1505,7 @@ object McpTools {
             NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "name" to JsonObject(
@@ -1528,7 +1529,7 @@ object McpTools {
         ),
         title = "Scaffold Chromia dapp",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -1561,7 +1562,7 @@ object McpTools {
             or libs.*.insecure is true (skips RID check; not for production).
             Returns structured {ok, errors[], warnings[]}. Does not run chr or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "yaml" to JsonObject(
@@ -1585,7 +1586,7 @@ object McpTools {
         ),
         title = "Validate chromia.yml",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -1610,7 +1611,7 @@ object McpTools {
             NEVER emits lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
             Does not send signed transactions. Confirm keys with fetch_docs.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "name" to JsonObject(
@@ -1635,7 +1636,7 @@ object McpTools {
         ),
         title = "FT4 module_args",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -1678,7 +1679,7 @@ object McpTools {
             Call with no arguments to list all topics; call with a topic to get that payload.
             The same content as the individual *_help tools, through one schema.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "topic" to JsonObject(
@@ -1711,7 +1712,7 @@ object McpTools {
             not required for the check. Compilation runs in-process on temp files; nothing is
             deployed and no network is used.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "source" to JsonObject(
@@ -1740,7 +1741,7 @@ object McpTools {
         ),
         title = "Compile-check Rell code",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -1781,7 +1782,7 @@ object McpTools {
             matching functions instead of the whole suite.
             Nothing is deployed; sources run in a temp directory and are deleted afterwards.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "files" to JsonObject(
@@ -1810,7 +1811,7 @@ object McpTools {
         ),
         title = "Run Rell tests",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -1855,7 +1856,7 @@ object McpTools {
             CHROMIA_TEST_DATABASE_URL on the server (or
             `databaseUrl`); @test modules are excluded from the chain like `chr build`.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "files" to JsonObject(
@@ -1902,7 +1903,7 @@ object McpTools {
         ),
         title = "Run a local Chromia chain",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -1967,7 +1968,7 @@ object McpTools {
             deleted afterwards. This does not replace an audit and says nothing about guards you
             did not name - it makes the guards you DID name real evidence instead of a claim.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "files" to JsonObject(
@@ -2011,7 +2012,7 @@ object McpTools {
         ),
         title = "Verify guards are load-bearing",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"), "description" to JsonPrimitive("true only when every named guard is load_bearing"))),
@@ -2075,7 +2076,7 @@ object McpTools {
             where quorum, voting window, reserve-backing and price bounds are structural.
             Use with rell_check as the loop: compile clean, then security clean, then present.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "source" to JsonObject(
@@ -2107,7 +2108,7 @@ object McpTools {
         ),
         title = "Security-review Rell code",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -2131,7 +2132,7 @@ object McpTools {
             on 0.29.x add chains.<name>: x"<dapp rid>" by hand after the first create.
             Does not send signed transactions and does not run chr.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(
@@ -2154,7 +2155,7 @@ object McpTools {
         ),
         title = "Write deployment config",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "network" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2179,13 +2180,13 @@ object McpTools {
             Commands: chr install, chr build, chr code check, chr test. chr repl --sql-log (see chr_repl_help).
             Java 21+, Postgres 16+.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI build help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2211,13 +2212,13 @@ object McpTools {
             Does not shell out to chr and does not send signed transactions.
             Skips vote/propose/pause/resume/remove and hidden lease-info / remove-container.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI deploy help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2244,13 +2245,13 @@ object McpTools {
             http://localhost:7740, and how chr node start relates to chr build / chr test.
             Does not start a node, generate a key, invent a BRID, run chr, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI node help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2275,13 +2276,13 @@ object McpTools {
             Official tx command page is HELP ONLY (official flags + URL; skip sample BRID hex).
             Does not run chr, generate a key, send a signed tx, or invent a BRID.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI query help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2303,13 +2304,13 @@ object McpTools {
             Official Directory Chain BRIDs only. Does not invent a lease/container id,
             generate a key, run chr, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Vault / PMC lease help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2334,13 +2335,13 @@ object McpTools {
             chromia.yml docs: keys live in chromia_docs_yml_help (project-config only).
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI generate-client help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2364,13 +2365,13 @@ object McpTools {
             Official ICCF: library-chain com.chromia.iccf 1.90.1 (protocol page) and git 1.87.0 (FT4 setup).
             Does not invent a library-chain BRID, run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI library help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2392,13 +2393,13 @@ object McpTools {
             Templates: plain, plain-multi, minimal, plain-library, asset-management.
             Optional --devcontainer. Does not run chr, write files, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI create-rell-dapp help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2422,13 +2423,13 @@ object McpTools {
             (official /rell/analyze-rell-dapp-code).
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI repl help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2448,13 +2449,13 @@ object McpTools {
             chr gtv is the official alias of chr tools gtv. Does not run chr, generate a key,
             invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI tools help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2476,13 +2477,13 @@ object McpTools {
             Early-stage local fake-data helper. Does not run chr, generate a key,
             invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI seeder help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2503,13 +2504,13 @@ object McpTools {
             Official keys only: gtx / blockstrategy / query timeouts plus the documented core/features/revolt lists.
             merkle_hash_version 2. Does not invent keys, run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "chromia.yml blockchain-properties help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2529,13 +2530,13 @@ object McpTools {
             --abi, --events, --target (default build/eif-events.yaml), --format=(XML|YAML).
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI eif help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2556,13 +2557,13 @@ object McpTools {
             !include other.yml, !include other.yml#tag. Does not invent include semantics.
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "chromia.yml definitions / YAML include help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2587,13 +2588,13 @@ object McpTools {
             Documents skipped hidden verbs: fetch-config, deployment lease-info, remove-container.
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI completion help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2613,13 +2614,13 @@ object McpTools {
             Only -f/--file. Does not document create, sign, or send.
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI multi-signature view help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2641,13 +2642,13 @@ object McpTools {
             official import forms. blockchains.<name>.module is a module name, never a path.
             Does not run chr, generate a key, invent a BRID, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "chromia.yml project-structure / Rell modules help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2671,13 +2672,13 @@ object McpTools {
             (GitHub/GitLab #L, Bitbucket #lines-). Does not invent theme/nav/logo.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "chromia.yml docs section help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2709,13 +2710,13 @@ object McpTools {
             Skips recipes that sign a live tx, cookbook-only flags, non-schema keys, and printed sample keys.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia cookbook help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2735,13 +2736,13 @@ object McpTools {
             Official keygen command page is HELP ONLY (official flags + URL).
             Does not generate a key, print a private key, print a sample key, run chr, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia CLI existing-key reference",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2763,13 +2764,13 @@ object McpTools {
             Official Filehub work getFile, MCP setup, bridge checkAllowance. Skips signed txs, key generation, FilehubAdministrator writes, MCP explorer-dump sample BRIDs, and invented package ids.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia language clients help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2792,13 +2793,13 @@ object McpTools {
             Rell pin 0.16.7. Definition syntax lives on chromia_rell_language_help.
             Does not invent types, run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell types help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2825,13 +2826,13 @@ object McpTools {
             Modules/imports/layouts live on chromia_project_structure_help.
             Does not invent language features, run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell language definition help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2855,13 +2856,13 @@ object McpTools {
             No exploit recipes, no signing, no key material, no proposal vote/retract.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell security and best-practices help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2885,13 +2886,13 @@ object McpTools {
             Queries / config only. Never emits admin / ras_open / register / transfer / auth write paths.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "FT4 read-only query catalog",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2914,13 +2915,13 @@ object McpTools {
             Skips exchange account-creation / transfer / memo write operations.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia integrations hub help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2942,13 +2943,13 @@ object McpTools {
             Official BUILD pages print no module names, yml keys, or query names.
             Hard skip: ingest embeddings / ONNX. Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Chromia vector-search help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2968,13 +2969,13 @@ object McpTools {
             Quotes docs.chromia.com/rell expression pages only. Does not invent operators.
             Rell pin 0.16.7. Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell expressions help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -2993,13 +2994,13 @@ object McpTools {
             Quotes docs.chromia.com/rell statement pages only. Rell pin 0.16.7.
             Does not invent statements, run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell statements help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -3021,13 +3022,13 @@ object McpTools {
             Does not document chr tx or signed send. create-copy and /database/at are 404.
             Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell database language help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -3048,13 +3049,13 @@ object McpTools {
             Skips privkey / signing helpers and official printed sample keys.
             Rell pin 0.16.7. Does not run chr, generate a key, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(emptyMap()),
             required = listOf()
         ),
         title = "Rell system library help",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cli" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -3088,7 +3089,7 @@ object McpTools {
             Use this as the single pre-deploy gate instead of calling the four tools separately.
             Read-only: does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "yaml" to JsonObject(
@@ -3131,7 +3132,7 @@ object McpTools {
         ),
         title = "Check dapp project",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -3168,7 +3169,7 @@ object McpTools {
             to warnings - for admin/ops tooling only, never for production dApps.
             Does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "rell" to JsonObject(
@@ -3194,7 +3195,7 @@ object McpTools {
         ),
         title = "Check FT4 imports",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ok" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -3222,7 +3223,7 @@ object McpTools {
             docs-search terms extracted from the error - it never pretends to know.
             Paste the error verbatim (up to ~8 KB); add optional `context` like "during chr build".
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "error" to JsonObject(
@@ -3247,7 +3248,7 @@ object McpTools {
         ),
         title = "Translate Chromia Error",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "matched" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -3283,7 +3284,7 @@ object McpTools {
             generates keys or emits key material - key creation is a human `chr keygen` step.
             Read-only: does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "hasProject" to boolProp("A dapp project (chromia.yml + Rell sources) exists"),
@@ -3327,7 +3328,7 @@ object McpTools {
         ),
         title = "Onboarding next step",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "stage" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
@@ -3393,7 +3394,7 @@ object McpTools {
             nodes do not serve - pass the dapp's own node URL as network).
             Does not write files, run chr, generate keys, or send signed transactions.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "brid" to JsonObject(
@@ -3447,7 +3448,7 @@ object McpTools {
         ),
         title = "Verify deployment",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "live" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -3484,7 +3485,7 @@ object McpTools {
             exact `chr deployment create|update --settings chromia.yml --network <target> --blockchain
             <name>` command. Read-only: no keys, no signing, no network writes.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "yaml" to JsonObject(
@@ -3535,7 +3536,7 @@ object McpTools {
         ),
         title = "Deployment preflight",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "ready" to JsonObject(mapOf("type" to JsonPrimitive("boolean"))),
@@ -3604,7 +3605,7 @@ object McpTools {
             readiness without signing or sending anything. If the funding account does not exist yet the tool
             states the exact one-time bootstrap step instead of pretending.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "cluster" to JsonObject(
@@ -3677,7 +3678,7 @@ object McpTools {
         ),
         title = "Provision testnet container",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "status" to JsonObject(
@@ -3723,7 +3724,7 @@ object McpTools {
             exactly how long until the next claim (status on_cooldown) instead of failing vaguely. Key
             material never appears in any output.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "dryRun" to JsonObject(
@@ -3740,7 +3741,7 @@ object McpTools {
         ),
         title = "Claim testnet tCHR",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "status" to JsonObject(
@@ -3786,7 +3787,7 @@ object McpTools {
             reported. If chr is missing or no deploy key is held, the tool names the exact blocked step
             instead of pretending. Key material never appears in any output.
         """.trimIndent(),
-        inputSchema = Tool.Input(
+        inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "rell" to JsonObject(
@@ -3853,7 +3854,7 @@ object McpTools {
         ),
         title = "Deploy testnet chain",
         annotations = null,
-        outputSchema = Tool.Output(
+        outputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
                     "status" to JsonObject(

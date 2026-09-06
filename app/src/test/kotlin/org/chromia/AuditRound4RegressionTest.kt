@@ -4,8 +4,9 @@ import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -70,7 +71,7 @@ class AuditRound4RegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -91,7 +92,7 @@ class AuditRound4RegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -112,7 +113,7 @@ class AuditRound4RegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 FilterBlockchainsStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "filter_blockchains",
                         arguments = buildJsonObject { put("system", "yes") }
                     ),
@@ -128,14 +129,14 @@ class AuditRound4RegressionTest {
     fun absentAndValidFilterArgumentsStillWork() = runBlocking {
         // Absent stays "no filter".
         FilterBlockchainsStrategy().execute(
-            CallToolRequest(name = "filter_blockchains", arguments = buildJsonObject {}),
+            callToolRequest(name = "filter_blockchains", arguments = buildJsonObject {}),
             repo
         )
         assertNull(repo.lastBlockchainFilters?.system)
 
         // Valid boolean still filters.
         FilterBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject { put("system", true) }
             ),
@@ -145,7 +146,7 @@ class AuditRound4RegressionTest {
 
         // Valid array still filters; absent list stays null.
         AssetDistributionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_distribution",
                 arguments = buildJsonObject {
                     put("assetId", "chr")
@@ -163,7 +164,7 @@ class AuditRound4RegressionTest {
     @Test
     fun dappQueryNullsPreservedInArraysAndNestedObjects() = runBlocking {
         DappInteractionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
                     put("blockchainRid", validBrid)
@@ -232,7 +233,7 @@ class AuditRound4RegressionTest {
             registryLoader = { null }
         )
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "abc123") }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "abc123") }),
             repo
         )
         assertEquals(true, result.isError)
@@ -256,13 +257,13 @@ class AuditRound4RegressionTest {
         val strategy = FetchDocumentStrategy(CompletableDeferred(store))
 
         val known = strategy.execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", segmentId(segment)) }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", segmentId(segment)) }),
             repo
         )
         assertTrue(known.isError != true)
 
         val unknown = strategy.execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "does-not-exist") }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "does-not-exist") }),
             repo
         )
         assertEquals(true, unknown.isError)
@@ -402,7 +403,7 @@ class AuditRound4RegressionTest {
         assertNull(store.query("rell"), "no model must mean unavailable, not empty success")
 
         val search = SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(name = "search", arguments = buildJsonObject { put("query", "rell") }),
+            callToolRequest(name = "search", arguments = buildJsonObject { put("query", "rell") }),
             repo
         )
         assertEquals(true, search.isError)
@@ -417,7 +418,7 @@ class AuditRound4RegressionTest {
         val error = assertThrows<IllegalArgumentException> {
             runBlocking {
                 WriteDeploymentConfigStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "write_deployment_config",
                         arguments = buildJsonObject {
                             put("network", "testnet")

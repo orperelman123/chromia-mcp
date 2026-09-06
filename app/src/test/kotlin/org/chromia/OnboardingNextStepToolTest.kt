@@ -1,7 +1,10 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import org.chromia.tools.propertiesOrEmpty
+
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -278,7 +281,7 @@ class OnboardingNextStepToolTest {
             }
         )
         val result = strategy.execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "onboarding_next_step",
                 arguments = buildJsonObject {
                     put("hasProject", true)
@@ -399,7 +402,7 @@ class OnboardingNextStepToolTest {
 
     private fun callViaExecutor(args: kotlinx.serialization.json.JsonObject) = runBlocking {
         ToolExecutor(RecordingRepository(), PromptManager())
-            .executeTool(CallToolRequest(name = "onboarding_next_step", arguments = args))
+            .executeTool(callToolRequest(name = "onboarding_next_step", arguments = args))
     }
 
     @Test
@@ -464,10 +467,10 @@ class OnboardingNextStepToolTest {
         listOf(
             "hasProject", "compiles", "securityClean", "testsPass", "hasLocalChain",
             "hasTestnetContainer", "hasTestnetKey", "hasDeploymentConfig", "deployedTo", "goal"
-        ).forEach { assertNotNull(tool.inputSchema.properties[it], "inputSchema missing $it") }
+        ).forEach { assertNotNull(tool.inputSchema.propertiesOrEmpty[it], "inputSchema missing $it") }
         val out = tool.outputSchema!!
         listOf("stage", "nextAction", "remainingSteps", "blockers", "notes")
-            .forEach { assertNotNull(out.properties[it], "outputSchema missing $it") }
+            .forEach { assertNotNull(out.propertiesOrEmpty[it], "outputSchema missing $it") }
         // Grounding facts live in the description, not invented at call time.
         assertTrue(tool.description!!.contains("captcha"))
         assertTrue(tool.description!!.contains("never"))

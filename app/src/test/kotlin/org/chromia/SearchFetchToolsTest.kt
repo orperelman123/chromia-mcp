@@ -1,9 +1,12 @@
 package org.chromia
 
+import org.chromia.tools.propertiesOrEmpty
+
 import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.segment.TextSegment
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -59,12 +62,12 @@ class SearchFetchToolsTest {
     @Test
     fun searchReturnsIdTitleUrlFromFixtureStore() = runBlocking {
         val strategy = SearchDocsStrategy(CompletableDeferred(fixtureStore))
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "search",
             arguments = buildJsonObject { put("query", "FT4 authentication") }
         )
         val result = strategy.execute(request, ChromiaRepositoryImpl())
-        val payload = Json.parseToJsonElement((result.content.first() as io.modelcontextprotocol.kotlin.sdk.TextContent).text!!)
+        val payload = Json.parseToJsonElement((result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!)
         val results = payload.jsonObject["results"]!!.jsonArray
         assertEquals(1, results.size)
         val hit = results.first().jsonObject
@@ -85,19 +88,19 @@ class SearchFetchToolsTest {
     fun fetchReturnsSegmentTextFromFixtureStore() = runBlocking {
         val store = fixtureStore
         SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "Rell compiler pipeline") }
             ),
             ChromiaRepositoryImpl()
         )
         val id = segmentId(rellSegment)
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "fetch",
             arguments = buildJsonObject { put("id", id) }
         )
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(request, ChromiaRepositoryImpl())
-        val payload = Json.parseToJsonElement((result.content.first() as io.modelcontextprotocol.kotlin.sdk.TextContent).text!!).jsonObject
+        val payload = Json.parseToJsonElement((result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!).jsonObject
         assertEquals(id, payload["id"]!!.jsonPrimitive.content)
         assertTrue(payload["text"]!!.jsonPrimitive.content.contains("Rell compiler pipeline"))
         assertEquals("rell-compiler.md", payload["title"]!!.jsonPrimitive.content)
@@ -110,12 +113,12 @@ class SearchFetchToolsTest {
     @Test
     fun fetchUnknownIdReturnsNotFoundPayload() = runBlocking {
         val strategy = FetchDocumentStrategy(CompletableDeferred(fixtureStore))
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "fetch",
             arguments = buildJsonObject { put("id", "missing-doc") }
         )
         val result = strategy.execute(request, ChromiaRepositoryImpl())
-        val text = (result.content.first() as io.modelcontextprotocol.kotlin.sdk.TextContent).text!!
+        val text = (result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!
         val payload = Json.parseToJsonElement(text).jsonObject
         assertEquals("missing-doc", payload["id"]!!.jsonPrimitive.content)
         assertTrue(payload["error"]!!.jsonPrimitive.content.contains("Documentation not found"))
@@ -135,7 +138,7 @@ class SearchFetchToolsTest {
     fun fetchKnownIdAfterSearchHitsExactSegment() = runBlocking {
         val store = fixtureStore
         SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -143,7 +146,7 @@ class SearchFetchToolsTest {
         )
         val id = segmentId(authSegment)
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", id) }
             ),
@@ -159,7 +162,7 @@ class SearchFetchToolsTest {
     fun fetchUnknownIdDoesNotReturnFilenameNeighbor() = runBlocking {
         val store = fixtureStore
         SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -167,7 +170,7 @@ class SearchFetchToolsTest {
         )
         val fakeId = "ft4-auth.md-deadbeef-99"
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", fakeId) }
             ),
@@ -187,7 +190,7 @@ class SearchFetchToolsTest {
     @Test
     fun fetchQueryTextAsIdDoesNotReturnFuzzyNeighbor() = runBlocking {
         val result = FetchDocumentStrategy(CompletableDeferred(fixtureStore)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "FT4 authentication") }
             ),
@@ -205,7 +208,7 @@ class SearchFetchToolsTest {
     fun fetchDocsOutputSchemaDescribesTextAndHitsWithFetchIds() {
         val schema = McpTools.fetchDocsTool().outputSchema
         assertNotNull(schema)
-        val textProp = schema!!.properties["text"]
+        val textProp = schema!!.propertiesOrEmpty["text"]
         assertNotNull(textProp)
         assertEquals("string", textProp!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertTrue(
@@ -214,7 +217,7 @@ class SearchFetchToolsTest {
                 ignoreCase = true
             )
         )
-        val hitsProp = schema.properties["hits"]
+        val hitsProp = schema.propertiesOrEmpty["hits"]
         assertNotNull(hitsProp)
         assertEquals("array", hitsProp!!.jsonObject["type"]!!.jsonPrimitive.content)
         val item = hitsProp.jsonObject["items"]!!.jsonObject
@@ -225,7 +228,7 @@ class SearchFetchToolsTest {
         assertTrue("id" in itemRequired)
         assertTrue("text" in itemRequired)
         assertEquals(listOf("text", "hits"), schema.required)
-        assertFalse(schema.properties["type"] is kotlinx.serialization.json.JsonPrimitive)
+        assertFalse(schema.propertiesOrEmpty["type"] is kotlinx.serialization.json.JsonPrimitive)
     }
 
 
@@ -233,7 +236,7 @@ class SearchFetchToolsTest {
     fun fetchOutputSchemaMatchesIdTitleUrlTextOrError() {
         val schema = McpTools.fetchTool().outputSchema
         assertNotNull(schema)
-        val props = schema!!.properties
+        val props = schema!!.propertiesOrEmpty
         assertEquals("string", props["id"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals("string", props["title"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals("string", props["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
@@ -246,14 +249,14 @@ class SearchFetchToolsTest {
         assertFalse("text" in required)
         assertFalse("error" in required)
         assertTrue("metadata" !in props)
-        assertFalse(schema.properties["type"] is kotlinx.serialization.json.JsonPrimitive)
+        assertFalse(schema.propertiesOrEmpty["type"] is kotlinx.serialization.json.JsonPrimitive)
     }
 
     @Test
     fun searchOutputSchemaMatchesResultsWithIds() {
         val schema = McpTools.searchTool().outputSchema
         assertNotNull(schema)
-        val resultsProp = schema!!.properties["results"]
+        val resultsProp = schema!!.propertiesOrEmpty["results"]
         assertNotNull(resultsProp)
         assertEquals("array", resultsProp!!.jsonObject["type"]!!.jsonPrimitive.content)
         val item = resultsProp.jsonObject["items"]!!.jsonObject
@@ -266,14 +269,14 @@ class SearchFetchToolsTest {
         assertTrue("title" in itemRequired)
         assertTrue("url" in itemRequired)
         assertEquals(listOf("results"), schema.required)
-        assertFalse(schema.properties["type"] is kotlinx.serialization.json.JsonPrimitive)
+        assertFalse(schema.propertiesOrEmpty["type"] is kotlinx.serialization.json.JsonPrimitive)
     }
 
     @Test
     fun fetchDocsReturnsReadableSegmentTextNotToStringDump() = runBlocking {
         val strategy = FetchDocsStrategy(CompletableDeferred(fixtureStore))
         val result = strategy.execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -295,12 +298,12 @@ class SearchFetchToolsTest {
     @Test
     fun fetchDocsReturnsTextMatchingOutputSchema() = runBlocking {
         val strategy = FetchDocsStrategy(CompletableDeferred(fixtureStore))
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "fetch_docs",
             arguments = buildJsonObject { put("query", "FT4 authentication") }
         )
         val result = strategy.execute(request, ChromiaRepositoryImpl())
-        val text = (result.content.first() as io.modelcontextprotocol.kotlin.sdk.TextContent).text!!
+        val text = (result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!
         assertTrue(text.contains("FT4 authentication"))
         val structured = result.structuredContent
         assertNotNull(structured)
@@ -317,7 +320,7 @@ class SearchFetchToolsTest {
     fun fetchDocsHitIdThenFetchHitsExactSegment() = runBlocking {
         val store = fixtureStore
         val docs = FetchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -328,7 +331,7 @@ class SearchFetchToolsTest {
         assertEquals(segmentId(authSegment), id)
 
         val fetch = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", id) }
             ),
@@ -346,7 +349,7 @@ class SearchFetchToolsTest {
     fun searchHitIdThenFetchHitsExactSegment() = runBlocking {
         val store = fixtureStore
         val search = SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "Rell compiler pipeline") }
             ),
@@ -357,7 +360,7 @@ class SearchFetchToolsTest {
         assertEquals(segmentId(rellSegment), id)
 
         val fetch = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", id) }
             ),
@@ -375,7 +378,7 @@ class SearchFetchToolsTest {
         val failed = CompletableDeferred<RagStore>()
         failed.completeExceptionally(IllegalStateException("rag init failed"))
         val result = FetchDocsStrategy(failed).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4") }
             ),
@@ -396,7 +399,7 @@ class SearchFetchToolsTest {
         val failed = CompletableDeferred<RagStore>()
         failed.completeExceptionally(IllegalStateException("rag init failed"))
         val result = SearchDocsStrategy(failed).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4") }
             ),
@@ -416,7 +419,7 @@ class SearchFetchToolsTest {
         val failed = CompletableDeferred<RagStore>()
         failed.completeExceptionally(IllegalStateException("rag init failed"))
         val result = FetchDocumentStrategy(failed).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "any-id") }
             ),
@@ -438,7 +441,7 @@ class SearchFetchToolsTest {
     fun fetchDocsNotFoundSetsIsError() = runBlocking {
         val strategy = FetchDocsStrategy(CompletableDeferred(fixtureStore))
         val result = strategy.execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "no-such-documentation") }
             ),
@@ -458,7 +461,7 @@ class SearchFetchToolsTest {
             override fun query(query: String) = emptyList<TextSegment>()
         }
         val result = FetchDocsStrategy(CompletableDeferred(emptyStore)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "anything") }
             ),
@@ -498,7 +501,7 @@ class SearchFetchToolsTest {
             registryLoader = { null }
         )
         val search = SearchDocsStrategy(CompletableDeferred(storeA)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -510,7 +513,7 @@ class SearchFetchToolsTest {
         assertEquals(segmentId(authSegment), id)
 
         val fetch = FetchDocumentStrategy(CompletableDeferred(storeB)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", id) }
             ),
@@ -522,7 +525,7 @@ class SearchFetchToolsTest {
         assertTrue(fetch.isError != true)
 
         val miss = FetchDocumentStrategy(CompletableDeferred(storeB)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "ft4-auth.md") }
             ),
@@ -539,7 +542,7 @@ class SearchFetchToolsTest {
     fun fetchAcceptsUppercaseSha256HexFromSearchId() = runBlocking {
         val store = fixtureStore
         SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -547,7 +550,7 @@ class SearchFetchToolsTest {
         )
         val id = segmentId(authSegment)
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", id.uppercase()) }
             ),
@@ -564,7 +567,7 @@ class SearchFetchToolsTest {
     fun fetchSuccessPayloadEchoesTrimmedLowercaseId() = runBlocking {
         val store = fixtureStore
         SearchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -575,7 +578,7 @@ class SearchFetchToolsTest {
             if (index % 2 == 0) ch.uppercaseChar() else ch
         }.joinToString("")
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "  $mixed  ") }
             ),
@@ -590,7 +593,7 @@ class SearchFetchToolsTest {
     @Test
     fun fetchErrorPayloadEchoesTrimmedLowercaseId() = runBlocking {
         val result = FetchDocumentStrategy(CompletableDeferred(fixtureStore)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "  MISSING-DOC  ") }
             ),
@@ -609,7 +612,7 @@ class SearchFetchToolsTest {
     fun fetchErrorPayloadEchoesLowercaseUnknownSha256Hex() = runBlocking {
         val unknownUpper = "A".repeat(64)
         val result = FetchDocumentStrategy(CompletableDeferred(fixtureStore)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "  $unknownUpper  ") }
             ),
@@ -633,7 +636,7 @@ class SearchFetchToolsTest {
             }
         }
         val result = FetchDocsStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "paragraph") }
             ),
@@ -661,7 +664,7 @@ class SearchFetchToolsTest {
         assertEquals(rellSegment.text(), hits[1].jsonObject["text"]!!.jsonPrimitive.content)
 
         val fetch = FetchDocumentStrategy(CompletableDeferred(store)).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", segmentId(multiline)) }
             ),
@@ -686,7 +689,7 @@ class SearchFetchToolsTest {
         val deferred = CompletableDeferred(store)
 
         val search = SearchDocsStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "https://docs.chromia.com/intro") }
             ),
@@ -701,7 +704,7 @@ class SearchFetchToolsTest {
         assertFalse(searchText.contains("https://docs.chromia.com"))
 
         val fetch = FetchDocumentStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "https://docs.chromia.com/intro") }
             ),
@@ -720,7 +723,7 @@ class SearchFetchToolsTest {
         assertFalse(fetchText.contains("chromia docs", ignoreCase = true))
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "https://docs.chromia.com/intro") }
             ),
@@ -755,7 +758,7 @@ class SearchFetchToolsTest {
 
         val deferred = CompletableDeferred(store)
         val search = SearchDocsStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -768,7 +771,7 @@ class SearchFetchToolsTest {
 
         val knownId = segmentId(authSegment)
         val fetchKnown = FetchDocumentStrategy(deferred).execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", knownId) }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", knownId) }),
             ChromiaRepositoryImpl()
         )
         assertTrue(fetchKnown.isError != true)
@@ -777,7 +780,7 @@ class SearchFetchToolsTest {
         assertTrue(knownPayload["text"]!!.jsonPrimitive.content.contains("FT4 authentication"))
 
         val fetchUnknown = FetchDocumentStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "https://docs.chromia.com/intro") }
             ),
@@ -789,7 +792,7 @@ class SearchFetchToolsTest {
         assertFalse(unknownText.contains("FT4 authentication"))
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -823,7 +826,7 @@ class SearchFetchToolsTest {
 
         val deferred = CompletableDeferred(store)
         val search = SearchDocsStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -836,7 +839,7 @@ class SearchFetchToolsTest {
         assertFalse(searchText.contains("Documentation not found"), searchText)
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4 authentication") }
             ),
@@ -850,7 +853,7 @@ class SearchFetchToolsTest {
         // fetch by id does not rank - the id index keeps answering.
         val knownId = segmentId(authSegment)
         val fetchKnown = FetchDocumentStrategy(deferred).execute(
-            CallToolRequest(name = "fetch", arguments = buildJsonObject { put("id", knownId) }),
+            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", knownId) }),
             ChromiaRepositoryImpl()
         )
         assertTrue(fetchKnown.isError != true)

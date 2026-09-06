@@ -1,7 +1,7 @@
 package org.chromia.tools
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -212,6 +212,8 @@ class ProvisionTestnetContainerStrategy(
         TestnetProvisioning.cryptoSystem.generateKeyPair()
     }
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = true
+
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val gateway = EconomyChainGateway(
@@ -228,7 +230,7 @@ class ProvisionTestnetContainerStrategy(
     }
 
     private suspend fun executeInner(request: CallToolRequest, gateway: EconomyChainGateway): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val statusTxRid = extractString(args, "statusTxRid")?.takeIf { it.isNotBlank() }
         if (statusTxRid != null) return ticketStatus(statusTxRid, gateway)
 
@@ -590,6 +592,8 @@ class ClaimTestnetTchrStrategy(
     private val env: Map<String, String> = System.getenv(),
     private val txPoster: TxPoster = RealTxPoster
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = true
+
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val gateway = EconomyChainGateway(
@@ -606,7 +610,7 @@ class ClaimTestnetTchrStrategy(
     }
 
     private suspend fun executeInner(request: CallToolRequest, gateway: EconomyChainGateway): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val requestedDryRun = extractBoolean(args, "dryRun") ?: true
 
         val funding = gateway.resolveFunding(env)
@@ -721,6 +725,8 @@ class DeployTestnetChainStrategy(
         java.nio.file.Files.createTempDirectory("chromia-mcp-deploy")
     }
 ) : BaseToolStrategy() {
+    override val touchesLocalMachine: Boolean = true
+
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val secrets = mutableSetOf<String>()
@@ -738,7 +744,7 @@ class DeployTestnetChainStrategy(
         repository: ChromiaRepository,
         secrets: MutableSet<String>
     ): CallToolResult {
-        val args = request.arguments as Map<String, Any>
+        val args = request.argumentsOrEmpty as Map<String, Any>
         val rellParam = extractStringMap(args, "rell")
         val filesAlias = if (rellParam == null) extractStringMap(args, "files") else null
         val files = rellParam ?: filesAlias

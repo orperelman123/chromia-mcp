@@ -4,8 +4,9 @@ import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonNull
@@ -145,7 +146,7 @@ class RagStoreProvenanceTest {
     }
 
     private suspend fun fetchDocs(store: RagStore) = FetchDocsStrategy(CompletableDeferred(store)).execute(
-        CallToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "deployments") }),
+        callToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "deployments") }),
         ChromiaRepositoryImpl()
     )
 

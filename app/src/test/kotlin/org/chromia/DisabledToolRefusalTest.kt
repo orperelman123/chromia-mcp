@@ -3,8 +3,8 @@ package org.chromia
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.sse.SSE
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.client.mcpSse
@@ -205,8 +205,8 @@ class DisabledToolRefusalTest {
         val app = McpTestSupport.testApp()
         val server = app.createMcpServer(compact = compact, disabled = disabled)
         val serverTransport = StdioServerTransport(
-            inputStream = serverIn.asSource().buffered(),
-            outputStream = serverToClient.asSink().buffered()
+            input = serverIn.asSource().buffered(),
+            output = serverToClient.asSink().buffered()
         )
         val clientTransport = StdioClientTransport(
             input = clientIn.asSource().buffered(),

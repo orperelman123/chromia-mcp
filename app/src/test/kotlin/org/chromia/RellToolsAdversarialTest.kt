@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -134,7 +135,7 @@ class RellToolsAdversarialTest {
     fun testMarkerInsideCommentIsNotATestModule() {
         val result = runBlocking {
             RunRellTestsStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "run_rell_tests",
                     arguments = buildJsonObject {
                         put("files", buildJsonObject { put("main.rell", "module;\n/*\n@test module docs\n*/\nquery q() = 1;") })
@@ -151,7 +152,7 @@ class RellToolsAdversarialTest {
     fun compileFailureReportsDiagnostics() {
         val result = runBlocking {
             RunRellTestsStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "run_rell_tests",
                     arguments = buildJsonObject {
                         put("files", buildJsonObject { put("t.rell", "@test module;\nfunction test_x() { assert_equals(nope_undefined, 1); }") })

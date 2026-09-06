@@ -4,8 +4,8 @@ import java.net.Socket
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-val mcpVersion = "0.7.7"
-val ktorVersion = "3.2.3"
+val mcpVersion = "0.15.0"
+val ktorVersion = "3.5.1"
 val postchainClientVersion = "3.39.1"
 
 plugins {
@@ -96,7 +96,13 @@ repositories {
 }
 
 dependencies {
-    implementation("io.modelcontextprotocol:kotlin-sdk:$mcpVersion")
+    // The umbrella `kotlin-sdk` artifact declares core/client/server at RUNTIME
+    // scope only, so depend on the modules this server actually compiles against.
+    implementation("io.modelcontextprotocol:kotlin-sdk-core:$mcpVersion")
+    implementation("io.modelcontextprotocol:kotlin-sdk-server:$mcpVersion")
+    // Streamable HTTP answers POSTs through call.respond(<JSONRPCMessage>), which
+    // needs a server ContentNegotiation configured with McpJson (see App.installMcpJson).
+    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
@@ -123,7 +129,7 @@ dependencies {
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
-    // Umbrella kotlin-sdk only exposes the client at runtime; tests compile against Client/StdioClientTransport.
+    // Tests compile against Client/StdioClientTransport and the Streamable HTTP client transport.
     testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
 }
 

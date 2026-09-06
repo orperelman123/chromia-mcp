@@ -7,8 +7,9 @@ import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
@@ -66,7 +67,7 @@ class ToolExecutorStrategiesTest {
                 put("rid", "abc")
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "filter_blockchains",
             arguments = buildJsonObject {
                 put("network", "mainnet")
@@ -94,7 +95,7 @@ class ToolExecutorStrategiesTest {
                 put("totalCount", 1)
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "filter_assets",
             arguments = buildJsonObject {
                 put("network", "testnet")
@@ -122,7 +123,7 @@ class ToolExecutorStrategiesTest {
                 put("countAllTransactions", 7)
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_network_stats",
             arguments = buildJsonObject { put("network", "mainnet") }
         )
@@ -139,7 +140,7 @@ class ToolExecutorStrategiesTest {
     fun getNetworkStatsRepositoryErrorSetsIsError() = runBlocking {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("explorer HTTP 502")
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_network_stats",
             arguments = buildJsonObject { put("network", "mainnet") }
         )
@@ -164,7 +165,7 @@ class ToolExecutorStrategiesTest {
     fun explorerUpstreamIncidentIsNamedInlineWithTheNextAction() = runBlocking {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("GraphQL Error: INTERNAL_ERROR for 608627eb-bf9d-e9e5-971b-188b3dcf94bb")
-        val request = CallToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
+        val request = callToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
         val result = NetworkStatsStrategy().execute(request, repo)
         val text = (result.content.first() as TextContent).text!!
         assertEquals(true, result.isError)
@@ -181,7 +182,7 @@ class ToolExecutorStrategiesTest {
     fun explorerTestnet400IsNamedUpstreamToo() = runBlocking {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("HTTP 400: Bad Request (network=testnet)")
-        val request = CallToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "testnet") })
+        val request = callToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "testnet") })
         val result = NetworkStatsStrategy().execute(request, repo)
         val structured = result.structuredContent!!
         assertEquals("explorer_testnet_400", structured.getValue("upstream_rule").jsonPrimitive.content)
@@ -193,7 +194,7 @@ class ToolExecutorStrategiesTest {
     fun unclassifiedExplorerErrorStaysPlain() = runBlocking {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("explorer HTTP 502")
-        val request = CallToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
+        val request = callToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
         val result = NetworkStatsStrategy().execute(request, repo)
         val structured = result.structuredContent!!
         // 502 IS classified (http_unavailable) - it is upstream by definition.
@@ -215,7 +216,7 @@ class ToolExecutorStrategiesTest {
                 put("rid", "tx-1")
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_all_transactions",
             arguments = buildJsonObject {
                 put("network", "mainnet")
@@ -260,7 +261,7 @@ class ToolExecutorStrategiesTest {
                 put("amount", "1000")
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_asset_top_holders",
             arguments = buildJsonObject {
                 put("assetId", "chr-asset")
@@ -290,7 +291,7 @@ class ToolExecutorStrategiesTest {
         val blankEntry = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AssetTopHoldersStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_top_holders",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -306,7 +307,7 @@ class ToolExecutorStrategiesTest {
         val allBlank = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AssetDistributionStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_distribution",
                         arguments = buildJsonObject {
                             put("assetId", "chr")
@@ -323,7 +324,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun getAssetTopHoldersMissingAssetIdThrows() {
         val repo = RecordingRepository()
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_asset_top_holders",
             arguments = buildJsonObject { put("network", "mainnet") }
         )
@@ -336,7 +337,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun getAssetTopHoldersBlankAssetIdThrows() {
         val repo = RecordingRepository()
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_asset_top_holders",
             arguments = buildJsonObject {
                 put("assetId", "  ")
@@ -359,7 +360,7 @@ class ToolExecutorStrategiesTest {
                 put("rid", "details-rid")
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_blockchain_details",
             arguments = buildJsonObject {
                 put("rid", "details-rid")
@@ -377,7 +378,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun getBlockchainDetailsBlankRidThrows() {
         val repo = RecordingRepository()
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_blockchain_details",
             arguments = buildJsonObject {
                 put("rid", "\n")
@@ -393,7 +394,7 @@ class ToolExecutorStrategiesTest {
 
     @Test
     fun getPromptsFiltersByCategoryAndSearch() = runBlocking {
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_prompts",
             arguments = buildJsonObject {
                 put("category", "dapp_query")
@@ -416,7 +417,7 @@ class ToolExecutorStrategiesTest {
 
     @Test
     fun getPromptsFiltersByToolName() = runBlocking {
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "get_prompts",
             arguments = buildJsonObject { put("tool", "filter_blockchains") }
         )
@@ -438,7 +439,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun getPromptsStructuredContentMatchesCatalog() = runBlocking {
         val result = PromptsToolStrategy(PromptManager()).execute(
-            CallToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
+            callToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         val text = (result.content.first() as TextContent).text!!
@@ -458,7 +459,7 @@ class ToolExecutorStrategiesTest {
             override fun getCategories(): List<String> = error("catalog boom")
         }
         val result = PromptsToolStrategy(manager).execute(
-            CallToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
+            callToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
             RecordingRepository()
         )
         val text = (result.content.first() as TextContent).text!!
@@ -476,7 +477,7 @@ class ToolExecutorStrategiesTest {
         val repository = RecordingRepository()
         repository.next = parsed
         val result = NetworkStatsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_network_stats",
                 arguments = buildJsonObject { put("network", "mainnet") }
             ),
@@ -518,7 +519,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, HttpClient(engine))
         )
         val result = NetworkStatsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_network_stats",
                 arguments = buildJsonObject { put("network", "mainnet") }
             ),
@@ -552,7 +553,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = FilterBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject {
                     put("network", "testnet")
@@ -611,7 +612,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = FilterAssetsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_assets",
                 arguments = buildJsonObject {
                     put("network", "mainnet")
@@ -659,7 +660,7 @@ class ToolExecutorStrategiesTest {
     fun chromiaDappQueryReturnsRepositoryError() = runBlocking {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("node refused query")
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "chromia_dapp_query",
             arguments = buildJsonObject {
                 put("network", "testnet")
@@ -686,7 +687,7 @@ class ToolExecutorStrategiesTest {
                 put("name", "CHR")
             }
         )
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "chromia_dapp_query",
             arguments = buildJsonObject {
                 put("network", "mainnet")
@@ -724,7 +725,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun chromiaDappQueryMissingBlockchainRidThrows() {
         val repo = RecordingRepository()
-        val request = CallToolRequest(
+        val request = callToolRequest(
             name = "chromia_dapp_query",
             arguments = buildJsonObject { put("query", "rell.get_app_structure") }
         )
@@ -738,7 +739,7 @@ class ToolExecutorStrategiesTest {
     fun jsonNullOptionalStringFiltersAreAbsent() = runBlocking {
         val repo = RecordingRepository()
         FilterBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject {
                     put("network", JsonNull)
@@ -769,7 +770,7 @@ class ToolExecutorStrategiesTest {
     fun jsonNullAssetAndTransactionStringFiltersAreAbsent() = runBlocking {
         val repo = RecordingRepository()
         FilterAssetsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_assets",
                 arguments = buildJsonObject {
                     put("brid", JsonNull)
@@ -787,7 +788,7 @@ class ToolExecutorStrategiesTest {
         assertNull(repo.lastAssetSearchFilters?.sorting?.sortBy)
 
         AllTransactionsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_all_transactions",
                 arguments = buildJsonObject {
                     put("rid", JsonNull)
@@ -813,7 +814,7 @@ class ToolExecutorStrategiesTest {
     fun jsonNullIntAndBooleanExtractorsAreAbsent() = runBlocking {
         val repo = RecordingRepository()
         FilterBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject {
                     put("limit", JsonNull)
@@ -829,7 +830,7 @@ class ToolExecutorStrategiesTest {
         assertNull(filters.system, "JSON null system must be absent, not a boolean")
 
         AssetTopHoldersStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_top_holders",
                 arguments = buildJsonObject {
                     put("assetId", "chr")
@@ -841,7 +842,7 @@ class ToolExecutorStrategiesTest {
         assertNull(repo.lastLimit)
 
         ChrAggregatesStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_chr_aggregates",
                 arguments = buildJsonObject {
                     put("includeTotals", JsonNull)
@@ -861,7 +862,7 @@ class ToolExecutorStrategiesTest {
         val error = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AssetTopHoldersStrategy().execute(
-                    CallToolRequest(
+                    callToolRequest(
                         name = "get_asset_top_holders",
                         arguments = buildJsonObject { put("assetId", JsonNull) }
                     ),
@@ -877,7 +878,7 @@ class ToolExecutorStrategiesTest {
     fun literalStringNullRemainsAFilterValue() = runBlocking {
         val repo = RecordingRepository()
         FilterBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject { put("name", "null") }
             ),
@@ -893,7 +894,7 @@ class ToolExecutorStrategiesTest {
         // instead of null (audit round 4 F2).
         val repo = RecordingRepository()
         DappInteractionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
                     put("blockchainRid", validBrid)
@@ -936,7 +937,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = AllTransactionsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_all_transactions",
                 arguments = buildJsonObject {
                     put("network", "mainnet")
@@ -1022,7 +1023,7 @@ class ToolExecutorStrategiesTest {
             postchain
         )
         val result = DappInteractionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
                     put("network", "testnet")
@@ -1076,7 +1077,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = AssetTopHoldersStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_top_holders",
                 arguments = buildJsonObject {
                     put("assetId", "chr-asset")
@@ -1134,7 +1135,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = AssetDistributionStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_distribution",
                 arguments = buildJsonObject {
                     put("assetId", "chr-asset")
@@ -1196,7 +1197,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = NetworkStatsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_network_stats",
                 arguments = buildJsonObject { put("network", "testnet") }
             ),
@@ -1243,7 +1244,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = ChrAggregatesStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_chr_aggregates",
                 arguments = buildJsonObject {
                     put("network", "mainnet")
@@ -1300,7 +1301,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = AssetBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_asset_blockchains",
                 arguments = buildJsonObject {
                     put("assetId", "chr-asset")
@@ -1353,7 +1354,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = BlockchainAnalyticsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_blockchain_analytics",
                 arguments = buildJsonObject {
                     put("brid", "brid-9")
@@ -1409,7 +1410,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = NodeUnavailabilityStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_node_unavailability",
                 arguments = buildJsonObject {
                     put("pubkey", "02DDAEA3")
@@ -1465,7 +1466,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = SignerBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_signer_blockchains",
                 arguments = buildJsonObject {
                     put("signer", "025C06D4")
@@ -1517,7 +1518,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = AllAssetsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_all_assets",
                 arguments = buildJsonObject { put("network", "mainnet") }
             ),
@@ -1566,7 +1567,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = AccountBlockchainsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_account_blockchains",
                 arguments = buildJsonObject {
                     put("accountId", "acc-42")
@@ -1621,7 +1622,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = TransactionsByClusterStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_transactions_by_cluster",
                 arguments = buildJsonObject { put("network", "testnet") }
             ),
@@ -1670,7 +1671,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = BlockchainsTransactionsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_blockchains_transactions",
                 arguments = buildJsonObject { put("network", "mainnet") }
             ),
@@ -1719,7 +1720,7 @@ class ToolExecutorStrategiesTest {
             HttpClientService(config, engine)
         )
         val result = BlockchainDetailsStrategy().execute(
-            CallToolRequest(
+            callToolRequest(
                 name = "get_blockchain_details",
                 arguments = buildJsonObject {
                     put("rid", "rid-1")

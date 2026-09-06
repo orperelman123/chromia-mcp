@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -30,7 +31,7 @@ class AuditUxRegressionTest {
 
     private fun callViaExecutor(tool: String, args: kotlinx.serialization.json.JsonObject) = runBlocking {
         ToolExecutor(repo, PromptManager())
-            .executeTool(CallToolRequest(name = tool, arguments = args))
+            .executeTool(callToolRequest(name = tool, arguments = args))
     }
 
     private fun scaffoldRell(): Map<String, String> =
@@ -366,7 +367,7 @@ class AuditUxRegressionTest {
         val files = scaffoldRell()
         val result = runBlocking {
             RunRellTestsStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "run_rell_tests",
                     arguments = buildJsonObject {
                         put(
@@ -398,7 +399,7 @@ class AuditUxRegressionTest {
         val files = scaffoldRell()
         val result = runBlocking {
             RellCheckStrategy().execute(
-                CallToolRequest(
+                callToolRequest(
                     name = "rell_check",
                     arguments = buildJsonObject {
                         put(

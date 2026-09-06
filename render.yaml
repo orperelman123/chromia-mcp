@@ -53,7 +53,12 @@
 # CHROMIA_MCP_COMPACT_TOOLS=true - one chromia_help(topic) gateway instead of
 #   ~31 individual *_help schemas; saves agent context on every connection.
 #
-# CHROMIA_MCP_DISABLE_TOOLS - the heavy/off-surface tools:
+# CHROMIA_MCP_DISABLE_TOOLS - the heavy/off-surface tools. NOTE: this list is a
+#   MEMORY budget, a different axis from the `public` tool profile added in
+#   2026-09-06 (CHROMIA_MCP_PROFILE=public, which removes the tools that act on
+#   the host or use a key). Anyone redeploying a public endpoint wants BOTH:
+#   the profile for safety, this list for a 512MB box. They compose - a profile
+#   only ever adds to CHROMIA_MCP_DISABLE_TOOLS.
 #   rell_check, rell_security_check, run_rell_tests: in-process Rell compiler
 #     and test runner - measured past 512MB under load; entity tests also
 #     need PostgreSQL, which this service does not have.

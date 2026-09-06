@@ -6,10 +6,10 @@ import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.ReadResourceRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import org.chromia.tools.readResourceRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
@@ -96,7 +96,7 @@ class McpJsonRpcSessionTest {
             assertEquals(McpResources.JSON_MIME, health.mimeType)
 
             val read = withTimeout(10_000) {
-                client.readResource(ReadResourceRequest(uri = McpResources.HEALTH_URI))
+                client.readResource(readResourceRequest(uri = McpResources.HEALTH_URI))
             }
             assertNotNull(read)
             val content = read!!.contents.single() as TextResourceContents
@@ -119,7 +119,7 @@ class McpJsonRpcSessionTest {
             assertEquals(McpResources.JSON_MIME, resource.mimeType)
 
             val read = withTimeout(10_000) {
-                client.readResource(ReadResourceRequest(uri = McpResources.DOCS_REPOSITORIES_URI))
+                client.readResource(readResourceRequest(uri = McpResources.DOCS_REPOSITORIES_URI))
             }
             assertNotNull(read)
             val content = read!!.contents.single() as TextResourceContents
@@ -141,7 +141,7 @@ class McpJsonRpcSessionTest {
             assertEquals(McpResources.JSON_MIME, resource.mimeType)
 
             val read = withTimeout(10_000) {
-                client.readResource(ReadResourceRequest(uri = McpResources.PROMPT_CATALOG_URI))
+                client.readResource(readResourceRequest(uri = McpResources.PROMPT_CATALOG_URI))
             }
             assertNotNull(read)
             val content = read!!.contents.single() as TextResourceContents
@@ -363,8 +363,8 @@ class McpJsonRpcSessionTest {
         val app = McpTestSupport.testApp(engine = engine, postchain = postchain)
         val server = app.createMcpServer()
         val serverTransport = StdioServerTransport(
-            inputStream = serverIn.asSource().buffered(),
-            outputStream = serverToClient.asSink().buffered()
+            input = serverIn.asSource().buffered(),
+            output = serverToClient.asSink().buffered()
         )
         val clientTransport = StdioClientTransport(
             input = clientIn.asSource().buffered(),

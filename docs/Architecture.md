@@ -6,7 +6,7 @@ Chromia MCP Server follows a layered architecture pattern with clear separation 
 
 **Architecture Layers:**
 
-1. **MCP Protocol Layer** - Handles MCP protocol communication (stdio/SSE), tool registration, and request/response formatting
+1. **MCP Protocol Layer** - Handles MCP protocol communication over three transports (stdio, Streamable HTTP at `/mcp`, legacy HTTP+SSE at the root path), tool registration, and request/response formatting
 2. **Routing Layer** - Routes tool calls to appropriate strategy implementations
 3. **Business Logic Layer** - Contains tool strategies that extract parameters, validate input, and orchestrate data retrieval
 4. **Data Access Layer** - Abstracts data retrieval through repository pattern, routing to GraphQL or PostchainClient services
@@ -31,13 +31,19 @@ Chromia MCP Server follows a layered architecture pattern with clear separation 
 - `registerTools()`: Registers all available tools from `McpTools.kt`
 - `registerResources()`: Registers the three static MCP resources that already exist in this server (`chromia://server/health`, `chromia://config/docs-repositories`, `chromia://config/prompt-catalog`). Does not invent a resource library.
 - `runStdioMcpServer()`: Starts server in stdio mode (subprocess communication)
-- `runSseMcpServer()`: Starts server in SSE mode (HTTP server on port 3001)
-- `installCors()`: Configures CORS for SSE mode
+- `runSseMcpServer()`: Starts the HTTP server (default 127.0.0.1:3001), serving BOTH HTTP transports. `--http` is an alias for `--sse`.
+- `installMcpSse()`: legacy HTTP+SSE transport - `GET /` opens the stream, `POST /?sessionId=…` delivers messages. Hand-wired rather than the SDK's `mcp {}` plugin so each session is created through `createGatedSession()` (disabled-tool refusals) and so a client disconnect removes the transport instead of leaking it.
+- `installMcpStreamableHttp()`: Streamable HTTP transport at `/mcp` (`POST`/`GET`/`DELETE`), stateful. The first `POST` mints an `Mcp-Session-Id`; the SDK's `StreamableHttpServerTransport` runs with `enableJsonResponse = true`, so a request/response pair is a plain JSON body. Hand-wired for the same reason as the SSE endpoint.
+- `installHostAllowList()`: rejects a request whose `Host` is not allowed with 403 (DNS-rebinding protection). Defaults to loopback plus `*.trycloudflare.com`; `CHROMIA_MCP_ALLOWED_HOSTS` adds more, `*` disables the check. `/health` is exempt.
+- `installCors()`: Configures CORS for both HTTP transports (also allows/exposes `Mcp-Session-Id`)
+- `installMcpJson()`: server `ContentNegotiation` with the SDK's `McpJson` - the Streamable HTTP transport answers a POST through `call.respond(<JSONRPCMessage>)` and MCP needs `explicitNulls = false` / `encodeDefaults = true`.
 - `installHealthEndpoint()`: Adds `/health` endpoint for monitoring (same JSON as `chromia://server/health`)
 - Health / MCP `Implementation.version` is Gradle `project.version` via generated `BuildInfo` (not hardcoded). `gradle.properties` holds this fork's release version (`0.5.0`) as the local-build fallback. CI overrides with `-Pversion="$(git describe --tags --always)"` and the release workflow with the tag.
 - MCP capabilities: `tools` (`listChanged=false` — static registered set, no update notifications) and `resources` (`subscribe=false`, `listChanged=false` — static snapshots). `prompts` is not advertised; the catalog is the `get_prompts` tool plus `chromia://config/prompt-catalog`.
 
-**Why it matters:** Centralizes server configuration and transport layer setup. Single entry point for both stdio and SSE modes.
+**Why it matters:** Centralizes server configuration and transport layer setup. Single entry point for stdio and for the HTTP server that carries both HTTP transports - one process, one port, one `/health`, one auth interceptor.
+
+**Tool profile:** `App.profile` (from `CHROMIA_MCP_PROFILE` or `--profile`, resolved by `tools/ToolProfiles.kt`) is folded into `App.effectiveDisabledTools()` alongside `CHROMIA_MCP_DISABLE_TOOLS`, and reported in `/health` and in `serverInfo.title`. The `public` profile's set is pinned against the `ToolStrategy.touchesLocalMachine` marker, which is abstract and undefaulted so a new strategy must classify itself to compile.
 
 **Key Dependencies:**
 - `ToolExecutor` - Routes tool calls to strategies
@@ -248,7 +254,7 @@ Chromia MCP Server follows a layered architecture pattern with clear separation 
 ```
 MCP Client (AI Assistant)
     ↓
-MCP Protocol (JSON-RPC over stdio/SSE)
+MCP Protocol (JSON-RPC over stdio | Streamable HTTP /mcp | legacy SSE /)
     ↓
 App.kt (createMcpServer)
     ↓
@@ -309,8 +315,8 @@ MCP Client receives structured response
 
 - **Kotlin:** 2.2.0 (via Gradle plugin)
 - **Java:** 21 (JDK required)
-- **MCP Kotlin SDK:** 0.7.7 (`io.modelcontextprotocol:kotlin-sdk`)
-- **Ktor:** 3.2.3 (HTTP client and server)
+- **MCP Kotlin SDK:** 0.15.0 (`io.modelcontextprotocol:kotlin-sdk-core` + `-server`, `-client` for tests). 0.15 moved every protocol type to `io.modelcontextprotocol.kotlin.sdk.types`, collapsed `Tool.Input`/`Tool.Output` into a nullable-`properties` `ToolSchema`, moved `CallToolRequest`'s fields into `CallToolRequestParams` and made its `arguments` nullable, and gave `RegisteredTool.handler` a `ClientConnection` receiver. `tools/McpSdkCompat.kt` restores the old call shapes.
+- **Ktor:** 3.5.1 (HTTP client and server; the version the SDK is built against)
 - **Postchain Client:** 3.36.0 (`net.postchain.client:postchain-client`)
 - **LangChain4j:** 1.8.0-beta15 (`dev.langchain4j:langchain4j-easy-rag`)
 - **Gson:** 2.13.2 (JSON parsing)
@@ -325,7 +331,7 @@ MCP Client receives structured response
 ### Key Libraries Purpose
 
 - **MCP Kotlin SDK:** Provides MCP protocol implementation, server infrastructure, tool registration
-- **Ktor:** HTTP client for GraphQL queries, HTTP server for SSE mode, JSON serialization
+- **Ktor:** HTTP client for GraphQL queries, HTTP server for both HTTP transports (SSE plugin, CORS, ContentNegotiation), JSON serialization
 - **Postchain Client:** Direct blockchain node communication for dApp queries
 - **LangChain4j:** RAG capabilities for semantic documentation search
 - **Gson:** JSON parsing and GTV (blockchain format) conversion

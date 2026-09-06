@@ -1,7 +1,8 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import org.chromia.tools.callToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -28,12 +29,12 @@ class QaEdgeCaseRegressionTest {
     private val repo = RecordingRepository()
 
     private fun call(strategy: org.chromia.tools.ToolStrategy, args: kotlinx.serialization.json.JsonObject) =
-        runBlocking { strategy.execute(CallToolRequest(name = "t", arguments = args), repo) }
+        runBlocking { strategy.execute(callToolRequest(name = "t", arguments = args), repo) }
 
     /** Real agent path: the executor converts validation failures into tool errors. */
     private fun callViaExecutor(tool: String, args: kotlinx.serialization.json.JsonObject) = runBlocking {
         org.chromia.tools.ToolExecutor(repo, org.chromia.tools.PromptManager())
-            .executeTool(CallToolRequest(name = tool, arguments = args))
+            .executeTool(callToolRequest(name = tool, arguments = args))
     }
 
     // 1. scaffold_dapp must never silently rename
@@ -404,7 +405,7 @@ class QaEdgeCaseRegressionTest {
         repo.next = org.chromia.domain.NetworkResult.Error("Postchain client error for blockchain X: query: 400 Bad Request  Query 'get_cdp' failed: Invalid argument(s): account from https://node8")
         repo.dappAnswers["rell.get_app_structure"] = org.chromia.domain.NetworkResult.Success(structure)
         val result = org.chromia.tools.DappInteractionStrategy().execute(
-            CallToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
+            callToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
                 put("blockchainRid", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
                 put("query", "get_cdp")
                 put("arguments", buildJsonObject { put("account", "abcd") })
@@ -421,7 +422,7 @@ class QaEdgeCaseRegressionTest {
         val other = RecordingRepository()
         other.next = org.chromia.domain.NetworkResult.Error("Connection refused")
         org.chromia.tools.DappInteractionStrategy().execute(
-            CallToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
+            callToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
                 put("blockchainRid", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
                 put("query", "get_cdp")
             }),

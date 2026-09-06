@@ -30,12 +30,34 @@ bypasses it entirely.
    `claude mcp add chromia ... -- java -jar <jar> --stdio`; the client starts and stops the
    process itself. See "Run it locally" in the [README](../README.md) for the exact
    registration (including the `CHROMIA_TEST_DATABASE_URL` env var).
-2. **local SSE server** — for clients that connect by URL (ChatGPT-style connectors,
+2. **local HTTP server** — for clients that connect by URL (ChatGPT-style connectors,
    browser clients, other tools on the machine/LAN). Start with **`.\serve-local.ps1`**
    (repo root; `serve-local.cmd` for double-click). It auto-picks a free port from 3001,
    forces the full toolset, uses a fixed `-Xmx2g` heap (no container limit locally;
    measured steady state ~1.5 GB), waits for `/health`, prints the URL, and shuts down
    cleanly on Ctrl+C. Gradle equivalent for development: `./gradlew :app:runSse`.
+
+   One `--sse` server carries **both** HTTP transports on that port:
+
+   | Endpoint | Transport | Notes |
+   | --- | --- | --- |
+   | `POST/GET/DELETE <base>/mcp` | Streamable HTTP (MCP 2025-03-26+) | stateful; `initialize` mints an `Mcp-Session-Id`, later requests echo it, `DELETE` ends it. Prefer this. |
+   | `GET <base>/` + `POST <base>/?sessionId=…` | legacy HTTP+SSE | what ChatGPT's own connector docs still show |
+   | `GET <base>/health` | — | no session, no auth, no `Host` check |
+
+   `--http` is an alias for `--sse`. Both transports share the bearer token, the CORS
+   rule, the `Host` allow-list and the tool profile — there is no per-transport config.
+
+3. **public (tunnelled)** — **`.\serve-public.ps1`** starts the server on `127.0.0.1`
+   with `--profile public`, verifies `/health` reports that profile, then runs
+   `cloudflared tunnel --url http://127.0.0.1:<port>` (a quick tunnel: no account, no
+   login) and prints the `https://<name>.trycloudflare.com` URL plus the ChatGPT
+   connector steps for `/mcp` and `/sse`. Ctrl+C stops the tunnel, then the server.
+   `-NoTunnel` does everything up to the tunnel and stops — that is what CI exercises,
+   because starting a public tunnel is the operator's decision, not a test's.
+   OpenAI's [`tunnel-client`](https://github.com/openai/tunnel-client) is the
+   no-public-URL alternative (`--mcp-command "java -jar <jar> --stdio"` for the full
+   toolset, or `--mcp-server-url http://127.0.0.1:<port>/mcp`).
 
 **Requirements:**
 - Java 21+ (only hard requirement — docs RAG, analytics, compiler tools all work with it alone)
@@ -43,12 +65,28 @@ bypasses it entirely.
   via `CHROMIA_TEST_DATABASE_URL`; without it those tools refuse cleanly, the rest works
 
 **Configuration:**
-- SSE defaults to `127.0.0.1:3001`; override with `--sse --host <host> --port <port>`
-  (`parseSseArgs` in `Utils.kt`) — `serve-local.ps1` handles this for you
+- The HTTP server defaults to `127.0.0.1:3001`; override with
+  `--sse --host <host> --port <port> --profile <name>` (`parseSseArgs` in `Utils.kt`) —
+  `serve-local.ps1` handles this for you
 - Binding beyond localhost (`-BindHost 0.0.0.0`) should be paired with
   `CHROMIA_MCP_AUTH_TOKEN` (bearer auth; `/health` stays open)
-- CORS allows all origins by default (restrict with `CHROMIA_MCP_ALLOWED_ORIGINS`)
-- Health check at `/health`
+- `CHROMIA_MCP_PROFILE=public` / `--profile public` disables every tool that acts on the
+  machine or uses a key (`local_chain_up`, `provision_testnet_container`,
+  `claim_testnet_tchr`, `deploy_testnet_chain`) and keeps everything else. An unknown
+  profile name is a startup error, never a silent fall back to the full toolset.
+- `CHROMIA_MCP_ALLOWED_HOSTS` adds accepted `Host` values. Loopback and
+  `*.trycloudflare.com` are always accepted, as is a concrete `--host` address; anything
+  else gets 403 before a tool runs (DNS-rebinding protection). **A custom domain needs an
+  entry** — `CHROMIA_MCP_ALLOWED_HOSTS=mcp.example.com`. `*` disables the check and logs a
+  warning. A client-side tunnel (OpenAI's, an SSH forward) needs nothing: it arrives from
+  loopback.
+- CORS allows all origins by default (restrict with `CHROMIA_MCP_ALLOWED_ORIGINS`).
+  `Mcp-Session-Id`, `mcp-protocol-version` and `last-event-id` are allowed on requests and
+  `Mcp-Session-Id` is exposed on responses, so a browser client can hold a session.
+- Health check at `/health` — exempt from auth and from the `Host` check
+- Keepalive: both transports send an SSE heartbeat every 15s on an open stream, so a
+  tunnel or proxy idle timeout does not silently drop a quiet session. A POST-only
+  Streamable HTTP client never opens a stream and needs none.
 
 #### Optional: auto-start the SSE server on login (Windows)
 
@@ -467,9 +505,14 @@ Deployment is **semi-automated** with manual tag creation:
 {
   "status": "healthy",
   "server": "chromia-mcp-server",
-  "version": "<Gradle project.version>"
+  "version": "<Gradle project.version>",
+  "profile": "full"
 }
 ```
+
+`profile` is the active tool profile (`full` or `public`) — the same value the MCP
+`serverInfo.title` carries (`Chromia MCP Server (profile: public)`), so a connector or an
+operator can see which surface is on the other end without calling a tool.
 
 `version` comes from Gradle `project.version` (generated `BuildInfo.VERSION` in `App.kt`). `gradle.properties` holds this fork's release version (`0.5.0`) as the local-build fallback. Tagged release builds pass `-Pversion=${TAG#v}`, so a released jar reports the tag; CI builds report `git describe`. This is not a hardcoded `0.0.1`.
 
