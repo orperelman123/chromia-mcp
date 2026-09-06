@@ -774,7 +774,7 @@ object DappScaffold {
         // Here the burn's identity - (source chain, source tx, log index) - is a
         // database KEY, one relayer's voice on it is another, and the counter equals
         // the threshold in exactly one transaction, so the burn pays once.
-        function test_r14_one_burn_cannot_be_minted_twice_must_fail() {
+        function test_round14_one_burn_cannot_be_minted_twice_must_fail() {
             val alice = register_alice();
             signed(alice.keypair, main.register_account());
             open_the_bridge();
@@ -809,7 +809,7 @@ object DappScaffold {
         // accounts 1000, 5000 and 250000 - 256000 wrapped units against one burn. Here
         // the first attestation opens the burn's row with what it pays, and the mint
         // reads the ROW.
-        function test_r14_one_source_tx_cannot_pay_anyone_any_amount_must_fail() {
+        function test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail() {
             val alice = register_alice();
             val bob = register_bob();
             val trudy = register_trudy();

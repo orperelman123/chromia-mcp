@@ -116,7 +116,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge"), DappScaffold.templates)
+        assertEquals("bridge", DappScaffold.toJson("wrapped", template = "bridge").getValue("template").toString().trim('"'), "the class round 14 drained must scaffold its own template")
         assertEquals("subscription", DappScaffold.toJson("plan", template = "subscription").getValue("template").toString().trim('"'), "the class round 13 drained must scaffold its own template")
         assertEquals("exchange", DappScaffold.toJson("book", template = "exchange").getValue("template").toString().trim('"'), "the class round 12 drained must scaffold its own template")
         assertEquals("governance", DappScaffold.toJson("dao", template = "governance").getValue("template").toString().trim('"'))
@@ -201,6 +202,17 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(
             notes.contains("a resting order is a free option"),
             "the notes must carry the exchange header's residual, not only its guards"
+        )
+        // Round 14's un-templated class, and the answer that produced it was these
+        // notes' own redirect: a bridge ask reached template=ft4 with no warning.
+        assertTrue(notes.contains("start from template=bridge"), "notes must steer bridge / cross-chain builders to their own template")
+        assertTrue(
+            notes.contains("NOT template=ft4, which is where this ask used to go"),
+            "the notes must name the redirect round 14 drained, not only the template"
+        )
+        assertTrue(
+            notes.contains("a TRANSFER-conservation test is structurally blind to a mint"),
+            "the notes must retract the invariant they handed round 14's author"
         )
     }
 
@@ -1752,7 +1764,7 @@ class DappScaffoldSecureTemplatesTest {
         // which is the prose defect underneath the whole round.
         assertTrue(main.contains("query attested_burn_total(): integer"))
         assertTrue(
-            main.contains("A TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT"),
+            main.contains("TRANSFER-CONSERVATION TEST IS STRUCTURALLY BLIND TO A MINT"),
             "the header must say why the invariant this server used to hand out did not help"
         )
         assertTrue(main.contains("Eight guards are STRUCTURAL"), "the bridge header must state its guard count")
@@ -2082,8 +2094,8 @@ class DappScaffoldSecureTemplatesTest {
     fun bridgeShippedTestsRunGreen() = assertShippedGreen(
         "bridge",
         setOf(
-            "test_r14_one_burn_cannot_be_minted_twice_must_fail",
-            "test_r14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+            "test_round14_one_burn_cannot_be_minted_twice_must_fail",
+            "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
             "test_mint_transfer_and_exit_conserve_against_attested_burns",
             "test_the_caps_bound_what_one_bridge_can_mint_must_fail",
             "test_the_relayer_set_is_configuration_not_an_input_must_fail"
@@ -3779,7 +3791,7 @@ class DappScaffoldSecureTemplatesTest {
         "bridge",
         BRIDGE_REGISTRY_GUARD,
         "    mint_against(burn);",
-        "test_r14_one_burn_cannot_be_minted_twice_must_fail",
+        "test_round14_one_burn_cannot_be_minted_twice_must_fail",
         // Wrong reason: the repeat still refused by the attestation key, which
         // names that table. Right reason is the transaction not failing at all.
         "attestation",
@@ -3801,7 +3813,7 @@ class DappScaffoldSecureTemplatesTest {
             "    recipient: byte_array;\n" +
             "    amount: integer;",
         "    key source_chain: byte_array, source_tx: byte_array, log_index: integer, recipient: byte_array, amount: integer;",
-        "test_r14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
+        "test_round14_one_source_tx_cannot_pay_anyone_any_amount_must_fail",
         "this burn was opened for a different recipient",
         attackLanded
     )
