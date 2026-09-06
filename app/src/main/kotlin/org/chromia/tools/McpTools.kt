@@ -6,6 +6,41 @@ import kotlinx.serialization.json.*
 
 object McpTools {
 
+    /**
+     * Provenance of the documentation index an answer was drawn from - origin,
+     * generated_at, age_days, segments, stale. Declared identically on
+     * fetch_docs, search and fetch: audit F2 found that only fetch_docs said
+     * anything, so the ChatGPT-contract pair every agent reaches for first
+     * quoted a 320-day-old fragment as current API.
+     */
+    internal val DOCS_INDEX_PROPERTY = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("object"),
+            "description" to JsonPrimitive(
+                "Which documentation index answered: origin, generated_at, age_days, segments, and stale=true when it is past the freshness limit. Check `stale` before quoting a fragment as current."
+            ),
+            "properties" to JsonObject(
+                mapOf(
+                    "origin" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "generated_at" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "age_days" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "segments" to JsonObject(mapOf("type" to JsonPrimitive("integer"))),
+                    "stale" to JsonObject(mapOf("type" to JsonPrimitive("boolean")))
+                )
+            )
+        )
+    )
+
+    /** The human-readable half of [DOCS_INDEX_PROPERTY], present only on a stale index. */
+    internal val DOCS_INDEX_NOTE_PROPERTY = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("string"),
+            "description" to JsonPrimitive(
+                "Present only when the documentation index is older than its freshness limit: says when it was generated and that newer releases may be missing - confirm versions against GitLab tags."
+            )
+        )
+    )
+
     fun runDappQueriesTool() = Tool(
         name = "chromia_dapp_query",
         description = """
@@ -44,18 +79,27 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(
+
+                    "brid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
                         )
                     ),
+
                     "blockchainRid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("The Blockchain RID of the dApp")
                         )
                     ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+
                     "query" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -64,6 +108,7 @@ object McpTools {
                             )
                         )
                     ),
+
                     "arguments" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
@@ -76,7 +121,7 @@ object McpTools {
                     )
                 ),
             ),
-            required = listOf("blockchainRid")
+            required = listOf("brid")
         ),
         title = "Execute dApp Query",
         annotations = null,
@@ -446,12 +491,20 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
+                    "brid" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
+                        )
+                    ),
+
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("The blockchain's RID")
                         )
                     ),
+
                     "network" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -460,7 +513,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rid")
+            required = listOf("brid")
         ),
         title = "Get Blockchain Details",
         annotations = null,
@@ -499,66 +552,83 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(
+
+                    "brid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
                         )
                     ),
-                    "name" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Optional blockchain name to filter by (primary use case - e.g., 'auro', 'MarbleRumble')")
-                        )
-                    ),
+
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional blockchain RID to filter by specific blockchain")
                         )
                     ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+
+                    "name" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional blockchain name to filter by (primary use case - e.g., 'auro', 'MarbleRumble')")
+                        )
+                    ),
+
                     "cluster" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional cluster name to filter by (e.g., 'pink', 'system')")
                         )
                     ),
+
                     "container" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional container ID to filter by")
                         )
                     ),
+
                     "state" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED')")
                         )
                     ),
+
                     "system" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
                             "description" to JsonPrimitive("Optional filter for system chains (true) vs user applications (false)")
                         )
                     ),
+
                     "limit" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional limit for number of blockchains to return (default: 10)")
                         )
                     ),
+
                     "offset" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional offset for pagination (default: 0)")
                         )
                     ),
+
                     "sortBy" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional field to sort by (e.g., 'name', 'cluster', 'state')")
                         )
                     ),
+
                     "sortDirection" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -607,24 +677,34 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
-                    "network" to JsonObject(
+
+                    "brid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                            "description" to JsonPrimitive("Blockchain RID (64-char hex). The canonical name for a chain id on this server; `rid` and `blockchainRid` are accepted as aliases with no warning.")
                         )
                     ),
+
                     "rid" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional specific transaction RID to query")
                         )
                     ),
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
+                        )
+                    ),
+
                     "blockId" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional block ID to filter transactions")
                         )
                     ),
+
                     "blockchainIds" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -636,6 +716,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of blockchain IDs to include")
                         )
                     ),
+
                     "notInBlockchains" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -647,18 +728,21 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of blockchain IDs to exclude")
                         )
                     ),
+
                     "timestampFrom" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional start timestamp for filtering (ISO format)")
                         )
                     ),
+
                     "timestampTo" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional end timestamp for filtering (ISO format)")
                         )
                     ),
+
                     "operations" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -670,6 +754,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of operation types to include")
                         )
                     ),
+
                     "notInOperations" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -681,6 +766,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of operation types to exclude")
                         )
                     ),
+
                     "signers" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -692,6 +778,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of signer IDs to include")
                         )
                     ),
+
                     "excludedSigners" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -703,6 +790,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of signer IDs to exclude")
                         )
                     ),
+
                     "accounts" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -714,6 +802,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of account IDs to include")
                         )
                     ),
+
                     "excludedAccounts" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -725,6 +814,7 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of account IDs to exclude")
                         )
                     ),
+
                     "assets" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("array"),
@@ -736,24 +826,28 @@ object McpTools {
                             "description" to JsonPrimitive("Optional list of asset IDs to filter by")
                         )
                     ),
+
                     "limit" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional limit for number of transactions to return (default: 50)")
                         )
                     ),
+
                     "offset" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("integer"),
                             "description" to JsonPrimitive("Optional offset for pagination (default: 0)")
                         )
                     ),
+
                     "sortBy" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Optional field to sort by (e.g., 'timestamp', 'blockHeight')")
                         )
                     ),
+
                     "sortDirection" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -1305,14 +1399,8 @@ object McpTools {
                             )
                         )
                     ),
-                    "index_note" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive(
-                                "Present only when the documentation index is older than its freshness limit: says when it was generated and that newer releases may be missing - confirm versions against GitLab tags."
-                            )
-                        )
-                    )
+                    "index_note" to DOCS_INDEX_NOTE_PROPERTY,
+                    "index" to DOCS_INDEX_PROPERTY
                 )
             ),
             required = listOf("text", "hits")
@@ -1379,7 +1467,9 @@ object McpTools {
                             "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive("Error message when the id is not found")
                         )
-                    )
+                    ),
+                    "index_note" to DOCS_INDEX_NOTE_PROPERTY,
+                    "index" to DOCS_INDEX_PROPERTY
                 )
             ),
             required = listOf("id")
@@ -1443,7 +1533,9 @@ object McpTools {
                                 )
                             )
                         )
-                    )
+                    ),
+                    "index_note" to DOCS_INDEX_NOTE_PROPERTY,
+                    "index" to DOCS_INDEX_PROPERTY
                 )
             ),
             required = listOf("results")
@@ -1516,11 +1608,17 @@ object McpTools {
                             )
                         )
                     ),
+                    "notesFor" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Which per-class guidance to include in `notes`. Default: the template actually returned, plus a one-line pointer to the rest. \"all\" returns the whole catalogue (~22 KB / ~5,530 tokens - it used to be attached to EVERY response, 89% of a `hello` scaffold); a template name returns just that one's. `notes_for` is accepted as an alias.")
+                        )
+                    ),
                     "template" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
                             "enum" to kotlinx.serialization.json.JsonArray(DappScaffold.templates.map { JsonPrimitive(it) }),
-                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default), 'ft4' (accounts, authenticated operation, TS client), 'governance' (DAO treasury: quorum, fixed voting window, stake-weighted votes, execute-once - structural, with the drain replayed as a must-fail test; registration mints NO voting weight - weight comes from a founder-countersigned genesis allocation, so its founder key is a module arg (main.founder_pubkey), see the notes), 'vault' (oracle-priced reserve, NOT an exchange or a curve - a swap pool is 'amm': reserve-backed credits, bounded and rate-limited price, staleness halt - with the unbacked mint replayed as a must-fail test), or 'staking' (staking / yield / rewards / emissions - NOT vesting, which is 'streaming': sponsor-funded pool as the only reward source, pool-capped release, per-share accumulator, cooldown unstake - with the round-4 empty-pool mint replayed as a must-fail test), or 'marketplace' (NFT marketplace / listings / auctions with creator royalties: exact-price buys on an immutable listing so a seller cannot sandwich a pending buy, escrowed offers with expiry settled atomically, royalty fixed at mint - with the round-5 price sandwich replayed as a must-fail test and the off-market royalty bypass documented, not faked; it ALSO ships the timed ascending auction - no mutable bid field, the standing bid is its own immutable escrow row, settlement permissionless after the deadline - and one encumbrance helper every token-moving path consults, so do not write an auction freehand), or 'lending' (lending pool / credit line / money market - anything where depositors hold a SHARE of a pool whose value moves: NO cash-denominated debt is stored anywhere, so the round-6 just-in-time interest capture is unwritable rather than merely guarded - positions and the pool carry scaled_debt in index units, the cash figures exist only inside a pool_state, pool_now() is the only function that makes one and every pricing helper takes one - plus the vault's bounded oracle, over-collateralisation, a liquidation threshold with close factor and bonus, and the minimum-first-deposit guard against ERC-4626 share inflation, with the round-6 drain replayed as a must-fail test; its oracle key is a module arg, see the notes), or 'subscription' (RECURRING PULL BILLING - a merchant collects period after period against one authorisation: the claim is the escrow the payer funded, the fee accrues pro rata so nothing is billed in advance, and either party may always cancel; round 13 drained the build that used 'streaming' for this), 'streaming' (payment stream / payroll / vesting grant / drip, PREPAID - a clock-metered payout to ONE named beneficiary: no operation writes a timestamp an entitlement is measured from, every term is immutable, the stream is prepaid and cancellation pays before it refunds, and pause/resume is shipped with both transition guards - with the round-7 anchor grief and both round-8 pause drains replayed as must-fail tests), or 'amm' (constant-product swap pool / DEX pair / automated market maker: a swap NAMES THE EXACT RESERVES it was quoted at and there is no tolerance field at all, so it pays the quoted number or reverts - stronger than a min_out floor, not a weakening of one - and liquidity is an IMMUTABLE POSITION ROW WITH A TERM, so the just-in-time deposit-before-a-swap-withdraw-after cannot be written; both round-8 drains ship as must-fail tests and the residuals the guards do NOT close ship as a test too), or 'stablecoin' (a coin minted against LOCKED COLLATERAL - CDP, synthetic, pegged asset - NOT 'vault', which is where round 9's drain was sent: there is NO operation that redeems the coin for collateral at par out of somebody else's position; the peg is the debtor's burn-at-par against their OWN debt, under-water positions close by PRO-RATA liquidation that pays every liquidator the same rate in any order, and a system worth less than its coin is SETTLED so every coin redeems the same share of one pool; mint and withdraw are ratio-checked against the whole debt at a fresh bounded price - with round 9 replayed in both orders as must-fail tests), or 'exchange' (an ORDER BOOK - resting limit orders, bids and asks, matching, partial fills, cancellation - NOT 'amm', which is a constant-product pool and prices every trade off two reserves: a resting order's TERMS are immutable and a partial fill writes ONE MONOTONE COUNTER and nothing else, so the row is never delete-and-recreated and no counterparty can restart the maker's cancel clock - which is exactly how adversary round 12 drained an order book built freehand on this server's advice, half a maker's inventory to a party that posted no order; NO OPERATION NAMES A COUNTERPARTY, so the book matches best price then longest rested then lowest id and nobody chooses who is filled at a stale price; and a crossing order is filled at the resting price in the block it is signed - with the round-12 grind and its setup replayed as must-fail tests), or 'bridge' (a ONE-WAY BRIDGE RECEIVER and its exit - mint a wrapped unit when a burn is proved on a source chain, burn it again on the way out - NOT 'ft4', which is where this ask used to go and where adversary round 14's 10x mint came from: the processed-burns registry is keyed by the burn's identity on the source chain (source_chain, source_tx, log_index), so one burn has ONE row and a repeat is refused by the database rather than by a check somebody has to remember; the row BINDS what the burn pays, with recipient and amount written once by the attestation that opens it and read from the ROW by the mint, so a later attestation cannot substitute either; a relayer SET with a threshold replaces the single key, one relayer counts once per burn, and the mint is capped per period and in total. Read its last guard before copying any invariant: a TRANSFER-conservation test is structurally blind to a mint - it was exact at every step of the 10x mint - so this template's invariant compares what was MINTED against the burns it ACCEPTED; both round-14 drains ship as must-fail tests). An unknown template name is answered with the closest shipped template and what it does NOT cover.")
+                            "description" to JsonPrimitive("Skeleton flavor: 'hello' (query-only quickstart, default), 'ft4' (accounts, authenticated operation, TS client), 'governance' (DAO treasury: quorum, fixed voting window, stake-weighted votes, execute-once - structural, with the drain replayed as a must-fail test; registration mints NO voting weight - weight comes from a founder-countersigned genesis allocation, so its founder key is a module arg (main.founder_pubkey), see the notes), 'vault' (oracle-priced reserve, NOT an exchange or a curve - a swap pool is 'amm': reserve-backed credits, bounded and rate-limited price, staleness halt - with the unbacked mint replayed as a must-fail test), or 'staking' (staking / yield / rewards / emissions - NOT vesting, which is 'streaming': sponsor-funded pool as the only reward source, pool-capped release, per-share accumulator, cooldown unstake - with the round-4 empty-pool mint replayed as a must-fail test), or 'marketplace' (NFT marketplace / listings / auctions with creator royalties: exact-price buys on an immutable listing so a seller cannot sandwich a pending buy, escrowed offers with expiry settled atomically, royalty fixed at mint - with the round-5 price sandwich replayed as a must-fail test and the off-market royalty bypass documented, not faked; it ALSO ships the timed ascending auction - no mutable bid field, the standing bid is its own immutable escrow row, settlement permissionless after the deadline - and one encumbrance helper every token-moving path consults, so do not write an auction freehand), or 'lending' (lending pool / credit line / money market - anything where depositors hold a SHARE of a pool whose value moves: NO cash-denominated debt is stored anywhere, so the round-6 just-in-time interest capture is unwritable rather than merely guarded - positions and the pool carry scaled_debt in index units, the cash figures exist only inside a pool_state, pool_now() is the only function that makes one and every pricing helper takes one - plus the vault's bounded oracle, over-collateralisation, a liquidation threshold with close factor and bonus, and the minimum-first-deposit guard against ERC-4626 share inflation, with the round-6 drain replayed as a must-fail test; its oracle key is a module arg, see the notes), or 'subscription' (RECURRING PULL BILLING - a merchant collects period after period against one authorisation: the claim is the escrow the payer funded, the fee accrues pro rata so nothing is billed in advance, and either party may always cancel; round 13 drained the build that used 'streaming' for this), 'streaming' (payment stream / payroll / vesting grant / drip, PREPAID - a clock-metered payout to ONE named beneficiary: no operation writes a timestamp an entitlement is measured from, every term is immutable, the stream is prepaid and cancellation pays before it refunds, and pause/resume is shipped with both transition guards - with the round-7 anchor grief and both round-8 pause drains replayed as must-fail tests), or 'amm' (constant-product swap pool / DEX pair / automated market maker: a swap NAMES THE EXACT RESERVES it was quoted at and there is no tolerance field at all, so it pays the quoted number or reverts - stronger than a min_out floor, not a weakening of one - and liquidity is an IMMUTABLE POSITION ROW WITH A TERM, so the just-in-time deposit-before-a-swap-withdraw-after cannot be written; both round-8 drains ship as must-fail tests and the residuals the guards do NOT close ship as a test too), or 'stablecoin' (a coin minted against LOCKED COLLATERAL - CDP, synthetic, pegged asset - NOT 'vault', which is where round 9's drain was sent: there is NO operation that redeems the coin for collateral at par out of somebody else's position; the peg is the debtor's burn-at-par against their OWN debt, under-water positions close by PRO-RATA liquidation that pays every liquidator the same rate in any order, and a system worth less than its coin is SETTLED so every coin redeems the same share of one pool; mint and withdraw are ratio-checked against the whole debt at a fresh bounded price - with round 9 replayed in both orders as must-fail tests), or 'exchange' (an ORDER BOOK - resting limit orders, bids and asks, matching, partial fills, cancellation - NOT 'amm', which is a constant-product pool and prices every trade off two reserves: a resting order's TERMS are immutable and a partial fill writes ONE MONOTONE COUNTER and nothing else, so the row is never delete-and-recreated and no counterparty can restart the maker's cancel clock - which is exactly how adversary round 12 drained an order book built freehand on this server's advice, half a maker's inventory to a party that posted no order; NO OPERATION NAMES A COUNTERPARTY, so the book matches best price then longest rested then lowest id and nobody chooses who is filled at a stale price; and a crossing order is filled at the resting price in the block it is signed - with the round-12 grind and its setup replayed as must-fail tests), or 'bridge' (a ONE-WAY BRIDGE RECEIVER and its exit - mint a wrapped unit when a burn is proved on a source chain, burn it again on the way out - NOT 'ft4', which is where this ask used to go and where adversary round 14's 10x mint came from: the processed-burns registry is keyed by the burn's identity on the source chain (source_chain, source_tx, log_index), so one burn has ONE row and a repeat is refused by the database rather than by a check somebody has to remember; the row BINDS what the burn pays, with recipient and amount written once by the attestation that opens it and read from the ROW by the mint, so a later attestation cannot substitute either; a relayer SET with a threshold replaces the single key, one relayer counts once per burn, and the mint is capped per period and in total. Read its last guard before copying any invariant: a TRANSFER-conservation test is structurally blind to a mint - it was exact at every step of the 10x mint - so this template's invariant compares what was MINTED against the burns it ACCEPTED; both round-14 drains ship as must-fail tests). An unknown template name SCAFFOLDS the closest shipped template - its files, and its name in the `template` field - with a warning naming what it does NOT cover; when no shipped template is close, NOTHING is scaffolded: ok:false, isError, and no `files` at all.")
                         )
                     )
                 )
@@ -1536,10 +1634,35 @@ object McpTools {
                     "pins" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
                     "forbidden" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
                     "files" to JsonObject(mapOf("type" to JsonPrimitive("object"))),
+                    "moduleArgs" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("The module args this template's SHIPPED tests need, ready to paste into run_rell_tests{moduleArgs}: chromia.yml's blockchains.<name>.moduleArgs merged with its test.moduleArgs, keyed by Rell module name. Empty {} for templates that need none. Assembling this by hand used to be a mandatory second 36-second call.")
+                        )
+                    ),
+                    "nextCall" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The literal next call that makes the shipped tests green on the FIRST run.")
+                        )
+                    ),
+                    "ok" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("boolean"),
+                            "description" to JsonPrimitive("false when nothing was scaffolded (an unknown template with no close shipped match); `files` is then absent and `warnings` says what to do instead.")
+                        )
+                    ),
+                    "template" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The template actually scaffolded. For an unknown name this is the CLOSEST shipped template, whose files are what you get - never `hello` as a silent substitute.")
+                        )
+                    ),
+                    "warnings" to JsonObject(mapOf("type" to JsonPrimitive("array"))),
                     "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                 )
             ),
-            required = listOf("name", "pins", "forbidden", "files", "notes")
+            required = listOf("ok", "name", "template", "pins", "forbidden", "notes")
         )
     )
 
@@ -1565,6 +1688,25 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Optional Rell sources (path -> source), the same map rell_check and run_rell_tests take. PASS THEM: a yml can only be checked against what the CODE needs when the code is here - a module declaring `struct module_args` the yml never sets, or an FT4 import with no lib.ft4.core.accounts configuration (rate_limit, auth_descriptor, auth_flags.mandatory), are errors `chr build` would otherwise be the first to report. `rell` and `source` are accepted as aliases. Without sources the validator checks the yml alone, exactly as before.")
+                        )
+                    ),
+                    "rell" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("Alias for `files`.")
+                        )
+                    ),
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("A single Rell source, when there is only one file.")
+                        )
+                    ),
                     "yaml" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -1715,17 +1857,17 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
-                    "source" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Rell source for a single-file check; compiled as main.rell. Ignored when `files` is given.")
-                        )
-                    ),
                     "files" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects, e.g. {\"main.rell\": \"module; ...\"}. Paths are relative to the Rell source root - drop the project's src/ prefix (a leading ./ or src/ is normalized away automatically).")
+                        )
+                    ),
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Rell source for a single-file check; compiled as main.rell. Ignored when `files` is given.")
                         )
                     ),
                     "modules" to JsonObject(
@@ -1802,7 +1944,13 @@ object McpTools {
                     "moduleArgs" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
-                            "description" to JsonPrimitive("Optional module_args by module name, mirroring chromia.yml (its moduleArgs AND test.moduleArgs blocks), e.g. {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) ALSO pass the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys; scaffold_dapp template=ft4 writes a working set into chromia.yml test.moduleArgs). Without them every tx fails with 'Unable to create GTX module'. Pass it as ONE object that merges blockchains.<name>.moduleArgs with test.moduleArgs, keyed by module name; byte_array / pubkey values may be the yml's x\"02C4...\" literal, 0x02c4..., or bare hex - all three decode to bytes.")
+                            "description" to JsonPrimitive("Optional module_args by module name. YOU RARELY NEED TO BUILD THIS BY HAND: pass chromia.yml (inside `files`, or as `yaml`) and this tool merges blockchains.<name>.moduleArgs with test.moduleArgs for you, exactly as `chr test` does; scaffold_dapp also returns the finished object as its own top-level `moduleArgs` field - copy that verbatim. Shape: {\"lib.ft4.core.accounts\": {\"auth_flags\": {\"mandatory\": [\"A\",\"T\"]}}}. Required to exercise real FT4 operations in tests: use ft4_module_args for production-correct values, and when using lib.ft4.test.core helpers (register_alice etc.) the test-only admin keys - lib.ft4.core.admin {admin_pubkey} and lib.ft4.test.core.auth {admin_priv_key} (FT4's published test keys) - must be present too, or every tx fails with 'Unable to create GTX module'. An explicit value here always wins over the yml. byte_array / pubkey values may be the yml's x\"02C4...\" literal, 0x02c4..., or bare hex - all three decode to bytes.")
+                        )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Optional chromia.yml. When `moduleArgs` is not given, the module args are read from it - blockchains.<name>.moduleArgs merged with test.moduleArgs, the same merge `chr test` performs. A chromia.yml passed inside `files` is used the same way and is not compiled.")
                         )
                     )
                 )
@@ -1825,7 +1973,19 @@ object McpTools {
                             "description" to JsonPrimitive("print()/log() output captured from the tests (capped); omitted when the tests print nothing.")
                         )
                     ),
-                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
+                    "notes" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "moduleArgsSource" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Present only when the module args were read from a chromia.yml you passed instead of from the `moduleArgs` argument.")
+                        )
+                    ),
+                    "moduleArgsUsed" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "description" to JsonPrimitive("The merged module args the run actually used, when they were derived from chromia.yml - paste-able as `moduleArgs` on a later call.")
+                        )
+                    )
                 )
             ),
             required = listOf("ok", "total", "passed", "failed", "cases", "notes")
@@ -2079,17 +2239,17 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
-                    "source" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Rell source for a single-file review; analyzed as main.rell. Ignored when `files` is given.")
-                        )
-                    ),
                     "files" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("object"),
                             "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                             "description" to JsonPrimitive("Map of relative .rell file paths to file contents for multi-file projects.")
+                        )
+                    ),
+                    "source" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Rell source for a single-file review; analyzed as main.rell. Ignored when `files` is given.")
                         )
                     ),
                     "allowAdminModules" to JsonObject(
@@ -2127,6 +2287,14 @@ object McpTools {
             Return the chromia.yml deployments.<network> block that Chromia CLI 0.33.x expects
             (url, official Directory Chain BRID; chains omitted on purpose - a first
             chr deployment create must not carry it, and a placeholder null value is rejected by chr).
+            PASS YOUR EXISTING chromia.yml AS `yaml`: the block is then MERGED into it - moduleArgs,
+            test.moduleArgs, libs, compile pins and comments all preserved - and comes back as
+            `chromia_yml`. Without `yaml` you get the block alone and no full file: this tool does
+            not regenerate a project config. (It used to, from the `hello` scaffold, and adopting
+            that output deleted an FT4 project's moduleArgs including auth_flags.mandatory, its
+            test.moduleArgs block and libs.iccf - silently, with every gate green. Audit F7.)
+            An existing deployments.<network> block is replaced, but a real container id and any
+            chains map in it are carried over.
             network must be testnet or mainnet. Does not invent a BRID.
             Since CLI 0.30.0, chr deployment create writes deployments.<net>.chains back into chromia.yml;
             on 0.29.x add chains.<name>: x"<dapp rid>" by hand after the first create.
@@ -2148,6 +2316,14 @@ object McpTools {
                                 "Optional dapp / chain name (lowercase [a-z][a-z0-9_]{0,31}). Default: hello. `chain` is accepted as an alias."
                             )
                         )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive(
+                                "Your project's existing chromia.yml. PASS IT: the deployments.<network> block is MERGED into it and every other key - moduleArgs, test.moduleArgs, libs, compile pins, comments - is preserved verbatim, and the merged file comes back as `chromia_yml`. Without it you get only the `yaml` block to paste yourself; this tool never regenerates a project file. `chromiaYml` is accepted as an alias."
+                            )
+                        )
                     )
                 )
             ),
@@ -2162,8 +2338,24 @@ object McpTools {
                     "name" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                     "url" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
                     "brid" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                    "yaml" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
-                    "chromia_yml" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("The deployments.<network> block alone.")
+                        )
+                    ),
+                    "chromia_yml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Present ONLY when you passed `yaml`: that same file with the deployments block merged in and every other key preserved. It is never a file this tool made up.")
+                        )
+                    ),
+                    "merge_note" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Present when no `yaml` was passed: says why there is no full chromia.yml to adopt.")
+                        )
+                    ),
                     "notes" to JsonObject(mapOf("type" to JsonPrimitive("string")))
                 )
             ),
@@ -3092,12 +3284,11 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
-                    "yaml" to JsonObject(
+                    "files" to JsonObject(
                         mapOf(
-                            "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive(
-                                "Full chromia.yml contents as a string. Optional: when omitted, a minimal default " +
-                                    "chromia.yml at the current pins (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted."
+                                "Alias for `rell` (same shape) - accepted because rell_check and " +
+                                    "run_rell_tests name this parameter `files`. When both are present, `rell` wins."
                             )
                         )
                     ),
@@ -3108,11 +3299,12 @@ object McpTools {
                             )
                         )
                     ),
-                    "files" to JsonObject(
+                    "yaml" to JsonObject(
                         mapOf(
+                            "type" to JsonPrimitive("string"),
                             "description" to JsonPrimitive(
-                                "Alias for `rell` (same shape) - accepted because rell_check and " +
-                                    "run_rell_tests name this parameter `files`. When both are present, `rell` wins."
+                                "Full chromia.yml contents as a string. Optional: when omitted, a minimal default " +
+                                    "chromia.yml at the current pins (rellVersion ${DappScaffold.RELL_VERSION}) is used and noted."
                             )
                         )
                     ),
@@ -3128,7 +3320,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rell")
+            required = listOf("files")
         ),
         title = "Check dapp project",
         annotations = null,
@@ -3172,6 +3364,14 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("object"),
+                            "additionalProperties" to JsonObject(mapOf("type" to JsonPrimitive("string"))),
+                            "description" to JsonPrimitive("Rell sources as a map of relative path -> source, e.g. {\"src/main.rell\": \"module; ...\"}. This is the canonical name for Rell sources on every code-taking tool here; `rell` and `source` are accepted as aliases with no warning. A single source string is accepted too (filed as main.rell).")
+                        )
+                    ),
+
                     "rell" to JsonObject(
                         mapOf(
                             "description" to JsonPrimitive(
@@ -3179,6 +3379,7 @@ object McpTools {
                             )
                         )
                     ),
+
                     "allowAdminModules" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
@@ -3191,7 +3392,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rell")
+            required = listOf("files")
         ),
         title = "Check FT4 imports",
         annotations = null,
@@ -3488,6 +3689,7 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
+
                     "yaml" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
@@ -3496,31 +3698,39 @@ object McpTools {
                             )
                         )
                     ),
+
+                    "network" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Deployment target - a key under deployments in the yaml, e.g. \"testnet\" or \"mainnet\". Named `network` because that is what 22 other tools on this server call it; `target` is accepted as an alias with no warning.")
+                        )
+                    ),
+
                     "target" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive(
-                                "Deployment target name - a key under deployments in the yaml, e.g. \"testnet\" or \"mainnet\""
-                            )
-                        )
-                    ),
-                    "rell" to JsonObject(
-                        mapOf(
-                            "description" to JsonPrimitive(
-                                "Optional Rell sources for the compile + security gate: one source string " +
-                                    "(checked as main.rell) or an object of path -> source. Omitting it skips " +
-                                    "the source gate (noted; a mainnet target then stays blocked)."
-                            )
+                            "description" to JsonPrimitive("Alias for `network`.")
                         )
                     ),
                     "files" to JsonObject(
                         mapOf(
                             "description" to JsonPrimitive(
-                                "Alias for `rell` (same shape) - matches rell_check / run_rell_tests. " +
-                                    "`rell` wins when both are present; using the alias is noted."
+                                "Optional Rell sources for the compile + security gate: a map of " +
+                                    "path -> source, or one source string (checked as main.rell). Omitting " +
+                                    "them skips the source gate (noted; a mainnet target then stays " +
+                                    "blocked). `rell` and `source` are accepted as aliases, with no " +
+                                    "warning and no preference - `files` is the name every other " +
+                                    "code-taking tool here uses."
                             )
                         )
                     ),
+
+                    "rell" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive("Alias for `files`, same shape.")
+                        )
+                    ),
+
                     "strict" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("boolean"),
@@ -3532,7 +3742,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("yaml", "target")
+            required = listOf("yaml", "network")
         ),
         title = "Deployment preflight",
         annotations = null,
@@ -3790,17 +4000,17 @@ object McpTools {
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(
+                    "files" to JsonObject(
+                        mapOf(
+                            "description" to JsonPrimitive("Alias for `rell` (same shape).")
+                        )
+                    ),
                     "rell" to JsonObject(
                         mapOf(
                             "description" to JsonPrimitive(
                                 "The dapp sources: one source string (treated as main.rell) or an object of " +
                                     "path -> source. Required - the gates cannot vouch for unseen code."
                             )
-                        )
-                    ),
-                    "files" to JsonObject(
-                        mapOf(
-                            "description" to JsonPrimitive("Alias for `rell` (same shape).")
                         )
                     ),
                     "blockchain" to JsonObject(
@@ -3816,6 +4026,12 @@ object McpTools {
                                 "Container lease name from provision_testnet_container (required unless " +
                                     "chromiaYml already carries deployments.testnet.container)"
                             )
+                        )
+                    ),
+                    "yaml" to JsonObject(
+                        mapOf(
+                            "type" to JsonPrimitive("string"),
+                            "description" to JsonPrimitive("Your project's chromia.yml. `yaml` is the canonical name for it on this server; `chromiaYml` is accepted as an alias with no warning. Without one a MINIMAL config is generated from the default scaffold - it carries no moduleArgs, no test.moduleArgs and no extra libs, so an FT4 project must pass its own.")
                         )
                     ),
                     "chromiaYml" to JsonObject(
@@ -3850,7 +4066,7 @@ object McpTools {
                     )
                 )
             ),
-            required = listOf("rell")
+            required = listOf("files")
         ),
         title = "Deploy testnet chain",
         annotations = null,
@@ -3919,8 +4135,8 @@ object McpTools {
     // 2026-09-02) - the refusal must hand over a working call, not just a name.
     private const val CHECK_DAPP_PROJECT_ALTERNATIVE =
         "use check_dapp_project on this server instead - it performs compilation and security scanning " +
-            "(pass your sources as `rell`, a map of path -> source or a single source string; " +
-            "a `files` map is accepted as an alias)"
+            "(pass your sources as `files`, a map of path -> source or a single source string; " +
+            "`rell` and `source` are accepted as aliases)"
 
     /** Working alternatives on the same deployment for commonly disabled tools. */
     private val DISABLED_TOOL_ALTERNATIVES: Map<String, String> = mapOf(

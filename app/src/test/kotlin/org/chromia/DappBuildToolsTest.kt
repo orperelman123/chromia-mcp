@@ -1132,6 +1132,10 @@ class DappBuildToolsTest {
                 arguments = buildJsonObject {
                     put("network", "testnet")
                     put("name", "wallet")
+                    // AUDIT F7: the caller's own chromia.yml is what gets merged
+                    // into. Without it there is deliberately no `chromia_yml`
+                    // field at all - this tool no longer invents a project file.
+                    put("yaml", DappScaffold.files("wallet").getValue("chromia.yml"))
                 }
             ),
             RecordingRepository()
@@ -1191,7 +1195,10 @@ class DappBuildToolsTest {
         val result = WriteDeploymentConfigStrategy().execute(
             callToolRequest(
                 name = "write_deployment_config",
-                arguments = buildJsonObject { put("network", "MAINNET") }
+                arguments = buildJsonObject {
+                    put("network", "MAINNET")
+                    put("yaml", DappScaffold.files("hello").getValue("chromia.yml"))
+                }
             ),
             RecordingRepository()
         )

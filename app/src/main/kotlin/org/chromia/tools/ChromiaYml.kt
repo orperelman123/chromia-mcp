@@ -50,8 +50,79 @@ object ChromiaYmlValidator {
      * them and `chr build` accepts that (real-world round 2 D3). Genuinely
      * build-breaking findings (a rellVersion newer than the CLI's compiler, a
      * present-but-wrong merkle value, malformed values) stay errors regardless.
+     *
+     * AUDIT F7 (2026-09-06): `validate_chromia_yml` answered
+     * {"ok":true,"errors":[],"warnings":[]} on a chromia.yml that had had the
+     * whole FT4 configuration deleted from it - blockchains.<name>.moduleArgs
+     * (rate_limit, auth_descriptor, auth_flags.mandatory ["A","T"]), the
+     * test.moduleArgs block, libs.iccf - because a validator that only sees the
+     * yml cannot know what the MODULE needs. Given the sources, it can.
+     *
+     * Every module in [rell] that declares `struct module_args` must be set in
+     * the yml (blockchains.<name>.moduleArgs merged with test.moduleArgs, the
+     * merge `chr test` performs); a module that imports FT4 must configure it.
+     * Without sources this is silent - it never guesses.
+     *
+     * @param rell path -> Rell source, the same map the code tools take.
      */
-    fun validate(yaml: String, strict: Boolean = false): Result {
+    fun validate(
+        yaml: String,
+        strict: Boolean = false,
+        rell: Map<String, String> = emptyMap()
+    ): Result {
+        val base = validateYamlOnly(yaml, strict)
+        if (rell.isEmpty()) return base
+        val moduleArgsErrors = moduleArgsFindings(yaml, rell)
+        if (moduleArgsErrors.isEmpty()) return base
+        return Result(false, base.errors + moduleArgsErrors, base.warnings)
+    }
+
+    private val MODULE_ARGS_DECL = Regex("""(?m)^\s*struct\s+module_args\b""")
+    private val FT4_IMPORT = Regex("""(?m)^\s*import\s+(?:\w+\s*:\s*)?(lib\.ft4[\w.]*)""")
+
+    /**
+     * What the sources declare and the yml does not set. Errors, not warnings:
+     * `chr build` / `chr test` refuse to start ("Missing module_args for
+     * module(s): ..."), and run_rell_tests fails every case with "Unable to
+     * create GTX module".
+     */
+    internal fun moduleArgsFindings(yaml: String, rell: Map<String, String>): List<String> {
+        val set = ChromiaYmlModuleArgs.merged(yaml)
+        val findings = mutableListOf<String>()
+        // Scaffold-shaped keys (src/test/main_test.rell) otherwise derive the
+        // module src.test.main_test - the same normalisation rell_check and
+        // run_rell_tests apply, so the module names match what chr will see.
+        RellCheck.normalizeSourceRoots(rell).forEach { (path, source) ->
+            if (!MODULE_ARGS_DECL.containsMatchIn(source)) return@forEach
+            val module = RunRellTests.moduleNameForPath(path, source)
+            if (module.isNotEmpty() && module !in set) {
+                findings += "$path declares `struct module_args` for module '$module', but this " +
+                    "chromia.yml sets no moduleArgs for it (neither blockchains.<name>.moduleArgs nor " +
+                    "test.moduleArgs). `chr build` refuses with \"Missing module_args for module(s): " +
+                    "$module\" and run_rell_tests fails every case with \"Unable to create GTX module\"."
+            }
+        }
+        val importsFt4 = rell.values.any { FT4_IMPORT.containsMatchIn(it) }
+        if (importsFt4) {
+            if ("lib.ft4.core.accounts" !in set) {
+                findings += "The sources import FT4, but this chromia.yml sets no moduleArgs for " +
+                    "lib.ft4.core.accounts - so the account rate limit, the auth-descriptor limits and " +
+                    "auth_flags.mandatory are all UNSET on the deployed chain. Restore the " +
+                    "blockchains.<name>.moduleArgs block (ft4_module_args returns production-correct " +
+                    "values); do not adopt a regenerated chromia.yml that dropped it."
+            }
+            val usesFt4TestHelpers = rell.values.any { it.contains("lib.ft4.test.") }
+            if (usesFt4TestHelpers && "lib.ft4.core.admin" !in set) {
+                findings += "The sources use FT4's test helpers (lib.ft4.test.*), which transitively " +
+                    "import lib.ft4.admin, but this chromia.yml sets no test.moduleArgs for " +
+                    "lib.ft4.core.admin (admin_pubkey) - every test transaction will fail with " +
+                    "\"Unable to create GTX module\"."
+            }
+        }
+        return findings
+    }
+
+    private fun validateYamlOnly(yaml: String, strict: Boolean): Result {
         val errors = mutableListOf<String>()
         val warnings = mutableListOf<String>()
         // Missing-pin findings: errors only in strict mode.
@@ -860,5 +931,68 @@ internal object SimpleYaml {
     private fun unquote(value: String): String {
         val v = value.trim()
         return if (isQuoted(v)) v.substring(1, v.length - 1) else v
+    }
+}
+
+/**
+ * The module_args a chromia.yml declares, in the shape `run_rell_tests` takes.
+ *
+ * AUDIT F4 (2026-09-06): the flagship `ft4` template's own shipped tests failed
+ * every case on the first honest `run_rell_tests{files}` from the scaffold
+ * output - 22,131 ms to a red - with
+ *   "System function 'rell.test.tx.run': Block execution failed: ...
+ *    Unable to create GTX module: net.postchain.rell.module.RellPostchainModuleFactory"
+ * because `moduleArgs` and `test.moduleArgs` were never merged: the tool takes
+ * module args as a PARAMETER and never read the yml the scaffold had just
+ * handed back. Assembling the merge by hand cost another 35,824 ms, and the
+ * instructions for doing it were 14 KB inside a 22 KB notes blob.
+ *
+ * `chr test` merges the two blocks; so does this. Test-scoped args win on a key
+ * collision, which is what `chr test` does and what the FT4 admin wiring needs.
+ */
+object ChromiaYmlModuleArgs {
+
+    /**
+     * `blockchains.<any>.moduleArgs` merged with `test.moduleArgs`, keyed by
+     * Rell module name. Empty when the yml declares none, or does not parse -
+     * this is a convenience, never a gate.
+     */
+    fun merged(yaml: String): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> {
+        val root = runCatching { SimpleYaml.parse(yaml.trim()) }.getOrNull() as? YamlNode.Mapping ?: return emptyMap()
+        val out = LinkedHashMap<String, MutableMap<String, kotlinx.serialization.json.JsonElement>>()
+        fun absorb(node: YamlNode?) {
+            val mapping = node as? YamlNode.Mapping ?: return
+            mapping.entries.forEach { (module, args) ->
+                val argsMapping = args as? YamlNode.Mapping ?: return@forEach
+                val target = out.getOrPut(module) { LinkedHashMap() }
+                argsMapping.entries.forEach { (key, value) -> target[key] = toJson(value) }
+            }
+        }
+        root.mapping("blockchains")?.entries?.values?.forEach { chain ->
+            absorb((chain as? YamlNode.Mapping)?.mapping("moduleArgs"))
+        }
+        // Test-scoped last: `chr test` lets test.moduleArgs win, and the FT4
+        // admin wiring (lib.ft4.core.admin, lib.ft4.test.core.auth) lives only there.
+        absorb(root.mapping("test")?.mapping("moduleArgs"))
+        return out.mapValues { (_, v) -> v.toMap() }
+    }
+
+    /**
+     * Scalars keep the type the yml wrote: integers and booleans as such, and
+     * everything else - including the `x"..."` byte_array literal - as the
+     * string the tool's own GTV conversion already accepts.
+     */
+    private fun toJson(node: YamlNode): kotlinx.serialization.json.JsonElement = when (node) {
+        is YamlNode.Scalar -> scalarToJson(node.raw)
+        is YamlNode.Sequence -> buildJsonArray { node.items.forEach { add(toJson(it)) } }
+        is YamlNode.Mapping -> buildJsonObject { node.entries.forEach { (k, v) -> put(k, toJson(v)) } }
+    }
+
+    private fun scalarToJson(raw: String): kotlinx.serialization.json.JsonElement {
+        val t = raw.trim()
+        t.toLongOrNull()?.let { return JsonPrimitive(it) }
+        if (t.equals("true", ignoreCase = true)) return JsonPrimitive(true)
+        if (t.equals("false", ignoreCase = true)) return JsonPrimitive(false)
+        return JsonPrimitive(t)
     }
 }

@@ -102,7 +102,7 @@ object OnboardingNextStep {
 
         val steps = stepsFor(state.goal)
         val pending = steps.filterNot { it.done(state) }
-        val notes = notesFor(state.goal)
+        val notes = notesFor(state.goal, registeredTools)
 
         if (pending.isEmpty()) {
             return Result(
@@ -253,22 +253,64 @@ object OnboardingNextStep {
         )
     }
 
+    /** The two tools that make the tCHR + lease step headless when this server ships them. */
+    val TESTNET_CONTAINER_TOOLS = setOf("claim_testnet_tchr", "provision_testnet_container")
+
+    /**
+     * AUDIT F3 (2026-09-06): this step told the agent "the faucet web UI
+     * requires a captcha and the lease is a Vault web step - this server
+     * automates neither" while `claim_testnet_tchr` and
+     * `provision_testnet_container` shipped in the same jar, and
+     * `claim_testnet_tchr` is FT4-authenticated with no captcha and no website.
+     * It was the single sentence that stopped an agent finishing the deploy.
+     *
+     * Same dynamic-registry rule the local-chain and deploy steps already use:
+     * name the tools only when this server actually registers them. When it
+     * does, this is an AGENT step and therefore never a human blocker - what
+     * can be missing is a FUNDING KEY, which is the server operator's
+     * configuration, not a browser.
+     */
     private fun testnetContainerStep() = Step(
         stage = "testnet_container",
         done = { it.hasTestnetContainer }
-    ) { _, _ ->
-        NextAction(
-            what = "Get tCHR and lease a testnet container",
-            who = "human",
-            how = "1) Claim tCHR at ${VaultLeaseHelp.TESTNET_FAUCET} - the web UI requires a captcha " +
-                "(1000 tCHR per 7 days), so a human must do it. (`pmc economy claim-test-chr` exists " +
-                "for testnet, but pmc needs a configured provider account - not a keyless-agent path.) " +
-                "2) Lease a container at ${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS} using your pubkey - " +
-                "priced in tCHR at lease time (observed ~35 tCHR/SCU-week on the testnet economy chain " +
-                "2026-09-01), 1-12 weeks. " +
-                "3) Give the agent the resulting Container ID.",
-            verify = "The Vault containers page shows the lease; you hold a real Container ID for chromia.yml."
-        )
+    ) { _, tools ->
+        if (TESTNET_CONTAINER_TOOLS.all { it in tools }) {
+            NextAction(
+                what = "Get tCHR and lease a testnet container",
+                who = "agent",
+                how = "1) Call claim_testnet_tchr - FT4-authenticated on the testnet economy chain, " +
+                    "1000 tCHR per account per 7 days, no captcha and no website. " +
+                    "2) Call provision_testnet_container (cluster, scu, durationWeeks) - it leases " +
+                    "headlessly, priced in tCHR at lease time (observed ~35 tCHR/SCU-week on the " +
+                    "testnet economy chain 2026-09-01), 1-12 weeks; call it with dryRun first to see " +
+                    "the cost. Neither is a human step. THE ONE CONDITION IN WHICH THEY CANNOT: with " +
+                    "no funding key registered on the server (env " +
+                    "${TestnetProvisioning.FUNDING_KEY_ENV} or ${TestnetProvisioning.FUNDING_KEY_ID_ENV}) " +
+                    "they answer a dry run / blocked_setup and sign nothing - that is the SERVER " +
+                    "OPERATOR configuring a key, not a human opening a browser. The manual fallback, " +
+                    "if the operator will not: the faucet at ${VaultLeaseHelp.TESTNET_FAUCET} (captcha, " +
+                    "1000 tCHR per 7 days) and a lease at ${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}. " +
+                    "3) Use the resulting Container ID in chromia.yml.",
+                verify = "provision_testnet_container reports status \"provisioned\" with a Container ID " +
+                    "(status \"dry_run\" means nothing was leased; status \"blocked_human_step\" names " +
+                    "what the operator must configure)."
+            )
+        } else {
+            NextAction(
+                what = "Get tCHR and lease a testnet container",
+                who = "human",
+                how = "This server does not register claim_testnet_tchr / provision_testnet_container, " +
+                    "so the headless path is unavailable here. 1) Claim tCHR at " +
+                    "${VaultLeaseHelp.TESTNET_FAUCET} - the web UI requires a captcha " +
+                    "(1000 tCHR per 7 days), so a human must do it. (`pmc economy claim-test-chr` exists " +
+                    "for testnet, but pmc needs a configured provider account - not a keyless-agent path.) " +
+                    "2) Lease a container at ${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS} using your pubkey - " +
+                    "priced in tCHR at lease time (observed ~35 tCHR/SCU-week on the testnet economy chain " +
+                    "2026-09-01), 1-12 weeks. " +
+                    "3) Give the agent the resulting Container ID.",
+                verify = "The Vault containers page shows the lease; you hold a real Container ID for chromia.yml."
+            )
+        }
     }
 
     private fun mainnetContainerStep() = Step(
@@ -329,9 +371,12 @@ object OnboardingNextStep {
 
     private fun humanBlockerLine(stage: String): String = when (stage) {
         "deploy_key" -> "deploy_key: a human must run `chr keygen` - this server never handles key material."
-        "testnet_container" -> "testnet_container: the tCHR faucet web UI (${VaultLeaseHelp.TESTNET_FAUCET}) " +
-            "requires a captcha and the container lease is a Vault web step " +
-            "(${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}) - this server automates neither, and the " +
+        // Only reachable when this server does NOT register the two provisioning
+        // tools; when it does, the step is an agent step and never a blocker.
+        "testnet_container" -> "testnet_container: this server does not register " +
+            "${TESTNET_CONTAINER_TOOLS.sorted().joinToString(" / ")}, so the tCHR faucet web UI " +
+            "(${VaultLeaseHelp.TESTNET_FAUCET}, captcha) and the Vault lease " +
+            "(${VaultLeaseHelp.TESTNET_VAULT_CONTAINERS}) are the only path here, and the " +
             "pmc alternative for tCHR needs a configured provider account."
         "mainnet_container" -> "mainnet_container: the Vault deposit (>= 10 CHR, " +
             "${VaultLeaseHelp.MAINNET_VAULT_DEPOSIT}) and container lease " +
@@ -346,8 +391,20 @@ object OnboardingNextStep {
             "confirm the chain is live and producing blocks."
     }
 
-    private fun notesFor(goal: String): String {
-        val base = "Facts (live-verified 2026-09-01): the tCHR faucet web UI requires a captcha " +
+    private fun notesFor(goal: String, registeredTools: Set<String> = emptySet()): String {
+        // AUDIT F3: these notes described the browser path as the only path while
+        // the server shipped the tools that replace it. Say which is true HERE.
+        val headless = if (TESTNET_CONTAINER_TOOLS.all { it in registeredTools }) {
+            "This server automates tCHR and the testnet lease: claim_testnet_tchr is " +
+                "FT4-authenticated (1000 tCHR per account per 7 days, no captcha and no website) and " +
+                "provision_testnet_container leases headlessly. They need a funding key configured on " +
+                "the SERVER (${TestnetProvisioning.FUNDING_KEY_ENV} / " +
+                "${TestnetProvisioning.FUNDING_KEY_ID_ENV}); without one they answer a dry run and " +
+                "sign nothing. The browser path below is the fallback, not the default. "
+        } else {
+            ""
+        }
+        val base = headless + "Facts (live-verified 2026-09-01): the tCHR faucet web UI requires a captcha " +
             "(1000 tCHR / 7 days, ${VaultLeaseHelp.TESTNET_FAUCET}; `pmc economy claim-test-chr` " +
             "exists for testnet but needs a configured provider account); a testnet container lease " +
             "is priced in tCHR at lease time - observed ~35 tCHR/SCU-week on the testnet economy " +

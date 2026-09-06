@@ -145,7 +145,12 @@ class AuditUxRegressionTest {
         )
         assertEquals(true, result.isError)
         val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.contains("Missing required parameter: rell"), text)
+        // AUDIT F10: one canonical name for Rell sources across every
+        // code-taking tool - `files`, the one eight of them already used - with
+        // `rell` and `source` still accepted. The message must name it and say
+        // so, which is what makes the call actionable in one read.
+        assertTrue(text.contains("Missing required parameter: files"), text)
+        assertTrue(text.contains("`rell` and `source` are accepted as aliases"), text)
     }
 
     // ---- F3: malformed moduleArgs is an error, not a silent no-op ------------

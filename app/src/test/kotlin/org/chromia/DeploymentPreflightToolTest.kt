@@ -471,12 +471,17 @@ class DeploymentPreflightToolTest {
             s.toString()
         )
         val notes = s["notes"]!!.jsonPrimitive.content
-        assertTrue(notes.contains("`files` was accepted as an alias"), notes)
+        // AUDIT F10: `files` is the canonical name here as everywhere else, so
+        // there is nothing to note and nothing to prefer. The deprecating line
+        // this used to carry - "prefer `rell` in future calls" - pushed agents
+        // away from the spelling eight other tools use.
+        assertFalse(notes.contains("prefer `rell`"), notes)
+        assertFalse(notes.contains("accepted as an alias"), notes)
         assertFalse(notes.contains("Source gate SKIPPED"), notes)
     }
 
     @Test
-    fun rellWinsWhenBothRellAndFilesArePresent() {
+    fun theCanonicalFilesWinsWhenBothRellAndFilesArePresent() {
         repo.nextHeight = NetworkResult.Success(42L)
         val result = call(
             buildJsonObject {

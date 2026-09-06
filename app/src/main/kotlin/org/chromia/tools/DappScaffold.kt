@@ -90,6 +90,46 @@ object DappScaffold {
         "lib.ft4.accounts.strategies.open"
     )
 
+    /**
+     * Templates whose main module reads a configured oracle key.
+     * Mirrors the gate suite's own map; kept here so the SHIPPED response and
+     * the test harness cannot disagree about what a template needs.
+     */
+    private val ORACLE_TEMPLATES = setOf("vault", "lending", "stablecoin")
+
+    /**
+     * The module_args a template's SHIPPED tests need, merged exactly as
+     * `chr test` merges them: `blockchains.<name>.moduleArgs` plus
+     * `test.moduleArgs`. This is what `scaffold_dapp` returns as its top-level
+     * `moduleArgs` field and what `run_rell_tests{files, moduleArgs}` takes
+     * verbatim.
+     *
+     * AUDIT F4 (2026-09-06): the first honest run_rell_tests on the flagship
+     * `ft4` scaffold went red in 22,131 ms - 0 passed / 3 failed, every case
+     * "Unable to create GTX module" - because the two blocks were never merged.
+     * Assembling the merge by hand cost another 35,824 ms and the instructions
+     * were 14 KB into a 22 KB notes blob. `hello` needs none and gets none:
+     * an empty object is the honest answer, not a decorative one.
+     */
+    fun testModuleArgs(template: String): Map<String, Map<String, kotlinx.serialization.json.JsonElement>> {
+        val t = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) } ?: return emptyMap()
+        return when {
+            t == "hello" -> emptyMap()
+            t == "lending" -> lendingTestModuleArgs()
+            t == "governance" -> governanceTestModuleArgs()
+            t == "bridge" -> bridgeTestModuleArgs()
+            t in ORACLE_TEMPLATES -> oracleTestModuleArgs()
+            else -> ft4TestModuleArgs()
+        }
+    }
+
+    /** [testModuleArgs] as the JSON object an agent pastes into run_rell_tests. */
+    fun testModuleArgsJson(template: String): JsonObject = buildJsonObject {
+        testModuleArgs(template).forEach { (module, args) ->
+            put(module, buildJsonObject { args.forEach { (k, v) -> put(k, v) } })
+        }
+    }
+
     private val namePattern = Regex("^[a-z][a-z0-9_]{0,31}$")
 
     fun normalizeName(raw: String?): String {
@@ -976,7 +1016,73 @@ object DappScaffold {
         }
     """.trimIndent() + "\n"
 
-    fun notes(name: String): String {
+    /**
+     * AUDIT F5 (2026-09-06): this returned the WHOLE catalogue with every
+     * template - measured 22,120-22,129 bytes (~5,530 tokens), byte-for-byte
+     * identical across all thirteen templates plus the fallback. An agent that
+     * scaffolded `hello` to try the server paid ~5,530 tokens of essay about
+     * stablecoin liquidation and order-book cancel clocks for 2,204 bytes of
+     * Rell: notes were 89% of that response. So agents skimmed - and the one
+     * paragraph that mattered, the moduleArgs merge of F4, was in there.
+     *
+     * @param template the template actually returned; only ITS paragraphs are
+     * included, plus a one-line pointer to the rest. Null (the default) returns
+     * the whole catalogue, which is what `notesFor:"all"` asks for.
+     */
+    fun notes(name: String, template: String? = null): String {
+        val full = notesCatalogue(name)
+        if (template == null) return full
+        return scopeNotes(full, template)
+    }
+
+    /** Where the per-class catalogue starts and ends inside [notesCatalogue]. */
+    private const val CATALOGUE_START = "Building "
+    private const val CATALOGUE_END = "NEVER import "
+
+    /**
+     * Header + the requested template's own paragraphs + a pointer + trailer.
+     * The catalogue is split at runtime rather than rewritten: the prose is
+     * load-bearing security guidance and moving it by hand is how a paragraph
+     * gets lost.
+     */
+    internal fun scopeNotes(full: String, template: String): String {
+        val lines = full.lines()
+        val firstBlock = lines.indexOfFirst { it.startsWith(CATALOGUE_START) }
+        val trailerAt = lines.indexOfFirst { it.startsWith(CATALOGUE_END) }
+        if (firstBlock < 0 || trailerAt < 0 || trailerAt < firstBlock) return full
+        val header = lines.subList(0, firstBlock)
+        val trailer = lines.subList(trailerAt, lines.size)
+        val blocks = mutableListOf<MutableList<String>>()
+        lines.subList(firstBlock, trailerAt).forEach { line ->
+            if (line.startsWith(CATALOGUE_START) || blocks.isEmpty()) blocks.add(mutableListOf())
+            blocks.last().add(line)
+        }
+        val target = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) }
+        val mine = blocks.filter { block -> blockTemplate(block) == target }
+        val others = blocks.size - mine.size
+        val pointer = if (target == null) {
+            ""
+        } else if (mine.isEmpty()) {
+            "The `$target` template has no per-class paragraph here. The guidance for the other " +
+                "$others classes - what each template makes UNWRITABLE, and which adversary round " +
+                "drained the build that went without it - is one call away: scaffold_dapp with " +
+                "notesFor=\"all\", or chromia_rell_practices_help."
+        } else {
+            "Need a different class? The per-class guidance for the other $others classes - what " +
+                "each template makes UNWRITABLE, and which adversary round drained the build that " +
+                "went without it - is one call away: scaffold_dapp with notesFor=\"all\" (or " +
+                "notesFor=\"<template>\" for one), or chromia_rell_practices_help."
+        }
+        return (header + mine.flatten() + listOfNotNull(pointer.takeIf { it.isNotEmpty() }) + trailer)
+            .joinToString("\n")
+    }
+
+    /** The template a catalogue paragraph is about: the first `template=x` it names. */
+    private fun blockTemplate(block: List<String>): String? =
+        Regex("""template=([a-z0-9_]+)""").find(block.joinToString(" "))?.groupValues?.get(1)
+            ?.takeIf { it in templates }
+
+    private fun notesCatalogue(name: String): String {
         val chain = normalizeName(name)
         return """
             New Chromia dapp skeleton for `$chain`.
@@ -1548,6 +1654,26 @@ object DappScaffold {
      * remains. "My-Peg App" -> "my_peg_app". Offered in the warning, never
      * applied silently: the name keys the deployments block.
      */
+    /**
+     * The shipped template [closestTemplateNote] routes an unknown name to, or
+     * null when its honest answer is "no shipped template covers that name".
+     *
+     * AUDIT F6 (2026-09-06): the schema promised "an unknown template name is
+     * answered with the closest shipped template and what it does NOT cover",
+     * and 18 of 18 names an agent would guess - dex, orderbook, order_book, nft,
+     * token, dao, allowance, escrow, crosschain, oracle, swap, auction, payroll,
+     * vesting, treasury, erc20, stable, Bridge - returned "template":"hello"
+     * with the hello query-only files, isError:false. The redirect TEXT was
+     * excellent; the code attached to it was a guard-free skeleton for a
+     * different problem, and it passed rell_check and rell_security_check
+     * cleanly. An agent that asked for `nft` built a marketplace on it.
+     */
+    internal fun closestTemplate(requested: String): String? {
+        val named = Regex("""^Use `template=([a-z0-9_]+)`""")
+            .find(closestTemplateNote(requested))?.groupValues?.get(1)
+        return named?.takeIf { it in templates }
+    }
+
     internal fun suggestName(raw: String): String? {
         val folded = raw.trim().lowercase()
             .replace(Regex("[^a-z0-9_]+"), "_")
@@ -1557,17 +1683,50 @@ object DappScaffold {
         return folded.takeIf { namePattern.matches(it) }
     }
 
-    fun toJson(name: String?, template: String = "hello"): JsonObject {
+    /**
+     * The literal next call, spelled out. An agent that reads nothing else in
+     * this response can copy this one line and the shipped tests are green on
+     * the FIRST run (audit F4: they were red, and the fix was 14 KB into an
+     * essay).
+     */
+    internal fun nextCallNote(template: String): String {
+        val args = testModuleArgs(template)
+        return if (args.isEmpty()) {
+            "run_rell_tests{files: <the .rell files above>} - this template needs no moduleArgs. " +
+                "run_rell_tests also reads chromia.yml if you pass it inside `files`."
+        } else {
+            "run_rell_tests{files: <the .rell files above>, moduleArgs: <the `moduleArgs` field of " +
+                "THIS response, verbatim>}. That object is chromia.yml's blockchains.<name>.moduleArgs " +
+                "merged with its test.moduleArgs - FT4's test helpers need the test-scoped " +
+                "lib.ft4.core.admin / lib.ft4.test.core.auth keys, and without them every case fails " +
+                "with \"Unable to create GTX module\". Passing chromia.yml inside `files` does the " +
+                "same merge for you."
+        }
+    }
+
+    /**
+     * @param notesFor scopes the `notes` field (audit F5): null - the default -
+     * gives the returned template's own paragraphs plus a pointer; "all" gives
+     * the whole catalogue; a template name gives that one's.
+     */
+    fun toJson(name: String?, template: String = "hello", notesFor: String? = null): JsonObject {
         val chain = normalizeName(name)
         // `Stablecoin`, ` amm ` - case and whitespace are not a different ask
         // (DX audit 2026-09-04: a capitalised template name fell back to hello).
-        val effectiveTemplate = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) } ?: "hello"
-        val fileMap = files(chain, effectiveTemplate)
+        val exact = templates.firstOrNull { it.equals(template.trim(), ignoreCase = true) }
+        // AUDIT F6: an unknown name is answered with the CLOSEST shipped template
+        // - the one closestTemplateNote already computes and names - and never
+        // with `hello` code for a problem `hello` does not solve. When nothing is
+        // close, nothing is scaffolded: ok:false and the note, with no files.
+        val redirect = if (exact == null) closestTemplate(template) else null
+        val effectiveTemplate = exact ?: redirect
+        val ok = effectiveTemplate != null
+        val fileMap = effectiveTemplate?.let { files(chain, it) }.orEmpty()
         // Never silently substitute what the agent asked for (QA finding):
         // surface every fallback as an explicit warning.
         val warnings = mutableListOf<String>()
         val requested = name?.trim().orEmpty()
-        if (requested.isNotEmpty() && requested.lowercase() != chain) {
+        if (ok && requested.isNotEmpty() && requested.lowercase() != chain) {
             val suggestion = suggestName(requested)?.takeIf { it != chain }
             warnings.add(
                 "Requested name '$requested' is not a valid chain name (must match [a-z][a-z0-9_]{0,31}); " +
@@ -1575,15 +1734,25 @@ object DappScaffold {
                     (if (suggestion != null) ", e.g. name=\"$suggestion\"." else ".")
             )
         }
-        if (!template.trim().equals(effectiveTemplate, ignoreCase = true)) {
+        if (exact == null) {
             warnings.add(
-                "Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the " +
-                    "'$effectiveTemplate' template. " + closestTemplateNote(template)
+                if (redirect != null) {
+                    "Unknown template '$template' (valid: ${templates.joinToString(", ")}); scaffolded the " +
+                        "CLOSEST shipped template, '$redirect', and its files are what you have - not " +
+                        "'hello'. Read what it does NOT cover before you build on it. " +
+                        closestTemplateNote(template)
+                } else {
+                    "Unknown template '$template' (valid: ${templates.joinToString(", ")}); NOTHING was " +
+                        "scaffolded - there are no `files` in this response. Attaching a compilable, " +
+                        "guard-free skeleton for a different problem to this answer is how an agent " +
+                        "builds the wrong thing and passes every gate. " + closestTemplateNote(template)
+                }
             )
         }
         return buildJsonObject {
+            put("ok", ok)
             put("name", chain)
-            put("template", effectiveTemplate)
+            put("template", effectiveTemplate ?: "")
             put("warnings", buildJsonArray { warnings.forEach { add(JsonPrimitive(it)) } })
             put("rellVersion", RELL_VERSION)
             put("ft4Version", FT4_VERSION)
@@ -1606,13 +1775,38 @@ object DappScaffold {
                     forbiddenModules.forEach { add(JsonPrimitive(it)) }
                 }
             )
+            // No template, no code: `files` is absent, not an empty object an
+            // agent could read past (audit F6).
+            if (effectiveTemplate != null) {
+                put(
+                    "files",
+                    buildJsonObject {
+                        fileMap.forEach { (path, content) -> put(path, content) }
+                    }
+                )
+                // AUDIT F4: the merged moduleArgs as its own top-level field, so
+                // the next call is a copy of TWO fields and nothing has to be
+                // assembled by hand out of the yml. Empty for `hello`.
+                put("moduleArgs", testModuleArgsJson(effectiveTemplate))
+                put("nextCall", nextCallNote(effectiveTemplate))
+            } else {
+                put(
+                    "nextCall",
+                    "Nothing was scaffolded. Call scaffold_dapp again with one of: " +
+                        templates.joinToString(", ") + " - picking the one whose EXPLOIT class matches " +
+                        "yours, not the one whose name reads closest."
+                )
+            }
+            // AUDIT F5: the paragraphs for THIS template, not the 22 KB catalogue
+            // that was byte-identical in every response.
             put(
-                "files",
-                buildJsonObject {
-                    fileMap.forEach { (path, content) -> put(path, content) }
+                "notes",
+                when {
+                    notesFor == null -> notes(chain, effectiveTemplate ?: "hello")
+                    notesFor.trim().equals("all", ignoreCase = true) -> notes(chain)
+                    else -> notes(chain, notesFor)
                 }
             )
-            put("notes", notes(chain))
         }
     }
 

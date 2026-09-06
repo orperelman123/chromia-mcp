@@ -135,7 +135,15 @@ class DappScaffoldTest {
         assertTrue(McpTools.allTools().any { it.name == "scaffold_dapp" })
         val schema = McpTools.scaffoldDappTool().outputSchema
         assertNotNull(schema)
-        assertTrue(schema!!.required.orEmpty().contains("files"))
+        // AUDIT F6: `files` cannot be REQUIRED, because the honest answer to a
+        // template name nothing covers is no files at all - attaching a
+        // compilable, guard-free `hello` skeleton to that refusal is how an
+        // agent builds the wrong thing and passes every gate. It is still
+        // declared, and `ok` / `template` are what a caller must always get.
+        assertNotNull(schema!!.properties["files"])
+        assertFalse(schema.required.orEmpty().contains("files"))
+        assertTrue(schema.required.orEmpty().contains("ok"))
+        assertTrue(schema.required.orEmpty().contains("template"))
         val prompts = PromptManager()
         assertTrue(prompts.getCategories().contains("dapp_build"))
         val prompt = prompts.getPrompt("dapp_build", "Scaffold a new Chromia dapp")

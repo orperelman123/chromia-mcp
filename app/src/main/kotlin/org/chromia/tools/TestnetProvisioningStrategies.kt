@@ -745,12 +745,16 @@ class DeployTestnetChainStrategy(
         secrets: MutableSet<String>
     ): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
-        val rellParam = extractStringMap(args, "rell")
-        val filesAlias = if (rellParam == null) extractStringMap(args, "files") else null
-        val files = rellParam ?: filesAlias
+        // AUDIT F10: `files` is the canonical name for Rell sources on every
+        // code-taking tool here; `rell` and `source` are accepted with no
+        // warning and no preference.
+        val files = extractStringMap(args, "files")
+            ?: extractStringMap(args, "rell")
+            ?: extractStringMap(args, "source")
             ?: return toolErrorResult(
-                "Missing required parameter: rell (the dapp sources - one source string or an object of " +
-                    "path -> source). The gates cannot vouch for code they never saw."
+                "Missing required parameter: files (the dapp sources - one source string or an object of " +
+                    "path -> source; `rell` and `source` are accepted as aliases). The gates cannot " +
+                    "vouch for code they never saw."
             )
         val blockchain = extractString(args, "blockchain")?.takeIf { it.isNotBlank() } ?: "my_dapp"
         // The name is a chromia.yml key AND a chr command-line argument. An
@@ -779,16 +783,16 @@ class DeployTestnetChainStrategy(
                     "digits, and _ . - only) - pass the name returned by provision_testnet_container."
             )
         }
-        val providedYml = extractString(args, "chromiaYml")?.takeIf { it.isNotBlank() }
+        // AUDIT F10: `yaml` is the canonical name for a chromia.yml here;
+        // `chromiaYml` is accepted with no warning.
+        val providedYml = (extractString(args, "yaml") ?: extractString(args, "chromiaYml"))
+            ?.takeIf { it.isNotBlank() }
         val mode = when (val m = extractString(args, "mode")?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "create") {
             "create", "update" -> m
             else -> return toolErrorResult("mode must be \"create\" or \"update\"; got \"$m\"")
         }
         val dryRun = extractBoolean(args, "dryRun") ?: true
         val notes = mutableListOf<String>()
-        if (filesAlias != null) {
-            notes += "`files` was accepted as an alias for the `rell` parameter."
-        }
 
         // ---- chromia.yml ----------------------------------------------------
         val spec = WriteDeploymentConfig.resolveNetwork("testnet")!!
@@ -801,7 +805,20 @@ class DeployTestnetChainStrategy(
                         "container name returned by provision_testnet_container."
                 )
             }
-            var generated = WriteDeploymentConfig.chromiaYml(spec, blockchain)
+            // AUDIT F7: write_deployment_config no longer invents a project
+            // file. This path has no chromia.yml to merge into - the caller sent
+            // none - so the base is explicitly the minimal scaffold config, and
+            // the notes say so: a project with its own moduleArgs must pass
+            // `chromiaYml`, or those settings are simply not in what is deployed.
+            notes += "No chromiaYml was passed, so a MINIMAL config was generated from the default " +
+                "scaffold: it carries no moduleArgs, no test.moduleArgs and no extra libs. If your " +
+                "project declares any of those (every FT4 project does), pass your own chromia.yml as " +
+                "`chromiaYml` - what is generated here is not your project's configuration."
+            var generated = WriteDeploymentConfig.chromiaYml(
+                spec,
+                blockchain,
+                DappScaffold.files(blockchain).getValue("chromia.yml")
+            )
             // Adaptive compile.rellVersion: the generated config is destined for
             // the INSTALLED chr, so pin the Rell it actually bundles. chr 0.29.10
             // ships Rell 0.15.0 and rejects the 0.33.x-era default pin
