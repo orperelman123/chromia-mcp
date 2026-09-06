@@ -3120,31 +3120,45 @@ class DappScaffoldSecureTemplatesTest {
 
 
     /**
-     * AN ORDER BOOK MUST NOT BE ANSWERED WITH A CURVE.
+     * AN ORDER BOOK MUST NOT BE ANSWERED WITH A CURVE - AND, SINCE ROUND 12, MUST
+     * NOT BE ANSWERED WITH TWO SENTENCES EITHER.
      *
      * `closestTemplateNote()` answers an ask it has no template for by naming the
      * nearest one, and that redirect is itself a hazard: round 8's drainable AMM
      * existed because `template=amm` silently became `template=vault`. Shipping
      * the amm template fixed that ask and quietly created a smaller version of
-     * the same problem - "exchange" is in the amm word list, so an order-book
-     * ask began landing on a constant-product pool. Closer than a vault, still
-     * wrong, and answered with the same confidence.
+     * the same problem - "exchange" is in the amm word list, so an order-book ask
+     * began landing on a constant-product pool. This test then pinned the honest
+     * answer: no template covers it, with the hazard named.
      *
-     * A constant-product pool prices off two reserves; an order book has resting
-     * commitments at stale prices and something that decides which of them match.
-     * Nothing in the amm template addresses the second machine, so the honest
-     * answer is that no template covers it - said plainly, with the hazard named.
+     * ROUND 12 BUILT FROM THAT ANSWER AND WAS DRAINED BY IT. The two sentences it
+     * offered - the marketplace's immutable escrow row, and "an order that can be
+     * pulled in the block it would have been filled in is not a commitment at
+     * all" - were implemented literally, and they compose: an order with no
+     * mutable field makes a partial fill delete-and-recreate, so the remainder's
+     * clock starts now and any counterparty grinds the maker's cancel away. A
+     * paragraph that describes a safe shape and leaves the guards to the reader
+     * has now produced a drain three times, so the pin moves to the template: the
+     * ask must be ROUTED, and told what the template makes unwritable.
      */
     @Test
-    fun anOrderBookAskIsNotAnsweredWithTheAmmTemplate() {
+    fun anOrderBookAskIsRoutedToItsOwnTemplate() {
         val orderBook = DappScaffold.closestTemplateNote("a limit order book with matching")
         assertTrue(
+            orderBook.contains("Use `template=exchange`"),
+            "an order-book ask must be routed to its own template, got: $orderBook"
+        )
+        assertFalse(
             orderBook.contains("NO SHIPPED TEMPLATE COVERS AN ORDER BOOK"),
-            "an order-book ask must be told no template covers it, got: $orderBook"
+            "the answer round 12 built its drain from must not still be given: $orderBook"
         )
         assertTrue(
-            orderBook.contains("RESTING ORDER IS A STANDING COMMITMENT AT A STALE PRICE"),
-            "and must be told WHY it is dangerous, not merely that it is uncovered: $orderBook"
+            orderBook.contains("RESTARTED THE MAKER'S CANCEL CLOCK BY TAKING ONE UNIT"),
+            "and must be told WHY the class is dangerous, not merely which template to use: $orderBook"
+        )
+        assertTrue(
+            orderBook.contains("ONE MONOTONE COUNTER") && orderBook.contains("NO OPERATION NAMES A COUNTERPARTY"),
+            "and what the template makes unwritable - a redirect that names a template without its guard is the round-8 hazard again: $orderBook"
         )
 
         // The case that nearly shipped: `marketplace` claims "bid", and it used to be
@@ -3155,7 +3169,7 @@ class DappScaffoldSecureTemplatesTest {
         // single phrase that happened to dodge every other keyword.
         for (ask in listOf("an order book with bid/ask spreads", "a limit order book for loans")) {
             assertTrue(
-                DappScaffold.closestTemplateNote(ask).contains("NO SHIPPED TEMPLATE COVERS AN ORDER BOOK"),
+                DappScaffold.closestTemplateNote(ask).contains("Use `template=exchange`"),
                 "\"$ask\" must reach the order-book answer, not the branch that shares one of its words"
             )
         }
@@ -3164,11 +3178,16 @@ class DappScaffoldSecureTemplatesTest {
         val swap = DappScaffold.closestTemplateNote("a constant product swap pool")
         assertTrue(swap.contains("template=amm"), "a swap venue is covered and must still say so: $swap")
 
-        // And the ambiguous word that caused this says which machine it answered.
+        // And the ambiguous word that caused this still says which machine it
+        // answered - and now names the other one instead of leaving it uncovered.
         val exchange = DappScaffold.closestTemplateNote("an exchange")
         assertTrue(
             exchange.contains("NOT an order book"),
             "'exchange' reaches the amm answer, so that answer must say what it is not: $exchange"
+        )
+        assertTrue(
+            exchange.contains("`template=exchange`"),
+            "...and must send an order book to the template that now covers it: $exchange"
         )
     }
 
