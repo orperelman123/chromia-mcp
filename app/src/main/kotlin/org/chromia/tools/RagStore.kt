@@ -328,12 +328,26 @@ open class RagStore(
          * JSON is dropped. If the encode fails the JSON body is kept instead,
          * so a cache always exists after a successful download.
          */
-        private fun keepInCache(remote: RemoteEmbeddings, cache: Path, now: Instant) {
+        private fun keepInCache(
+            remote: RemoteEmbeddings,
+            cache: Path,
+            now: Instant,
+            /**
+             * The cached body was tried and did not parse. A CORRUPT cache is
+             * not a newer index - it is no index - so the F1 "an older download
+             * never clobbers a newer cache" guard below must not read its file
+             * date and keep it. Without this, a truncated body dated today made
+             * every later download "too old to cache" and the server
+             * re-downloaded the whole asset on every boot, forever
+             * (RagStoreCacheTest.aCorruptCacheIsReplacedNotServed).
+             */
+            cacheIsUnreadable: Boolean = false
+        ) {
             val file = remote.file ?: return
             // A fallback download must never become the sticky answer: if what we
             // just fetched was generated BEFORE what is already cached, keep the
             // cache (audit F1 - the GitLab body clobbered a newer GitHub one).
-            val existing = readCacheMeta(cache)
+            val existing = if (cacheIsUnreadable) null else readCacheMeta(cache)
             val existingAt = existing?.let { it.lastModified ?: it.downloadedAt }
             if (existingAt != null && remote.lastModified != null && remote.lastModified.isBefore(existingAt)) {
                 logger.warn(
@@ -407,9 +421,11 @@ open class RagStore(
             // STALE_AFTER, try the network FIRST and serve this copy only if the
             // refresh fails - at which point Provenance reports it as stale.
             val cachedIsStale = cached != null && cached.provenance(0).staleWarning(now) != null
+            var cacheIsUnreadable = false
             if (cached != null && !cachedIsStale && Duration.between(cached.downloadedAt, now) <= CACHE_REFRESH_AFTER) {
                 serveCache("fetched ${cached.downloadedAt}, refresh after ${CACHE_REFRESH_AFTER.toDays()} days")?.let { return it }
-                logger.warn("Cached embeddings at $cachePath could not be read; downloading a fresh copy")
+                logger.warn("Cached embeddings at $cachePath could not be read; downloading a fresh copy to replace it")
+                cacheIsUnreadable = true
             }
             if (cached != null && cachedIsStale) {
                 val generatedAt = cached.lastModified ?: cached.downloadedAt
@@ -422,7 +438,8 @@ open class RagStore(
                 logger.warn("Embeddings download failed: ${error.message}")
             }.getOrNull()
             if (remote != null) {
-                if (cachePath != null) keepInCache(remote, cachePath, now) else remote.file?.deleteIfExists()
+                if (cachePath != null) keepInCache(remote, cachePath, now, cacheIsUnreadable)
+                else remote.file?.deleteIfExists()
                 return LoadedEmbeddings(
                     remote.store,
                     Provenance(describeRemote(remote.url), remote.lastModified, embeddingStoreSegments(remote.store).size)
