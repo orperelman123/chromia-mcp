@@ -426,9 +426,27 @@ class DappScaffoldSecureTemplatesTest {
         ).forEach {
             assertTrue(main.contains(it), "governance entities must declare $it")
         }
+        // ROUND 13, ONE POCKET AT A TIME. execute_proposal moved points out of the
+        // treasury and retired no stake, and there is no unstake, so the same 1000 points
+        // could be funded, voted out to their owner and funded again: four turns bought
+        // 4000 of voting weight out of 1000 allocated points and then took two honest
+        // members' entire stake 5000 to 2000 over a bar of 3500. A payout now retires the
+        // weight that backed it, pro rata, so total_stake == treasury_balance at every
+        // block and the DAO's whole weight can never pass what genesis allocated.
+        assertTrue(execute.contains("retire_stake_backing(p.amount);"), "a payout must retire the stake that was backing it")
+        val retire = main.substringAfter("function retire_stake_backing").substringBefore("\n}")
+        assertTrue(retire.contains("dao.total_stake -= amount;"), "the retirement must lower the DAO's total weight")
+        assertTrue(retire.contains("update m ( .stake -= share );"), "the retirement must lower the stakers' own weight")
+        assertTrue(retire.contains("( @sort .owner )"), "the rounding must fall in a canonical order - an unsorted at-expression is not a consensus rule")
+        assertEquals(
+            1,
+            Regex("dao\\.total_stake -= ").findAll(code).count(),
+            "stake must be retired in exactly one place, and it must be the payout"
+        )
+        assertFalse(code.contains("operation unstake"), "there is no unstake: a point leaves the treasury by winning a vote or not at all")
         // The header COUNTS its guards. Round 12 found the stablecoin's count off by one.
-        assertTrue(main.contains("Nine guards are STRUCTURAL"), "the governance header must state its guard count")
-        assertEquals(9, guardCount(main), "the governance header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Ten guards are STRUCTURAL"), "the governance header must state its guard count")
+        assertEquals(10, guardCount(main), "the governance header's stated count must be the number of guards it lists")
     }
 
     @Test
@@ -1630,7 +1648,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_r11_two_point_stake_cannot_veto_an_approved_proposal",
             "test_r12_one_point_of_stake_cannot_freeze_the_treasury_must_fail",
             "test_r12_first_claimant_cannot_shut_the_genesis_window_must_fail",
-            "test_r12_a_re_proposal_does_not_buy_a_fresh_window"
+            "test_r12_a_re_proposal_does_not_buy_a_fresh_window",
+            "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
+            "test_r13_a_payout_retires_the_stake_that_backed_it"
         )
     )
 
@@ -1976,6 +1996,24 @@ class DappScaffoldSecureTemplatesTest {
         "test_r11_free_stake_sybil_takeover_must_fail",
         "only members with stake may propose",
         attackLanded
+    )
+
+    /**
+     * Round 13's stake ratchet: take the retirement out and a payout stops retiring the
+     * weight that backed it - which is exactly the template round 13 attacked. Four turns
+     * of fund-vote-execute then buy 4000 of voting weight out of 1000 allocated points,
+     * and the 2000-point proposal the replay REQUIRES to be refused is carried 5000 to
+     * 2000 over a bar of 3500, so run_must_fail reports that the transaction did not fail.
+     * Nothing else moves: the vintage rule, the reservation, the bar fixed at creation and
+     * the genesis cap all still stand, so only the retirement can be what changed - and
+     * the replay asserts nothing before the refusal, so it cannot redden for another reason.
+     */
+    @Test
+    fun governanceR13ReplayGoesRedWhenAPayoutRetiresNoStake() = assertGuardRemovalRedensExploitTest(
+        "governance",
+        "retire_stake_backing(p.amount);",
+        "test_r13_restaked_payout_cannot_compound_voting_weight_must_fail",
+        "proposal was not approved"
     )
 
     /** The approval cannot be parked either: strip the window and the expiry replay goes red. */

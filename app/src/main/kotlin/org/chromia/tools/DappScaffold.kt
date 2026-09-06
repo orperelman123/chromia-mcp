@@ -1143,7 +1143,7 @@ object DappScaffold {
         import lib.ft4.accounts;
 
         // Governance template: a member-funded treasury that pays out only by
-        // stake-weighted vote. Nine guards are STRUCTURAL - they live in the entities,
+        // stake-weighted vote. Ten guards are STRUCTURAL - they live in the entities,
         // the constants and the configuration, not in a require() a future operation can
         // forget:
         //   WEIGHT IS NOT - registration mints NOTHING. Voting weight exists only as a
@@ -1185,12 +1185,22 @@ object DappScaffold {
         //                   every later one is refused, because the vintage it was created
         //                   against is spent. It is O(1), it needs no scan, and it holds
         //                   however many proposers, sybils or proposals there are.
-        //   COMMITTED     - and a reservation at CREATION, so two APPROVALS are never sold
-        //     TREASURY      the same money and a proposer cannot park two claims on it: an
-        //                   APPROVED, unexecuted proposal inside its execution window
+        //   COMMITTED     - a reservation at CREATION that binds what it can bind: an
+        //     TREASURY      APPROVED, unexecuted proposal inside its execution window
         //                   reserves its amount against everybody, and a proposer's own
         //                   UNDECIDED proposals reserve against that proposer. A proposal
         //                   that LOST reserves NOTHING - losing a vote is not executing.
+        //                   WHAT IT DOES NOT DO, because round 13 measured it: two
+        //                   DIFFERENT proposers are each sold the whole treasury before
+        //                   either has won. Nothing is approved at creation, so nothing is
+        //                   reserved against the other, and both can win - two proposals
+        //                   of 2000 against a treasury of 2000, both approved, and the
+        //                   second refused only at EXECUTION by "treasury cannot cover the
+        //                   proposal" and by the vintage rule. So the guarantee is: an
+        //                   approval already won cannot be spent out from under it, and no
+        //                   proposer parks two claims on the same points. It is NOT that
+        //                   two approvals are never sold the same money - they are, and
+        //                   the loser finds out when they try to execute.
         //                   Round 12 measured what the previous rule (every row that is
         //                   `not .executed`) cost: ONE POINT of stake out of 2001 - 0.05%,
         //                   and the smallest holding require(proposer.stake > 0) admits -
@@ -1222,6 +1232,28 @@ object DappScaffold {
         //                   make it configurable, floor it: require(period >= VOTING_PERIOD_MS).
         //   STAKE WEIGHT  - a vote weighs what the voter had locked in the treasury. A
         //                   member with nothing at stake cannot propose and weighs zero.
+        //                   There is deliberately NO unstake: the only way a point leaves
+        //                   the treasury is a vote that spends it, so what you can lose
+        //                   really is what you may decide over.
+        //   ONE POCKET AT - a point is voting weight in ONE place at a time, and the DAO's
+        //     A TIME        whole voting weight IS the treasury: fund_treasury locks a
+        //                   point and mints a point of weight together, and every point
+        //                   execute_proposal pays OUT of the treasury retires a point of
+        //                   weight with it, pro rata from the stakes that were backing it
+        //                   (retire_stake_backing). dao.total_stake == dao.treasury_balance
+        //                   at every block, and the shipped conservation test asserts it,
+        //                   so total voting weight can never exceed what genesis allocated.
+        //                   Round 13 measured what the missing half cost: a payout retired
+        //                   NOTHING, so fund 1000 -> vote it out to yourself -> fund it
+        //                   again was a ratchet on weight. Four turns of it turned one
+        //                   member's 1000 allocated points into 4000 of permanent voting
+        //                   weight with her balance back where it started; she then took
+        //                   two honest members' entire 2000 of stake over their unanimous
+        //                   NO, 5000 yes to 2000 no against a bar of 3500 fixed from 7000
+        //                   of stake that only 3000 of points had ever backed. Every
+        //                   invariant the template shipped was exact throughout and the
+        //                   gate reported zero findings: the arithmetic was consistent,
+        //                   and the weight was still counterfeit.
         //   EXECUTED ONCE - `executed` flips in the same operation that pays.
         // The single-account drain (zero-stake proposer pays itself, votes 1-0,
         // executes after a 1 ms window) is refused at every step - it cannot propose,
@@ -1243,8 +1275,13 @@ object DappScaffold {
         // calls close_genesis() leaves a DAO that can never stake, never propose and never
         // pay - nothing is at risk, because nothing was ever staked, but the chain is dead
         // until that key signs. close_genesis() is a DEPLOYMENT STEP, not an option.
-        // To give somebody weight AFTER genesis, pay them by proposal - the DAO voting to
-        // fund a member is a vote like any other. Never re-open the mint.
+        // To give somebody SPENDABLE POINTS after genesis, pay them by proposal - the DAO
+        // voting to fund a member is a vote like any other. That is not a way to hand out
+        // WEIGHT, and round 13 drained the build whose author read it as one: the points a
+        // payout moves were weighing for the members who funded the treasury, so paying
+        // them out RETIRES that weight instead of copying it (ONE POCKET AT A TIME). The
+        // only thing that ever increased the DAO's total voting weight is the genesis
+        // allocation. Never re-open the mint.
 
         // The founder key: configuration, exactly like the vault's oracle. It signs the
         // genesis allocation and nothing else, and the production chromia.yml deliberately
@@ -1267,6 +1304,10 @@ object DappScaffold {
         // hold at every block.
         object dao {
             mutable treasury_balance: integer = 0;
+            // The whole of the DAO's voting weight, and always EXACTLY treasury_balance:
+            // fund_treasury raises both and execute_proposal lowers both. That equality is
+            // the one-pocket rule written as arithmetic - a point weighs while it is in
+            // the treasury and never after - and the shipped tests assert it at every step.
             mutable total_stake: integer = 0;
             // Points handed out by the genesis allocation so far - the ONLY place points
             // are created, so this is the whole supply in existence.
@@ -1321,7 +1362,13 @@ object DappScaffold {
         // took a 7000 treasury with four registrations when it was.
         val WELCOME_POINTS = 1000;
         // The whole supply of voting weight this DAO will ever have. Nothing mints past
-        // it, the founder included, and the allocation closes at the first stake anyway.
+        // it, the founder included, and nothing else ever raises the total: a payout
+        // retires the weight it moves (ONE POCKET AT A TIME). The window closes when the
+        // FOUNDER calls close_genesis() and at no other moment - round 12's window shut on
+        // the first member's stake, which is the drain that fix removed, and staking is
+        // refused while the window is open, so there is no first stake to shut anything.
+        // An author who believes otherwise never calls close_genesis(), which this header
+        // calls a DEPLOYMENT STEP.
         val GENESIS_POINTS = 100 * WELCOME_POINTS;
         // Three days. A constant: there is no parameter that shortens it.
         val VOTING_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
@@ -1394,6 +1441,37 @@ object DappScaffold {
             return false;
         }
 
+        // A PAYOUT RETIRES THE WEIGHT THAT BACKED IT, and this is the whole of round 13's
+        // fix. The treasury and the voting weight are the SAME points - fund_treasury locks
+        // a point and mints a point of weight in one operation - so a point that leaves the
+        // treasury must stop weighing, or the same point can be funded, voted out to its
+        // own owner and funded again for ever. Each staker gives up a share pro rata to
+        // what they had locked, rounded UP so the shares always cover the payment and the
+        // DAO never eats the rounding, and clamped by what is left to retire so the total
+        // is exactly the amount paid. O(members with stake), once per payout.
+        // The caller is execute_proposal and there is no other: this is the only place any
+        // stake is ever reduced, which is why there is no unstake operation.
+        function retire_stake_backing(amount: integer) {
+            val backing = dao.total_stake;
+            require(backing >= amount, "the treasury is not backed by stake");
+            var remaining = amount;
+            // Sorted by owner, because the rounding decides which staker pays the odd
+            // point and every node must decide it the same way: an at-expression with no
+            // @sort has no defined row order, and a consensus rule may not depend on one.
+            for (owner in member @* { .stake > 0 } ( @sort .owner )) {
+                if (remaining > 0) {
+                    val m = member @ { .owner == owner };
+                    var share = (m.stake * amount + backing - 1) / backing;
+                    if (share > m.stake) share = m.stake;
+                    if (share > remaining) share = remaining;
+                    update m ( .stake -= share );
+                    remaining -= share;
+                }
+            }
+            require(remaining == 0, "stake retirement did not balance");
+            dao.total_stake -= amount;
+        }
+
         // Membership is open and WORTH NOTHING BY ITSELF: a new member can be paid by the
         // DAO and can be a proposal's beneficiary, and has no points and no vote until the
         // genesis allocation gives them some - which, once the founder has closed that
@@ -1437,7 +1515,10 @@ object DappScaffold {
         }
 
         // Lock points in the treasury. Stake is voting weight: what you can lose
-        // is what you may decide over. It is refused while the genesis window is open,
+        // is what you may decide over - and it is only true because the two are the same
+        // points and a payout retires them together. There is no unstake: a point comes
+        // back out of the treasury by winning a vote or not at all, and when it does the
+        // weight it carried goes with it. It is refused while the genesis window is open,
         // which is the other half of round 12's fix: staking is what used to shut that
         // window, so the two phases are now strictly ordered instead of racing.
         operation fund_treasury(amount: integer) {
@@ -1563,6 +1644,10 @@ object DappScaffold {
             update p ( .executed = true );
             dao.treasury_balance -= p.amount;
             dao.paid_total += p.amount;
+            // ONE POCKET AT A TIME: the money that leaves the treasury stops voting. Round
+            // 13's ratchet is exactly this line missing - four turns of fund, vote, execute
+            // turned 1000 points into 4000 of weight, and the payee's balance never moved.
+            retire_stake_backing(p.amount);
             update b ( .balance += p.amount );
         }
 
@@ -1697,6 +1782,11 @@ object DappScaffold {
         function assert_conserved() {
             assert_equals(main.points_in_circulation(), main.allocated_points());
             assert_equals(main.staked_points(), main.total_stake());
+            // ONE POCKET AT A TIME: the DAO's whole voting weight IS the treasury, so a
+            // point can never weigh in two places and the total can never pass what
+            // genesis allocated. Round 13's ratchet broke exactly this equality - 7000 of
+            // weight against a treasury of 3000 - while every other line here stayed exact.
+            assert_equals(main.total_stake(), main.treasury_balance());
             // The two monotone counters the vintage rule is made of, checked against the
             // balance they are supposed to describe: nothing leaves the treasury except
             // through execute_proposal, and nothing enters it except through fund_treasury.
@@ -1832,6 +1922,10 @@ object DappScaffold {
 
             assert_equals(main.get_balance(bob.account.id), main.WELCOME_POINTS - 400 + 300);
             assert_equals(main.treasury_balance(), 700);
+            // ...and the 300 that left the treasury stopped voting: each staker gave up
+            // their pro-rata share of it, 180 of alice's 600 and 120 of bob's 400.
+            assert_equals(main.get_stake(alice.account.id), 420);
+            assert_equals(main.get_stake(bob.account.id), 280);
             // Executed once: a replay is refused and moves nothing.
             signed_must_fail(bob.keypair, main.execute_proposal(pid), "proposal already executed");
             assert_equals(main.treasury_balance(), 700);
@@ -1932,8 +2026,11 @@ object DappScaffold {
             // it: 1000 of her weight against a bar of 1500.
             signed(trudy.keypair, main.create_proposal("pay me the rest", trudy.account.id, 2000));
             val pid2 = proposal_titled("pay me the rest");
-            assert_equals(main.get_proposal(pid2).stake_at_creation, 3000);
-            assert_equals(main.get_proposal(pid2).quorum_weight, 1500);
+            // 2000, not 3000: the 1000 just paid out retired the weight that was backing
+            // it (round 13). Her own weight fell with everyone else's, and it is still
+            // nowhere near the bar.
+            assert_equals(main.get_proposal(pid2).stake_at_creation, 2000);
+            assert_equals(main.get_proposal(pid2).quorum_weight, 1000);
             signed(trudy.keypair, main.cast_vote(pid2, true));
             close_voting_window();
             signed_must_fail(trudy.keypair, main.execute_proposal(pid2), "quorum not reached");
@@ -2284,6 +2381,137 @@ object DappScaffold {
             signed_must_fail(trudy.keypair, main.execute_proposal(pid), "proposal was not approved");
             assert_equals(main.treasury_balance(), 2001);
             assert_equals(main.get_balance(trudy.account.id), main.WELCOME_POINTS - 1);
+            assert_conserved();
+        }
+
+        // One turn of round 13's ratchet: fund 1000, vote it out to yourself, and see
+        // whether the stake it bought survives the payout. It does not, and that is the
+        // fix - under the template round 13 attacked, every turn added 1000 of permanent
+        // voting weight for nothing.
+        function ratchet_turn(alice: rell.test.keypair, alice_id: byte_array, title: text) {
+            signed(alice, main.fund_treasury(1000));
+            signed(alice, main.create_proposal(title, alice_id, 1000));
+            val p = proposal_titled(title);
+            signed(alice, main.cast_vote(p, true));
+            close_voting_window();
+            signed(alice, main.execute_proposal(p));
+        }
+
+        // EXPLOIT MUST FAIL. Round 13: the stake ratchet. execute_proposal moved points
+        // OUT of the treasury and retired no stake at all - neither member.stake nor
+        // dao.total_stake was decremented anywhere in the module, and there is no unstake -
+        // so the SAME 1000 points could be funded, voted out to their own owner and funded
+        // again, and every turn bought 1000 more of permanent voting weight. Measured:
+        // alice, one of three equal members with 1000 allocated points, ran the cycle four
+        // times and held 4000 of weight with her balance exactly where the founder left it.
+        // The honest two then staked 1000 each; she proposed 2000 to herself against a bar
+        // of 3500 fixed from 7000 of stake, voted 5000 yes to their 2000 no, and took their
+        // entire stake. Every invariant the template shipped was exact throughout and the
+        // gate reported zero findings - the arithmetic was consistent and the weight was
+        // counterfeit anyway.
+        //
+        // Here the same four turns leave her weight at exactly the 1000 she has locked,
+        // because a payout retires the stake that was backing it, and the 2000-point vote
+        // is refused by the honest majority it was designed to overrule.
+        function test_r13_restaked_payout_cannot_compound_voting_weight_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            signed(trudy.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            claim(trudy.keypair);
+            assert_equals(main.allocated_points(), 3000);
+            close_genesis_window();
+            assert_conserved();
+
+            // FOUR TURNS, and nothing is asserted between them on purpose: the first
+            // thing in this test that may differ is the refusal at the end, so a mutant
+            // that strips the retirement reddens on the ATTACK LANDING and not on an
+            // assertion. What each turn does to the ledger is pinned next door, in
+            // test_r13_a_payout_retires_the_stake_that_backed_it.
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 1");
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 2");
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 3");
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 4");
+
+            // The honest members arrive and everybody puts up what they have.
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+            signed(trudy.keypair, main.fund_treasury(1000));
+            assert_equals(main.treasury_balance(), 3000);
+
+            // THE DRAIN. Round 13: 5000 of weight against a bar of 3500, and bob and
+            // trudy's entire stake gone over their unanimous NO.
+            signed(alice.keypair, main.create_proposal("pay me", alice.account.id, 2000));
+            val p = proposal_titled("pay me");
+            signed(alice.keypair, main.cast_vote(p, true));
+            signed(bob.keypair, main.cast_vote(p, false));
+            signed(trudy.keypair, main.cast_vote(p, false));
+            close_voting_window();
+            signed_must_fail(alice.keypair, main.execute_proposal(p), "proposal was not approved");
+
+            // Round 13's numbers, beside the ones this template produces.
+            assert_equals(main.get_stake(alice.account.id), 1000);       // round 13: 5000
+            assert_equals(main.total_stake(), 3000);                     // round 13: 7000
+            assert_equals(main.get_proposal(p).quorum_weight, 1500);     // round 13: 3500
+            assert_equals(main.get_proposal(p).yes_weight, 1000);        // round 13: 5000
+            assert_equals(main.get_proposal(p).no_weight, 2000);
+            assert_equals(main.treasury_balance(), 3000);
+            assert_equals(main.get_balance(bob.account.id), 0);
+            assert_equals(main.get_balance(trudy.account.id), 0);
+            assert_equals(main.funded_total(), 7000);
+            assert_equals(main.paid_total(), 4000);
+            assert_conserved();
+        }
+
+        // THE PROPERTY, one turn at a time: a point is voting weight in ONE place, and
+        // the DAO's whole weight IS the treasury. Round 13's ratchet is what this
+        // arithmetic forbids - there, turn one left 1000 of stake standing against an
+        // empty treasury, and every later turn added another 1000.
+        function test_r13_a_payout_retires_the_stake_that_backed_it() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_member());
+            signed(bob.keypair, main.register_member());
+            claim(alice.keypair);
+            claim(bob.keypair);
+            close_genesis_window();
+
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 1");
+            // The 1000 points are back in her balance and the weight they bought went
+            // with them: round 13 measured 1000 of stake still standing here.
+            assert_equals(main.get_stake(alice.account.id), 0);
+            assert_equals(main.get_balance(alice.account.id), 1000);
+            assert_equals(main.total_stake(), 0);
+            assert_equals(main.treasury_balance(), 0);
+            assert_conserved();
+
+            ratchet_turn(alice.keypair, alice.account.id, "recycle 2");
+            // Two turns: round 13 measured 2000. Turning the handle costs a voting window
+            // and buys nothing at all.
+            assert_equals(main.get_stake(alice.account.id), 0);
+            assert_equals(main.total_stake(), 0);
+            assert_equals(main.funded_total(), 2000);
+            assert_equals(main.paid_total(), 2000);
+            assert_conserved();
+
+            // And a payout shared between two stakers retires both their weights pro
+            // rata: 1500 of a 2000 treasury takes 750 from each of two equal stakes.
+            signed(alice.keypair, main.fund_treasury(1000));
+            signed(bob.keypair, main.fund_treasury(1000));
+            signed(alice.keypair, main.create_proposal("pay bob", bob.account.id, 1500));
+            val p = proposal_titled("pay bob");
+            signed(alice.keypair, main.cast_vote(p, true));
+            signed(bob.keypair, main.cast_vote(p, true));
+            close_voting_window();
+            signed(bob.keypair, main.execute_proposal(p));
+            assert_equals(main.get_stake(alice.account.id), 250);
+            assert_equals(main.get_stake(bob.account.id), 250);
+            assert_equals(main.total_stake(), 500);
+            assert_equals(main.treasury_balance(), 500);
             assert_conserved();
         }
     """.trimIndent() + "\n"
