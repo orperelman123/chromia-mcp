@@ -159,7 +159,10 @@ class AuditRound4RegressionTest {
         val store = RagStore(
             loadFromRegistry = true,
             localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
-            remoteUrls = emptyList()
+            remoteUrls = emptyList(),
+            // Explicit: the default is the developer's real ~150 MB
+            // ~/.chromia-mcp cache, which no test may read or overwrite.
+            cacheEmbeddingsPath = null
         )
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
             callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "abc123") }),
