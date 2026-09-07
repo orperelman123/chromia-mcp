@@ -3136,11 +3136,23 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                 if (hit) { reaching += node; grew = true }
             }
         }
-        /** The text a statement really executes: itself plus every reaching helper it calls. */
+        /**
+         * The text a statement really executes: itself plus EVERY test-module
+         * helper it calls - REACHING OR NOT. Round 16 expanded only the helpers
+         * that reach the guard's declaration, so a helper that adds an
+         * OPERATION without invoking that declaration was never expanded:
+         * `audited(rell.test.tx().op(take(...))).run_must_fail(...)` counted
+         * one `.op(` and read as a single-operation SHAPE A, while the
+         * transaction it really ran carried two - and the second operation
+         * refusing on the DAMAGE was reported as the attack being refused
+         * (p17d/p17d2). What a statement runs is what its whole call closure
+         * runs, so the operations and the `run_must_fail` are counted over
+         * that.
+         */
         fun flatten(module: String, text: String, depth: Int, seen: MutableSet<String>): String {
             if (depth > 4) return text
             val sb = StringBuilder(text)
-            helperCallsIn(module, text).keys.filter { it in reaching }.forEach { node ->
+            helperCallsIn(module, text).keys.forEach { node ->
                 if (seen.add(node)) {
                     helperBodies.getValue(node).forEach {
                         sb.append('\n').append(flatten(node.substringBeforeLast(':'), it, depth + 1, seen))
