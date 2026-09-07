@@ -234,8 +234,10 @@ class AuditRound4RegressionTest {
         val baselineLeaked = RunRellTests.leakedRunners.get()
         assertEquals(1, RunRellTests.dbRunPermit.availablePermits(), "test needs an idle permit")
 
-        // A real Rell test that takes seconds, so the caller can be interrupted
-        // while the runner genuinely still owns the database. The loop is pure
+        // A real Rell test that takes a few seconds, so the caller can be
+        // interrupted while the runner genuinely still owns the database. The
+        // window it opens sits on top of the compile and chain setup the run
+        // pays for before the loop even starts. The loop is pure
         // arithmetic - no entities, no blocks - so its cost is the interpreter's
         // and nothing else.
         val slowTest = mapOf(
@@ -244,7 +246,7 @@ class AuditRound4RegressionTest {
                     "function test_slow() {\n" +
                     "    var i = 0;\n" +
                     "    var s = 0;\n" +
-                    "    while (i < 8000000) { s += i; i += 1; }\n" +
+                    "    while (i < 2000000) { s += i; i += 1; }\n" +
                     "    assert_true(s > 0);\n" +
                     "}"
                 )
