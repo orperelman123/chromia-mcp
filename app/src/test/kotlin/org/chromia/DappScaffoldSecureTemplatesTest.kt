@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -116,7 +116,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance"), DappScaffold.templates)
+        assertEquals("insurance", DappScaffold.toJson("pool", template = "insurance").getValue("template").toString().trim('"'), "the class round 17 drained must scaffold its own template")
         assertEquals("escrow", DappScaffold.toJson("otc", template = "escrow").getValue("template").toString().trim('"'), "the class round 15 drained must scaffold its own template")
         assertEquals("bridge", DappScaffold.toJson("wrapped", template = "bridge").getValue("template").toString().trim('"'), "the class round 14 drained must scaffold its own template")
         assertEquals("subscription", DappScaffold.toJson("plan", template = "subscription").getValue("template").toString().trim('"'), "the class round 13 drained must scaffold its own template")
@@ -133,7 +134,31 @@ class DappScaffoldSecureTemplatesTest {
         // back as "template":"hello" with the query-only skeleton attached.
         val unknown = DappScaffold.toJson("x", template = "dao")
         assertEquals("governance", unknown.getValue("template").toString().trim('"'))
-        assertTrue(unknown.getValue("warnings").toString().contains("governance, vault, staking"), "unknown-template warning must list the new templates")
+        // ROUND 17. This used to assert the literal "governance, vault, staking" - three
+        // names out of a HAND-WRITTEN list that opened "The ELEVEN hardened ones are" and
+        // omitted `escrow`, the fourteenth template, for five weeks. The roster is derived
+        // from DappScaffold.templates now, so the assertion is too: EVERY shipped template
+        // must be named in the note an agent gets when nothing covers its ask, with its
+        // one-line class beside it, and the count must be the count.
+        val roster = DappScaffold.closestTemplateNote("quantum_widget_registry")
+        DappScaffold.templates.forEach { t ->
+            assertTrue(roster.contains("`$t`"), "the roster must name every shipped template - missing $t: $roster")
+        }
+        assertTrue(
+            roster.contains("The ${DappScaffold.countWord(DappScaffold.hardenedTemplates().size)} hardened ones are"),
+            "the count in the roster is derived, never typed: $roster"
+        )
+        assertEquals(
+            DappScaffold.templates.toSet(),
+            DappScaffold.templateClasses.keys,
+            "every template needs its one-line class and nothing else may be in the map"
+        )
+        DappScaffold.hardenedTemplates().forEach { t ->
+            assertTrue(
+                roster.contains("`$t` (${DappScaffold.templateClasses.getValue(t)})"),
+                "a name without its EXPLOIT class is the round-8 hazard: $t"
+            )
+        }
         assertTrue(unknown.getValue("warnings").toString().contains("CLOSEST shipped template"), unknown.getValue("warnings").toString())
         // The notes steer staking / rewards / vesting builders to the template and
         // say in one place how module_args are passed (the round-4 stall).
@@ -219,6 +244,25 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(
             notes.contains("a TRANSFER-conservation test is structurally blind to a mint"),
             "the notes must retract the invariant they handed round 14's author"
+        )
+        // Round 17's un-templated class, and the answer that produced it was these
+        // notes' own redirect again: an insurance ask reached template=ft4 on `payment`.
+        assertTrue(notes.contains("start from template=insurance"), "notes must steer insurance builders to their own template")
+        assertTrue(
+            notes.contains("start from template=insurance, NOT\ntemplate=ft4"),
+            "the notes must name the redirect round 17 drained, not only the template"
+        )
+        assertTrue(
+            notes.contains("PREMIUM AND EVERY EXIT PATH CALLS IT"),
+            "the notes must name the guard that makes the refund-of-a-spent-premium unwritable"
+        )
+        assertTrue(
+            notes.contains("NOTHING IS PAID INSIDE A CLAIM"),
+            "...and the one that makes the exit race unwritable"
+        )
+        assertTrue(
+            notes.contains("THIS MODULE DOES NOT DECIDE WHETHER A LOSS HAPPENED"),
+            "the notes must carry the insurance header's residual, not only its guards"
         )
     }
 
@@ -2278,7 +2322,20 @@ class DappScaffoldSecureTemplatesTest {
         // `bid` is NOT a stem, and that is round 16's other unanchored word: a
         // bidirectional payment channel is not an auction. Nothing here covers a
         // payment channel, so it lands on the token skeleton and not on a listing board.
-        assertRoute("a bidirectional payment channel", "ft4")
+        // ROUND 17 changed this pin, and the direction is the point: it used to land on
+        // `ft4` (the token skeleton claims `payment*`) and round 17 recorded that as a
+        // misroute - a token ledger has no channel, no sequence number and no dispute
+        // window, so it covers NONE of the class's exploit. The honest answer is now no
+        // template at all, with the missing guard named.
+        assertNull(DappScaffold.closestTemplate("a bidirectional payment channel"))
+        assertTrue(
+            noteFor("a bidirectional payment channel").contains("No shipped template covers that name"),
+            noteFor("a bidirectional payment channel").take(200)
+        )
+        assertTrue(
+            noteFor("a bidirectional payment channel").contains("its exploit class is the CLOSE"),
+            "an honest refusal must name the class, or it is just a shrug"
+        )
         assertFalse(
             noteFor("a bidirectional payment channel").contains("Use `template=marketplace`"),
             "a payment channel is not a listing board - `bid` inside `bidirectional` used to say it was"
@@ -2312,13 +2369,61 @@ class DappScaffoldSecureTemplatesTest {
         // redirect that always names SOMETHING is the round-8 hazard with better aim.
         listOf(
             "a raffle with on-chain randomness",
-            "an insurance pool with claims",
             "a prediction market",
-            "a loyalty programme"
+            "a loyalty programme",
+            // ROUND 17's three measured misroutes whose honest answer is NO: a lottery
+            // reached `staking` on the word `rewards` (nothing in it makes a draw
+            // unpredictable), and a payment channel and a multisig wallet both reached
+            // `ft4` (which has neither a channel nor a signer set).
+            "a weekly lottery with rewards for ticket holders",
+            "a payment channel",
+            "a multisig wallet"
         ).forEach { ask ->
             assertNull(DappScaffold.closestTemplate(ask), "'$ask' has no template and must not be given one")
             assertTrue(noteFor(ask).contains("No shipped template covers that name"), ask)
         }
+        // ...and each honest NO names the guard that is missing, rather than shrugging.
+        assertTrue(
+            noteFor("a weekly lottery with rewards for ticket holders").contains("UNPREDICTABLE OUTCOME"),
+            noteFor("a weekly lottery with rewards for ticket holders").take(200)
+        )
+        assertTrue(
+            noteFor("a multisig wallet").contains("SIGNER SET"),
+            noteFor("a multisig wallet").take(200)
+        )
+        // ROUND 17'S OWN CLASS, which used to be in the list above: it has a template now,
+        // and TEMPLATE-GAPS.md's rule is that the redirect moves in the same commit.
+        listOf(
+            "an insurance pool with claims",
+            "an insurance pool funded by premium payments",
+            "a parametric insurance payout on an oracle trigger",
+            "a mutual risk pool",
+            "underwriting cover for members",
+            "a claims pool"
+        ).forEach { assertRoute(it, "insurance") }
+        assertTrue(
+            noteFor("an insurance pool funded by premium payments").contains("ONE HELPER THAT RETURNS A PREMIUM"),
+            "...and it must arrive with the guard, not just the template name"
+        )
+        // `premium` is this class's word AND every SaaS plan's, so the billing branch is
+        // read first and only an ask with no billing word reaches insurance.
+        assertRoute("a premium membership plan", "subscription")
+        // A liquidity mining program is a reward EMISSION, not a curve: round 17 measured
+        // it landing on `amm` because `liquidity` is an unstarred key in that list.
+        assertRoute("a liquidity mining program that pays rewards", "staking")
+        assertTrue(
+            noteFor("a liquidity mining program that pays rewards").contains("NOT `template=amm`"),
+            "...and the answer must say which half is which"
+        )
+        // The airdrop keeps the template whose guards DO cover its mint, and is told what
+        // that template does not cover.
+        assertRoute("a token airdrop with a claim window", "staking")
+        assertTrue(
+            noteFor("a token airdrop with a claim window").contains("there is no CLAIM WINDOW in it"),
+            "a redirect that does not name its own gap is the round-8 hazard"
+        )
+        // The plural round 17 measured falling through to the roster.
+        assertRoute("OTCs desk", "escrow")
 
         // AUDIT F6's other half: the vault paragraph began MID-LINE, so the block
         // splitter never started a block for it - `template=vault` got "no per-class
@@ -2803,6 +2908,195 @@ class DappScaffoldSecureTemplatesTest {
         )
     )
 
+    @Test
+    fun insuranceShippedTestsRunGreen() = assertShippedGreen(
+        "insurance",
+        setOf(
+            "test_round17_ins1_a_cancel_cannot_refund_a_spent_premium_must_fail",
+            "test_round17_ins2_a_short_reserve_settles_pro_rata_not_first_come_must_fail",
+            "test_round17_ins2_control_the_reverse_order_pays_the_same_two_numbers",
+            "test_round17_ins3_a_round_settles_once_and_only_after_its_window_must_fail",
+            "test_r17_i4_a_retired_policy_cannot_free_cover_it_already_claimed_must_fail",
+            "test_r17_i5_a_late_claim_cannot_push_the_settlement_out_must_fail",
+            "test_cover_is_bounded_by_the_reserve_that_backs_it_must_fail",
+            "test_the_premium_is_a_fraction_of_the_cover_must_fail",
+            "test_bounds_and_ownership_must_fail",
+            "test_an_exhausted_policy_closes_through_the_same_helper_must_fail",
+            "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
+            "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers",
+            "test_conservation_holds_across_premiums_claims_and_refunds"
+        )
+    )
+
+    /**
+     * THE FIFTEENTH TEMPLATE, and the shape adversary round 17 drained twice for want
+     * of it. Everything here is a property of the SOURCE - what a green suite cannot
+     * see - and every one of them carries a mutant below.
+     */
+    @Test
+    fun insuranceTemplateHasOneRefundHelperAndNoFirstComeExit() {
+        val files = DappScaffold.files("pool", template = "insurance")
+        val main = files.getValue("src/main.rell")
+        val code = withoutComments(main)
+
+        // ONE REFUND, ONE PLACE IT IS COMPUTED. The whole of round 17's first drain is
+        // that there was a SECOND place - so this counts them. A premium reaches a
+        // member's balance in exactly one function, and both exits call it.
+        assertEquals(
+            1,
+            Regex("pool\\.refunds_out \\+=").findAll(code).count(),
+            "a refund must be paid in exactly one place, or 'refund the whole premium' has somewhere to live"
+        )
+        assertTrue(code.contains("function retire_policy(p: policy) {"), "the one helper must exist by name")
+        val helper = code.substringAfter("function retire_policy(p: policy) {").substringBefore("\n}")
+        assertTrue(
+            helper.contains("val entitled = p.premium_paid - min(p.paid_out, p.premium_paid);"),
+            "the refund is the premium LESS what the policy was already paid: $helper"
+        )
+        listOf("cancel_policy", "close_exhausted_policy").forEach {
+            assertTrue(opBody(code, it).contains("retire_policy(p);"), "$it must exit through the one helper")
+            assertFalse(
+                opBody(code, it).contains(".balance +="),
+                "$it must not credit a balance of its own - that is the second place"
+            )
+        }
+        // ...and the caller of the permissionless exit is not the one who is paid.
+        assertFalse(
+            opBody(code, "close_exhausted_policy").contains("member_of(account.id)"),
+            "an exhausted policy's unspent premium goes to the HOLDER, never to whoever closed it"
+        )
+
+        // A REFUND IS PRO RATA TOO: the exit race is one operation further along.
+        assertTrue(
+            helper.contains("min(entitled, pool.reserve * entitled / pool.refundable)"),
+            "a leaver is paid her entitlement's SHARE of what is there: $helper"
+        )
+
+        // CLAIMS SETTLE PRO RATA, NOT FIRST COME. Nothing is paid inside file_claim, and
+        // the payout is a pure function of the round's snapshot and the claimant's own row.
+        assertFalse(
+            opBody(code, "file_claim").contains(".balance +="),
+            "a claim that pays in the block it is filed IS the exit race"
+        )
+        assertFalse(
+            opBody(code, "file_claim").contains("pool.reserve -="),
+            "...and it must not touch the reserve either"
+        )
+        val settle = opBody(code, "settle_claim_round")
+        assertTrue(settle.contains("val snapshot_reserve = pool.reserve;"), "the reserve must be SNAPSHOTTED: $settle")
+        assertTrue(
+            settle.contains("snapshot_reserve * c.amount / total_claimed"),
+            "each claimant's share must be reserve * claim / total_claimed: $settle"
+        )
+        assertTrue(
+            settle.contains("require(now >= round_state.opened_at + CLAIM_WINDOW_MS, \"the claim window is still open\");"),
+            "settlement before the window is the exit race with one more step"
+        )
+        assertTrue(
+            code.contains("key round, policy;"),
+            "one claim per policy per round must be a DATABASE key, not a check somebody remembers"
+        )
+
+        // A CLAIM RETIRES COVER, and a retirement retires only what the claims did not.
+        assertTrue(settle.contains("pool.cover_written -= payout;"), "a payout retires the cover it paid")
+        assertTrue(helper.contains("pool.cover_written -= live_cover(p);"), "and a retirement retires only the rest")
+
+        // COVER IS BOUNDED BY THE RESERVE, at a module arg with a POSITIVE DEFAULT - the
+        // one main arg in this repo that has one, because leaving it unset is safe here
+        // and leaving an oracle key unset is not.
+        assertTrue(main.contains("cover_multiplier: integer = 4;"), "the multiplier must have a positive default")
+        assertTrue(
+            opBody(code, "buy_policy").contains("pool.cover_written + cover <= (pool.reserve + premium) * cover_multiplier()"),
+            "the book must be bounded by the reserve that backs it"
+        )
+        assertTrue(
+            code.contains("require(m > 0 and m <= MAX_COVER_MULTIPLIER, \"cover_multiplier out of range\");"),
+            "a mis-set multiplier must refuse rather than write an unbounded book"
+        )
+        assertTrue(
+            opBody(code, "buy_policy").contains("require(premium * BPS >= cover * MIN_PREMIUM_BPS,"),
+            "the premium floor is a fraction of the cover"
+        )
+
+        // THE HOLDER IS THE SIGNER: no operation takes a holder, and every one that
+        // moves a policy's money reads the row's own holder against the signer.
+        assertFalse(
+            Regex("operation\\s+\\w+\\([^)]*holder\\s*:").containsMatchIn(code),
+            "no operation may take a holder as a parameter - that is the confused deputy"
+        )
+        listOf("file_claim", "cancel_policy").forEach {
+            assertTrue(
+                opBody(code, it).contains("require(p.holder == account.id, \"that is not your policy\");"),
+                "$it must bind the row to the signer"
+            )
+        }
+
+        // NO OPERATION WRITES A TIMESTAMP OF ITS OWN.
+        assertEquals(
+            1,
+            Regex("round_state\\.opened_at = ").findAll(code).count(),
+            "the round's clock is written by open_claim_round and by nothing else"
+        )
+        assertTrue(opBody(code, "open_claim_round").contains("round_state.opened_at = op_context.last_block_time;"))
+        assertFalse(code.contains("mutable filed_at"), "a claim's own timestamp is written once")
+
+        // EVERY AMOUNT IS BOUNDED BEFORE IT IS USED, and the bound that matters most is
+        // the one on a NEGATIVE claim: it would lower the round's total and pay everybody
+        // else MORE than pro rata out of the same reserve.
+        assertTrue(
+            opBody(code, "file_claim").contains("require(amount > 0 and amount <= MAX_AMOUNT, \"claim amount out of range\");")
+        )
+        assertTrue(code.contains("val MAX_LIVE_POLICIES ="), "a member's live policies must be bounded")
+        assertTrue(code.contains("val MAX_CLAIMS_PER_ROUND ="), "a round's claims must be bounded")
+
+        // THE HEADER'S OWN COUNT, measured from the list it writes.
+        assertTrue(main.contains("Eleven guards are STRUCTURAL"), "the insurance header must state its guard count")
+        assertEquals(11, guardCount(main), "the insurance header's stated count must be the number of guards it lists")
+        assertTrue(
+            main.contains("THIS MODULE DOES NOT DECIDE WHETHER A LOSS HAPPENED"),
+            "the header must admit what no guard here can fix"
+        )
+        assertTrue(
+            main.contains("INTEGER DIVISION LEAVES A REMAINDER, AND IT IS NOT SHARED"),
+            "...including the rounding it does not pretend away"
+        )
+
+        // THE CONSERVATION IDENTITY THAT IS ACTUALLY TRUE FOR AN INSURANCE POOL. Round 17
+        // copied the ft4 TRANSFER-conservation test, which was exact at every step of both
+        // drains: total value never moved, because a drain here is a REDISTRIBUTION.
+        val test = files.getValue("src/test/main_test.rell")
+        assertTrue(
+            test.contains("assert_equals(main.pool_reserve(), main.premiums_in() - main.claims_out() - main.refunds_out());"),
+            "the invariant must be the pool's, not a transfer's"
+        )
+        assertTrue(
+            test.contains("assert_equals(main.cover_written(), main.book_written());") &&
+                test.contains("assert_equals(main.refundable(), main.refundable_from_policies());"),
+            "both aggregates a bound is computed from must be checked against the rows they stand for"
+        )
+        // ...and the two orders are pinned to ONE string rather than to a comparison a
+        // reader has to make.
+        assertTrue(test.contains("val PRO_RATA_OUTCOME ="), "the claim outcome must be one value both orders assert")
+        assertTrue(test.contains("val REFUND_OUTCOME ="), "and so must the refund outcome")
+        mapOf(
+            "PRO_RATA_OUTCOME" to listOf(
+                "test_round17_ins2_a_short_reserve_settles_pro_rata_not_first_come_must_fail",
+                "test_round17_ins2_control_the_reverse_order_pays_the_same_two_numbers"
+            ),
+            "REFUND_OUTCOME" to listOf(
+                "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
+                "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers"
+            )
+        ).forEach { (outcome, cases) ->
+            cases.forEach { fn ->
+                assertTrue(
+                    test.substringAfter("function $fn(").substringBefore("\n}").contains(outcome),
+                    "$fn must assert $outcome - 'identical payouts' is ONE value, not a comparison a reader makes"
+                )
+            }
+        }
+    }
+
     /** What the Rell runner reports when a run_must_fail transaction succeeds - the attack landed. */
     private val attackLanded = "did not fail"
 
@@ -2951,6 +3245,204 @@ class DappScaffoldSecureTemplatesTest {
         assertFalse(error.contains("Unable to create GTX module"), "$template: mutant ran without its module_args - vacuous: $error")
         assertTrue(error.contains(redFragment, ignoreCase = true), "$template: $exploitTest must fail because the attack landed ('$redFragment'), got: $error")
     }
+
+    // ------------------------------------------------------------------------------
+    // ROUND 17, THE INSURANCE TEMPLATE. Eleven guards, eleven mutants. Each one was
+    // run on a real chain before it was written here: the mutant compiles, the case
+    // it names goes RED, and the red names the balance or the reserve the attack
+    // moved - never a compile error and never the guard's own refusal.
+    // ------------------------------------------------------------------------------
+
+    /**
+     * ROUND 17, DRAIN 1 - THE ONE REFUND HELPER. Give the refund back its round-17
+     * arithmetic - the WHOLE premium, ignoring what the policy has already been paid -
+     * and alice's cancel pays her 80 more out of the other members' premiums after her
+     * claim already spent hers. The replay reddens on the balance: alice=1280 where an
+     * honest pool leaves her at 1200.
+     */
+    @Test
+    fun insuranceR17ReplayGoesRedWhenACancelRefundsASpentPremium() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    val entitled = p.premium_paid - min(p.paid_out, p.premium_paid);",
+        "    val entitled = p.premium_paid;",
+        "test_round17_ins1_a_cancel_cannot_refund_a_spent_premium_must_fail",
+        // Wrong reason: the refund refused by the reserve floor, which would mean the
+        // drain was blocked by an accident of the fixture rather than by the arithmetic.
+        "the pool cannot refund this premium",
+        "alice=1280"
+    )
+
+    /**
+     * THE SAME DRAIN ONE LINE FURTHER BACK - A PAYOUT IS RECORDED ON THE POLICY IT
+     * PAID. Stop settlement writing `paid_out` and the refund reads a policy that was
+     * never paid, so the same premium is spent twice. Same case, same red balance, and
+     * the book is 1700 rather than 2000 because the retirement now retires cover the
+     * claim already retired.
+     */
+    @Test
+    fun insuranceR17ReplayGoesRedWhenAPayoutIsNotRecordedOnItsPolicy() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "            update p ( .paid_out += payout );",
+        "",
+        "test_round17_ins1_a_cancel_cannot_refund_a_spent_premium_must_fail",
+        "the pool cannot refund this premium",
+        "alice=1280"
+    )
+
+    /**
+     * ROUND 17, DRAIN 2 - CLAIMS SETTLE PRO RATA. Put the round-17 build's shape back:
+     * pay each claim in full while the reserve lasts, in the order the claims arrived.
+     * Bob filed first, so bob takes 140 and eve nothing, where pro rata is 70 each -
+     * and the control case (eve first) reddens the same way with the names swapped.
+     */
+    @Test
+    fun insuranceR17ReplayGoesRedWhenAShortReserveIsPaidFirstCome() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    val snapshot_reserve = pool.reserve;\n" +
+            "    val total_claimed = round_state.total_claimed;\n" +
+            "    for (c in claim @* { .round == round_state.id }) {\n" +
+            "        val share = if (total_claimed <= 0) 0 else snapshot_reserve * c.amount / total_claimed;\n" +
+            "        val payout = min(share, c.amount);",
+        "    for (c in claim @* { .round == round_state.id }) {\n" +
+            "        val payout = min(c.amount, pool.reserve);",
+        "test_round17_ins2_a_short_reserve_settles_pro_rata_not_first_come_must_fail",
+        // Wrong reason: the settle still refused by the window, which would mean nothing
+        // was paid at all and the order never mattered.
+        "the claim window is still open",
+        "bob=1120 eve=980"
+    )
+
+    /**
+     * THE EXIT RACE ON THE WAY OUT - A REFUND IS PRO RATA TOO. Pay each leaver her whole
+     * entitlement while the reserve lasts and bob, leaving first, takes 100 where 50 is
+     * his share; eve is left with nothing. Reachable in any pool that has ever paid a
+     * claim larger than the claimant's own premium, which is what an insurance pool is
+     * for.
+     */
+    @Test
+    fun insuranceR17ReplayGoesRedWhenARefundIsPaidFirstCome() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    val refund = if (pool.refundable <= 0) 0 else min(entitled, pool.reserve * entitled / pool.refundable);",
+        "    val refund = min(entitled, pool.reserve);",
+        "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
+        "the pool cannot refund this premium",
+        "bob=1000 eve=900"
+    )
+
+    /**
+     * A CLAIM RETIRES COVER, so a retirement may retire only what the claims did not.
+     * Retire the whole `cover` instead and the book is talked down BELOW the liability
+     * it stands for - to minus 90 on the replay's numbers - and the pool then writes
+     * cover the reserve does not back: the buy the replay requires to be refused
+     * succeeds, so the case goes red because the attack landed.
+     */
+    @Test
+    fun insuranceR17ReplayGoesRedWhenARetirementFreesCoverAClaimAlreadyRetired() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    pool.cover_written -= live_cover(p);",
+        "    pool.cover_written -= p.cover;",
+        "test_r17_i4_a_retired_policy_cannot_free_cover_it_already_claimed_must_fail",
+        "the pool has not the reserve to write that cover",
+        attackLanded
+    )
+
+    /**
+     * A ROUND SETTLES ONCE, AFTER ITS WINDOW. Take the window check out and whoever
+     * calls settle picks who is inside the round - the exit race with one more step, and
+     * the replay's must-fail early settle succeeds.
+     */
+    @Test
+    fun insuranceRoundTestGoesRedWhenARoundCanBeSettledBeforeItsWindow() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    require(now >= round_state.opened_at + CLAIM_WINDOW_MS, \"the claim window is still open\");",
+        "",
+        "test_round17_ins3_a_round_settles_once_and_only_after_its_window_must_fail",
+        "the claim window is still open",
+        attackLanded
+    )
+
+    /**
+     * NO OPERATION WRITES A TIMESTAMP OF ITS OWN. Let a claim move the round's
+     * `opened_at` - the round-7 anchor grief in this class's clothing - and a claimant
+     * filing at the end of the window holds every other claimant's money for as long as
+     * she keeps filing. The settle the replay requires to SUCCEED is refused, and THAT
+     * refusal is the attack landing: nobody is paid.
+     */
+    @Test
+    fun insuranceLateClaimTestGoesRedWhenFilingMovesTheRoundsClock() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    round_state.total_claimed += amount;",
+        "    round_state.total_claimed += amount;\n" +
+            "    round_state.opened_at = op_context.last_block_time;",
+        "test_r17_i5_a_late_claim_cannot_push_the_settlement_out_must_fail",
+        // Wrong reason: the round already closed, which would mean the settle ran.
+        "no claim round is open",
+        "the claim window is still open"
+    )
+
+    /**
+     * COVER IS BOUNDED BY THE RESERVE. Without the bound the book is written against
+     * nothing, and the replay's must-fail purchase - inside the premium floor, outside
+     * the reserve - succeeds.
+     */
+    @Test
+    fun insuranceCoverBoundTestGoesRedWithoutTheReserveMultiple() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    require(\n" +
+            "        pool.cover_written + cover <= (pool.reserve + premium) * cover_multiplier(),\n" +
+            "        \"the pool has not the reserve to write that cover\"\n" +
+            "    );",
+        "",
+        "test_cover_is_bounded_by_the_reserve_that_backs_it_must_fail",
+        "the pool has not the reserve to write that cover",
+        attackLanded
+    )
+
+    /**
+     * THE PREMIUM IS A FRACTION OF THE COVER. Without the floor, 39 buys 400 of cover
+     * and the replay's must-fail purchase succeeds - a policy bought for a point and
+     * claimed for a thousand is not a mutual pool, and the refund path is worth nothing.
+     */
+    @Test
+    fun insurancePremiumFloorTestGoesRedWithoutTheFloor() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    require(premium * BPS >= cover * MIN_PREMIUM_BPS, \"the premium is under the floor for that cover\");",
+        "",
+        "test_the_premium_is_a_fraction_of_the_cover_must_fail",
+        "the premium is under the floor for that cover",
+        attackLanded
+    )
+
+    /**
+     * THE HOLDER IS THE SIGNER. The row's own holder is what binds a claim and a cancel
+     * to the account that signed; take that away and trudy files a claim against bob's
+     * policy, so the replay's first must-fail succeeds.
+     */
+    @Test
+    fun insuranceOwnershipTestGoesRedWhenAPolicyIsNotBoundToItsSigner() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    require(p.holder == account.id, \"that is not your policy\");",
+        "",
+        "test_bounds_and_ownership_must_fail",
+        "that is not your policy",
+        attackLanded
+    )
+
+    /**
+     * EVERY AMOUNT IS BOUNDED BEFORE IT IS USED, and the sharp one is a NEGATIVE claim:
+     * it lowers the round's `total_claimed`, so every other claimant is paid MORE than
+     * their pro-rata share out of the same reserve. Without the bound the replay's
+     * must-fail -50 claim succeeds.
+     */
+    @Test
+    fun insuranceBoundsTestGoesRedWithoutTheClaimAmountBound() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    require(amount > 0 and amount <= MAX_AMOUNT, \"claim amount out of range\");",
+        "",
+        "test_bounds_and_ownership_must_fail",
+        "claim amount out of range",
+        attackLanded
+    )
 
     private fun assertGuardRemovalRedensExploitTest(
         template: String,

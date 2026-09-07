@@ -305,4 +305,22 @@ class ScaffoldToGreenTestsFirstRunTest {
 
     @Test
     fun theGovernanceTemplatesShippedTestsAreGreenOnTheFirstHonestRun() = runFirstHonestPass("governance", batches = 3)
+
+    /**
+     * ROUND 17's template, executed the same way: `scaffold_dapp{template:"insurance"}`
+     * then `run_rell_tests` with nothing hand-assembled, on a real chain. It is the
+     * THIRD template whose suite is executed here rather than pinned structurally,
+     * because it is the first whose main module reads a module arg WITH A DEFAULT -
+     * `cover_multiplier` - and the merge this class exists to prove is the one that
+     * would hide a default that never arrives: the shipped chromia.yml sets no `main`
+     * block at all, so a first honest run is the only thing that says whether the
+     * default resolves on a real chain or the module refuses to start.
+     *
+     * Thirteen cases, each a real FT4 suite against PostgreSQL, split across three
+     * calls by the tool's own `tests` selector - the 90s execution bound is per call
+     * and is never raised. The union of the cases the calls report must equal every
+     * `function test_*` the template's sources declare, so nothing can quietly drop out.
+     */
+    @Test
+    fun theInsuranceTemplatesShippedTestsAreGreenOnTheFirstHonestRun() = runFirstHonestPass("insurance", batches = 3)
 }

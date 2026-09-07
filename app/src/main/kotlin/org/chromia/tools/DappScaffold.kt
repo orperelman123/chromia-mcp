@@ -180,7 +180,90 @@ object DappScaffold {
     fun chromiaYmlFor(name: String): String = chromiaYml(normalizeName(name))
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance")
+
+    /**
+     * ONE LINE PER TEMPLATE, and the ONLY place the roster is written down.
+     *
+     * ROUND 17 measured the cost of not having this: the honest `else` branch of
+     * [closestTemplateNote] - the answer every non-English ask and every unmatched
+     * phrasing reaches - opened "The ELEVEN hardened ones are" and listed eleven
+     * BY HAND. `escrow`, the fourteenth template, was not among them, five weeks
+     * after `docs/TEMPLATE-GAPS.md` wrote the rule it breaks: *"When a template
+     * lands, delete its row and fix its redirect in the same commit."* A
+     * hand-written count is a claim like any other, and this one was false for
+     * every ask that reached it.
+     *
+     * So the sentence is DERIVED - [templateRoster] builds it from [templates] and
+     * from this map, the count included - and the [init] block below refuses to
+     * load a build whose map and template list disagree. A template added without
+     * its class line is not a stale sentence in the redirect; it is a class that
+     * does not start.
+     */
+    val templateClasses: Map<String, String> = linkedMapOf(
+        "hello" to "a query-only quickstart - nothing in it moves value",
+        "ft4" to "the plain token skeleton, with runnable invariant tests",
+        "governance" to "DAO/treasury/voting: quorum and weights fixed when a proposal is created, " +
+            "voting weight that cannot be minted, execute-once",
+        "vault" to "oracle-priced value: reserve-backed credits, a bounded and rate-limited price, a staleness halt",
+        "staking" to "a reward pool many stakers split: rewards only from a sponsor-funded pool, " +
+            "every credit a pool debit, a cooldown",
+        "marketplace" to "listings, escrowed offers, auctions, royalties",
+        "lending" to "a pool whose SHARES have a price that moves: no cash-denominated debt is stored anywhere",
+        "streaming" to "a clock-metered payout to ONE named beneficiary - payroll, vesting, drips - PREPAID, " +
+            "and no operation in it writes a timestamp",
+        "amm" to "a constant-product swap pool: exact-quoted-reserve swaps and term-committed liquidity positions",
+        "stablecoin" to "a coin minted against locked collateral: ratio-checked mints, pro-rata liquidation, " +
+            "shared settlement, no redemption at par",
+        "exchange" to "an ORDER BOOK: immutable resting orders whose partial fill writes one monotone counter, " +
+            "and matching no caller can reorder",
+        "subscription" to "RECURRING PULL BILLING: the merchant's whole claim is the escrow the payer funded, " +
+            "the fee accrues pro rata, either party may always cancel",
+        "bridge" to "a one-way bridge RECEIVER and its exit: a processed-burns registry keyed by the burn's " +
+            "identity on the source chain, a row that binds what the burn pays, a relayer set with a threshold, caps",
+        "escrow" to "a TWO-PARTY OTC SWAP with a deadline: all or nothing, revocable in any block, " +
+            "and the escrowed leg goes home to whoever escrowed it",
+        "insurance" to "a MUTUAL POOL WITH CLAIMS: one helper computes every refund and it is the premium less " +
+            "what the policy was paid, claims and refunds are both PRO RATA out of a short reserve, " +
+            "and cover is bounded by the reserve that backs it"
+    )
+
+    init {
+        require(templateClasses.keys == templates.toSet()) {
+            "every shipped template needs its one-line class in templateClasses, and nothing else may be in it - " +
+                "missing: ${templates.toSet() - templateClasses.keys}; extra: ${templateClasses.keys - templates.toSet()}"
+        }
+    }
+
+    /**
+     * The templates whose exploit class was made unwritable rather than merely
+     * documented. `hello` moves no value and `ft4` is the skeleton, so neither is
+     * one of them - and both are named separately in the roster rather than
+     * dropped.
+     */
+    internal fun hardenedTemplates(): List<String> = templates.filter { it != "hello" && it != "ft4" }
+
+    private val COUNT_WORDS = listOf(
+        "no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen",
+        "nineteen", "twenty"
+    )
+
+    /** The count as a word, or as digits past the words - never a wrong word. */
+    internal fun countWord(n: Int): String = COUNT_WORDS.getOrElse(n) { n.toString() }
+
+    /**
+     * The roster sentence, built from [templates] and [templateClasses] so it
+     * cannot go stale. Every hardened template is named WITH its class, because a
+     * name on its own is what round 8 measured: an agent picks the nearest word,
+     * not the nearest exploit class.
+     */
+    internal fun templateRoster(): String {
+        val hardened = hardenedTemplates()
+        return "The ${countWord(hardened.size)} hardened ones are " +
+            hardened.joinToString(", ") { "`$it` (${templateClasses.getValue(it)})" } +
+            "; `ft4` is ${templateClasses.getValue("ft4")}, and `hello` is ${templateClasses.getValue("hello")}."
+    }
 
     fun files(name: String, template: String = "hello"): Map<String, String> {
         val chain = normalizeName(name)
@@ -250,6 +333,11 @@ object DappScaffold {
                 "chromia.yml" to ft4ChromiaYml(chain),
                 "src/main.rell" to escrowMainRell(),
                 "src/test/main_test.rell" to escrowTestRell()
+            )
+            "insurance" -> linkedMapOf(
+                "chromia.yml" to insuranceChromiaYml(chain),
+                "src/main.rell" to insuranceMainRell(),
+                "src/test/main_test.rell" to insuranceTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -2073,6 +2161,36 @@ object DappScaffold {
             authorisation that cannot be revoked is a standing claim on a person rather
             than a right over a sum. There is deliberately no cancellable term. Both drains
             ship as must-fail tests with mutants.
+            Building an INSURANCE POOL - premiums bought against cover, claims paid out of a
+            common reserve, a refund when a member leaves: start from template=insurance, NOT
+            template=ft4. This is the class adversary round 17 built with no template at all,
+            because this server answered "an insurance pool funded by premium payments" with
+            template=ft4 on the `payment` keyword and the sentence about copying its
+            conservation tests - the same sentence round 14's bridge was built on. The build
+            that followed it carried every guard that answer names, drew ok:true with ZERO
+            findings, kept the copied conservation invariant EXACT at every step, and drained
+            twice. A CANCEL REFUNDED THE WHOLE PREMIUM out of a reserve the holder's own claim
+            had already spent: alice paid 100, took 300 of the other members' premiums and got
+            her 100 back, leaving the reserve at MINUS 100 with 2000 of cover still written
+            against it, and the cycle repeated to 2100 from 1000. AND THE CLAIMS RACED: two
+            holders covered for 1000 each against a reserve of 200 both suffered a covered
+            loss, and whoever landed first took the whole 200 while the other was refused down
+            to a single unit - 100 points on transaction order alone, where pro rata is 100
+            each. The template makes both unwritable. THERE IS ONE HELPER THAT RETURNS A
+            PREMIUM AND EVERY EXIT PATH CALLS IT, and what it returns is the premium LESS WHAT
+            THE POLICY HAS ALREADY BEEN PAID, so "refund the whole premium" has nowhere to be
+            written. NOTHING IS PAID INSIDE A CLAIM: a CLAIM ROUND snapshots the reserve and
+            the total claimed and pays every claimant reserve * claim / total_claimed, which is
+            the stablecoin template's shared-settlement shape and is here for the same reason.
+            A REFUND IS PRO RATA TOO - the exit race is one operation further along, so a
+            leaver is paid her entitlement's share of the reserve that is actually there.
+            Cover is bounded by the reserve times a configured multiplier with a positive
+            default, and the premium is a fraction of the cover. What no guard here can fix,
+            and the header says so: THIS MODULE DOES NOT DECIDE WHETHER A LOSS HAPPENED. Every
+            guard is about what a claim is PAID, never about whether it is true, so a real pool
+            needs an adjuster, an oracle or a parametric trigger - and that decision-maker is
+            then the thing an attacker buys.
+
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -2279,6 +2397,104 @@ object DappScaffold {
                     "ALLOWANCE ON A WALLET IS THIS CLASS TOO - it is a standing authorisation to " +
                     "PULL, which is exactly the thing that has to be capped, escrowed and " +
                     "revocable; the token the allowance is denominated in is `template=ft4`."
+            // ROUND 17'S UN-TEMPLATED CLASS, and it is AFTER the subscription branch on
+            // purpose: `premium*` is this class's word and it is also every SaaS plan's,
+            // so "a premium membership" reaches the billing template and "an insurance
+            // pool funded by premium payments" reaches this one. That ask is the exact
+            // string round 17 measured landing on `template=ft4`, answered with the
+            // sentence about copying conservation tests that also produced round 14's
+            // bridge - and the build that followed it drained twice.
+            has("insur*", "reinsur*", "premium*", "cover", "coverage", "claims pool*",
+                "parametric*", "underwrit*", "mutual pool*", "risk pool*", "actuarial*",
+                "indemnit*", "indemnif*") ->
+                "Use `template=insurance`: it is the template for this class, and this class is what " +
+                    "adversary round 17 drained WITH NO TEMPLATE AT ALL - from this very answer, which " +
+                    "used to send an insurance ask to `template=ft4` on the `payment` keyword and say " +
+                    "only that it ships \"the conservation, no-negative-balance and non-owner-must-fail " +
+                    "invariant tests to copy for your own economics\". That is the same sentence round " +
+                    "14's bridge was built on. The pool that followed it carried EVERY guard the answer " +
+                    "names - the holder was the SIGNER and never an argument, every amount was bounded, " +
+                    "the premium was at least 10% of the cover, and the copied conservation invariant " +
+                    "was EXACT at every step of both drains - and rell_security_check returned ok:true " +
+                    "with ZERO findings on all three samples. It drained twice anyway. FIRST, A PAYOUT " +
+                    "DID NOT RETIRE THE BACKING THAT PAID IT: cancel refunded the WHOLE premium out of " +
+                    "a reserve the holder's own claim had already spent, so alice paid 100, took 300 of " +
+                    "the other members' premiums and got her 100 back - the reserve stood at MINUS 100 " +
+                    "with 2000 of cover still written against it, and repeating the cycle took her to " +
+                    "2100 from 1000. SECOND, THE EXIT RACE: two holders covered for 1000 each against a " +
+                    "reserve of 200 both suffered a covered loss, and whoever's transaction landed " +
+                    "first took the whole 200 while the other was refused down to a single unit - ONE " +
+                    "HUNDRED POINTS ON TRANSACTION ORDER ALONE, where pro rata is 100 each. That is " +
+                    "r9-stablecoin-redemption-at-par-exit-race in a class that had no template. The " +
+                    "template makes both unwritable: THERE IS ONE HELPER THAT RETURNS A PREMIUM AND " +
+                    "EVERY EXIT CALLS IT, and what it returns is the premium LESS WHAT THE POLICY HAS " +
+                    "ALREADY BEEN PAID - \"refund the whole premium\" is not a check somebody removed, " +
+                    "it is a sentence with nowhere to be written; and NOTHING IS PAID INSIDE A CLAIM - " +
+                    "a CLAIM ROUND snapshots the reserve and the total claimed and pays every claimant " +
+                    "`reserve * claim / total_claimed`, which is the stablecoin template's " +
+                    "shared-settlement shape and is here for the same reason. A REFUND IS PRO RATA TOO, " +
+                    "because the exit race is one operation further along: what a leaver is paid is her " +
+                    "entitlement's share of the reserve that is actually there. Cover is bounded by the " +
+                    "reserve times a configured multiplier with a positive default, the premium is a " +
+                    "fraction of the cover, and both round-17 drains ship as must-fail tests with " +
+                    "mutants. WHAT IT DOES NOT DO, and no template can: it does not decide whether a " +
+                    "loss happened. Every guard is about what a claim is PAID, never about whether it " +
+                    "is true, so a real pool still needs an adjuster, an oracle or a parametric " +
+                    "trigger - and that decision-maker is then the thing an attacker buys."
+            // THE HONEST ANSWERS, and they are BRANCHES rather than the `else` because a
+            // class this server does not cover deserves its name said out loud. Round 17
+            // measured each of these landing on a template whose guards do not cover the
+            // ask: a lottery on `staking` (which has no unpredictable outcome), a payment
+            // channel and a multisig wallet on `ft4` (which has neither a channel nor a
+            // signer set). GOAL.md rules out "we never claimed to cover it" as a defence,
+            // and round 8 measured what a confident redirect to the wrong guards costs -
+            // so these say NO, and say what the missing guard would have to be.
+            has("lotter*", "raffle*", "sweepstake*", "prize draw*", "random winner*",
+                "randomness", "vrf", "prediction market*", "betting*") ->
+                "No shipped template covers that name, and the honest answer is NO rather than the " +
+                    "nearest template: an ask that turns on an UNPREDICTABLE OUTCOME has an exploit " +
+                    "class no template here addresses. `template=staking` is where round 17 measured " +
+                    "\"a weekly lottery with rewards for ticket holders\" landing, on the word " +
+                    "`rewards`, and its guards are about a reward pool being FUNDED before it pays - " +
+                    "nothing in it makes a draw unpredictable, and a draw an operation's signer can " +
+                    "predict is not a draw, it is a withdrawal. On this chain a block's own data " +
+                    "(timestamp, block rid, a hash of anything in the transaction) is visible to " +
+                    "whoever chooses when to submit, so it is not entropy. If you build one anyway: " +
+                    "commit-reveal with a deposit the revealer forfeits, or an external randomness " +
+                    "source with the same discipline the vault applies to a price - bounded, " +
+                    "rate-limited, staleness-checked - and write the economic invariant test FIRST. " +
+                    "The pot's CUSTODY is a different half and is covered: money in before the draw " +
+                    "and out after it is `template=marketplace`'s escrow discipline or " +
+                    "`template=insurance`'s pro-rata payout of a short pool, neither of which makes " +
+                    "the outcome fair."
+            has("payment channel*", "state channel*", "lightning*", "channels") ->
+                "No shipped template covers that name. A PAYMENT CHANNEL is off-chain state two " +
+                    "parties sign and either may close on-chain, and its exploit class is the CLOSE - " +
+                    "a stale state posted by whoever profits from it, and a dispute window somebody " +
+                    "has to watch. Nothing here ships that. Round 17 measured this ask landing on " +
+                    "`template=ft4` (the word is `payment`), which is a token ledger: it has no " +
+                    "channel, no sequence number and no dispute window, so it covers none of it. The " +
+                    "nearest shipped disciplines, and they are halves rather than answers: " +
+                    "`template=escrow` for value locked between TWO NAMED PARTIES with a deadline " +
+                    "written once and no operation that moves it, and `template=exchange` for a " +
+                    "monotone counter that makes a partial settlement unrewindable. Write the " +
+                    "economic invariant test FIRST - a passing security check is not economic " +
+                    "soundness."
+            has("multisig*", "multi sig*", "multi signature*", "signer set*", "threshold wallet*",
+                "cosigner*", "co signer*") ->
+                "No shipped template covers that name. A THRESHOLD-CONTROLLED ACCOUNT's exploit class " +
+                    "is the SIGNER SET - who may add or remove a key, whether a signature counts once, " +
+                    "and whether the set can be closed - and no template ships it as a general " +
+                    "facility. Round 17 measured this ask landing on `template=ft4` on the word " +
+                    "`wallet`; that skeleton has one auth descriptor and no signer set at all. TWO " +
+                    "real answers instead of a redirect: FT4's own account model already supports " +
+                    "multi-signature auth descriptors, so read `chr_multi_signature_help` and " +
+                    "`fetch_docs` before building an account system freehand; and if what you want is " +
+                    "M-of-N sign-off over a SPECIFIC action rather than over an account, " +
+                    "`template=bridge` ships exactly that shape as guards you can read - a relayer SET " +
+                    "closed by configuration, one voice counted once per subject by a database key, " +
+                    "and the action taken in the single transaction where the count EQUALS the " +
+                    "threshold, so there is no flag to forget."
             // AHEAD OF THE STREAMING BRANCH (round 16, audit F6). A DAO ask must reach
             // the DAO template, and the branch that used to take it first did so on a
             // substring inside "in-VEST-ment". Tokenisation fixes that spelling; the
@@ -2334,7 +2550,7 @@ object DappScaffold {
             // drained it twice. `swap` ALONE still means the pool - that is what most
             // people mean by it - but a swap that names two parties, an escrow, an OTC
             // trade or a timeout is this class and not that one.
-            has("escrow*", "otc", "atomic swap*", "p2p trade*", "peer to peer trade*",
+            has("escrow*", "otc*", "atomic swap*", "p2p trade*", "peer to peer trade*",
                 "swap between two parties", "two party swap*", "counterparty swap*",
                 "swap with a timeout") ->
                 "Use `template=escrow`: a TWO-PARTY OTC SWAP with a deadline, and it is the " +
@@ -2360,6 +2576,20 @@ object DappScaffold {
                     "their transaction lands - is in the header rather than hidden. If what you " +
                     "want is a POOL that prices off reserves, that is `template=amm`; if it is " +
                     "resting orders anyone may fill, that is `template=exchange`."
+            // AHEAD OF THE AMM BRANCH, and round 17 measured why: `liquidity` is an
+            // unstarred key in that list and the amm branch precedes staking, so "a
+            // liquidity mining program that pays rewards" was answered with a
+            // CONSTANT-PRODUCT POOL. A mining program is a REWARD EMISSION - the class
+            // whose drain was round 4's unbacked mint - and the amm's guards (an exact
+            // quoted reserve, a term on a liquidity position) cover none of it.
+            has("liquidity mining*", "liquidity incentive*", "liquidity program*",
+                "reward emission*", "emission schedule*", "incentive program*") ->
+                STAKING_NOTE + " AND A LIQUIDITY MINING PROGRAM IS THIS CLASS, NOT `template=amm`: " +
+                    "the pool that holds the two assets is the amm's problem, but the REWARD you emit " +
+                    "on top of it is a sponsor-funded distribution, and adversary round 4 drained " +
+                    "exactly that by paying a reward the pool did not hold. Build the curve from " +
+                    "`template=amm` and the emission from this one, and keep the emission's guard: " +
+                    "every credit is a debit of a pool somebody funded, in the same operation."
             has("amm*", "dex*", "swap*", "liquidity", "constant product*", "constantproduct*",
                 "uniswap*", "market maker*", "marketmaker*", "exchange*", "pair*") ->
                 "Use `template=amm`: it is the template for this class, and this class is what " +
@@ -2408,14 +2638,7 @@ object DappScaffold {
                     "- a stablecoin, a CDP, a synthetic - that is `template=stablecoin`: this answer " +
                     "used to send it here too, and round 9 drained the result by redeeming at par " +
                     "out of a reserve that no longer covered the coin."
-            has("stak*", "reward*", "harvest*", "emission*", "farm*", "airdrop*") ->
-                "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
-                    "releases at most what the pool holds, every credit is a pool debit in the same " +
-                    "operation, and unstaking has a cooldown. If instead you are paying ONE named " +
-                    "beneficiary over time - payroll, a vesting grant, a drip - that is " +
-                    "`template=streaming`, a different exploit class with its own template; and if " +
-                    "a MERCHANT collects from a payer period after period, that is " +
-                    "`template=subscription`, a third one."
+            has("stak*", "reward*", "harvest*", "emission*", "farm*", "airdrop*") -> STAKING_NOTE
             has("token*", "ft4", "asset*", "coin*", "transfer*", "wallet*", "payment*") ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics. If what " +
@@ -2426,30 +2649,32 @@ object DappScaffold {
                     "its backing while the conservation invariant it copied from HERE stayed " +
                     "exact, because a TRANSFER-conservation test cannot see a mint."
             else ->
-                "No shipped template covers that name. The eleven hardened ones are `governance` " +
-                    "(DAO/treasury/voting), `vault` (oracle-priced value, reserves, redemption), " +
-                    "`staking` (a reward pool many stakers split), `marketplace` (listings, escrowed " +
-                    "offers, auctions, royalties), `lending` (a pool whose SHARES have a price " +
-                    "that moves), `streaming` (a clock-metered payout to one named beneficiary - " +
-                    "payroll, vesting, drips - PREPAID), `amm` (a constant-product swap " +
-                    "pool: exact-quoted-reserve swaps and term-committed liquidity positions), " +
-                    "`stablecoin` (a coin minted against locked collateral: ratio-checked mints, " +
-                    "pro-rata liquidation, shared settlement, no redemption at par) and " +
-                    "`exchange` (an ORDER BOOK: immutable resting orders whose partial fill writes " +
-                    "one monotone counter, and matching no caller can reorder) and " +
-                    "`subscription` (RECURRING PULL BILLING: a merchant's whole claim is the " +
-                    "escrow the payer funded, the fee accrues pro rata so nothing is billed in " +
-                    "advance, and either party may always cancel) and " +
-                    "`bridge` (a one-way bridge RECEIVER and its exit: a processed-burns registry " +
-                    "keyed by the burn's identity on the source chain, a row that binds what the " +
-                    "burn pays, a relayer SET with a threshold, and caps); " +
-                    "`ft4` is the plain token skeleton with " +
-                    "runnable invariant tests. Pick the one whose EXPLOIT class matches yours - the value " +
-                    "class with no template is where every drain in this project has landed - and " +
-                    "if none does, write the economic invariant test FIRST: a passing security " +
-                    "check is not economic soundness."
+                "No shipped template covers that name. " + templateRoster() +
+                    " Pick the one whose EXPLOIT class matches yours - the value class with no " +
+                    "template is where every drain in this project has landed - and if none does, " +
+                    "write the economic invariant test FIRST: a passing security check is not " +
+                    "economic soundness."
         }
     }
+
+    /**
+     * The staking answer, in one place because TWO branches give it: the keyword
+     * branch, and the liquidity-mining branch that has to sit ahead of `amm`.
+     */
+    private val STAKING_NOTE: String =
+        "Use `template=staking`: rewards come only from a sponsor-funded pool, the clock " +
+            "releases at most what the pool holds, every credit is a pool debit in the same " +
+            "operation, and unstaking has a cooldown. If instead you are paying ONE named " +
+            "beneficiary over time - payroll, a vesting grant, a drip - that is " +
+            "`template=streaming`, a different exploit class with its own template; and if " +
+            "a MERCHANT collects from a payer period after period, that is " +
+            "`template=subscription`, a third one. WHAT IT DOES NOT COVER, and round 17 " +
+            "measured an airdrop ask arriving here: there is no CLAIM WINDOW in it. Its " +
+            "guards are about a reward being FUNDED before it is paid, not about an " +
+            "unclaimed allocation expiring - a window is a deadline whose two comparisons " +
+            "must partition the timeline exactly (`template=escrow`'s is the shape to copy) " +
+            "with the unclaimed remainder going somewhere NAMED rather than staying " +
+            "claimable for ever."
 
     /**
      * The valid chain name an invalid request most likely meant: lower-cased,
@@ -8943,6 +9168,926 @@ object DappScaffold {
             assert_equals(main.get_a(bob.account.id), main.WELCOME_A);
             assert_equals(main.get_b(bob.account.id), main.WELCOME_B);
             assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
+    /**
+     * The insurance chromia.yml. Its ONE main arg is unlike every other
+     * template's: the vault's oracle key, the DAO's founder and the bridge's four
+     * are decisions no default can make, so those production blocks leave them
+     * UNSET and the chain cannot build with a placeholder. `cover_multiplier` HAS
+     * a safe default - 4, in the module_args struct - so the production block
+     * documents it and leaves it alone: a pool that never sets it writes four
+     * points of cover per point of reserve rather than an unbounded book.
+     */
+    private fun insuranceChromiaYml(name: String): String = ft4ChromiaYml(
+        name,
+        productionModuleArgsNote = buildString {
+            append("      # OPTIONAL - the pool's LEVERAGE, and the only main arg this template has.\n")
+            append("      # Unlike the vault's oracle key or the bridge's caps this one has a safe\n")
+            append("      # DEFAULT (4, in main's module_args struct), so leaving it unset writes at\n")
+            append("      # most four points of cover per point of reserve instead of an unbounded\n")
+            append("      # book. Set it to what your own loss distribution supports; the module\n")
+            append("      # refuses anything outside 1..MAX_COVER_MULTIPLIER, and a higher number is\n")
+            append("      # a promise that a bad round pays a smaller share of every claim.\n")
+            append("      # main:\n")
+            append("      #   cover_multiplier: 4\n")
+        }
+    )
+
+    private fun insuranceMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Insurance template: a MUTUAL POOL WITH CLAIMS. Members pay a premium for a
+        // quantity of cover, file claims against a covered loss, and take back what is
+        // left of their premium when they leave.
+        //
+        // This is the class adversary round 17 built with NO TEMPLATE AT ALL, because
+        // this server sent the ask somewhere else: "an insurance pool funded by premium
+        // payments" matched the `payment*` key and was answered `template=ft4` with the
+        // sentence "it ships the conservation, no-negative-balance and non-owner-must-fail
+        // invariant tests to copy for your own economics" - the same sentence that
+        // produced round 14's ten-times-backing bridge loss. The build that followed that
+        // answer carried every guard that answer names - the holder was the SIGNER and
+        // never an argument, every amount was bounded, the premium was at least 10% of
+        // the cover, and the copied conservation invariant was asserted after every step,
+        // exact throughout - and rell_security_check returned ok:true with ZERO findings
+        // on all three of its samples. It drained twice:
+        //   - A PAYOUT DID NOT RETIRE THE BACKING THAT PAID IT. `cancel_policy` refunded
+        //     the WHOLE premium out of a reserve the holder's own claim had already spent.
+        //     Alice paid 100, took 300 of the other members' premiums on a claim, and got
+        //     her 100 back: the pool's reserve was MINUS 100 with 2000 of cover still
+        //     written against it, and the cycle cost nothing, so run five times against an
+        //     honest reserve of 1000 she ended at 2100 from 1000 - premiums in 1500
+        //     against claims out 1100.
+        //   - THE EXIT RACE. Two holders each covered for 1000 against a reserve of 200,
+        //     both with a covered loss: whoever's transaction landed first took the whole
+        //     200 and the other was refused down to a single unit. ONE HUNDRED POINTS
+        //     MOVED ON TRANSACTION ORDER ALONE, where pro rata is 100 each. That is
+        //     r9-stablecoin-redemption-at-par-exit-race in a class that had no template:
+        //     the pro-rata settlement the stablecoin ships had no counterpart here.
+        // Eleven guards are STRUCTURAL - they live in the entities and their operations,
+        // not in a require() a later operation has to remember:
+        //   THE HOLDER IS THE SIGNER  - a policy is written off auth.authenticate() and
+        //     never off a parameter, and every operation that moves a policy's money
+        //     re-reads the row's own `holder`. No operation anywhere names whose policy it
+        //     is acting on.
+        //   ONE REFUND, ONE PLACE IT IS COMPUTED  - `retire_policy()` is the ONLY code in
+        //     this module that returns a premium, and every path out of a policy calls it:
+        //     the holder's `cancel_policy` and the permissionless `close_exhausted_policy`.
+        //     The refund it computes is the premium LESS WHAT THE POLICY HAS ALREADY BEEN
+        //     PAID, so "refund the whole premium" - round 17's first drain - cannot be
+        //     written without deleting the helper: there is no second place to write it.
+        //   A REFUND IS PRO RATA, NOT FIRST COME  - what a leaving member is entitled to is
+        //     her unspent premium, but what she is PAID is that entitlement's share of the
+        //     reserve that is actually there: `reserve * entitled / refundable`. The pool
+        //     tracks `refundable` - the unspent premium of every live policy - so a cancel
+        //     draws its proportion down and leaves everybody else's proportion untouched.
+        //     Refunding the whole entitlement first-come is the same exit race the claims
+        //     have, one operation further along, and it is reachable in any pool that has
+        //     ever paid a claim larger than the claimant's own premium.
+        //   A PAYOUT IS RECORDED ON THE POLICY IT PAID  - `paid_out` is a monotone counter
+        //     written by settlement and by nothing else, and it is what the refund reads
+        //     and what bounds the next claim. A payout that is not recorded is a premium
+        //     that can be spent twice, which is the same drain one line further back.
+        //   A CLAIM RETIRES COVER  - a policy's live cover is `cover - paid_out`, and the
+        //     pool's book falls by exactly what a settlement pays. A retirement then
+        //     retires only what the claims did NOT - `cover - paid_out` - so no unit of
+        //     cover is ever retired twice and the book cannot be talked down below the
+        //     liability it stands for.
+        //   CLAIMS SETTLE PRO RATA, NOT FIRST COME  - nothing is paid inside `file_claim`.
+        //     A CLAIM ROUND snapshots the reserve and the total claimed and pays each
+        //     claimant `reserve * claim / total_claimed`, capped at what they asked for.
+        //     Every claimant's number is a pure function of that snapshot and their own
+        //     claim, so no ordering of the transactions in the round moves a single point
+        //     between them - round 17's second drain made unwritable rather than checked.
+        //     This is the stablecoin template's shared-settlement shape, and it is here
+        //     for the same reason: a short reserve is shared, never raced.
+        //   A ROUND SETTLES ONCE, AFTER ITS WINDOW  - claims are filed while the round is
+        //     open and only inside CLAIM_WINDOW_MS of the block that opened it; settlement
+        //     is refused before the window and closes the round, so a second call has no
+        //     round to pay. One policy files at most ONE claim per round, and that is a
+        //     database `key` rather than a check.
+        //   COVER IS BOUNDED BY THE RESERVE  - the book may never exceed the reserve times
+        //     `cover_multiplier`, a module_args value with a positive default, checked
+        //     against the reserve INCLUDING the premium being paid. A pool that writes
+        //     unbounded cover against a thin reserve has not sold insurance, it has sold
+        //     an exit race with extra steps.
+        //   THE PREMIUM IS A FRACTION OF THE COVER  - MIN_PREMIUM_BPS of it, checked
+        //     before the policy exists. A premium floor is what makes the refund path
+        //     worth anything: a policy bought for one point and claimed for a thousand is
+        //     not a mutual pool.
+        //   NO OPERATION WRITES A TIMESTAMP OF ITS OWN  - `opened_at` is written by the one
+        //     operation that opens a round and `filed_at` by the one that files a claim;
+        //     neither is mutable and no other operation writes either. A claimant cannot
+        //     push the settlement out by filing late, which is the round-7 anchor grief in
+        //     this class's clothing.
+        //   EVERY AMOUNT IS BOUNDED BEFORE IT IS USED  - each parameter is range-checked
+        //     on its own, a member holds at most MAX_LIVE_POLICIES policies and a round
+        //     takes at most MAX_CLAIMS_PER_ROUND claims. A NEGATIVE claim is refused here
+        //     and nowhere else: it would lower the round's `total_claimed` and pay every
+        //     other claimant MORE than their pro-rata share out of the same reserve.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - THIS MODULE DOES NOT DECIDE WHETHER A LOSS HAPPENED. A claim is a member's
+        //     assertion about the world, and nothing on this chain can check it. Every
+        //     guard above is about WHAT A CLAIM IS PAID, never about whether it is true.
+        //     A real pool needs an adjuster, an oracle or a parametric trigger, and that
+        //     decision-maker is then the thing an attacker buys. Do not read a green suite
+        //     here as a claim that the pool is solvent against honest losses.
+        //   - THE POOL CAN STILL BE UNDER-RESERVED. cover_multiplier is leverage: at the
+        //     default of 4, four points of cover stand on one point of reserve, so a round
+        //     in which everybody claims pays about 25 cents on the dollar - PRO RATA, in
+        //     any order, which is all this template promises. Size the multiplier for your
+        //     own loss distribution; it is not a number this file can pick for you.
+        //   - A CLAIM ROUND IS A LIVENESS COST. A member with a covered loss waits for a
+        //     round to open and for its window to close before any money moves. That is
+        //     the price of "no first-come exit": paying immediately IS the exit race.
+        //     Anyone may open a round, so the wait is bounded by CLAIM_WINDOW_MS and not
+        //     by an operator's goodwill.
+        //   - INTEGER DIVISION LEAVES A REMAINDER, AND IT IS NOT SHARED. A settlement pays
+        //     each claimant the floor of their share and leaves what is over in the reserve
+        //     for the next round; two cancels drawn against the same short reserve can
+        //     differ by AT MOST ONE POINT depending which is signed first, for the same
+        //     reason. That is a rounding unit, not an exit race - nothing scales with it -
+        //     but it is a point, and the shipped tests pin the exact-division fixture in
+        //     both orders rather than claiming the general case.
+        //   - THE POINTS ARE A STAND-IN. `member.balance` is a balance on this chain,
+        //     credited once by a welcome grant so the tests can move real value. Replace it
+        //     with an FT4 asset and keep every guard above: the reserve becomes the
+        //     module's own account, and ONE REFUND, ONE PLACE IT IS COMPUTED is what stops
+        //     a premium being paid back twice.
+
+        // The pool's leverage: how many points of cover it may write against one point of
+        // reserve. Configuration, because no default can know your loss distribution - and
+        // it HAS a positive default, so a chain that never sets it is conservative rather
+        // than unbounded.
+        struct module_args {
+            cover_multiplier: integer = 4;
+        }
+
+        entity member {
+            key owner: byte_array;
+            mutable balance: integer = 0;
+        }
+
+        // THE POLICY. `premium_paid` and `cover` are written once by the purchase and are
+        // IMMUTABLE; `paid_out` is a monotone counter written only by settlement; `active`
+        // leaves true exactly once, through retire_policy().
+        entity policy {
+            key id: text;
+            index holder: byte_array;
+            premium_paid: integer;
+            cover: integer;
+            mutable paid_out: integer = 0;
+            mutable active: boolean = true;
+        }
+
+        object pool {
+            mutable reserve: integer = 0;
+            // The book: the cover still written against that reserve.
+            mutable cover_written: integer = 0;
+            // The unspent premium of every LIVE policy: what the pool would owe if every
+            // member left at once. A refund is drawn against the reserve in proportion to
+            // this, which is what makes it pro rata rather than first come.
+            mutable refundable: integer = 0;
+            mutable premiums_in: integer = 0;
+            mutable claims_out: integer = 0;
+            mutable refunds_out: integer = 0;
+        }
+
+        // THE CLAIM ROUND. `opened_at` is written by open_claim_round and by nothing else.
+        object round_state {
+            mutable id: integer = 0;
+            mutable open: boolean = false;
+            mutable opened_at: timestamp = 0;
+            mutable total_claimed: integer = 0;
+        }
+
+        // One claim per policy per round is a database KEY, not a check somebody has to
+        // remember. `amount` and `filed_at` are written once and never move.
+        entity claim {
+            round: integer;
+            policy;
+            holder: byte_array;
+            amount: integer;
+            filed_at: timestamp;
+            key round, policy;
+            index round;
+        }
+
+        val WELCOME_POINTS = 1000;
+        val MAX_AMOUNT = 1000000000;
+        val BPS = 10000;
+        // The premium floor, as a fraction of the cover it buys.
+        val MIN_PREMIUM_BPS = 1000;
+        // The ceiling on the configured leverage, so a mis-set module arg cannot write an
+        // unbounded book either.
+        val MAX_COVER_MULTIPLIER = 100;
+        // How long a round takes claims before it settles. A constant, never a parameter:
+        // a caller who chooses the window chooses who is inside the round.
+        val CLAIM_WINDOW_MS = 24 * 60 * 60 * 1000;
+        // Both bounds on what one round and one member may cost the chain.
+        val MAX_CLAIMS_PER_ROUND = 50;
+        val MAX_LIVE_POLICIES = 10;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function member_of(owner: byte_array): member =
+            require(member @? { .owner == owner }, "join the pool first");
+
+        // The configured leverage, bounded here so every reader gets the same checked
+        // number and a mis-set chain refuses instead of writing an unbounded book.
+        function cover_multiplier(): integer {
+            val m = chain_context.args.cover_multiplier;
+            require(m > 0 and m <= MAX_COVER_MULTIPLIER, "cover_multiplier out of range");
+            return m;
+        }
+
+        // The cover a policy still stands for.
+        function live_cover(p: policy): integer = p.cover - p.paid_out;
+
+        // THE ONE PLACE A PREMIUM IS EVER RETURNED. Both exits call it and there is no
+        // other refund arithmetic in this module, so round 17's "refund the whole premium"
+        // is not a check somebody removed - it is a sentence that cannot be written here
+        // without deleting this function.
+        function retire_policy(p: policy) {
+            require(p.active, "the policy is not active");
+            // A CLAIM SPENDS THE PREMIUM THAT PAID IT.
+            val entitled = p.premium_paid - min(p.paid_out, p.premium_paid);
+            // ...AND WHAT IS LEFT IS SHARED, NEVER RACED: this entitlement's proportion of
+            // the reserve that is actually there, so the member who signs first is paid
+            // exactly what the member who signs second is.
+            val refund = if (pool.refundable <= 0) 0 else min(entitled, pool.reserve * entitled / pool.refundable);
+            require(refund >= 0 and refund <= entitled, "refund out of range");
+            require(pool.reserve >= refund, "the pool cannot refund this premium");
+            val holder = member_of(p.holder);
+            update holder ( .balance += refund );
+            update p ( .active = false );
+            pool.reserve -= refund;
+            pool.refunds_out += refund;
+            pool.refundable -= entitled;
+            // Only what the claims did NOT retire.
+            pool.cover_written -= live_cover(p);
+        }
+
+        operation join_pool() {
+            val account = auth.authenticate();
+            require(member @? { .owner == account.id } == null, "already a member");
+            create member(owner = account.id, balance = WELCOME_POINTS);
+        }
+
+        // BUY COVER. The holder is the signer; the premium leaves her balance in the
+        // operation that writes the row, so no policy ever exists unpaid for.
+        operation buy_policy(id: text, cover: integer, premium: integer) {
+            // 1. AUTHENTICATE
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - a member, and the holder is that member and nobody else.
+            val me = member_of(account.id);
+            // 3. VALIDATE - each input separately, bounded before it is used.
+            require(policy @? { .id == id } == null, "that policy id is taken");
+            require(cover > 0 and cover <= MAX_AMOUNT, "cover out of range");
+            require(premium > 0 and premium <= MAX_AMOUNT, "premium out of range");
+            require(pool.premiums_in + premium <= MAX_AMOUNT, "the pool is full");
+            require(me.balance >= premium, "insufficient balance for the premium");
+            // THE PREMIUM IS A FRACTION OF THE COVER.
+            require(premium * BPS >= cover * MIN_PREMIUM_BPS, "the premium is under the floor for that cover");
+            require(
+                (policy @* { .holder == account.id, .active == true } ( .id )).size() < MAX_LIVE_POLICIES,
+                "too many live policies"
+            );
+            // COVER IS BOUNDED BY THE RESERVE THAT BACKS IT, including this premium.
+            require(
+                pool.cover_written + cover <= (pool.reserve + premium) * cover_multiplier(),
+                "the pool has not the reserve to write that cover"
+            );
+            // 4. WRITE, with the premium leaving in the same operation.
+            update me ( .balance -= premium );
+            create policy(id = id, holder = account.id, premium_paid = premium, cover = cover);
+            pool.reserve += premium;
+            pool.cover_written += cover;
+            pool.premiums_in += premium;
+            pool.refundable += premium;
+        }
+
+        // OPEN A CLAIM ROUND. Permissionless, because a member with a covered loss must
+        // never have to wait for an operator to let her in.
+        operation open_claim_round() {
+            auth.authenticate();
+            require(not round_state.open, "a claim round is already open");
+            round_state.id += 1;
+            round_state.open = true;
+            round_state.opened_at = op_context.last_block_time;
+            round_state.total_claimed = 0;
+        }
+
+        // FILE A CLAIM. NOTHING IS PAID HERE - that is the whole of the second guard. The
+        // claim joins the round and waits for the window to close with everybody else's.
+        operation file_claim(policy_id: text, amount: integer) {
+            val account = auth.authenticate();
+            val p = require(policy @? { .id == policy_id }, "no such policy");
+            require(p.holder == account.id, "that is not your policy");
+            require(p.active, "the policy is not active");
+            require(round_state.open, "no claim round is open");
+            require(
+                op_context.last_block_time < round_state.opened_at + CLAIM_WINDOW_MS,
+                "the claim window has closed"
+            );
+            require(amount > 0 and amount <= MAX_AMOUNT, "claim amount out of range");
+            require(p.paid_out + amount <= p.cover, "over the policy's remaining cover");
+            require(
+                claim @? { .round == round_state.id, .policy == p } == null,
+                "this policy has already claimed in this round"
+            );
+            require(
+                (claim @* { .round == round_state.id } ( .amount )).size() < MAX_CLAIMS_PER_ROUND,
+                "the claim round is full"
+            );
+            create claim(
+                round = round_state.id,
+                policy = p,
+                holder = account.id,
+                amount = amount,
+                filed_at = op_context.last_block_time
+            );
+            round_state.total_claimed += amount;
+        }
+
+        // SETTLE THE ROUND. The reserve and the total claimed are SNAPSHOTTED, and every
+        // claimant is paid the same share of the snapshot: reserve * claim / total_claimed,
+        // never more than they claimed. Each number is a pure function of the snapshot and
+        // that claimant's own row, so no ordering of the round's transactions - and no
+        // ordering of this loop - moves a point from one claimant to another. What integer
+        // division leaves over stays in the reserve for the next round.
+        operation settle_claim_round() {
+            auth.authenticate();
+            require(round_state.open, "no claim round is open");
+            val now = op_context.last_block_time;
+            require(now >= round_state.opened_at + CLAIM_WINDOW_MS, "the claim window is still open");
+            val snapshot_reserve = pool.reserve;
+            val total_claimed = round_state.total_claimed;
+            for (c in claim @* { .round == round_state.id }) {
+                val share = if (total_claimed <= 0) 0 else snapshot_reserve * c.amount / total_claimed;
+                val payout = min(share, c.amount);
+                if (payout > 0) {
+                    val holder = member_of(c.holder);
+                    val p = c.policy;
+                    val spent_before = min(p.paid_out, p.premium_paid);
+                    val spent_after = min(p.paid_out + payout, p.premium_paid);
+                    update holder ( .balance += payout );
+                    update p ( .paid_out += payout );
+                    pool.reserve -= payout;
+                    pool.claims_out += payout;
+                    pool.cover_written -= payout;
+                    pool.refundable -= spent_after - spent_before;
+                }
+            }
+            round_state.open = false;
+            round_state.total_claimed = 0;
+        }
+
+        // CANCEL. The holder leaves and takes back what her claims have not spent - which
+        // is retire_policy()'s arithmetic and nothing else. A policy with a claim in the
+        // open round cannot walk out of the round it is in.
+        operation cancel_policy(policy_id: text) {
+            val account = auth.authenticate();
+            val p = require(policy @? { .id == policy_id }, "no such policy");
+            require(p.holder == account.id, "that is not your policy");
+            if (round_state.open) {
+                require(
+                    claim @? { .round == round_state.id, .policy == p } == null,
+                    "this policy has a claim in the open round"
+                );
+            }
+            retire_policy(p);
+        }
+
+        // CLOSE AN EXHAUSTED POLICY. Once its cover is fully paid the policy stands for
+        // nothing, so anybody may close it - and the unspent premium goes to the HOLDER,
+        // never to the caller. The same helper, the same arithmetic.
+        operation close_exhausted_policy(policy_id: text) {
+            auth.authenticate();
+            val p = require(policy @? { .id == policy_id }, "no such policy");
+            require(live_cover(p) == 0, "that policy still carries cover");
+            retire_policy(p);
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query balance_of(owner: byte_array): integer {
+            val m = member @? { .owner == owner };
+            return if (m != null) m.balance else 0;
+        }
+
+        query pool_reserve(): integer = pool.reserve;
+        query cover_written(): integer = pool.cover_written;
+        query premiums_in(): integer = pool.premiums_in;
+        query claims_out(): integer = pool.claims_out;
+        query refunds_out(): integer = pool.refunds_out;
+        query refundable(): integer = pool.refundable;
+        query round_id(): integer = round_state.id;
+        query round_is_open(): boolean = round_state.open;
+        query round_total_claimed(): integer = round_state.total_claimed;
+        query member_count(): integer = member @* {} ( .owner ).size();
+        query live_policies_of(owner: byte_array): integer =
+            (policy @* { .holder == owner, .active == true } ( .id )).size();
+
+        query policy_state(policy_id: text) {
+            val p = policy @? { .id == policy_id };
+            return if (p != null)
+                (
+                    id = p.id, holder = p.holder, premium_paid = p.premium_paid, cover = p.cover,
+                    paid_out = p.paid_out, active = p.active
+                )
+            else null;
+        }
+
+        query total_balances(): integer {
+            var total = 0;
+            for (b in member @* {} ( .balance )) total += b;
+            return total;
+        }
+
+        // THE BOOK, recomputed from the policies themselves. `cover_written` is an
+        // aggregate the multiplier is checked against, so it is asserted equal to this
+        // after every step of the shipped tests: a book that drifts from the policies it
+        // stands for is leverage nobody wrote down.
+        query book_written(): integer {
+            var total = 0;
+            for (p in policy @* { .active == true }) total += p.cover - p.paid_out;
+            return total;
+        }
+
+        // THE SAME FOR THE REFUND SIDE: `refundable` is the aggregate a cancel's proportion
+        // is computed from, so it is asserted equal to the policies it stands for after
+        // every step. An aggregate that drifts from its rows is a first-come exit waiting
+        // for somebody to find the drift.
+        query refundable_from_policies(): integer {
+            var total = 0;
+            for (p in policy @* { .active == true }) total += p.premium_paid - min(p.paid_out, p.premium_paid);
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun insuranceTestRell(): String = """
+        @test module;
+
+        // The insurance template's invariant tests. They are real: FT4 test accounts,
+        // signed operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's
+        // moduleArgs PLUS its test.moduleArgs block) or `chr test`.
+        //
+        // The two test_round17_ins* functions replay adversary round 17's two drains on
+        // the build this server's own redirect produced for this ask - `template=ft4`,
+        // with the sentence about copying its conservation tests - and REQUIRE them to
+        // fail. There, `cancel_policy` refunded the whole premium out of a reserve the
+        // holder's own claim had already spent, and a claim paid FIRST COME out of a
+        // short reserve, so a hundred points moved on transaction order alone.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_eve, register_trudy, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent
+        // module is ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val DAY = 24 * 60 * 60 * 1000;
+
+        // THE OUTCOME A SHORT RESERVE OWES, AND THE WHOLE OF ROUND 17'S SECOND DRAIN:
+        // both claimants are paid the SAME number, and it is the same number whichever
+        // of them filed first. The two tests below run the two orders and assert this
+        // one string, so "identical payouts" is one value rather than a comparison
+        // somebody has to read.
+        val PRO_RATA_OUTCOME = "bob=1050 eve=1050 reserve=0";
+
+        // AND THE SAME ON THE WAY OUT. Two members leaving a pool whose reserve cannot
+        // pay both entitlements in full are paid the same number, in either order - the
+        // refund exit race is the claim exit race one operation further along.
+        val REFUND_OUTCOME = "bob=950 eve=950 reserve=0";
+
+        // Every point is in a member's balance or in the pool's reserve; the reserve IS
+        // the premiums less what has been paid out and refunded; and the book equals the
+        // cover the live policies still stand for.
+        function assert_conserved() {
+            assert_equals(main.total_balances() + main.pool_reserve(), main.member_count() * main.WELCOME_POINTS);
+            assert_equals(main.pool_reserve(), main.premiums_in() - main.claims_out() - main.refunds_out());
+            assert_equals(main.cover_written(), main.book_written());
+            assert_equals(main.refundable(), main.refundable_from_policies());
+        }
+
+        function join_three(): (
+            alice: rell.test.keypair, bob: rell.test.keypair, eve: rell.test.keypair,
+            alice_id: byte_array, bob_id: byte_array, eve_id: byte_array
+        ) {
+            val alice = register_alice();
+            val bob = register_bob();
+            val eve = register_eve();
+            signed(alice.keypair, main.join_pool());
+            signed(bob.keypair, main.join_pool());
+            signed(eve.keypair, main.join_pool());
+            return (
+                alice = alice.keypair, bob = bob.keypair, eve = eve.keypair,
+                alice_id = alice.account.id, bob_id = bob.account.id, eve_id = eve.account.id
+            );
+        }
+
+        // EXPLOIT MUST FAIL. Round 17, drain one: a payout does not retire the backing
+        // that paid it. The build this server's redirect produced refunded the WHOLE
+        // premium on cancel, out of a reserve the holder's own claim had already spent -
+        // alice paid 100, took 300 of the other members' premiums and got her 100 back,
+        // leaving the reserve at MINUS 100 with 2000 of cover still written against it,
+        // and the cycle repeated to 2100 from 1000.
+        //
+        // Here every exit runs through retire_policy(), which refunds the premium LESS
+        // what the policy has already been paid. Alice's claim spent her whole premium,
+        // so her cancel returns nothing and she ends at 1200 rather than 1300.
+        function test_round17_ins1_a_cancel_cannot_refund_a_spent_premium_must_fail() {
+            val k = join_three();
+            assert_conserved();
+
+            // The other two members' premiums are what round 17's alice took.
+            signed(k.bob, main.buy_policy("b1", 1000, 500));
+            signed(k.eve, main.buy_policy("e1", 1000, 500));
+            signed(k.alice, main.buy_policy("a1", 1000, 100));
+            assert_equals(main.pool_reserve(), 1100);
+            assert_equals(main.cover_written(), 3000);
+            assert_conserved();
+
+            // A covered loss, paid in full because nothing else is claiming.
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 300));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+            assert_equals(main.balance_of(k.alice_id), 1200);
+            assert_equals(main.pool_reserve(), 800);
+
+            // THE ATTACK: take the premium back as well. It is not refused - it is not
+            // expressible: the only refund arithmetic in the module has already spent it.
+            signed(k.alice, main.cancel_policy("a1"));
+            signed_must_fail(k.alice, main.cancel_policy("a1"), "the policy is not active");
+            signed(k.alice, main.open_claim_round());
+            signed_must_fail(k.alice, main.file_claim("a1", 1), "the policy is not active");
+
+            assert_equals(
+                "alice=" + main.balance_of(k.alice_id)
+                    + " reserve=" + main.pool_reserve()
+                    + " book=" + main.cover_written(),
+                "alice=1200 reserve=800 book=2000"
+            );
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Round 17, drain two: the exit race. Two holders each covered
+        // against a reserve that cannot pay both; whoever's transaction landed first took
+        // the whole reserve and the other was refused down to a single unit, where pro
+        // rata is half each.
+        //
+        // Here nothing is paid inside file_claim. The round snapshots the reserve and the
+        // total claimed and pays each claimant the same share of it, so BOB FILING FIRST
+        // buys him nothing at all: PRO_RATA_OUTCOME, which is the same string the control
+        // below asserts with the order reversed.
+        function test_round17_ins2_a_short_reserve_settles_pro_rata_not_first_come_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            signed(k.eve, main.buy_policy("e1", 200, 20));
+            assert_equals(main.pool_reserve(), 140);
+            assert_conserved();
+
+            signed(k.alice, main.open_claim_round());
+            // BOB FIRST. Round 17's bob was paid the whole 200 in this block.
+            signed(k.bob, main.file_claim("b1", 200));
+            assert_equals(main.balance_of(k.bob_id), 980);
+            assert_equals(main.pool_reserve(), 140);
+            signed(k.eve, main.file_claim("e1", 200));
+            assert_equals(main.balance_of(k.eve_id), 980);
+
+            // ...and no claimant may be paid before the window closes on everybody.
+            signed_must_fail(k.bob, main.settle_claim_round(), "the claim window is still open");
+            after(DAY + 60 * 1000);
+            signed(k.bob, main.settle_claim_round());
+
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve(),
+                PRO_RATA_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // THE CONTROL, and the other half of "transaction order moves nothing": the same
+        // two claims filed in the OPPOSITE order pay the same two numbers.
+        function test_round17_ins2_control_the_reverse_order_pays_the_same_two_numbers() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            signed(k.eve, main.buy_policy("e1", 200, 20));
+            assert_equals(main.pool_reserve(), 140);
+
+            signed(k.alice, main.open_claim_round());
+            // EVE FIRST this time.
+            signed(k.eve, main.file_claim("e1", 200));
+            signed(k.bob, main.file_claim("b1", 200));
+            after(DAY + 60 * 1000);
+            signed(k.eve, main.settle_claim_round());
+
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve(),
+                PRO_RATA_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. A round pays once, after its window, and a claim filed after
+        // the window is not in the round. Settling early is the exit race with one more
+        // step: whoever calls settle picks who is inside it.
+        function test_round17_ins3_a_round_settles_once_and_only_after_its_window_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.bob, main.file_claim("b1", 100));
+            // THE ATTACK: close the round before eve can be in it.
+            signed_must_fail(k.bob, main.settle_claim_round(), "the claim window is still open");
+            after(DAY + 60 * 1000);
+            signed(k.bob, main.settle_claim_round());
+            assert_conserved();
+
+            // ONE SETTLEMENT. The round is closed, so a second call has no round to pay
+            // and a claim has no round to join.
+            signed_must_fail(k.bob, main.settle_claim_round(), "no claim round is open");
+            signed_must_fail(k.bob, main.file_claim("b1", 10), "no claim round is open");
+
+            // ...and a claim filed after the window has closed is refused rather than
+            // silently swept into the next settlement.
+            signed(k.alice, main.open_claim_round());
+            after(DAY + 60 * 1000);
+            signed_must_fail(k.bob, main.file_claim("b1", 10), "the claim window has closed");
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. A claim RETIRES cover, so the retirement that follows may
+        // retire only what the claims did not. Retiring the whole cover a second time
+        // talks the book down below the liability it stands for, and the pool then writes
+        // cover the reserve does not back - which is the exit race bought with a cancel.
+        function test_r17_i4_a_retired_policy_cannot_free_cover_it_already_claimed_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            assert_equals(main.cover_written(), 210);
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.bob, main.file_claim("b1", 100));
+            after(DAY + 60 * 1000);
+            signed(k.bob, main.settle_claim_round());
+            // The claim retired 100 of cover as it paid it.
+            assert_equals(main.cover_written(), 110);
+            assert_equals(main.pool_reserve(), 20);
+
+            // The cancel retires what is LEFT - 100 - and not the 200 the policy was
+            // written for.
+            signed(k.bob, main.cancel_policy("b1"));
+            // THE ATTACK: a book talked down twice has room the reserve never had.
+            signed_must_fail(k.bob, main.buy_policy("b2", 200, 20), "the pool has not the reserve to write that cover");
+            assert_equals(main.cover_written(), 10);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. No operation writes a timestamp of its own: `opened_at` is
+        // written by the one operation that opens a round. A claimant who could move it
+        // by filing late would hold every other claimant's money for as long as she kept
+        // filing - the round-7 anchor grief in this class's clothing.
+        function test_r17_i5_a_late_claim_cannot_push_the_settlement_out_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            signed(k.eve, main.buy_policy("e1", 200, 20));
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.bob, main.file_claim("b1", 200));
+            // THE ATTACK: file at the very end of the window and push it out.
+            after(23 * 60 * 60 * 1000);
+            signed(k.eve, main.file_claim("e1", 200));
+            // The window is the one the round was opened with, so it closes on time and
+            // both claims settle together.
+            after(2 * 60 * 60 * 1000);
+            signed(k.bob, main.settle_claim_round());
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve(),
+                PRO_RATA_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. Cover is bounded by the reserve that backs it, at the
+        // configured multiplier. A pool that writes unbounded cover against a thin
+        // reserve has sold an exit race, whatever the header calls it.
+        function test_cover_is_bounded_by_the_reserve_that_backs_it_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 400, 100));
+            assert_equals(main.cover_written(), 400);
+            assert_equals(main.pool_reserve(), 100);
+
+            // THE ATTACK: one more policy inside the premium floor but outside the book.
+            signed_must_fail(k.alice, main.buy_policy("a2", 100, 10), "the pool has not the reserve to write that cover");
+            // ...and the same premium buys exactly the cover the reserve backs.
+            signed(k.alice, main.buy_policy("a2", 40, 10));
+            assert_equals(main.cover_written(), 440);
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. The premium is a fraction of the cover it buys. A policy
+        // bought for a point and claimed for a thousand is not a mutual pool, and the
+        // refund path is worth nothing without this floor.
+        function test_the_premium_is_a_fraction_of_the_cover_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            // THE ATTACK: 39 buys 400 of cover, a hair under the 10% floor, with the book
+            // and the balance both leaving room.
+            signed_must_fail(k.alice, main.buy_policy("a2", 400, 39), "the premium is under the floor for that cover");
+            signed(k.alice, main.buy_policy("a2", 390, 39));
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. The holder is the signer, every amount is bounded before it
+        // is used, and a policy files at most one claim per round. A NEGATIVE claim is
+        // the sharp one: it would lower the round's total and pay every other claimant
+        // MORE than their pro-rata share out of the same reserve.
+        function test_bounds_and_ownership_must_fail() {
+            val k = join_three();
+            val trudy = register_trudy();
+            signed(trudy.keypair, main.join_pool());
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            signed(k.alice, main.open_claim_round());
+
+            // Not your policy, whoever signs.
+            signed_must_fail(trudy.keypair, main.file_claim("b1", 10), "that is not your policy");
+            signed_must_fail(trudy.keypair, main.cancel_policy("b1"), "that is not your policy");
+            // A negative claim pays the rest of the round more than pro rata.
+            signed_must_fail(k.bob, main.file_claim("b1", -50), "claim amount out of range");
+            // ...and no claim may exceed the cover it is written against.
+            signed_must_fail(k.bob, main.file_claim("b1", 201), "over the policy's remaining cover");
+            // One claim per policy per round - a database key, not a check.
+            signed(k.bob, main.file_claim("b1", 100));
+            signed_must_fail(k.bob, main.file_claim("b1", 50), "this policy has already claimed in this round");
+            // ...and the ordinary bounds.
+            signed_must_fail(k.bob, main.buy_policy("b2", 0, 10), "cover out of range");
+            signed_must_fail(k.bob, main.buy_policy("b2", 100, 0), "premium out of range");
+            signed_must_fail(k.eve, main.buy_policy("b1", 100, 10), "that policy id is taken");
+            assert_conserved();
+        }
+
+        // A policy whose cover is exhausted stands for nothing, so anybody may close it -
+        // and the unspent premium goes to the HOLDER, never to the caller. It is the same
+        // helper and the same arithmetic as the holder's own cancel.
+        function test_an_exhausted_policy_closes_through_the_same_helper_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 100, 1000));
+            signed_must_fail(k.bob, main.close_exhausted_policy("a1"), "that policy still carries cover");
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 100));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+            assert_equals(main.pool_reserve(), 900);
+
+            // Bob closes it and is paid nothing for doing so; alice's 900 of unspent
+            // premium goes home.
+            signed(k.bob, main.close_exhausted_policy("a1"));
+            assert_equals(
+                "alice=" + main.balance_of(k.alice_id)
+                    + " bob=" + main.balance_of(k.bob_id)
+                    + " reserve=" + main.pool_reserve(),
+                "alice=1000 bob=1000 reserve=0"
+            );
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. THE REFUND EXIT RACE, which is round 17's second drain one
+        // operation further along: once the pool has paid a claim bigger than the
+        // claimant's own premium, the unspent premium of everybody still in it adds up to
+        // more than the reserve holds. Refunding each leaver's whole entitlement would pay
+        // whoever signs first in full and the next one nothing.
+        //
+        // Here a refund is that entitlement's SHARE of what is there - reserve * entitled
+        // / refundable - so bob leaving first is paid exactly what he is paid leaving
+        // second: REFUND_OUTCOME, the same string the control below asserts with the order
+        // reversed.
+        function test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 300, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 100));
+            signed(k.eve, main.buy_policy("e1", 200, 100));
+            assert_equals(main.pool_reserve(), 300);
+            assert_equals(main.refundable(), 300);
+
+            // Alice's claim takes 200 out of a pool that only ever held 100 of hers, so
+            // 200 of unspent premium is now standing on 100 of reserve.
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 200));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+            assert_equals(main.pool_reserve(), 100);
+            assert_equals(main.refundable(), 200);
+            assert_conserved();
+
+            // THE ATTACK: bob leaves first and takes his whole entitlement.
+            signed(k.bob, main.cancel_policy("b1"));
+            signed_must_fail(k.bob, main.cancel_policy("b1"), "the policy is not active");
+            signed(k.eve, main.cancel_policy("e1"));
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve(),
+                REFUND_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // THE CONTROL: the same two cancels in the OPPOSITE order pay the same two
+        // numbers.
+        function test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 300, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 100));
+            signed(k.eve, main.buy_policy("e1", 200, 100));
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 200));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+
+            // EVE FIRST this time.
+            signed(k.eve, main.cancel_policy("e1"));
+            signed(k.bob, main.cancel_policy("b1"));
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve(),
+                REFUND_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // CONSERVATION, after every step of an ordinary year: premiums in, claims out,
+        // refunds out and the reserve are one identity, and the book is the cover the
+        // live policies still stand for.
+        function test_conservation_holds_across_premiums_claims_and_refunds() {
+            val k = join_three();
+            assert_conserved();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            assert_conserved();
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            assert_conserved();
+            signed(k.eve, main.buy_policy("e1", 200, 20));
+            assert_conserved();
+
+            var round = 0;
+            while (round < 2) {
+                signed(k.alice, main.open_claim_round());
+                assert_conserved();
+                signed(k.bob, main.file_claim("b1", 40));
+                signed(k.eve, main.file_claim("e1", 40));
+                assert_conserved();
+                after(DAY + 60 * 1000);
+                signed(k.eve, main.settle_claim_round());
+                assert_conserved();
+                round += 1;
+            }
+
+            signed(k.bob, main.cancel_policy("b1"));
+            assert_conserved();
+            signed(k.eve, main.cancel_policy("e1"));
+            assert_conserved();
+            signed(k.alice, main.cancel_policy("a1"));
+            assert_conserved();
+            assert_equals(main.cover_written(), 0);
+            assert_equals(main.premiums_in() - main.claims_out() - main.refunds_out(), main.pool_reserve());
         }
     """.trimIndent() + "\n"
 
