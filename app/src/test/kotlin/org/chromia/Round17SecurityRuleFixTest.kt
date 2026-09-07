@@ -24,6 +24,14 @@ import java.time.Duration
  *      state or takes parameters stays unresolved and keeps the benefit of the
  *      doubt, because guessing there is how a rule starts firing on correct
  *      code. The walk is depth-bounded and cycle-safe.
+ *  (b) ROUND 16 REJECTS A FLOOR THE PROPOSER PASSES to `propose`. A floor
+ *      STORED in a field that a permissionless operation writes from ITS
+ *      caller's arguments is the same floor one block earlier - `set_floor(1)`
+ *      then `propose()` - so the closure runs one hop further: a field is
+ *      proposer-controlled when an operation whose auth names NO principal
+ *      writes it from its own parameters, or from another field already in the
+ *      set. The data-flow condition is what keeps `roll.enrolled += 1` (a
+ *      permissionless registration an attacker can only push UP) a real floor.
  */
 class Round17SecurityRuleFixTest {
 
@@ -214,11 +222,113 @@ class Round17SecurityRuleFixTest {
     }
 
     // =====================================================================
-    // the sample and its control
+    // (b) a floor written by a second operation
+    // =====================================================================
+
+    /**
+     * The round-17 shape: the floor is a stored `book.floor`, stamped into the
+     * motion by `propose`, and written by a SECOND operation. [floorGuard] is
+     * that second operation's authorisation - the whole of the difference
+     * between the attack and its control.
+     */
+    private fun storedFloorDao(floorGuard: String) = """
+        module;
+
+        struct module_args { admin_pubkey: byte_array; }
+
+        entity roll { key owner: byte_array; mutable balance: integer = 0; }
+
+        entity motion {
+            key id: integer;
+            beneficiary: byte_array;
+            amount: integer;
+            floor_at_creation: integer;
+            mutable yes_ballots: integer = 0;
+            mutable no_ballots: integer = 0;
+        }
+
+        object book { mutable next_id: integer = 1; mutable pot: integer = 0; mutable floor: integer = 3; }
+
+        operation set_floor(n: integer) {
+            $floorGuard
+            require(n > 0, "the floor must be positive");
+            book.floor = n;
+        }
+
+        operation propose(beneficiary: byte_array, amount: integer) {
+            require(op_context.is_signer(op_context.get_signers()[0]), "sign it");
+            require(amount > 0 and amount <= book.pot, "amount out of range");
+            create motion(
+                id = book.next_id, beneficiary = beneficiary, amount = amount,
+                floor_at_creation = book.floor
+            );
+            book.next_id += 1;
+        }
+
+        operation ballot(id: integer, yes: boolean) {
+            val m = require(motion @? { .id == id }, "no such motion");
+            if (yes) update m ( .yes_ballots += 1 ); else update m ( .no_ballots += 1 );
+        }
+
+        operation settle_motion(id: integer) {
+            val m = require(motion @? { .id == id }, "no such motion");
+            require(m.yes_ballots + m.no_ballots >= m.floor_at_creation, "not enough ballots");
+            require(m.yes_ballots > m.no_ballots, "the motion did not carry");
+            val r = require(roll @? { .owner == m.beneficiary }, "no such member");
+            update r ( .balance += m.amount );
+            book.pot -= m.amount;
+        }
+    """.trimIndent()
+
+    @Test
+    fun `a floor any signer can set is not a floor`() {
+        assertTrue(
+            "majority-without-quorum" in rules(
+                "main.rell" to storedFloorDao("""require(op_context.is_signer(op_context.get_signers()[0]), "sign it");""")
+            ),
+            "set_floor(1) then propose() is the round-16 drain in two transactions: the writer's only " +
+                "gate is that SOMEBODY signed, which every transaction satisfies"
+        )
+    }
+
+    @Test
+    fun `a floor only a module args admin can set is a real floor`() {
+        assertFalse(
+            "majority-without-quorum" in rules(
+                "main.rell" to storedFloorDao(
+                    """require(op_context.is_signer(chain_context.args.admin_pubkey), "admins only");"""
+                )
+            ),
+            "a floor the proposer cannot move is a floor - a rule that flags this is flagging correct code"
+        )
+    }
+
+    @Test
+    fun `a floor only a stored owner can set is a real floor`() {
+        val ownerGuarded = storedFloorDao(
+            """val cfg = require(roll @? { .balance > 0 }, "no config");
+            require(op_context.is_signer(cfg.owner), "owner only");"""
+        )
+        assertFalse(
+            "majority-without-quorum" in rules("main.rell" to ownerGuarded),
+            "is_signer against a STORED key is a principal the caller does not choose"
+        )
+    }
+
+    @Test
+    fun `an unauthenticated writer is not a principal either`() {
+        assertTrue(
+            "majority-without-quorum" in rules("main.rell" to storedFloorDao("")),
+            "no gate at all on the writer is the same floor with one fewer line"
+        )
+    }
+
+    // =====================================================================
+    // (b) the samples, and the round-16 shape that must not move
     // =====================================================================
 
     @Test
-    fun `the floor behind a call is caught and its val control stays caught`() {
+    fun `the round 17 samples are caught and the round 16 ones have not moved`() {
         assertTrue(
             "majority-without-quorum" in rulesOf("r17-quorum-floor-behind-a-function-call"),
             "r17-quorum-floor-behind-a-function-call must draw the rule its CORPUS row names"
@@ -227,16 +337,32 @@ class Round17SecurityRuleFixTest {
             "majority-without-quorum" in rulesOf("r17-quorum-floor-control-the-same-one-as-a-val"),
             "its control must stay caught"
         )
+        assertTrue(
+            "majority-without-quorum" in rulesOf("r17-quorum-floor-set-by-a-second-operation"),
+            "r17-quorum-floor-set-by-a-second-operation must draw the rule its CORPUS row names"
+        )
+        assertTrue(
+            "majority-without-quorum" in rulesOf("r16-quorum-floor-written-by-the-proposer"),
+            "a floor the proposer PASSES was round 16's finding and must still be one"
+        )
+        assertTrue(
+            "majority-without-quorum" in rulesOf("r16-quorum-floor-control-a-literal-two"),
+            "round 16's literal-two control must stay caught"
+        )
     }
 
     /**
-     * The bound resolver must not start valuing a floor it cannot see.
-     * `r14-fp-turnout-floor-without-the-word-quorum` derives its floor from a
-     * helper over the roll and `clean-quorum-gated-dao` reads it out of module
-     * args; both are correct code and must stay silent.
+     * THE FALSE-POSITIVE SIDE, which is the whole reason the closure needs a
+     * data-flow condition rather than "any field a permissionless operation
+     * writes". `r14-fp-turnout-floor-without-the-word-quorum` stamps its motion
+     * from `turnout_floor(roll.enrolled)` and `roll.enrolled` is incremented by
+     * a permissionless `enrol()` - but by `+= 1`, so no argument of the
+     * attacker's reaches it and they can only push the bar UP.
+     * `clean-quorum-gated-dao` reads its floor straight out of module args.
+     * Both must stay silent.
      */
     @Test
-    fun `a floor this scan cannot value stays a floor`() {
+    fun `a floor derived from state the proposer cannot choose stays a floor`() {
         listOf("r14-fp-turnout-floor-without-the-word-quorum", "clean-quorum-gated-dao").forEach { id ->
             val findings = RellSecurityCheck.analyze(corpusSample(id)).findings
             assertTrue(

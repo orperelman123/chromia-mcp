@@ -598,7 +598,11 @@ object RellSecurityCheck {
         val moduleArgFloors = moduleArgDefaults(fullyMasked)
         // Fields some operation writes from ITS OWN CALLER'S arguments: a
         // participation floor the proposer writes is the proposer's floor.
-        val attackerWrittenFields = callerWrittenFields(fullyMasked, allEntityNames)
+        // ROUND 17 adds the second transaction: a field a permissionless
+        // operation writes from its caller's arguments is the proposer's number
+        // one block earlier, and so is any field stamped from one of those.
+        val attackerWrittenFields = callerWrittenFields(fullyMasked, allEntityNames) +
+            proposerControlledFields(fullyMasked, allEntityNames, authFunctions, inlinable, distrust)
         // Parameterless functions that ARE a constant: `function floor(): integer
         // = 1;` is the same 1 as `val FLOOR = 1;` and a bound must resolve it.
         val constantReturns = constantReturningFunctions(fullyMasked)
@@ -1716,7 +1720,7 @@ object RellSecurityCheck {
      * from state the proposer does not write in that operation (a member
      * count, total stake, a helper over the roll) still is.
      *
-     * ROUND 17 WENT ROUND IT WITH ONE TOKEN.
+     * ROUND 17 WENT ROUND BOTH OF THOSE, ONE TOKEN EACH.
      *  - THE VALUE MOVED BEHIND A CALL. `function participation_floor():
      *    integer = 1;` is the same 1 that fires as `val PARTICIPATION_FLOOR =
      *    1;`, and [constants] has no case for a call. [functionReturns] is that
@@ -1725,6 +1729,12 @@ object RellSecurityCheck {
      *    parentheses, and it is resolved on the same terms. A function that
      *    reads state or takes parameters stays unresolved and still counts as a
      *    floor.
+     *  - THE FLOOR MOVED INTO A SECOND TRANSACTION. Round 16 rejects a floor
+     *    the proposer PASSES; a floor STORED in a field that a permissionless
+     *    operation writes from ITS caller's arguments is the same floor one
+     *    block earlier - `set_floor(1)` then `propose()`. That closure is
+     *    [proposerControlledFields], and its fields join [callerWrittenFields]
+     *    in this rejection.
      */
     private const val SMALLEST_ABSOLUTE_FLOOR = 10L
 
@@ -1789,6 +1799,154 @@ object RellSecurityCheck {
             }
         }
         return out
+    }
+
+    /** One operation's write of one field: what the value was computed from, and who was allowed to do it. */
+    private data class FieldWrite(
+        val field: String,
+        val sources: Set<String>,
+        val fromOwnParams: Boolean,
+        val writerIsTrusted: Boolean
+    )
+
+    /**
+     * THE FLOOR IN THE SECOND TRANSACTION (round 17).
+     *
+     * Round 16 refused a participation floor the proposer PASSES to `propose`.
+     * `r17-quorum-floor-set-by-a-second-operation` passes nothing: the floor is
+     * `book.floor`, a stored field the motion is stamped from - the exact shape
+     * the rule reads as a real floor - and `book.floor` is written by a SECOND
+     * permissionless operation the same account signs one block earlier.
+     * `set_floor(1); propose()` is the same 1-0 drain in two transactions, so
+     * what round 16 keyed on ("the proposer PASSES it") was one hop short of
+     * what matters ("the proposer CONTROLS it").
+     *
+     * This is that closure. A field is proposer-controlled when some operation
+     * writes it, that operation's auth does NOT name a principal
+     * ([authBindsANamedPrincipal] - no admin/owner key, no module-args signer,
+     * no governance vote, so an arbitrary signer may call it), and the value it
+     * writes flows from either
+     *   (a) that operation's OWN CALLER'S parameters, or
+     *   (b) a read of a field already in this set,
+     * to a fixed point. `book.floor` enters by (a) through `set_floor(n)`;
+     * `motion.floor_at_creation` enters by (b) because `propose` stamps it from
+     * `book.floor` and `propose` is signed by anyone.
+     *
+     * THE DATA-FLOW CONDITION IS LOAD-BEARING AND NOT AN OVERSIGHT. "Any field
+     * a permissionless operation writes" would take the round-14 false-positive
+     * DAO with it: `roll.enrolled` is incremented by a permissionless `enrol()`
+     * and the floor is half of it, but the increment is `+= 1` - an attacker can
+     * push that floor UP and never down, and no argument of theirs reaches it.
+     * The attack needs the attacker to CHOOSE the number, which is exactly a
+     * caller parameter reaching the written expression. Keyed on the data flow
+     * and on the shape of the auth check, never on a name.
+     */
+    internal fun proposerControlledFields(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        authFunctions: Set<String>,
+        helpers: Map<String, List<FunctionDef>>,
+        distrust: MarkerDistrust
+    ): Set<String> {
+        val writes = mutableListOf<FieldWrite>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val markers = authMarkersFor(masked, distrust)
+            scanOperations(path, masked).forEach { op ->
+                // Helpers inlined, so a guard - or a write - one call deep is
+                // read the same way the keyed rules read it.
+                val body = inlineHelpers(op.body, helpers, entities)
+                val params = parseParams(op.params).map { it.first }.toSet()
+                val bindings = bindingsOf(body)
+                val trusted = authBindsANamedPrincipal(body, markers, authFunctions, params)
+                fun record(field: String, expr: String) {
+                    val refs = refClosure(expr, bindings)
+                    writes += FieldWrite(field, refs, refs.any { it in params }, trusted)
+                }
+                statementsOf(body).forEach { stmt ->
+                    updateSetList(stmt)?.let { (_, items) ->
+                        items.forEach { (field, _, rhs) -> record(field, rhs) }
+                        return@forEach
+                    }
+                    // `book.floor = n` - an object write is a write, and none of
+                    // create/update/delete appears in one.
+                    DOTTED_ASSIGN_REGEX.find(stmt)?.let { a ->
+                        record(a.groupValues[1].replace(WS_REGEX, "").substringAfterLast('.'), a.groupValues[3])
+                    }
+                }
+                CREATE_STMT_REGEX.findAll(body).forEach { m ->
+                    if (m.groupValues[1] !in entities) return@forEach
+                    val parenStart = body.indexOf('(', m.range.first)
+                    val parenEnd = matchDelimiter(body, parenStart, '(', ')') ?: return@forEach
+                    splitArgs(body.substring(parenStart + 1, parenEnd)).forEach { arg ->
+                        CREATE_ARG_ITEM_REGEX.find(arg)?.let { a -> record(a.groupValues[1], a.groupValues[2]) }
+                    }
+                }
+            }
+        }
+        val controlled = mutableSetOf<String>()
+        var changed = true
+        while (changed) {
+            changed = false
+            writes.forEach { w ->
+                if (w.writerIsTrusted || w.field in controlled) return@forEach
+                val reaches = w.fromOwnParams ||
+                    w.sources.any { it.contains('.') && it.substringAfterLast('.') in controlled }
+                if (reaches) {
+                    controlled.add(w.field)
+                    changed = true
+                }
+            }
+        }
+        return controlled
+    }
+
+    /** `is_signer(...)` / `require_signer(...)` with the whole argument text, parens balanced. */
+    private val SIGNER_CHECK_HEAD_REGEX = Regex("""\b(?:is_signer|require_signer)\s*\(""")
+
+    /**
+     * True when [body]'s authorisation names a PRINCIPAL rather than merely a
+     * signer - an admin or owner key, a module argument, or a governance vote.
+     * This is the same classification `unauthenticated-mutation` uses
+     * ([containsAuthMarker], [authFunctions]) with the one distinction that
+     * rule does not need: `require(op_context.is_signer(op_context
+     * .get_signers()[0]))` authenticates NOBODY IN PARTICULAR - every signed
+     * transaction passes it - and `is_signer(<a parameter>)` is the phantom
+     * gate `signer-check-on-untrusted-argument` already names, where the caller
+     * supplies the key they sign with.
+     *
+     * So an operation is trusted here only when one of these holds:
+     *  - it reads `chain_context.args` (the sanctioned break-glass admin key,
+     *    the same marker [confusedDeputyFindings] treats as an admin gate);
+     *  - it is gated on a vote tally ([MAJORITY_COMPARISON_REGEX]) - a
+     *    governance decision, not one account's signature;
+     *  - it checks `is_signer(t)` where t is neither a caller parameter nor
+     *    read out of `op_context.get_signers()`, i.e. a STORED principal
+     *    (`cfg.owner`, `admin_row.pubkey`), read through local bindings.
+     * Anything else - no auth at all, `auth.authenticate()` alone (which says
+     * WHO is calling and nothing about whether they may), a self-signer check -
+     * is an arbitrary signer.
+     */
+    internal fun authBindsANamedPrincipal(
+        body: String,
+        markers: List<String>,
+        authFunctions: Set<String>,
+        params: Set<String>
+    ): Boolean {
+        if (!containsAuthMarker(body, markers) && authFunctions.none { it in calledNames(body) }) return false
+        if (CHAIN_ARGS_REF_REGEX.containsMatchIn(body)) return true
+        if (MAJORITY_COMPARISON_REGEX.containsMatchIn(body)) return true
+        val bindings by lazy { bindingsOf(body) }
+        SIGNER_CHECK_HEAD_REGEX.findAll(body).forEach { m ->
+            val open = body.indexOf('(', m.range.first)
+            val close = matchDelimiter(body, open, '(', ')') ?: return@forEach
+            val arg = body.substring(open + 1, close)
+            if (arg.contains("get_signers")) return@forEach
+            val refs = refsOf(arg) + refClosure(arg, bindings)
+            if (refs.any { it in params }) return@forEach
+            if (refs.any { it.contains('.') && !it.startsWith("op_context") }) return true
+        }
+        return false
     }
 
     /**
