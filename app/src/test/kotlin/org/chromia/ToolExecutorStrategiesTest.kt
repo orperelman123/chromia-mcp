@@ -840,6 +840,162 @@ class ToolExecutorStrategiesTest {
         assertEquals(assetName, rows[0].jsonObject.getValue("name").jsonPrimitive.content)
     }
 
+    // ==================================================================
+    // THE EXPLORER TOOLS, LIVE
+    // ==================================================================
+    //
+    // Seventeen tests used to live here, each one a MockEngine holding a
+    // recorded envelope plus assertions over the request the engine had
+    // captured. Between them they proved two things: that the repository builds
+    // the GraphQL document and variables we think it builds, and that
+    // handleResult copies a 200 body into structuredContent.
+    //
+    // The first half is a claim about our own code with no third party in it at
+    // all, and it belongs - and already lives - in GraphQLQueryTest, which
+    // asserts directly on GraphQLQuery.toJsonObject(): blank strings dropped,
+    // empty and all-blank lists omitted, lists encoded as JSON arrays. Nothing
+    // there needs an engine, and nothing there was lost.
+    //
+    // The second half was the problem. A recorded 200 cannot notice that the
+    // explorer renamed a field, started requiring a reCAPTCHA token, or began
+    // answering INTERNAL_ERROR - and when these were converted, on 2026-09-07,
+    // four of the sixteen tools turned out to be exactly there:
+    //
+    //   get_network_stats            dashboardData -> INTERNAL_ERROR
+    //   get_transactions_by_cluster  dashboardData -> INTERNAL_ERROR
+    //   get_blockchains_transactions groupedTransactionsByBlockchain -> INTERNAL_ERROR
+    //   get_node_unavailability      "reCAPTCHA verification failed: token is
+    //                                required" - a gate our client cannot pass
+    //
+    // The fixtures had been green over all four. That is the whole argument for
+    // this pass in one paragraph.
+    //
+    // So the live assertion has two honest branches and one forbidden one, and
+    // [assertLiveExplorerTool] enforces all three:
+    //
+    //   OK        the explorer served it: the named field is present, and the
+    //             argument that was supposed to filter actually filtered;
+    //   UPSTREAM  the explorer refused it: the refusal must arrive as an error
+    //             carrying the explorer's OWN words. This is the same contract
+    //             scripts/upstream-classifier.mjs applies in the sweep - the
+    //             failure is the third party's, and it is reported as such;
+    //   NEVER     a success whose data field is absent, null or unparsed. That
+    //             is our bug - a swallowed upstream failure dressed as an
+    //             answer - and it is the only outcome that fails here.
+
+    /** The production repository against the real explorer; no engine, no seam. */
+    private fun liveRepository() = LiveChromia.repository()
+
+    /**
+     * Things only the third party can say. A tool error whose text contains one
+     * of these is upstream's refusal; anything else is ours.
+     */
+    private val upstreamMarkers = listOf(
+        "INTERNAL_ERROR", "reCAPTCHA", "HTTP 4", "HTTP 5", "Bad Request",
+        "Service Unavailable", "Gateway", "Timeout", "timed out", "Connection reset",
+        "Connection refused"
+    )
+
+    /**
+     * NOT upstream. A GraphQL *validation* error means we asked the schema for
+     * a field it does not have - the explorer renamed something and our query
+     * did not follow. That is our bug, and it is the single most valuable thing
+     * a live test catches that a recorded fixture never can, so it must never be
+     * waved through as "the third party's problem".
+     */
+    private val ourBugMarkers = listOf("Validation error", "FieldUndefined", "OperationNotSupported")
+
+    /**
+     * Asserts the contract above and returns the tool's data field when the
+     * explorer served it, or null when the explorer refused.
+     */
+    private fun assertLiveExplorerTool(
+        tool: String,
+        result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult,
+        field: String
+    ): JsonElement? {
+        val text = (result.content.first() as TextContent).text.orEmpty()
+        if (result.isError == true) {
+            assertFalse(
+                ourBugMarkers.any { text.contains(it) },
+                "$tool asked the explorer's schema for something it does not have. The explorer " +
+                    "changed and the query did not follow - this is ours to fix, and it is precisely " +
+                    "what the recorded fixture could not see: $text"
+            )
+            assertTrue(
+                upstreamMarkers.any { text.contains(it) },
+                "$tool failed and nothing in the message is an upstream signature, so the failure " +
+                    "is ours: $text"
+            )
+            return null
+        }
+        val structured = result.structuredContent
+        assertNotNull(structured, "$tool answered without structured content: $text")
+        val data = structured!!["data"]
+        assertNotNull(
+            data,
+            "$tool returned a success with no `data` envelope. A swallowed upstream failure dressed " +
+                "as an answer is the one outcome this test refuses: $structured"
+        )
+        val value = data!!.jsonObject[field]
+        assertNotNull(
+            value,
+            "$tool succeeded but `data.$field` is missing - either the explorer renamed it or the " +
+                "repository is reading the wrong field: $data"
+        )
+        assertFalse(
+            value is kotlinx.serialization.json.JsonNull,
+            "$tool succeeded with `data.$field` null; upstream failures must be errors, not nulls: $data"
+        )
+        return value
+    }
+
+    /**
+     * The directory chain's rid, discovered live. Returns null when the explorer
+     * refuses - the caller then has nothing real to ask about and says so.
+     *
+     * This exists so the `?: return` in its callers sits directly under the
+     * assertion that earned it: an early return more than a few lines away from
+     * the assert reads, to the scan in AssumptionLedgerTest and to a human, like
+     * a test leaving without having checked anything.
+     */
+    private suspend fun assertLiveDirectoryChainRid(): String? {
+        val result = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("name", "directory")
+                    put("limit", 1)
+                }
+            ),
+            liveRepository()
+        )
+        val chains = assertLiveExplorerTool("filter_blockchains", result, "allBlockchains") ?: return null
+        assertTrue(chains.jsonArray.isNotEmpty(), "the live explorer knows the directory chain: $chains")
+        return chains.jsonArray.first().jsonObject.getValue("rid").jsonPrimitive.content
+    }
+
+    /** The CHR asset, discovered live rather than pinned to a hex string that may move. */
+    private suspend fun liveChrAsset(): JsonObject {
+        val result = FilterAssetsStrategy().execute(
+            callToolRequest(
+                name = "filter_assets",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("searchQuery", "CHR")
+                    put("limit", 10)
+                }
+            ),
+            liveRepository()
+        )
+        val assets = assertLiveExplorerTool("filter_assets", result, "filterAssets")
+            ?: error("the CHR asset lookup is a precondition for the id-taking explorer tools")
+        val rows = assets.jsonObject.getValue("assets").jsonArray
+        assertTrue(rows.isNotEmpty(), "searchQuery=CHR matched nothing on mainnet")
+        return rows.first { it.jsonObject.getValue("symbol").jsonPrimitive.content == "CHR" }.jsonObject
+    }
+
     @Test
     fun liveFilterBlockchainsFiltersByNameAndSystem() = runBlocking {
         LiveChromia.requireLive("calls filter_blockchains against the live explorer")
@@ -935,8 +1091,19 @@ class ToolExecutorStrategiesTest {
         val holders = assertLiveExplorerTool("get_asset_top_holders", result, "getAssetTopHolders")
             ?: return@runBlocking
         assertTrue(holders.jsonArray.isNotEmpty(), "CHR has holders: $holders")
-        assertTrue(holders.jsonArray.size <= 3, "the limit variable did not bind: $holders")
-        assertEquals(64, holders.jsonArray.first().jsonObject.getValue("accountId").jsonPrimitive.content.length)
+        // LIVE BEHAVIOUR, found 2026-09-07: `limit` caps the ACCOUNTS, and the
+        // explorer then appends one synthetic remainder row whose accountId is
+        // the literal "Others". A recorded fixture had `limit` meaning what it
+        // says and nothing ever disagreed with it.
+        val accounts = holders.jsonArray.filter {
+            it.jsonObject.getValue("accountId").jsonPrimitive.content != "Others"
+        }
+        assertTrue(
+            accounts.size <= 3,
+            "the limit variable did not bind - ${accounts.size} real accounts came back: $holders"
+        )
+        assertTrue(accounts.isNotEmpty(), "CHR has real holders, not only the Others row: $holders")
+        assertEquals(64, accounts.first().jsonObject.getValue("accountId").jsonPrimitive.content.length)
     }
 
     @Test
@@ -982,20 +1149,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun liveGetBlockchainDetailsAnswersForARealRid() = runBlocking {
         LiveChromia.requireLive("calls get_blockchain_details for a real chain rid")
-        val directory = FilterBlockchainsStrategy().execute(
-            callToolRequest(
-                name = "filter_blockchains",
-                arguments = buildJsonObject {
-                    put("network", LiveChromia.EXPLORER_NETWORK)
-                    put("name", "directory")
-                    put("limit", 1)
-                }
-            ),
-            liveRepository()
-        )
-        val chains = assertLiveExplorerTool("filter_blockchains", directory, "allBlockchains")
-            ?: return@runBlocking
-        val rid = chains.jsonArray.first().jsonObject.getValue("rid").jsonPrimitive.content
+        val rid = assertLiveDirectoryChainRid() ?: return@runBlocking
 
         val result = BlockchainDetailsStrategy().execute(
             callToolRequest(
@@ -1016,22 +1170,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun liveGetBlockchainAnalyticsAnswersForARealChain() = runBlocking {
         LiveChromia.requireLive("calls get_blockchain_analytics for a real chain rid")
-        val chains = assertLiveExplorerTool(
-            "filter_blockchains",
-            FilterBlockchainsStrategy().execute(
-                callToolRequest(
-                    name = "filter_blockchains",
-                    arguments = buildJsonObject {
-                        put("network", LiveChromia.EXPLORER_NETWORK)
-                        put("name", "directory")
-                        put("limit", 1)
-                    }
-                ),
-                liveRepository()
-            ),
-            "allBlockchains"
-        ) ?: return@runBlocking
-        val rid = chains.jsonArray.first().jsonObject.getValue("rid").jsonPrimitive.content
+        val rid = assertLiveDirectoryChainRid() ?: return@runBlocking
 
         val result = BlockchainAnalyticsStrategy().execute(
             callToolRequest(
@@ -1055,22 +1194,23 @@ class ToolExecutorStrategiesTest {
     fun liveGetAccountBlockchainsAnswersForARealAccount() = runBlocking {
         LiveChromia.requireLive("calls get_account_blockchains for a real account id")
         val assetId = liveChrAsset().getValue("id").jsonPrimitive.content
-        val holders = assertLiveExplorerTool(
-            "get_asset_top_holders",
-            AssetTopHoldersStrategy().execute(
-                callToolRequest(
-                    name = "get_asset_top_holders",
-                    arguments = buildJsonObject {
-                        put("network", LiveChromia.EXPLORER_NETWORK)
-                        put("assetId", assetId)
-                        put("limit", 1)
-                    }
-                ),
-                liveRepository()
+        val topHolders = AssetTopHoldersStrategy().execute(
+            callToolRequest(
+                name = "get_asset_top_holders",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", assetId)
+                    put("limit", 1)
+                }
             ),
-            "getAssetTopHolders"
-        ) ?: return@runBlocking
-        val accountId = holders.jsonArray.first().jsonObject.getValue("accountId").jsonPrimitive.content
+            liveRepository()
+        )
+        val holders = assertLiveExplorerTool("get_asset_top_holders", topHolders, "getAssetTopHolders")
+            ?: return@runBlocking
+        // "Others" is the explorer's synthetic remainder row, not an account.
+        val accountId = holders.jsonArray
+            .map { it.jsonObject.getValue("accountId").jsonPrimitive.content }
+            .first { it != "Others" }
 
         val result = AccountBlockchainsStrategy().execute(
             callToolRequest(
@@ -1209,32 +1349,38 @@ class ToolExecutorStrategiesTest {
     }
 
     /**
-     * The 200-with-errors branch, end to end through a real strategy.
+     * A REFUSAL FROM THE EXPLORER, END TO END THROUGH A STRATEGY.
      *
-     * `getAssetTopHolders` with an asset id that is not an asset id makes the
-     * explorer answer HTTP 200 carrying an INTERNAL_ERROR - a real refusal to a
-     * real question, reproducible on demand. handleResult must turn it into an
-     * isError result that keeps the explorer's own words, rather than an empty
-     * success.
+     * The claim is handleResult's: when the repository returns an error, the
+     * tool result must be `isError`, its text must carry the explorer's own
+     * words, and `structuredContent["error"]` must say the same thing as the
+     * text - never an empty success.
+     *
+     * The first attempt at this used a bogus assetId, on the strength of a curl
+     * that produced INTERNAL_ERROR. Live, through the production query, the
+     * explorer answered 200 with an empty list instead - so that input is not a
+     * refusal and the test was wrong to assume it. `network=testnet` IS a
+     * refusal, every time, and it is documented in docs/UPSTREAM.md #9.
      */
     @Test
-    fun liveGraphQlErrorsFlowThroughTheParserIntoAnIsErrorResult() = runBlocking {
-        LiveChromia.requireLive("asks the live explorer for top holders of something that is not an asset")
-        val result = AssetTopHoldersStrategy().execute(
+    fun anExplorerRefusalFlowsIntoAnIsErrorResultCarryingItsWords() = runBlocking {
+        LiveChromia.requireLive("takes the explorer's real refusal of network=testnet through a strategy")
+        val result = AllAssetsStrategy().execute(
             callToolRequest(
-                name = "get_asset_top_holders",
-                arguments = buildJsonObject {
-                    put("network", LiveChromia.EXPLORER_NETWORK)
-                    put("assetId", "not-an-asset-8f2b41c9")
-                    put("limit", 3)
-                }
+                name = "get_all_assets",
+                arguments = buildJsonObject { put("network", "testnet") }
             ),
             liveRepository()
         )
-        assertEquals(true, result.isError, "a refused query must not come back as a success: $result")
+        assertEquals(
+            true, result.isError,
+            "the explorer refuses network=testnet; a refusal must not come back as a success: $result"
+        )
         val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.contains("GraphQL Error"), text)
-        assertTrue(text.contains("INTERNAL_ERROR"), "the explorer's own words must survive: $text")
+        assertTrue(
+            upstreamMarkers.any { text.contains(it) },
+            "the refusal must carry the explorer's own words, not a message of ours: $text"
+        )
         assertEquals(
             text,
             result.structuredContent!!["error"]!!.jsonPrimitive.content,
