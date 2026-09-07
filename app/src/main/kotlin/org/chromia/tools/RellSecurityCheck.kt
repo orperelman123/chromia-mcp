@@ -599,6 +599,9 @@ object RellSecurityCheck {
         // Fields some operation writes from ITS OWN CALLER'S arguments: a
         // participation floor the proposer writes is the proposer's floor.
         val attackerWrittenFields = callerWrittenFields(fullyMasked, allEntityNames)
+        // Parameterless functions that ARE a constant: `function floor(): integer
+        // = 1;` is the same 1 as `val FLOOR = 1;` and a bound must resolve it.
+        val constantReturns = constantReturningFunctions(fullyMasked)
         // Fields the submission ever DEBITS: a deadline is never spent, so a
         // field that IS debited holds value whatever its declared type says.
         val debitedFields = debitedValueFields(fullyMasked, allEntityNames, entityHelperReturns)
@@ -693,10 +696,10 @@ object RellSecurityCheck {
                 findings += iccfProvenanceFindings(path, op, mutatingFunctions)
                 findings += majorityWithoutQuorumFindings(
                     path, op, valueMutatingFunctions, quorumTermPresent, numericConstants, tallyPairs,
-                    attackerWrittenFields
+                    attackerWrittenFields, constantReturns
                 )
                 findings += unboundedTimeWindowFindings(
-                    path, op, requireFunctions, numericConstants, moduleArgFloors
+                    path, op, requireFunctions, numericConstants, moduleArgFloors, constantReturns
                 )
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
@@ -1712,6 +1715,16 @@ object RellSecurityCheck {
      * PARAMETERS ([callerWrittenFields]) is not a floor - while one derived
      * from state the proposer does not write in that operation (a member
      * count, total stake, a helper over the roll) still is.
+     *
+     * ROUND 17 WENT ROUND IT WITH ONE TOKEN.
+     *  - THE VALUE MOVED BEHIND A CALL. `function participation_floor():
+     *    integer = 1;` is the same 1 that fires as `val PARTICIPATION_FLOOR =
+     *    1;`, and [constants] has no case for a call. [functionReturns] is that
+     *    case ([constantReturningFunctions]): a parameterless function whose
+     *    body is a single return of a reducible term is a named constant with
+     *    parentheses, and it is resolved on the same terms. A function that
+     *    reads state or takes parameters stays unresolved and still counts as a
+     *    floor.
      */
     private const val SMALLEST_ABSOLUTE_FLOOR = 10L
 
@@ -1719,7 +1732,8 @@ object RellSecurityCheck {
     internal fun hasParticipationFloor(
         body: String,
         constants: Map<String, Long> = emptyMap(),
-        callerWrittenFields: Set<String> = emptySet()
+        callerWrittenFields: Set<String> = emptySet(),
+        functionReturns: Map<String, String> = emptyMap()
     ): Boolean {
         val bindings by lazy { bindingsOf(body) }
         return PARTICIPATION_FLOOR_REGEX.findAll(body).any { m ->
@@ -1729,7 +1743,9 @@ object RellSecurityCheck {
             val attackerWritten = (sequenceOf(term) + refClosure(term, bindings).asSequence())
                 .any { it.contains('.') && it.substringAfterLast('.') in callerWrittenFields }
             if (attackerWritten) return@any false
-            val literal = term.toLongOrNull() ?: constants[term]
+            // A module arg keeps the benefit of the doubt here (literal null),
+            // exactly as it did when only literals and vals were resolved.
+            val literal = resolveBound(term, constants, emptyMap(), functionReturns).literal
             if (literal == null) true else literal >= SMALLEST_ABSOLUTE_FLOOR
         }
     }
@@ -1808,7 +1824,8 @@ object RellSecurityCheck {
         quorumTermPresent: Boolean,
         constants: Map<String, Long> = emptyMap(),
         tallyPairs: Set<Pair<String, String>> = emptySet(),
-        callerWrittenFields: Set<String> = emptySet()
+        callerWrittenFields: Set<String> = emptySet(),
+        functionReturns: Map<String, String> = emptyMap()
     ): List<Finding> {
         if (quorumTermPresent) return emptyList()
         // THE MAJORITY GATE, by words OR by structure. The word list is the
@@ -1821,13 +1838,13 @@ object RellSecurityCheck {
         // rule's legacy quieting bias and stays: it only ever produces false
         // NEGATIVES. This one is what a participation floor actually looks
         // like, and it is immune to what the designer calls it.
-        if (hasParticipationFloor(op.body, constants, callerWrittenFields)) return emptyList()
+        if (hasParticipationFloor(op.body, constants, callerWrittenFields, functionReturns)) return emptyList()
         val calls = calledNames(op.body)
         val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
         if (!movesValue) return emptyList()
         // A floor IS written here, and it is written by the proposer: say so,
         // because "add a quorum" is useless advice to an author who has one.
-        val proposerFloor = hasParticipationFloor(op.body, constants)
+        val proposerFloor = hasParticipationFloor(op.body, constants, emptySet(), functionReturns)
         return listOf(
             Finding(
                 "MEDIUM", "majority-without-quorum", path, op.line,
@@ -1942,7 +1959,8 @@ object RellSecurityCheck {
         op: OperationBlock,
         requireFunctions: Set<String>,
         constants: Map<String, Long> = emptyMap(),
-        moduleArgDefaults: Map<String, Long?> = emptyMap()
+        moduleArgDefaults: Map<String, Long?> = emptyMap(),
+        functionReturns: Map<String, String> = emptyMap()
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
         val expressions = statementsOf(op.body).flatMap { argumentExpressions(it) }
@@ -1989,7 +2007,8 @@ object RellSecurityCheck {
                     .filter { it.isNotEmpty() && !paramRef.matches(it) }
                     .forEach { maxFloors.add(it) }
             }
-            val bounds = (lowerBounds + maxFloors).map { resolveBound(it, constants, moduleArgDefaults) }
+            val bounds = (lowerBounds + maxFloors)
+                .map { resolveBound(it, constants, moduleArgDefaults, functionReturns) }
             // A FLOOR IS A POSITIVE QUANTITY. Round 15's test read the TERM and
             // never its value (`lowerBounds.any { it != "0" }`), so round 16
             // extracted the same zero into `val MIN_VOTING_MS = 0;` and the
@@ -2062,16 +2081,108 @@ object RellSecurityCheck {
      */
     private data class BoundValue(val literal: Long?, val moduleArg: String?)
 
+    /**
+     * How many `f() -> g() -> 1` hops a bound may take before the resolver
+     * gives up. A chain longer than this is not a bound anybody reads either.
+     */
+    private const val MAX_BOUND_CALL_DEPTH = 8
+
+    /**
+     * ROUND 17: A BOUND BEHIND A CALL. Round 16 resolved a bound's VALUE
+     * through a literal, a module-level `val` and a `struct module_args`
+     * default, and had no case for a CALL - so `function participation_floor():
+     * integer = 1;` hid the same 1 that fires when it is written
+     * `val PARTICIPATION_FLOOR = 1;` one token away
+     * (`r17-quorum-floor-behind-a-function-call` and its val control).
+     *
+     * A call resolves only when the function is a NAMED CONSTANT WITH
+     * PARENTHESES ([constantReturningFunctions]): no parameters, and a body
+     * that is a single return of another term this resolver can reduce. A
+     * function that reads state, takes parameters, or does anything else stays
+     * unresolved and keeps the benefit of the doubt, exactly as a field read
+     * does - guessing there is how a rule starts firing on correct code.
+     * [seen] makes the walk cycle-safe (`a() = b(); b() = a();` terminates)
+     * and bounds it at [MAX_BOUND_CALL_DEPTH].
+     */
     private fun resolveBound(
         term: String,
         constants: Map<String, Long>,
-        moduleArgDefaults: Map<String, Long?>
+        moduleArgDefaults: Map<String, Long?>,
+        functionReturns: Map<String, String> = emptyMap(),
+        seen: Set<String> = emptySet()
     ): BoundValue {
-        val t = term.trim()
+        val t = term.trim().removeSuffix("()").trim()
         t.toLongOrNull()?.let { return BoundValue(it, null) }
         constants[t]?.let { return BoundValue(it, null) }
         MODULE_ARG_TERM_REGEX.find(t)?.let { return BoundValue(moduleArgDefaults[it.groupValues[1]], it.groupValues[1]) }
+        val returned = functionReturns[t]
+        if (returned != null && t !in seen && seen.size < MAX_BOUND_CALL_DEPTH) {
+            return resolveBound(returned, constants, moduleArgDefaults, functionReturns, seen + t)
+        }
         return BoundValue(null, null)
+    }
+
+    /** A term this resolver can reduce: a number, an identifier, `a.b.c`, or `f()`. */
+    private val REDUCIBLE_TERM_REGEX =
+        Regex("""^-?\d+$|^[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*(?:\s*\(\s*\))?$""")
+
+    /** `return <term>;` as the WHOLE of a block body. */
+    private val SOLE_RETURN_REGEX = Regex("""^\s*return\b(.*?);?\s*$""", RegexOption.DOT_MATCHES_ALL)
+
+    /**
+     * Functions that are a named constant with parentheses: NO parameters and a
+     * body that is a single return of one reducible term - `function f():
+     * integer = 1;`, `function f(): integer { return MIN; }`, `function f():
+     * integer = g();`. Mapped name -> that term, for [resolveBound] to reduce
+     * on the same terms as an inline bound.
+     *
+     * Everything else is left unresolved on purpose:
+     *  - a function with PARAMETERS returns whatever the CALL SITE passed, so
+     *    the declaration is not the value;
+     *  - a body with more than one statement, or whose returned term reads
+     *    STATE (`return book.floor;`, an at-expression, a call with arguments),
+     *    is a number this scan cannot see.
+     * A dotted term survives only when it is `chain_context.args.x` - a module
+     * argument, which [resolveBound] already knows how to value; every other
+     * dotted read is state. An unresolved bound still counts as a real bound,
+     * so both directions of this stay conservative.
+     *
+     * A name defined more than once resolves only when EVERY definition of it
+     * reduces to the SAME term - the conservatism [authFunctionNames] applies
+     * to duplicate names, for the same reason.
+     */
+    internal fun constantReturningFunctions(fullyMasked: Map<String, String>): Map<String, String> {
+        val terms = mutableMapOf<String, MutableSet<String?>>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            functionDefinitions(masked).forEach { def ->
+                terms.getOrPut(def.name) { mutableSetOf() }.add(constantReturnTerm(def))
+            }
+        }
+        val out = mutableMapOf<String, String>()
+        terms.forEach { (name, values) ->
+            val only = values.singleOrNull()
+            if (only != null) out[name] = only
+        }
+        return out
+    }
+
+    /** The single term [def] returns, or null when it is not a named constant. */
+    private fun constantReturnTerm(def: FunctionDef): String? {
+        if (def.params.isNotBlank()) return null
+        val raw = if (def.expressionBody) {
+            def.body
+        } else {
+            val stmts = def.body.split(';').filter { it.isNotBlank() }
+            if (stmts.size != 1) return null
+            SOLE_RETURN_REGEX.find(stmts[0])?.groupValues?.get(1) ?: return null
+        }
+        val t = raw.trim().trimEnd(';').trim()
+        if (t.isEmpty() || !REDUCIBLE_TERM_REGEX.matches(t)) return null
+        val bare = t.removeSuffix("()").trim().replace(WS_REGEX, "")
+        // A dotted read is STATE unless it is a module argument.
+        if (bare.contains('.') && !MODULE_ARG_TERM_REGEX.containsMatchIn(bare)) return null
+        return bare
     }
 
     private val MODULE_ARGS_STRUCT_REGEX = Regex("""\bstruct\s+module_args\s*\{""")
