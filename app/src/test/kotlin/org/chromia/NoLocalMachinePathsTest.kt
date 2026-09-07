@@ -17,7 +17,7 @@ import java.nio.file.Path
  * lane script, a KDoc and fourteen adversary harness scripts with a hard-coded
  * worktree root) plus four compiled Python caches whose bytecode embeds the
  * same absolute paths. This test scans exactly what `git ls-files` reports -
- * what a clone contains - so a path, a user name, a session id, a temp
+ * what a clone contains - so a path, the running user's name, a profile temp
  * directory or a compiled cache cannot be committed again unnoticed.
  *
  * Placeholders are fine and are what the docs use now: `C:\Users\<you>\`,
@@ -30,12 +30,23 @@ class NoLocalMachinePathsTest {
         // obviously fictional example user (`dev`, `alice`, ...).
         Regex("""[A-Za-z]:[\\/]+Users[\\/]+(?!<|(?:dev|you|user|alice|bob|example|username)[\\/])[A-Za-z0-9._-]+[\\/]"""),
         Regex("""/(?:c|mnt/c)/Users/(?!<|(?:dev|you|user|alice|bob|example|username)/)[A-Za-z0-9._-]+/"""),
-        // This machine's user name and Claude session id, wherever they appear.
-        Regex("""\bOrpe7\b"""),
-        Regex("""65d6a152-0759-4ea5-91a9-b4ea941d727f"""),
-        // A temp / app-data directory of a Windows profile.
+        // A temp / app-data directory of a Windows profile (agent session
+        // scratch directories live there too).
         Regex("""AppData[\\/]+(?:Local|Roaming)"""),
-    )
+    ) + localUserName()
+
+    /**
+     * The user name of the machine running the test, read at runtime so the
+     * name itself is never written into this public file. Whoever runs the
+     * suite is thereby stopped from committing their own name.
+     */
+    private fun localUserName(): List<Regex> {
+        val names = listOfNotNull(System.getProperty("user.name"), System.getenv("USERNAME"), System.getenv("USER"))
+            .map { it.trim() }
+            .filter { it.length >= 4 && it.lowercase() !in setOf("user", "root", "runner", "admin", "test", "build") }
+            .toSet()
+        return names.map { Regex("""\b${Regex.escape(it)}\b""") }
+    }
 
     private val forbiddenPaths = listOf(
         Regex("""(^|/)__pycache__/"""),
