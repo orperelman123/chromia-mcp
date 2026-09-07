@@ -76,6 +76,42 @@ class ToolDescriptionBudgetTest {
             "Call with no arguments to list all topics; call with a topic to get that payload.",
             "The same content as the individual *_help tools, through one schema.",
             "best practices), FT4 queries, integrations, vector search, and the cookbook."
+        ),
+        // Round 16 replaced the round-15 account of HOW a refusal is attributed
+        // (statement order, frame-less literal ownership, differential
+        // truncation) with the two canonical test shapes - the tool no longer
+        // works the way these sentences describe, so they are retired, and the
+        // long form now carries the shapes in full (ToolDocs.VERIFY_GUARDS).
+        "verify_guards" to listOf(
+            "the declaration the guard sits in, MODULE INCLUDED, or",
+            "it through your own call graph; and when it came from the",
+            "FIRST statement of the test that invokes that declaration.",
+            "A refusal by any other declaration, by the same one in a",
+            "LATER statement, or a test-side failure, is the damage",
+            "being noticed and counts as load_bearing.",
+            "An error with NO frame is never an operation (a refusing",
+            "operation always carries one): it is the test module or a",
+            "QUERY, and which one is read off the string literals each",
+            "owns - so a query whose own second guard refuses is",
+            "still_refused, while a rell.test assert_* or a test-side",
+            "require is the damage being measured.",
+            "When the frame names the guard's declaration and the test",
+            "invokes it more than once, the tool CUTS the test after",
+            "the first such statement and runs the mutant again",
+            "(DIFFERENTIAL TRUNCATION): still refused there means the",
+            "attack was refused; passing there means it landed.",
+            "ambiguous_refusal - the mutant went red and the tool CANNOT SAY which of the",
+            "two it is: a frame-less error whose words BOTH the test",
+            "module and a production query the test invokes can",
+            "produce (or that neither can), or a repeated invocation",
+            "whose first call cannot be located exactly - a loop, or a",
+            "helper with several call sites - so the truncated re-run",
+            "would not measure the attack.",
+            "reason to weaken the test - the evidence text says what",
+            "to add (an assertion on the state the attack changes, a",
+            "run_must_fail on the attack, distinct wording for the two",
+            "messages, or one call to the declaration instead of",
+            "several)."
         )
     )
 
