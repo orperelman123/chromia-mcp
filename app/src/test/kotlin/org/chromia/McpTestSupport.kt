@@ -33,19 +33,13 @@ internal object McpTestSupport {
         }
 
     /**
-     * In-memory docs store for in-process MCP sessions. Does not load local
-     * embeddings.json or the GitLab registry. query() matches fixture text /
-     * file_name and rememberQueryHits so fetch can resolve the returned id.
+     * In-memory docs store for in-process MCP sessions: a REAL [RagStore] over a
+     * two-segment index (see [TestDocsIndex]). It does not download anything, but
+     * `query()`, `fetchById()` and the segment-id index are the production ones -
+     * this used to override `query()`, which is our own retrieval, so every
+     * in-process docs assertion passed without running it.
      */
-    fun fixtureRagStore(): RagStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = listOf(AUTH_SEGMENT, RELL_SEGMENT).filter { segment ->
-                segment.text().contains(query, ignoreCase = true) ||
-                    (segment.metadata()?.getString("file_name")?.contains(query, ignoreCase = true) == true)
-            }
-            return hits.ifEmpty { null }?.also { rememberQueryHits(it) }
-        }
-    }
+    fun fixtureRagStore(): RagStore = TestDocsIndex.store(AUTH_SEGMENT, RELL_SEGMENT)
 
     fun testApp(
         engine: MockEngine = errorEngine(),

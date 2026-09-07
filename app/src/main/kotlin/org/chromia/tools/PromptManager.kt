@@ -2,8 +2,21 @@ package org.chromia.tools
 
 import kotlinx.serialization.json.*
 
-open class PromptManager {
-    private companion object {
+/**
+ * The prompt catalogue, read from a classpath resource.
+ *
+ * NOT `open`, and neither is [getCategories]: both used to be, for exactly one
+ * reason - a test overrode `getCategories()` to `error("catalog boom")` so that
+ * `PromptsToolStrategy`'s failure branch had something to catch. That made the
+ * production class carry a subclassing seam it has no production use for, and
+ * proved only that the strategy catches a throw the real loader cannot produce.
+ * [resourceName] replaces it: the test points a REAL PromptManager at a REAL
+ * malformed catalogue and the failure comes out of the real parse.
+ */
+class PromptManager(private val resourceName: String = DEFAULT_RESOURCE) {
+    companion object {
+        const val DEFAULT_RESOURCE = "prompt_templates.json"
+
         /** Real MCP tool prefix, e.g. mcp__chromia__validate_chromia_yml. */
         private val MCP_SERVER_PREFIX = Regex("^mcp__[a-z0-9-]+__")
     }
@@ -15,8 +28,6 @@ open class PromptManager {
     }
 
     private fun loadTemplatesInternal(): JsonObject? {
-        val resourceName = "prompt_templates.json"
-
         val inputStream = javaClass.classLoader.getResourceAsStream(resourceName)
             ?: return null
 
@@ -26,12 +37,18 @@ open class PromptManager {
                     it.readText()
                 }.takeIf { it.isNotBlank() }
                 ?.let {
-                    json.decodeFromString<JsonObject>(it)
+                    runCatching { json.decodeFromString<JsonObject>(it) }
+                        .getOrElse { error ->
+                            throw IllegalStateException(
+                                "prompt catalogue '$resourceName' is not readable JSON: ${error.message}",
+                                error
+                            )
+                        }
                 }
         }
     }
 
-    open fun getCategories(): List<String> = templates?.keys?.toList() ?: emptyList()
+    fun getCategories(): List<String> = templates?.keys?.toList() ?: emptyList()
 
     fun getPromptsForCategory(category: String) =
         templates?.get(category)?.jsonArray?.mapNotNull { element ->

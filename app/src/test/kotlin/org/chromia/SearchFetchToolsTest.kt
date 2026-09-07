@@ -48,16 +48,14 @@ class SearchFetchToolsTest {
         Metadata.from("file_name", "rell-compiler.md")
     )
 
-    private val fixtureStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = listOf(authSegment, rellSegment).filter { segment ->
-                segment.text().contains(query, ignoreCase = true) ||
-                    (segment.metadata()?.getString("file_name")?.contains(query, ignoreCase = true) == true)
-            }
-            // Empty = no match; null is reserved for "index unavailable" (audit F5).
-            return hits.also { rememberQueryHits(it) }
-        }
-    }
+    // A REAL RagStore over a two-segment index (see TestDocsIndex): real query()
+    // - lexical boost, semantic retrieval, docs-first merge - real fetchById,
+    // real segment-id index. This used to override query(), so the
+    // search/fetch/fetch_docs contract was asserted without once running the
+    // retrieval it is a contract over. Empty = no match; null is still reserved
+    // for "index unavailable" (audit F5), which a store WITH an index never
+    // returns.
+    private val fixtureStore = TestDocsIndex.store(authSegment, rellSegment)
 
     @Test
     fun searchReturnsIdTitleUrlFromFixtureStore() = runBlocking {
@@ -457,9 +455,9 @@ class SearchFetchToolsTest {
 
     @Test
     fun fetchDocsEmptyHitsSetsIsError() = runBlocking {
-        val emptyStore = object : RagStore(loadFromRegistry = false) {
-            override fun query(query: String) = emptyList<TextSegment>()
-        }
+        // A real store whose index holds nothing: query() runs for real and
+        // finds no hit, which is not the same as "index unavailable".
+        val emptyStore = TestDocsIndex.store()
         val result = FetchDocsStrategy(CompletableDeferred(emptyStore)).execute(
             callToolRequest(
                 name = "fetch_docs",
@@ -477,24 +475,11 @@ class SearchFetchToolsTest {
 
     @Test
     fun fetchOnStoreBHitsIdFromSearchOnStoreA(@TempDir tempDir: Path) = runBlocking {
-        val path = tempDir.resolve("embeddings.json")
-        InMemoryEmbeddingStore<TextSegment>().also { store ->
-            store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
-            store.add(Embedding.from(floatArrayOf(0.2f, 0.1f, 0.3f)), rellSegment)
-            persistLocalEmbeddings(store, path)
-        }
-        val storeA = object : RagStore(
-            loadFromRegistry = true,
-            localEmbeddingsPath = path,
-            registryLoader = { null }
-        ) {
-            override fun query(query: String): List<TextSegment>? {
-                val hits = embeddingStoreSegments(embeddingStore ?: return null).filter { segment ->
-                    segment.text().contains(query, ignoreCase = true)
-                }
-                return hits.ifEmpty { null }
-            }
-        }
+        // Both stores LOAD the same persisted index file the way production
+        // does; storeA answers the search with the real query path (it used to
+        // override query() and filter by substring).
+        val path = TestDocsIndex.persist(tempDir.resolve("embeddings.json"), authSegment, rellSegment)
+        val storeA = TestDocsIndex.storeLoadedFrom(path)
         val storeB = RagStore(
             loadFromRegistry = true,
             localEmbeddingsPath = path,
@@ -630,15 +615,14 @@ class SearchFetchToolsTest {
             "First paragraph.\nSecond paragraph with more detail.\n\nTrailing block.",
             Metadata.from("file_name", "multiline.md")
         )
-        val store = object : RagStore(loadFromRegistry = false) {
-            override fun query(query: String): List<TextSegment>? {
-                return listOf(multiline, rellSegment).also { rememberQueryHits(it) }
-            }
-        }
+        // Real store, real retrieval. The query names words from BOTH fixture
+        // segments so the real query() returns both (multiline first - it shares
+        // the most) and the formatting assertion below is over genuine hits.
+        val store = TestDocsIndex.store(multiline, rellSegment)
         val result = FetchDocsStrategy(CompletableDeferred(store)).execute(
             callToolRequest(
                 name = "fetch_docs",
-                arguments = buildJsonObject { put("query", "paragraph") }
+                arguments = buildJsonObject { put("query", "paragraph detail compiler pipeline") }
             ),
             ChromiaRepositoryImpl()
         )

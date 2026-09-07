@@ -31,26 +31,14 @@ class RagStoreFetchByIdTest {
         Metadata.from("file_name", "postchain.md")
     )
 
-    private fun store(): RagStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = listOf(authSegment, rellSegment).filter { segment ->
-                segment.text().contains(query, ignoreCase = true) ||
-                    (segment.metadata()?.getString("file_name")?.contains(query, ignoreCase = true) == true)
-            }
-            return hits.ifEmpty { null }?.also { rememberQueryHits(it) }
-        }
-    }
+    // Real stores, real query()/fetchById(). Both of these used to be
+    // `object : RagStore { override fun query(...) }` - a substring filter
+    // standing in for our own retrieval, which meant the id round-trip these
+    // tests exist to prove was never driven by the code that produces the ids.
+    private fun store(): RagStore = TestDocsIndex.store(authSegment, rellSegment)
 
-    private fun writeFixture(@TempDir tempDir: Path): Path {
-        val path = tempDir.resolve("embeddings.json")
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
-            store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
-            store.add(Embedding.from(floatArrayOf(0.2f, 0.1f, 0.3f)), rellSegment)
-            store.add(Embedding.from(floatArrayOf(0.3f, 0.3f, 0.1f)), postchainSegment)
-        }
-        persistLocalEmbeddings(fixture, path)
-        return path
-    }
+    private fun writeFixture(@TempDir tempDir: Path): Path =
+        TestDocsIndex.persist(tempDir.resolve("embeddings.json"), authSegment, rellSegment, postchainSegment)
 
     private fun loadedStore(path: Path): RagStore = RagStore(
         loadFromRegistry = true,
@@ -58,18 +46,7 @@ class RagStoreFetchByIdTest {
         registryLoader = { null }
     )
 
-    private fun queryingStore(path: Path): RagStore = object : RagStore(
-        loadFromRegistry = true,
-        localEmbeddingsPath = path,
-        registryLoader = { null }
-    ) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = embeddingStoreSegments(embeddingStore ?: return null).filter { segment ->
-                segment.text().contains(query, ignoreCase = true)
-            }
-            return hits.ifEmpty { null }
-        }
-    }
+    private fun queryingStore(path: Path): RagStore = TestDocsIndex.storeLoadedFrom(path)
 
     @Test
     fun knownIdAfterQueryHitsExactSegment() {

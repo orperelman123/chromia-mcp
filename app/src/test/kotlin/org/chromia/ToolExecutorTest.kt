@@ -35,15 +35,10 @@ class ToolExecutorTest {
         Metadata.from("file_name", "rell-compiler.md")
     )
 
-    private val fixtureStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = listOf(authSegment, rellSegment).filter { segment ->
-                segment.text().contains(query, ignoreCase = true) ||
-                    (segment.metadata()?.getString("file_name")?.contains(query, ignoreCase = true) == true)
-            }
-            return hits.ifEmpty { null }?.also { rememberQueryHits(it) }
-        }
-    }
+    // A REAL RagStore over a two-segment index: real query(), real fetchById().
+    // This used to override query(), so these executor tests never ran our own
+    // retrieval at all (see TestDocsIndex).
+    private val fixtureStore = TestDocsIndex.store(authSegment, rellSegment)
 
     private fun executor(repo: RecordingRepository = RecordingRepository()): ToolExecutor {
         val unusedRag = CompletableDeferred(RagStore(loadFromRegistry = false))

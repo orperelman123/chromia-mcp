@@ -141,9 +141,9 @@ class RagStoreProvenanceTest {
         Metadata.from("file_name", "chr-deploy.md")
     )
 
-    private fun answering(): RagStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? = listOf(segment).also { rememberQueryHits(it) }
-    }
+    // A real store that really retrieves [segment] for the "deployments" query
+    // below (it used to override query() and hand the hit back unconditionally).
+    private fun answering(): RagStore = TestDocsIndex.store(segment)
 
     private suspend fun fetchDocs(store: RagStore) = FetchDocsStrategy(CompletableDeferred(store)).execute(
         callToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "deployments") }),

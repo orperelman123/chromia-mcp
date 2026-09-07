@@ -455,9 +455,11 @@ class ToolExecutorStrategiesTest {
 
     @Test
     fun getPromptsFailureSetsStructuredError() = runBlocking {
-        val manager = object : PromptManager() {
-            override fun getCategories(): List<String> = error("catalog boom")
-        }
+        // The REAL PromptManager over a REAL malformed catalogue, not a
+        // subclass whose getCategories() throws on command: the failure has to
+        // come out of the loader an actual broken prompt_templates.json would
+        // hit, or this only proves the strategy catches a throw we invented.
+        val manager = PromptManager("broken_prompt_templates.json")
         val result = PromptsToolStrategy(manager).execute(
             callToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
             RecordingRepository()
@@ -465,7 +467,8 @@ class ToolExecutorStrategiesTest {
         val text = (result.content.first() as TextContent).text!!
         assertEquals(true, result.isError)
         assertTrue(text.contains("Failed to get prompts"))
-        assertTrue(text.contains("catalog boom"))
+        assertTrue(text.contains("broken_prompt_templates.json"), text)
+        assertTrue(text.contains("not readable JSON"), text)
         assertEquals(text, result.structuredContent!!["error"]!!.jsonPrimitive.content)
     }
 
