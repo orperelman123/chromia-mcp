@@ -958,8 +958,8 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         internal const val REMAINDER_ROW = "Others"
 
         internal fun isRemainderRow(entry: JsonObject): Boolean =
-            entry["accountId"]?.jsonPrimitive?.contentOrNull == REMAINDER_ROW &&
-                entry["accountType"]?.jsonPrimitive?.contentOrNull == REMAINDER_ROW
+            (entry["accountId"] as? JsonPrimitive)?.contentOrNull == REMAINDER_ROW &&
+                (entry["accountType"] as? JsonPrimitive)?.contentOrNull == REMAINDER_ROW
     }
 
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
@@ -984,8 +984,13 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
             return handleResult(result, "Failed to get asset top holders")
         }
 
-        val rows = result.data["data"]?.jsonObject
-            ?.get("getAssetTopHolders")?.jsonArray
+        // Defensive on purpose: `.jsonObject` / `.jsonArray` THROW on the wrong
+        // shape, and a shape this code did not expect must not turn a live
+        // explorer answer into a stack trace. Anything unrecognised is passed
+        // through exactly as the explorer sent it.
+        val rows = (result.data["data"] as? JsonObject)
+            ?.get("getAssetTopHolders")
+            ?.let { it as? JsonArray }
             ?.mapNotNull { it as? JsonObject }
             ?: return toolSuccessResult(result.data)
 
@@ -1042,9 +1047,10 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
     ): CallToolResult {
         val where = network?.let { " on $it" } ?: ""
         val chains = repository.getAssetBlockchains(network, assetId)
-        val known = (chains as? NetworkResult.Success)?.data
-            ?.get("data")?.jsonObject
-            ?.get("getAssetBlockchains")?.jsonArray
+        val known = ((chains as? NetworkResult.Success)?.data
+            ?.get("data") as? JsonObject)
+            ?.get("getAssetBlockchains")
+            ?.let { it as? JsonArray }
         return when {
             known != null && known.isEmpty() -> toolErrorResult(
                 "No such asset: the explorer knows no asset with id \"$assetId\"$where, and no " +
