@@ -943,6 +943,25 @@ class AssetDistributionStrategy : BaseToolStrategy() {
 class AssetTopHoldersStrategy : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = false
 
+    companion object {
+        /**
+         * The explorer appends a synthetic remainder row to every top-holders
+         * answer: `accountId` and `accountType` both the literal "Others",
+         * `chainCount` 0 and `chainBrid` blank, carrying the combined balance of
+         * every holder outside the page. Verified live against the mainnet
+         * explorer (CHR, 2026-09-07): `limit: 3` comes back with FOUR entries.
+         *
+         * It is not a holder and not an account, so it does not belong in a list
+         * an agent will count, sum, or index by account id - and it must not
+         * consume one of the N rows the caller asked for.
+         */
+        internal const val REMAINDER_ROW = "Others"
+
+        internal fun isRemainderRow(entry: JsonObject): Boolean =
+            entry["accountId"]?.jsonPrimitive?.contentOrNull == REMAINDER_ROW &&
+                entry["accountType"]?.jsonPrimitive?.contentOrNull == REMAINDER_ROW
+    }
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
@@ -961,7 +980,116 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         )
 
         val result = repository.getAssetTopHolders(assetId, network, limit, filters)
-        return handleResult(result, "Failed to get asset top holders")
+        if (result !is NetworkResult.Success) {
+            return handleResult(result, "Failed to get asset top holders")
+        }
+
+        val rows = result.data["data"]?.jsonObject
+            ?.get("getAssetTopHolders")?.jsonArray
+            ?.mapNotNull { it as? JsonObject }
+            ?: return toolSuccessResult(result.data)
+
+        val holders = rows.filterNot { isRemainderRow(it) }
+        val remainder = rows.firstOrNull { isRemainderRow(it) }
+
+        if (holders.isEmpty() && remainder == null) {
+            return emptyAnswer(assetId, network, filters, repository)
+        }
+
+        return toolSuccessResult(
+            buildJsonObject {
+                put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(holders)) })
+                put("holderCount", holders.size)
+                if (remainder != null) {
+                    put(
+                        "othersRemainder",
+                        buildJsonObject {
+                            put("totalBalance", remainder["totalBalance"] ?: JsonNull)
+                            put(
+                                "note",
+                                "NOT a holder and NOT an account: the explorer's own synthetic " +
+                                    "\"$REMAINDER_ROW\" row, carrying the combined balance of every " +
+                                    "holder outside the ${holders.size} returned. It has been moved " +
+                                    "out of the list, so the list is holders only and honours `limit`."
+                            )
+                        }
+                    )
+                }
+            }
+        )
+    }
+
+    /**
+     * The explorer answers an unknown asset id and a real asset whose holders
+     * were all filtered out with the SAME empty list (verified live 2026-09-07:
+     * a well-formed 64-hex id naming nothing returns
+     * `{"getAssetTopHolders":[]}` with HTTP 200, exactly as an over-narrow
+     * filter would). An empty array on its own therefore reads as "this asset
+     * has no holders", which for a mistyped id is a wrong answer delivered as a
+     * successful one.
+     *
+     * `getAssetBlockchains` does tell the two apart - empty for an id the
+     * explorer knows nothing about, a list of chains for a real asset - so that
+     * one extra upstream call is made here, and ONLY here, on the empty path.
+     * If it fails, nothing is claimed: the empty answer comes back with the
+     * ambiguity named rather than resolved.
+     */
+    private suspend fun emptyAnswer(
+        assetId: String,
+        network: String?,
+        filters: org.chromia.domain.AssetFilters,
+        repository: ChromiaRepository
+    ): CallToolResult {
+        val where = network?.let { " on $it" } ?: ""
+        val chains = repository.getAssetBlockchains(network, assetId)
+        val known = (chains as? NetworkResult.Success)?.data
+            ?.get("data")?.jsonObject
+            ?.get("getAssetBlockchains")?.jsonArray
+        return when {
+            known != null && known.isEmpty() -> toolErrorResult(
+                "No such asset: the explorer knows no asset with id \"$assetId\"$where, and no " +
+                    "blockchain carrying it. Check the id with filter_assets (search by name or " +
+                    "symbol) or get_all_assets; an asset id is 64 hex characters and is not the " +
+                    "same thing as a blockchain RID."
+            )
+            known != null -> toolSuccessResult(
+                buildJsonObject {
+                    put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(emptyList())) })
+                    put("holderCount", 0)
+                    put(
+                        "note",
+                        "The asset EXISTS$where - get_asset_blockchains lists ${known.size} chain(s) " +
+                            "carrying it - but no holder matched, so this is the filters and not the " +
+                            "id: ${describeFilters(filters)}."
+                    )
+                }
+            )
+            else -> toolSuccessResult(
+                buildJsonObject {
+                    put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(emptyList())) })
+                    put("holderCount", 0)
+                    put(
+                        "note",
+                        "No holders returned$where. The explorer gives the same empty list for an " +
+                            "unknown asset id and for a real asset whose holders were all filtered " +
+                            "out, and the get_asset_blockchains call that would have told them apart " +
+                            "did not answer - so which one this is has NOT been determined."
+                    )
+                }
+            )
+        }
+    }
+
+    private fun describeFilters(filters: org.chromia.domain.AssetFilters): String {
+        val parts = buildList {
+            filters.brids?.let { add("brids=${it.size}") }
+            filters.accountTypes?.let { add("accountTypes=$it") }
+            filters.excludeAccounts?.let { add("excludeAccounts=${it.size}") }
+            filters.excludeBrids?.let { add("excludeBrids=${it.size}") }
+            filters.excludeAccountTypes?.let { add("excludeAccountTypes=$it") }
+        }
+        return if (parts.isEmpty()) "no filters were sent, so this is the explorer's own answer"
+        else parts.joinToString(", ")
     }
 }
 

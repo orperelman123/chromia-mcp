@@ -248,6 +248,18 @@ object McpTools {
                 - Identifying major stakeholders
                 - Understanding asset holder demographics by account type
                 - Cross-chain asset holder analysis
+            - Output shape (this server, not the raw explorer):
+                - `data.getAssetTopHolders` is HOLDERS ONLY and honours `limit`
+                - `holderCount` is how many came back
+                - `othersRemainder` appears when the explorer sent its synthetic
+                  "Others" row - the combined balance of every holder outside the
+                  page. It is not an account and is not in the holders list; the
+                  raw explorer returns it as an N+1th entry with accountId
+                  "Others", which is why it is lifted out here
+                - an asset id the explorer knows nothing about is an ERROR saying
+                  so, not an empty list (the raw explorer answers 200 with `[]`
+                  for both an unknown id and an over-narrow filter; this tool asks
+                  get_asset_blockchains to tell the two apart and says which)
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(

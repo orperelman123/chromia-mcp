@@ -855,18 +855,48 @@ class ToolExecutorStrategiesTest {
             ?: return@runBlocking
         assertTrue(holders.jsonArray.isNotEmpty(), "CHR has holders: $holders")
         // LIVE BEHAVIOUR, found 2026-09-07: `limit` caps the ACCOUNTS, and the
-        // explorer then appends one synthetic remainder row whose accountId is
-        // the literal "Others". A recorded fixture had `limit` meaning what it
-        // says and nothing ever disagreed with it.
-        val accounts = holders.jsonArray.filter {
-            it.jsonObject.getValue("accountId").jsonPrimitive.content != "Others"
-        }
+        // explorer then appends one synthetic remainder row whose accountId and
+        // accountType are both the literal "Others" - so `limit: 3` came back
+        // with FOUR entries. A recorded fixture had `limit` meaning what it says
+        // and nothing ever disagreed with it.
+        //
+        // The tool lifts that row out now, so what is asserted here is our
+        // contract, live: the list is holders only, it honours `limit` exactly,
+        // and the remainder is still reported - under a name that says what it
+        // is - instead of being silently dropped or silently counted.
+        val accounts = holders.jsonArray
+        assertTrue(
+            accounts.none { it.jsonObject.getValue("accountId").jsonPrimitive.content == "Others" },
+            "the synthetic remainder row is still in the holders list: $holders"
+        )
         assertTrue(
             accounts.size <= 3,
             "the limit variable did not bind - ${accounts.size} real accounts came back: $holders"
         )
         assertTrue(accounts.isNotEmpty(), "CHR has real holders, not only the Others row: $holders")
         assertEquals(64, accounts.first().jsonObject.getValue("accountId").jsonPrimitive.content.length)
+
+        val structured = result.structuredContent!!
+        assertEquals(
+            accounts.size,
+            structured.getValue("holderCount").jsonPrimitive.content.toInt(),
+            "holderCount must count the holders it returned: $structured"
+        )
+        val remainder = structured["othersRemainder"]
+        assertNotNull(
+            remainder,
+            "CHR has far more than 3 holders, so the explorer sends its remainder row and the " +
+                "tool must report it rather than drop it: $structured"
+        )
+        assertTrue(
+            remainder!!.jsonObject.getValue("totalBalance").jsonPrimitive.content.toBigInteger()
+                > java.math.BigInteger.ZERO,
+            "the remainder carries the balance of everyone outside the page: $remainder"
+        )
+        assertTrue(
+            remainder.jsonObject.getValue("note").jsonPrimitive.content.contains("NOT a holder"),
+            "the remainder must say what it is: $remainder"
+        )
 
         // excludeAccounts, bound by the explorer. This is the half of
         // getAssetTopHoldersForwardsFiltersAndReturnsSuccessJson that a
@@ -893,6 +923,40 @@ class ToolExecutorStrategiesTest {
             },
             "excludeAccounts did not bind - $excluded is still there: $remaining"
         )
+    }
+
+    /**
+     * LIVE, 2026-09-07: a well-formed 64-hex asset id that names nothing comes
+     * back from the explorer as HTTP 200 with `{"getAssetTopHolders":[]}` -
+     * indistinguishable, on its own, from a real asset whose holders were all
+     * filtered out. Passed through unchanged that reads as "this asset has no
+     * holders", which for a mistyped id is a wrong answer delivered as a
+     * successful one. The tool asks get_asset_blockchains (also empty for an
+     * unknown id, a list of chains for a real one) and says which it is.
+     */
+    @Test
+    fun liveGetAssetTopHoldersCallsAnUnknownAssetIdWhatItIs() = runBlocking {
+        LiveChromia.requireLive("asks the live explorer for the holders of an asset id it does not know")
+        val result = AssetTopHoldersStrategy().execute(
+            callToolRequest(
+                name = "get_asset_top_holders",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    // Well-formed and deliberately unowned: all zeroes is a valid
+                    // 64-hex id and is not an asset on any Chromia network.
+                    put("assetId", "0".repeat(64))
+                }
+            ),
+            liveRepository()
+        )
+        val text = (result.content.first() as TextContent).text.orEmpty()
+        assertEquals(
+            true, result.isError,
+            "an asset id the explorer knows nothing about must be an error, not an empty list " +
+                "that reads as \"no holders\": $text"
+        )
+        assertTrue(text.contains("No such asset"), text)
+        assertTrue(text.contains("filter_assets"), "the error must name how to find the right id: $text")
     }
 
     @Test
