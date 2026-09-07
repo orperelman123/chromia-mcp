@@ -41,6 +41,17 @@ import java.nio.file.Files
  * all data. What is forbidden is a substitute IMPLEMENTATION - something that
  * takes the place of a collaborator and answers on its behalf.
  *
+ * ONE BOUNDARY CASE, judged and named rather than left for a reader to find.
+ * `resolveLocalEmbeddingsPath` / `resolveRuntimeEmbeddingsPath` take
+ * `exists: (Path) -> Boolean` and `directoryExists`, and
+ * `RagStoreCwdIndependenceTest` passes both (four call sites). That is not a
+ * collaborator being impersonated: those functions are PURE over (candidate
+ * paths, an existence predicate) - the predicate is the input, the way the env
+ * map beside it is. It is also the only way to ask the question the tests ask,
+ * which is what the answer would be from a DIFFERENT working directory: a JVM
+ * cannot change its own cwd, so the alternative is not a more honest test, it is
+ * no test. The detectors deliberately do not flag it, and this paragraph is why.
+ *
  * The detectors below are the ones the ledger used, kept and widened. They are
  * deliberately close to `grep`: a double is where substitute BEHAVIOUR is
  * defined, so this finds the declaration rather than each use.
