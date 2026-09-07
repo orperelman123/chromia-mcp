@@ -127,8 +127,18 @@ red. It names the two shapes it can prove and refuses the rest.
 Both shapes require the test to invoke the guard's declaration — the one it sits in, or (for a
 guard in a `function`) any operation or query that reaches it through your call graph, following
 name calls **and `@extend`/`@extendable`** — in **exactly one** top-level statement, directly or
-through one test-module helper. That is the whole point: *which invocation refused* is the
+through test-module helpers. That is the whole point: *which invocation refused* is the
 question every beaten heuristic was guessing at, and a test with one invocation cannot pose it.
+
+A helper may live in **any test module** of the submission, not only in the test's own file, and a
+call is resolved through the calling module's own imports: `h(...)` in its own module or through
+`import mod.*;`, `mod.h(...)` through `import a.b.mod;`, and `alias.h(...)` through
+`import alias: a.b.mod;`. The chain is followed **16 calls deep**; past that, or through a helper
+that calls itself, the tool says the chain is deeper than 16 calls and counts no call sites — it
+never names a number it cannot stand behind. The operations of the transaction and the
+`run_must_fail` are read over the statement's **whole call closure** — every helper it calls, not
+only the ones that reach the guard — so a helper that quietly adds a second operation makes the
+statement `ambiguous_refusal` instead of a single-operation shape A.
 
 - **Shape A, the must-fail test.** That one statement is a single-operation
   `rell.test.tx().op(<the declaration>(...)).run_must_fail(...)`. The guard is proven only when
@@ -145,6 +155,14 @@ question every beaten heuristic was guessing at, and a test with one invocation 
 Anything else is `ambiguous_refusal`, `ok:false`: a loop or a table-driven test, several invoking
 statements, a transaction carrying more than that one operation, a helper with several call
 sites. Rewrite the test in one of the two shapes and the same dapp answers on its own.
+
+Two rules about the mutant itself. A `replacement`'s own `require()` messages count as refusals
+exactly like the guard's: the string literals a frame-less error is attributed to are read off the
+**mutant sources that ran**, so a replacement that refuses the attack is `still_refused`. And
+`stillRefused` / `attackLanded` are read in **shape B only** — a shape A red either says "did not
+fail" (the transaction went through, whatever you pinned) or carries the frame of the one
+operation it ran, which is a declaration the guard runs in, so there is no third red left for a
+caller's fragment to decide.
 
 `ok` is true only when every named guard is `load_bearing`. It says nothing about guards you
 did not name, and it does not replace an audit — it turns the guards you did name from a
