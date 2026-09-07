@@ -2583,9 +2583,21 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         // always carries `[module:op(file:line)]`, so a frame-less error is
         // either the TEST module or a production QUERY (or a function a query
         // calls) - and which is read off the string literals each one owns.
-        fun frameLessTestOwners() = testSourcesProducing(files, isTest, error)
-        fun frameLessQueryOwners() = queriesProducing(files, isTest, error)
-            .filter { (m, q) -> testStatementsInvoking(files, isTest, test, setOf("$m:$q"))?.statements?.isNotEmpty() == true }
+        //
+        // THE LITERALS ARE READ OFF THE MUTANT (`withAlso`), NOT THE ORIGINAL
+        // SUBMISSION. The long form has always said "a replacement's own
+        // require() messages count as refusals exactly like the guard's"; the
+        // round-16 rewrite left `replacement` used only to build the mutant
+        // source and to validate its span, and both attribution helpers read
+        // the ORIGINAL `files` map - so a replacement whose own require()
+        // REFUSED the attack printed a message that belonged to nobody, and a
+        // query the mutant itself refused in came back `ambiguous_refusal`
+        // ("no string literal ... can produce that text", p17m/p17m2). The
+        // sources that ran are the sources that can have said it, and a
+        // replacement that refuses the attack is exactly "still refused".
+        fun frameLessTestOwners() = testSourcesProducing(withAlso, isTest, error)
+        fun frameLessQueryOwners() = queriesProducing(withAlso, isTest, error)
+            .filter { (m, q) -> testStatementsInvoking(withAlso, isTest, test, setOf("$m:$q"))?.statements?.isNotEmpty() == true }
             .map { (m, q) -> "$m:$q" }
             .distinct()
 
