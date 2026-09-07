@@ -32,6 +32,49 @@ introspection. Fix: rename the argument in the top-holders query only
 `get_transactions_by_cluster` tool is fully broken. Fix: query
 `dashboardData { groupedTransactionsByCluster { ... } }` (commit `dfd4c5d`).
 
+## 3a. Explorer: `dashboardData` and `groupedTransactionsByBlockchain` are dead
+
+Probed live 2026-09-07 against `explorer.chromia.com` (mainnet, production
+query shapes and schema introspection):
+
+```
+{ dashboardData { countAllAccounts } }        INTERNAL_ERROR for <uuid>
+{ groupedTransactionsByBlockchain { brid } }  INTERNAL_ERROR for <uuid>
+{ dappAnalytics { calculatedAt } }            INTERNAL_ERROR for <uuid>
+{ totalRewardsPaid }                          200, answers                  
+```
+
+The fields are still IN the schema (introspection lists all three), so a
+client cannot tell from the schema that they are gone - only from calling
+them. Every aggregate the explorer's own dashboard is built on is affected,
+and there is no other field carrying the same data: the 28 query fields have
+no top-level `countAllAccounts` / `countAllTransfers` / `monthlyActiveAccounts`,
+no `groupedTransactionsByCluster` (see #3), and per-blockchain transaction
+counts only via `blockchainAnalytics(brid)`, one chain per call.
+
+Upstream `chromia-mcp` advertises `get_network_stats`,
+`get_transactions_by_cluster` and `get_blockchains_transactions` on top of
+these fields; all three are fully broken against the live service. This repo
+retired its copies of them on 2026-09-07 rather than keep advertising data
+the explorer will not serve.
+
+## 3b. Explorer: `allBlockchains(state: ...)` answers INTERNAL_ERROR
+
+Same probe, 2026-09-07: `allBlockchains` answers normally with `rid`, `name`,
+`cluster`, `container`, `system`, `limit`, `offset` - and INTERNAL_ERROR the
+moment a `state` argument is supplied, with or without the others:
+
+```
+{ allBlockchains(limit: 5) { rid } }                    200, 5 rows
+{ allBlockchains(cluster: "pink", limit: 5) { rid } }    200, 5 rows
+{ allBlockchains(state: "RUNNING", limit: 5) { rid } }   INTERNAL_ERROR for <uuid>
+```
+
+So `filter_blockchains{state}` is broken for every client of the explorer
+while the rest of the tool works. This repo does not retire the tool (the
+other filters are fine) - it pins the failure live and says so in the tool's
+description, so an agent is not left thinking its own call was malformed.
+
 ## 4. Tool errors swallowed in `ToolExecutor.executeTool`
 
 Upstream builds an error `CallToolResult` inside `Result.onFailure { }` and
@@ -113,7 +156,12 @@ vendored v1.1.0r copy, and scans any file that differs, with a note (commits
 `b66f033`, `15dbaf8`). Relevant to upstream if it ever grows scanning, and
 to any other Rell security tooling.
 
-## Status (2026-09-06)
+## Status (2026-09-06, amended 2026-09-07)
+
+Findings #3a and #3b were added on 2026-09-07 and are NOT part of the ported
+branch: they are outages inside the explorer service, not defects in upstream's
+code, so there is nothing to patch - what upstream can do is stop advertising the
+three tools built on the dead fields, which is what this fork did.
 
 The nine code findings are ported to a clone of upstream `dev`
 (`146777767968721ecb6c97b1905721516d3281d0`) on branch `fix/fork-findings`,

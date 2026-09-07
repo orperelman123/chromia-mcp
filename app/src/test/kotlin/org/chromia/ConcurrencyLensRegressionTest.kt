@@ -22,10 +22,18 @@ import java.util.concurrent.TimeUnit
  * QA concurrency and resource-lifecycle lens (2026-09-02): races between
  * tool calls and the background work they leave behind. Each test failed on
  * the code it pins.
+ *
+ * The TTL race below drives a REAL embedded Postchain node (one node for the
+ * whole class - node start-up is the expensive part, and only that one test
+ * needs one). It used to run against `LocalChain.starterOverrideForTests`, a
+ * production hook whose only purpose was to let this file hand `up` a Running
+ * with `node = null`: a double of our own chain lifecycle, which is exactly
+ * the thing the race is about. Zero doubles (2026-09-07): the hook is gone and
+ * the race is now reproduced on the real registry, the real TTL scheduler and
+ * a real node.
  */
 class ConcurrencyLensRegressionTest {
 
-    private val dbUrl = "jdbc:postgresql://localhost:5432/db?user=u&password=p"
     private val files = mapOf(
         "main.rell" to "module;\nentity item { key name; }\nquery item_count() = (item @* {}).size();"
     )
@@ -33,21 +41,6 @@ class ConcurrencyLensRegressionTest {
     @AfterEach
     fun tearDown() {
         LocalChain.stopAll()
-        LocalChain.starterOverrideForTests = null
-    }
-
-    private fun installFakeStarter() {
-        LocalChain.starterOverrideForTests = { plan ->
-            LocalChain.Running(
-                node = null,
-                brid = plan.brid,
-                apiPort = plan.apiPort,
-                fingerprint = plan.fingerprint,
-                nodePubkey = plan.pubKeyHex,
-                expiresAtMillis = Long.MAX_VALUE,
-                ttlTask = null
-            )
-        }
     }
 
     // ------------------------------------------------------------------
@@ -66,7 +59,9 @@ class ConcurrencyLensRegressionTest {
      */
     @Test
     fun ttlTaskAlreadyWaitingForTheLockMustNotStopAJustRefreshedChain() {
-        installFakeStarter()
+        val dbUrl = LiveEnv.requireDatabaseUrl(
+            "the TTL race is between a real TTL task and a real `up`, and both act on a real running node"
+        )
         val started = LocalChain.up(files, databaseUrl = dbUrl, ttlSeconds = 120)
         assertTrue(started.ok, started.notes)
         assertEquals("started", started.status)
@@ -98,9 +93,10 @@ class ConcurrencyLensRegressionTest {
         }
         assertTrue(LocalChain.running === chain, "the same chain must still be registered")
 
-        // A TTL that is genuinely current still stops the chain.
+        // A TTL that is genuinely current still stops the chain. `status()` takes
+        // the same lock as the expiry, so this waits out the real node shutdown.
         LocalChain.reschedule(chain, 0)
-        val stopDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        val stopDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
         while (LocalChain.status().status == "running" && System.nanoTime() < stopDeadline) Thread.sleep(25)
         assertEquals("not_running", LocalChain.status().status, "a current TTL must still expire the chain")
     }

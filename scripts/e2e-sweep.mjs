@@ -284,9 +284,13 @@ await check('chromia_help topic', async () => {
       'explorer 400s in this run are classified upstream');
   }
 }
-await check('get_network_stats', async () => {
-  const t = liveText(await call('get_network_stats', {}));
-  expect(t.includes('countAllAccounts'), t.slice(0, 80)); return null;
+// get_network_stats / get_transactions_by_cluster were retired 2026-09-07: the
+// explorer answers INTERNAL_ERROR for `dashboardData` on every selection set, so
+// there is nothing left for the sweep to check. get_total_rewards_paid is the
+// cheap explorer aggregate that still answers, and takes their place here.
+await check('get_total_rewards_paid', async () => {
+  const t = liveText(await call('get_total_rewards_paid', {}));
+  expect(t.includes('totalRewardsPaid'), t.slice(0, 80)); return null;
 }, null, { live: true });
 let chrId = null;
 await check('get_all_assets', async () => {
@@ -299,10 +303,6 @@ await check('top_holders filtered', async () => {
   if (!chrId) throw new Skip('no CHR asset id - get_all_assets did not answer (see its own tag)');
   const t = liveText(await call('get_asset_top_holders', { assetId: chrId, limit: 2, accountTypes: ['FT4_USER'], excludeAccounts: ['3008BC6FB654A749FC2F903772545B939A9B5D8047EA2437B8675952BDD6EFD0'] }));
   expect(t.includes('accountId') && !t.includes('3008BC6F'), t.slice(0, 100)); return null;
-}, null, { live: true });
-await check('transactions_by_cluster', async () => {
-  const t = liveText(await call('get_transactions_by_cluster', {}));
-  expect(t.includes('groupedTransactionsByCluster'), t.slice(0, 80)); return null;
 }, null, { live: true });
 await check('all_transactions filtered', async () => {
   const t = liveText(await call('get_all_transactions', { limit: 2, blockchainIds: ['F31D7A38B33D12A5D948EE9CF170983A7CA5EFFFAAA31094C5B9CF94442D9FA2'] }));
@@ -329,6 +329,37 @@ await check('fetch (ChatGPT)', async () => {
 await check('fetch_docs live+search', async () => {
   const t = liveText(await call('fetch_docs', { query: 'what is ICCF cross-chain proof' }, 120000));
   expect(t.length > 100, 'no content'); return null;
+}, null, { live: true });
+// The docs SITE, not our copy of it. SitemapDocsFetcher's whole ingest path is
+// tested against a Ktor MockEngine and nothing else, so the suite could not
+// notice docs.chromia.com changing the SHAPE those fixtures assume - a sitemap
+// index instead of a urlset, <loc> gone, the host moved. That is exactly what a
+// double with no live counterpart costs, and this is the counterpart named by
+// the mock ledger for SitemapDocsFetcherTest. The site being DOWN is the site's
+// problem (WARN-UPSTREAM); the site answering in a shape our parser cannot read
+// is ours (FAIL), and so is the URL we hardcode having moved.
+await check('docs site sitemap shape (live)', async () => {
+  const url = 'https://docs.chromia.com/sitemap.xml';
+  let res;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  } catch (e) {
+    throw new UpstreamError('docs-site-unreachable', `${url}: ${e.message}`);
+  }
+  if (res.status === 429 || res.status >= 500) {
+    throw new UpstreamError(`docs-site-http-${res.status}`, `${url} answered HTTP ${res.status}`);
+  }
+  expect(res.ok, `${url} answered HTTP ${res.status} - if the sitemap moved, SitemapDocsFetcher.DEFAULT_SITEMAP_URL is stale`);
+  const xml = await res.text();
+  expect(
+    /<urlset\b/i.test(xml),
+    `the sitemap is no longer a <urlset>; SitemapDocsFetcher parses <loc> out of one: ${xml.slice(0, 200)}`
+  );
+  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]);
+  expect(locs.length >= 20, `only ${locs.length} <loc> entries in the live sitemap`);
+  const onSite = locs.filter((u) => u.startsWith('https://docs.chromia.com/'));
+  expect(onSite.length >= 20, `only ${onSite.length} of ${locs.length} <loc> entries are docs.chromia.com pages`);
+  return `${locs.length} sitemap URLs, ${onSite.length} on docs.chromia.com`;
 }, null, { live: true });
 await check('rell_check valid', async () => {
   const j = JSON.parse(text(await call('rell_check', { source: 'module;\nquery ping() = "pong";' }, 120000)));
@@ -651,7 +682,6 @@ const KNOWN_ARGS = {
   filter_assets: { searchQuery: 'CHR' },
   get_account_blockchains: { accountId: '3008BC6FB654A749FC2F903772545B939A9B5D8047EA2437B8675952BDD6EFD0' },
   get_signer_blockchains: { signer: '03A301697BDFCD704313BA48E51D567543F2A182031EFD6915DDC07BBCC4E16070' },
-  get_node_unavailability: { pubkey: '03A301697BDFCD704313BA48E51D567543F2A182031EFD6915DDC07BBCC4E16070', startTimestamp: '1690000000000' },
   ft4_module_args: { name: 'sweep' },
   rell_check: { source: 'module;\nquery ok() = 1;' },
   rell_security_check: { source: 'module;\nquery ok() = 1;' },
@@ -682,9 +712,10 @@ await check('coverage: every advertised tool responds', async () => {
       try {
         const m = await call(name, KNOWN_ARGS[name] ?? {}, 240000);
         lastText = text(m);
-        // Clean refusals: our own validation guidance, or documented upstream
-        // limitations (explorer requires reCAPTCHA for node-unavailability).
-        const cleanRefusal = /Missing required parameter|needs|Provide|pass |No @test modules|reCAPTCHA/i.test(lastText);
+        // Clean refusals: our own validation guidance. (The reCAPTCHA allowance
+        // that used to live here belonged to get_node_unavailability, retired
+        // 2026-09-07 - no advertised tool can produce that error any more.)
+        const cleanRefusal = /Missing required parameter|needs|Provide|pass |No @test modules/i.test(lastText);
         if (m?.result && (m.result.isError !== true || cleanRefusal)) { outcome = 'ok'; break; }
         // A clean tool-level error matching the upstream allowlist (explorer
         // incident, cold-cache latency, node blip): our server answered

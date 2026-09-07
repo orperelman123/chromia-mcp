@@ -16,11 +16,8 @@ interface ChromiaRepository {
         network: String?,
         blockchainRid: BlockchainRid
     ): NetworkResult<Long>
-    suspend fun getBlockchainsTransactions(network: String?): JsonResult
-    suspend fun getTransactionsByCluster(network: String?): JsonResult
     suspend fun getAllAssets(network: String?): JsonResult
     suspend fun getTotalRewardsPaid(network: String?): JsonResult
-    suspend fun getNetworkStats(network: String?): JsonResult
 
     suspend fun getAssetDistribution(
         assetId: String,
@@ -56,12 +53,6 @@ interface ChromiaRepository {
 
     suspend fun getSignerBlockchains(network: String?, signer: String): JsonResult
     suspend fun getAccountBlockchains(accountId: String, network: String?): JsonResult
-
-    suspend fun getNodeUnavailability(
-        pubkey: String,
-        startTimestamp: String,
-        network: String?
-    ): JsonResult
 
     suspend fun getChrAggregates(
         network: String?,

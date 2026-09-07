@@ -102,7 +102,7 @@ ls -la app/build/libs/
 
 ### Option 1: Run via Gradle (Recommended for Development)
 
-#### SSE Mode (HTTP Server)
+#### URL server (`--sse`: Streamable HTTP at `/mcp` + legacy HTTP+SSE at the root)
 
 **Start the server:**
 ```bash
@@ -111,7 +111,9 @@ ls -la app/build/libs/
 
 **What this does:**
 - Starts HTTP server on `127.0.0.1:3001`
-- Exposes MCP endpoint at `http://127.0.0.1:3001`
+- Serves Streamable HTTP at `http://127.0.0.1:3001/mcp` (prefer this)
+- Serves the legacy HTTP+SSE transport at the ROOT, `http://127.0.0.1:3001/`
+  (there is no `/sse` path on this server)
 - Health check available at `http://127.0.0.1:3001/health`
 
 **Default configuration:**
@@ -159,7 +161,7 @@ The same JSON is also the MCP resource `chromia://server/health`. The server add
 ./gradlew :app:shadowJar
 ```
 
-**Run JAR in SSE mode:**
+**Run JAR as a URL server:**
 ```bash
 java -jar app/build/libs/chromia-mcp-server.jar --sse
 ```
@@ -178,8 +180,8 @@ Run these from the **repo root**. If `app/build/embeddings.json` exists, the def
 2. Navigate to `app/src/main/kotlin/org/chromia/App.kt`
 3. Right-click on `main()` function → Run
 4. Edit run configuration to add program arguments:
-   - For SSE mode: `--sse`
-   - For stdio mode: `--stdio`
+   - For the URL server: `--sse` (or its alias `--http`)
+   - For stdio: `--stdio`
 
 ## Testing
 
@@ -198,7 +200,7 @@ Run these from the **repo root**. If `app/build/embeddings.json` exists, the def
 
 **1. Use MCP Inspector (Recommended for tool testing)**
 
-**In SSE mode:**
+**Against the URL server:**
 1. Start server: `./gradlew :app:runSse`
 2. In another terminal, start inspector:
    ```bash
@@ -206,15 +208,18 @@ Run these from the **repo root**. If `app/build/embeddings.json` exists, the def
    ```
 3. Open browser to URL shown by inspector (usually `http://localhost:5173`)
 4. In the MCP Inspector interface:
-   - Choose the transport type to be **SSE**
-   - Write the MCP server endpoint: `http://127.0.0.1:3001/sse`
+   - Choose **Streamable HTTP** and enter `http://127.0.0.1:3001/mcp` (preferred), or
+     choose **SSE** and enter `http://127.0.0.1:3001/` — the ROOT. This server has no
+     `/sse` path; entering one gets a 404.
    - Press **Connect**
 5. Test tools in the web interface 
 
 **2. Test with actual MCP client**
 
 Configure your MCP client (Cursor, Claude Desktop, etc.) to use local server:
-- SSE mode: `http://127.0.0.1:3001/sse` (health check remains `http://127.0.0.1:3001/health`)
+- URL server: `http://127.0.0.1:3001/mcp` (Streamable HTTP, preferred) or
+  `http://127.0.0.1:3001/` (legacy HTTP+SSE, at the ROOT - not `/sse`).
+  Health check remains `http://127.0.0.1:3001/health`
 - Stdio mode: Configure command as `java -jar /path/to/chromia-mcp-server.jar --stdio`
 
 **Note:** Testing with actual MCP clients can be costly due to repeated query testing.

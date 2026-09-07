@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test
  */
 class ToolProfilesTest {
 
-    private fun executor() = ToolExecutor(RecordingRepository(), PromptManager())
+    private fun executor() = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     @Test
     fun publicProfileDisablesExactlyTheMarkedStrategies() {
@@ -75,7 +75,7 @@ class ToolProfilesTest {
             // Docs (including ChatGPT's search/fetch contract) and the help gateway.
             "search", "fetch", "fetch_docs", "chromia_help", "get_prompts",
             // Explorer queries are read-only network calls.
-            "filter_blockchains", "get_all_assets", "get_network_stats", "chromia_dapp_query",
+            "filter_blockchains", "get_all_assets", "get_total_rewards_paid", "chromia_dapp_query",
             // Deployment advice that neither writes a file nor signs anything.
             "write_deployment_config", "deployment_preflight", "verify_deployment",
             "translate_error", "onboarding_next_step", "validate_chromia_yml", "ft4_module_args"

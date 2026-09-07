@@ -39,7 +39,7 @@ import org.junit.jupiter.api.Test
 class ChatGptSearchFetchContractTest {
 
     private fun executor() = ToolExecutor(
-        RecordingRepository(),
+        McpTestSupport.offlineRepository(),
         PromptManager(),
         ragStoreFactory = { McpTestSupport.fixtureRagStore() }
     )

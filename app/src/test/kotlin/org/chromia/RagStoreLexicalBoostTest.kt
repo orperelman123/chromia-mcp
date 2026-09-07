@@ -1,15 +1,12 @@
 package org.chromia
 
 import dev.langchain4j.data.document.Metadata
-import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.model.embedding.EmbeddingModel
-import dev.langchain4j.model.output.Response
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
 import org.chromia.tools.RagStore
 import org.chromia.tools.segmentId
+import org.chromia.tools.segmentTier
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -21,11 +18,18 @@ import org.junit.jupiter.api.Test
  * about auth descriptors above the code that defines the name. Names are what
  * agents ask about, so the query is hybrid: exact-identifier hits from the
  * in-memory segment index come first, then the semantic hits.
+ *
+ * 2026-09-07: this file used to build its fixture out of hand-picked vectors
+ * (`near` = every query, `far` = the code segments) plus an `object :
+ * EmbeddingModel` that answered every text with `near`. Cosine 1 against cosine
+ * -1 made the semantic half of the merge a switch the test flipped itself, so
+ * "the lexical hits jump the queue" was asserted against a queue nobody else
+ * would ever see. The fixture is now embedded with the model the server ships
+ * ([TestDocsIndex.model]) and the store is a plain [RagStore] over it: the
+ * semantic tail is whatever BGE-small really thinks, and the lexical boost has
+ * to beat it for real.
  */
 class RagStoreLexicalBoostTest {
-
-    private val near = floatArrayOf(0.1f, 0.2f, 0.3f)
-    private val far = floatArrayOf(-0.1f, -0.2f, -0.3f)
 
     private val prose = TextSegment.from(
         "Auth descriptors carry flags such as A (account) and T (transfer). Rules restrict how they may be used.",
@@ -44,21 +48,7 @@ class RagStoreLexicalBoostTest {
         Metadata.from("file_name", "icmf.md")
     )
 
-    /** Every query embeds to [near]: `prose` and `unrelated` are similar (cosine 1), the code segments are not (cosine -1). */
-    private fun fixedModel(): EmbeddingModel = object : EmbeddingModel {
-        override fun embedAll(segments: List<TextSegment>): Response<List<Embedding>> =
-            Response.from(segments.map { Embedding.from(near) })
-    }
-
-    private fun store(): RagStore {
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also {
-            it.add(Embedding.from(near), prose)
-            it.add(Embedding.from(far), definition)
-            it.add(Embedding.from(far), mention)
-            it.add(Embedding.from(near), unrelated)
-        }
-        return RagStore(loadFromRegistry = false, initialStore = fixture, embeddingModel = fixedModel())
-    }
+    private fun store(): RagStore = TestDocsIndex.store(prose, definition, mention, unrelated)
 
     @Test
     fun identifierTokensAreNamesNotWordsAcronymsOrFileNames() {
@@ -111,12 +101,33 @@ class RagStoreLexicalBoostTest {
 
     @Test
     fun aQueryWithoutAnIdentifierIsPurelySemantic() {
-        val hits = store().query("FT4 authentication")
+        // WEAKENED 2026-09-07 with the toy embedder's removal, and honest about why.
+        // With hand-picked orthogonal vectors the code segments scored below
+        // minScore and this test could say "the definition is not in the results at
+        // all". The real model puts every short English sentence within retrieval
+        // range of every other one (cosine ~0.6-0.8 -> score ~0.8-0.9, well over
+        // RagStore's 0.6), so a four-segment index returns four hits for anything -
+        // in production the store has 25k segments and the cap does the work. What
+        // this test actually names is that a query WITHOUT an identifier gets no
+        // LEXICAL pull, so that is what it asserts: no lexical hits, and the merge
+        // is the plain docs-first semantic order, with the .rell definition behind
+        // the two .md pages rather than jumped to the front.
+        val store = store()
+        val query = "FT4 authentication"
+        assertEquals(emptyList<String>(), RagStore.identifierTokens(query))
+        assertTrue(store.lexicalHits(query).isEmpty(), "no name in the query means no lexical block")
+
+        val hits = store.query(query)
         assertNotNull(hits)
         val ids = hits!!.map { segmentId(it) }
-        assertFalse(segmentId(definition) in ids, "no lexical pull without a name in the query: $ids")
-        assertFalse(segmentId(mention) in ids)
-        assertTrue(segmentId(prose) in ids)
+        assertNotEquals(segmentId(definition), ids[0], "nothing pulls the definition to the front: $ids")
+        assertTrue(segmentId(prose) in ids, "the page about auth descriptors is still retrieved: $ids")
+        val tiers = hits!!.map { segmentTier(it) }
+        assertEquals(
+            tiers.sorted(), tiers,
+            "with no lexical block the merge is the docs-first semantic order: .md before .rell, got $tiers"
+        )
+        assertEquals(ids.size, ids.toSet().size, "no duplicates")
     }
 
     /**
@@ -137,12 +148,7 @@ class RagStoreLexicalBoostTest {
     @Test
     fun lexicalMatchingIsCaseInsensitiveAndTheDefinitionStillLeads() {
         val upper = TextSegment.from("See REQUIRE_MANDATORY_FLAGS in the accounts module.", Metadata.from("file_name", "notes.md"))
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also { s ->
-            s.add(Embedding.from(far), definition)
-            s.add(Embedding.from(far), upper)
-            s.add(Embedding.from(far), unrelated)
-        }
-        val store = RagStore(loadFromRegistry = false, initialStore = fixture, embeddingModel = fixedModel())
+        val store = TestDocsIndex.store(definition, upper, unrelated)
         val ids = store.lexicalHits("require_mandatory_flags").map { segmentId(it) }
         assertEquals(listOf(segmentId(definition), segmentId(upper)), ids)
     }
@@ -150,11 +156,7 @@ class RagStoreLexicalBoostTest {
     @Test
     fun lexicalHitsAreCappedPerTokenAndTheMergeIsCappedAndDeduplicated() {
         val many = (1..10).map { i -> TextSegment.from("mention $i of require_mandatory_flags in passing", Metadata.from("file_name", "m$i.md")) }
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also { s ->
-            s.add(Embedding.from(far), definition)
-            many.forEach { s.add(Embedding.from(far), it) }
-        }
-        val store = RagStore(loadFromRegistry = false, initialStore = fixture, embeddingModel = fixedModel())
+        val store = TestDocsIndex.store(definition, *many.toTypedArray())
         val lexical = store.lexicalHits("require_mandatory_flags")
         assertEquals(RagStore.LEXICAL_HITS_PER_TOKEN, lexical.size)
         assertEquals(segmentId(definition), segmentId(lexical.first()))

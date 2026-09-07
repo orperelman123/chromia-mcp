@@ -166,14 +166,14 @@ internal class EconomyChainGateway(
      * fee-strategy transfer (the one-time human transfer has already landed).
      * Returns null on success or a sanitized failure reason.
      */
-    suspend fun completeRegistration(funding: FundingInfo, txPoster: TxPoster, urls: List<String>): String? {
+    suspend fun completeRegistration(funding: FundingInfo, urls: List<String>): String? {
         val privKey = funding.privKey ?: return "no funding key"
         val pubKey = TestnetProvisioning.derivePubKey(privKey)
         val assetIdHex = ((ecQuery("get_chr_asset").dataElement() as? JsonObject)
             ?.get("id") as? JsonPrimitive)?.contentOrNull
             ?: return "could not resolve the tCHR asset id"
         val ops = TestnetProvisioning.registerAccountOps(assetIdHex.hexToBytes(), pubKey)
-        val outcome = txPoster.post(urls, economyChainBrid(), ops, privKey)
+        val outcome = RealTxPoster.post(urls, economyChainBrid(), ops, privKey)
         return if (outcome.confirmed) null
         else sanitize("account registration was rejected: ${outcome.rejectReason ?: "unknown reason"}")
     }
@@ -205,12 +205,7 @@ internal class EconomyChainGateway(
  */
 class ProvisionTestnetContainerStrategy(
     private val env: Map<String, String> = System.getenv(),
-    private val txPoster: TxPoster = RealTxPoster,
-    private val keyStore: DeployKeyStore = DeployKeyStore(DeployKeyStore.defaultDir()),
-    private val delayFn: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
-    private val keyPairGenerator: () -> net.postchain.crypto.KeyPair = {
-        TestnetProvisioning.cryptoSystem.generateKeyPair()
-    }
+    private val keyStore: DeployKeyStore = DeployKeyStore(DeployKeyStore.defaultDir())
 ) : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = true
 
@@ -309,7 +304,7 @@ class ProvisionTestnetContainerStrategy(
 
         if (funding.configured && !registered) {
             if (funding.pendingRegistration && !dryRun) {
-                val failure = gateway.completeRegistration(funding, txPoster, gateway.endpointUrls())
+                val failure = gateway.completeRegistration(funding, gateway.endpointUrls())
                 if (failure != null) return toolErrorResult(failure)
                 registered = true
                 balanceRaw = gateway.balanceOf(funding.accountIdHex!!)
@@ -379,7 +374,7 @@ class ProvisionTestnetContainerStrategy(
         var liveBalance = balanceRaw ?: 0
         if (liveBalance < costRaw) {
             val adId = gateway.mainAuthDescriptorId(accountIdHex)
-            val outcome = txPoster.post(
+            val outcome = RealTxPoster.post(
                 urls, gateway.economyChainBrid(),
                 listOf(TestnetProvisioning.ftAuthOp(accountIdHex.hexToBytes(), adId), TestnetProvisioning.faucetOp()),
                 privKey
@@ -416,7 +411,7 @@ class ProvisionTestnetContainerStrategy(
             deployPubHex = providedDeployPubkey.uppercase()
             notes += "Using the caller-provided deploy pubkey; its private key stays wherever the caller keeps it."
         } else {
-            val pair = keyPairGenerator()
+            val pair = TestnetProvisioning.cryptoSystem.generateKeyPair()
             deployPubHex = pair.pubKey.data.toHex()
             val privHex = pair.privKey.data.toHex()
             gateway.secrets.add(privHex)
@@ -425,7 +420,7 @@ class ProvisionTestnetContainerStrategy(
         }
 
         val adId = gateway.mainAuthDescriptorId(accountIdHex)
-        val outcome = txPoster.post(
+        val outcome = RealTxPoster.post(
             urls, gateway.economyChainBrid(),
             listOf(
                 TestnetProvisioning.ftAuthOp(accountIdHex.hexToBytes(), adId),
@@ -452,7 +447,7 @@ class ProvisionTestnetContainerStrategy(
         var containerName: String? = null
         var errorMessage = ""
         for (attempt in 0 until TICKET_POLL_ATTEMPTS) {
-            if (attempt > 0) delayFn(TICKET_POLL_INTERVAL_MS)
+            if (attempt > 0) kotlinx.coroutines.delay(TICKET_POLL_INTERVAL_MS)
             val ticket = gateway.ecQuery(
                 "get_create_container_ticket_by_transaction",
                 mapOf("tx_rid" to outcome.txRidHex.hexToBytes())
@@ -589,8 +584,7 @@ class ProvisionTestnetContainerStrategy(
  * chain level. dryRun (default) reports balance and claimability only.
  */
 class ClaimTestnetTchrStrategy(
-    private val env: Map<String, String> = System.getenv(),
-    private val txPoster: TxPoster = RealTxPoster
+    private val env: Map<String, String> = System.getenv()
 ) : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = true
 
@@ -632,7 +626,7 @@ class ClaimTestnetTchrStrategy(
 
         if (!registered) {
             if (funding.pendingRegistration && !dryRun) {
-                val failure = gateway.completeRegistration(funding, txPoster, gateway.endpointUrls())
+                val failure = gateway.completeRegistration(funding, gateway.endpointUrls())
                 if (failure != null) return toolErrorResult(failure)
                 registered = true
                 balanceRaw = gateway.balanceOf(funding.accountIdHex!!)
@@ -671,7 +665,7 @@ class ClaimTestnetTchrStrategy(
 
         val accountIdHex = funding.accountIdHex!!
         val adId = gateway.mainAuthDescriptorId(accountIdHex)
-        val outcome = txPoster.post(
+        val outcome = RealTxPoster.post(
             gateway.endpointUrls(), gateway.economyChainBrid(),
             listOf(TestnetProvisioning.ftAuthOp(accountIdHex.hexToBytes(), adId), TestnetProvisioning.faucetOp()),
             funding.privKey!!
@@ -719,11 +713,7 @@ class ClaimTestnetTchrStrategy(
  */
 class DeployTestnetChainStrategy(
     private val env: Map<String, String> = System.getenv(),
-    private val keyStore: DeployKeyStore = DeployKeyStore(DeployKeyStore.defaultDir()),
-    private val processRunner: ProcessRunner = RealProcessRunner,
-    private val tempDirFactory: () -> java.nio.file.Path = {
-        java.nio.file.Files.createTempDirectory("chromia-mcp-deploy")
-    }
+    private val keyStore: DeployKeyStore = DeployKeyStore(DeployKeyStore.defaultDir())
 ) : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = true
 
@@ -1078,7 +1068,7 @@ class DeployTestnetChainStrategy(
         }
 
         // ---- execute headlessly ---------------------------------------------
-        val workDir = tempDirFactory()
+        val workDir = java.nio.file.Files.createTempDirectory("chromia-mcp-deploy")
         try {
             java.nio.file.Files.writeString(workDir.resolve("chromia.yml"), yml)
             for ((path, content) in files) {
@@ -1092,7 +1082,7 @@ class DeployTestnetChainStrategy(
             }
 
             if (installCommand != null) {
-                val install = processRunner.run(installCommand, workDir, emptyMap(), CHR_TIMEOUT_MS)
+                val install = RealProcessRunner.run(installCommand, workDir, emptyMap(), CHR_TIMEOUT_MS)
                 val installOut = TestnetProvisioning.sanitizeText((install.stdout + "\n" + install.stderr).trim(), secrets)
                 if (install.exitCode != 0) {
                     return toolErrorResult(
@@ -1105,7 +1095,7 @@ class DeployTestnetChainStrategy(
                 notes += "chr install vendored the declared libs (${declaredLibs.joinToString(", ")})."
             }
             val pubForEnv = pubHex ?: TestnetProvisioning.derivePubKey(privKey!!).toHex()
-            val result = processRunner.run(
+            val result = RealProcessRunner.run(
                 command, workDir,
                 mapOf(
                     "POSTCHAIN_CLIENT_PRIVKEY" to privKey!!.toHex(),
@@ -1253,7 +1243,7 @@ class DeployTestnetChainStrategy(
         if (!probeAttempted) {
             probeAttempted = true
             cachedVersions = runCatching {
-                val out = processRunner.run(
+                val out = RealProcessRunner.run(
                     chrCommand.command + "--version", java.nio.file.Path.of("."), emptyMap(), 30_000
                 )
                 if (out.exitCode == 0) ChrVersions.parse(out.stdout + "\n" + out.stderr) else null

@@ -45,7 +45,7 @@ import org.junit.jupiter.api.Test
  */
 class AuditLibFt4ExemptionRegressionTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     /** The genuine vendored FT4 v1.1.0r tree, keyed the way a chr-installed
      *  project submits it (src/lib/ft4/...). Bit-identical content is what

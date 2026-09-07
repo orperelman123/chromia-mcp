@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -39,9 +38,6 @@ import java.nio.file.Path
  * signing, and node acceptance of the wire format end-to-end.
  */
 class TestnetProvisioningLiveTest {
-
-    private fun liveEnabled() =
-        System.getenv("CHROMIA_LIVE_PROVISIONING_TESTS")?.equals("true", ignoreCase = true) == true
 
     /**
      * A funding account known to be registered on the testnet Economy Chain.
@@ -63,7 +59,7 @@ class TestnetProvisioningLiveTest {
 
     @Test
     fun liveDryRunPricesLeaseAndResolvesEverythingWithoutSpending(@TempDir dir: Path) = runBlocking {
-        assumeTrue(liveEnabled(), "live provisioning tests disabled (set CHROMIA_LIVE_PROVISIONING_TESTS=true)")
+        LiveEnv.requireLiveNetwork("prices a container lease against the live Economy Chain")
 
         // Throwaway funding key: unregistered on the Economy Chain, so this also
         // exercises get_accounts_by_signer + get_pending_transfer_strategies live.
@@ -98,7 +94,7 @@ class TestnetProvisioningLiveTest {
 
     @Test
     fun liveClaimDryRunReportsFaucetTerms(@TempDir dir: Path) = runBlocking {
-        assumeTrue(liveEnabled(), "live provisioning tests disabled (set CHROMIA_LIVE_PROVISIONING_TESTS=true)")
+        LiveEnv.requireLiveNetwork("reads the live faucet terms")
         val throwaway = TestnetProvisioning.cryptoSystem.generateKeyPair()
         val strategy = ClaimTestnetTchrStrategy(
             env = mapOf(
@@ -146,7 +142,7 @@ class TestnetProvisioningLiveTest {
      */
     @Test
     fun liveKnownAccountIsRegisteredOnTheEconomyChain() = runBlocking {
-        assumeTrue(liveEnabled(), "live provisioning tests disabled (set CHROMIA_LIVE_PROVISIONING_TESTS=true)")
+        LiveEnv.requireLiveNetwork("reads get_balance for a public, known-registered account id")
         val gateway = EconomyChainGateway(liveRepository())
         val balance = gateway.balanceOf(KNOWN_REGISTERED_ACCOUNT_ID)
         assertNotNull(
@@ -160,7 +156,7 @@ class TestnetProvisioningLiveTest {
 
     @Test
     fun liveSignedTransactionIsAcceptedOnWireAndRejectedByFt4Auth() {
-        assumeTrue(liveEnabled(), "live provisioning tests disabled (set CHROMIA_LIVE_PROVISIONING_TESTS=true)")
+        LiveEnv.requireLiveNetwork("posts a signed throwaway-key transaction and requires the chain to reject it")
 
         // Throwaway key, nonexistent account: ft4.ft_auth must reject it, which
         // proves the whole signing pipeline (GTX build, merkle digest, secp256k1

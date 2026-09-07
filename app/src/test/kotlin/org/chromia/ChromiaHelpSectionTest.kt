@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test
  */
 class ChromiaHelpSectionTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     /**
      * Measured bound on one section. Every section this server offers is under it;

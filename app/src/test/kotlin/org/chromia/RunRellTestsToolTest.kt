@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test
 
 class RunRellTestsToolTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private fun run(arguments: kotlinx.serialization.json.JsonObject) = runBlocking {
         RunRellTestsStrategy().execute(
@@ -99,11 +99,7 @@ class RunRellTestsToolTest {
      */
     @Test
     fun concurrentDatabaseBackedRunsDoNotCollide() {
-        val databaseUrl = System.getenv(org.chromia.tools.RunRellTests.DATABASE_URL_ENV)
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-            !databaseUrl.isNullOrBlank(),
-            "needs ${org.chromia.tools.RunRellTests.DATABASE_URL_ENV}"
-        )
+        val databaseUrl = LiveEnv.requireDatabaseUrl("two concurrent DB-backed runs must not collide on one schema")
         val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
         try {
             val futures = listOf("aa", "bb").map { tag ->

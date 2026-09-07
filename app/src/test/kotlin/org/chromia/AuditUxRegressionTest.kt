@@ -24,10 +24,22 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Regressions for the agent-UX/docs audit findings (2026-09-01): F1-F5, F7-F9. */
+/**
+ * Regressions for the agent-UX/docs audit findings (2026-09-01): F1-F5, F7-F9.
+ *
+ * Every claim in this class is about LOCAL behaviour - the Rell compiler, the
+ * test runner, the scaffold, the yaml gate, argument validation - so the
+ * repository is a required parameter of `execute(request, repository)` and
+ * nothing more. It used to be a `RecordingRepository`, a double of our own
+ * `ChromiaRepository` interface; it is now the PRODUCTION repository pointed at
+ * a closed loopback port ([McpTestSupport.offlineRepository]). Nothing is
+ * faked: a tool that is supposed to answer locally and instead reaches for the
+ * network fails with a real ConnectException, which is exactly how the two
+ * limit tests at the bottom prove the call never left the process.
+ */
 class AuditUxRegressionTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private fun callViaExecutor(tool: String, args: kotlinx.serialization.json.JsonObject) = runBlocking {
         ToolExecutor(repo, PromptManager())
@@ -322,7 +334,13 @@ class AuditUxRegressionTest {
         assertEquals(true, result.isError)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("limit must be an integer"), text)
-        assertEquals(null, repo.lastCall, "must not reach the repository")
+        // The repository behind this executor is the real one, aimed at a closed
+        // port: had the tool let "twenty" through, the answer would have been the
+        // operating system's connection refusal ("Request failed: ..."), not a
+        // validation message. That absence is the proof the call never left the
+        // process - the recorder's `lastCall == null` said the same thing while
+        // being unable to fail if the tool HAD gone to the network.
+        assertFalse(text.contains("Request failed"), "the call must not reach the network: $text")
     }
 
     @Test
@@ -334,7 +352,7 @@ class AuditUxRegressionTest {
         assertEquals(true, result.isError)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("must not exceed"), text)
-        assertEquals(null, repo.lastCall, "must not reach the repository")
+        assertFalse(text.contains("Request failed"), "the call must not reach the network: $text")
     }
 
     // ---- Verification note: diagnostics carry the submitted relative path ----

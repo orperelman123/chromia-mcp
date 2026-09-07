@@ -1,32 +1,33 @@
 package org.chromia
 
 import dev.langchain4j.data.document.Metadata
-import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.pluginOrNull
+import io.ktor.client.request.get
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import org.chromia.tools.callToolRequest
+import io.ktor.http.isSuccess
+import io.ktor.server.cio.CIO as ServerCIO
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.request.uri
+import io.ktor.server.response.header
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondRedirect
+import io.ktor.server.routing.Routing
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
+import kotlinx.coroutines.runBlocking
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.tools.FetchDocsStrategy
 import org.chromia.tools.FetchDocumentStrategy
-import org.chromia.tools.RagStore
 import org.chromia.tools.SearchDocsStrategy
+import org.chromia.tools.callToolRequest
+import org.chromia.tools.RagStore
 import org.chromia.tools.createRegistryDownloadClient
 import org.chromia.tools.embeddingStoreSegments
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -38,111 +39,199 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.io.path.deleteIfExists
 
+/**
+ * The published embeddings index, downloaded over REAL HTTP.
+ *
+ * Until 2026-09-07 every test here drove a Ktor `MockEngine`: a substitute for
+ * the transport itself, which meant the production download path was exercised
+ * against a function that returned whatever the test said, and nothing here ever
+ * opened a socket, parsed a real response, followed a real redirect or hit a
+ * real status line. The engine below is the production CIO one, and the peer is
+ * a real Ktor server on a loopback port serving a real index file written by the
+ * production writer (`persistLocalEmbeddings`, via [TestDocsIndex.persist]).
+ * A real server behaving badly - 404, 429, garbage bytes - is not a double; a
+ * closed port (127.0.0.1:1) is the honest way to produce a refused connection.
+ *
+ * ## What could not be reproduced without github.com
+ *
+ * `RagStore.resolveDownload` special-cases exactly one URL - the literal
+ * [RagStore.GITHUB_RELEASE_URL] - and looks its asset up on the literal
+ * [RagStore.GITHUB_RELEASE_API_URL]. A loopback server cannot be either of them,
+ * so the token-carrying releases-API branch is not covered here any more; see
+ * the removal notes below for what went and what still covers it. The URL
+ * ORDERING those tests also asserted is covered twice over: as a pure fact about
+ * production's real list (`remoteEmbeddingsUrls`) and as real behaviour over two
+ * real endpoints.
+ */
 class RagStoreRegistryDownloadTest {
 
     @TempDir
     lateinit var tempDir: Path
 
+    /** One received request: what was asked for, and what credential came with it. */
+    private data class Received(val uri: String, val authorization: String?)
+
+    /**
+     * Runs [routes] on a REAL Ktor CIO server on an ephemeral loopback port and
+     * hands [block] its base URL. Nothing is simulated: the production client
+     * opens a socket to it.
+     */
+    private fun <T> withServer(host: String = "127.0.0.1", routes: Routing.() -> Unit, block: (String) -> T): T {
+        val server = embeddedServer(ServerCIO, host = host, port = 0) { routing(routes) }.start(wait = false)
+        return try {
+            val port = runBlocking { server.engine.resolvedConnectors().first().port }
+            block("http://$host:$port")
+        } finally {
+            server.stop(0, 500)
+        }
+    }
+
+    /**
+     * A REAL index file, written by the production writer and read back as bytes,
+     * so the body the server serves is byte-for-byte what the publish step
+     * produces. [name] becomes the segment's `file_name`, which is what the
+     * assertions below identify the served copy by.
+     */
+    private fun indexBytes(name: String): ByteArray {
+        val path = TestDocsIndex.persist(
+            tempDir.resolve("index-$name"),
+            TextSegment.from("doc $name", Metadata.from("file_name", name))
+        )
+        return Files.readAllBytes(path)
+    }
+
+    /** A real address nothing listens on: the OS refuses the connection for real. */
+    private val closedPortUrl = "http://127.0.0.1:1/embeddings.json"
+
+    /**
+     * RESTORED 2026-09-07, for real. This test was removed earlier the same day
+     * because the only way to put a RagStore into "the index never loaded" was
+     * `registryLoader = { throw }` - a lambda double for the whole download.
+     * `RagStore` now takes the URL list its `CHROMIA_EMBEDDINGS_URL` override
+     * already implies, so the state is produced by a genuinely closed port: the
+     * production client opens a real socket, the operating system refuses it,
+     * and the store really has no index.
+     *
+     * The claim, unchanged: an unavailable index is an explicit, retryable error
+     * on all three docs tools (audit F5), and `fetch` must never let it degrade
+     * into "Documentation not found" (audit round 4 F3).
+     */
     @Test
-    fun missingLocalAndThrowingRegistryDoesNotCrashOrInventDocs() = runBlocking {
-        val registryCalls = AtomicInteger(0)
+    fun anIndexThatCouldNotBeDownloadedIsReportedUnavailableByAllThreeDocsTools() = runBlocking {
         val ragStore = RagStore(
             loadFromRegistry = true,
             localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
-            registryLoader = {
-                registryCalls.incrementAndGet()
-                error("401 Unauthorized: missing GITLAB_ACCESS_TOKEN")
-            }
+            remoteUrls = listOf(closedPortUrl),
+            cacheEmbeddingsPath = null
         )
-        assertEquals(1, registryCalls.get())
         assertNull(ragStore.embeddingStore)
         assertTrue(ragStore.query("FT4 tokens").isNullOrEmpty())
 
         val deferred = CompletableDeferred(ragStore)
+        val repository = McpTestSupport.offlineRepository()
+
         val search = SearchDocsStrategy(deferred).execute(
             callToolRequest(name = "search", arguments = buildJsonObject { put("query", "FT4 tokens") }),
-            ChromiaRepositoryImpl()
+            repository
         )
-        // Unavailable index is an explicit, retryable error - not silent emptiness (audit F5).
         assertEquals(true, search.isError)
         val searchText = (search.content.first() as TextContent).text!!
         assertTrue(searchText.contains("index is unavailable"), searchText)
-        assertEquals(0, search.structuredContent!!["results"]!!.jsonArray.size)
+        assertEquals(0, search.structuredContent!!.getValue("results").jsonArray.size)
         assertFalse(searchText.contains("docs.chromia.com"))
 
         val fetch = FetchDocumentStrategy(deferred).execute(
-            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "https://docs.chromia.com") }),
-            ChromiaRepositoryImpl()
+            callToolRequest(
+                name = "fetch",
+                arguments = buildJsonObject { put("id", "https://docs.chromia.com") }
+            ),
+            repository
         )
         assertEquals(true, fetch.isError)
-        // An unloaded index must not masquerade as "not found" (audit round 4 F3).
         val fetchText = (fetch.content.first() as TextContent).text!!
         assertTrue(fetchText.contains("index is unavailable"), fetchText)
         assertFalse(fetchText.contains("Documentation not found"), fetchText)
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
-            callToolRequest(name = "fetch_docs", arguments = buildJsonObject { put("query", "FT4 tokens") }),
-            ChromiaRepositoryImpl()
+            callToolRequest(
+                name = "fetch_docs",
+                arguments = buildJsonObject { put("query", "FT4 tokens") }
+            ),
+            repository
         )
         assertEquals(true, fetchDocs.isError)
-        assertEquals(0, fetchDocs.structuredContent!!["hits"]!!.jsonArray.size)
+        assertEquals(0, fetchDocs.structuredContent!!.getValue("hits").jsonArray.size)
     }
 
     @Test
     fun downloadFromRegistryHttpFailuresAreSkippedWithoutLiveNetwork() {
+        // Real statuses from a real server, plus a real refused connection. Every
+        // one of them must mean "skip this remote", never a thrown boot.
         listOf(
             HttpStatusCode.Unauthorized,
             HttpStatusCode.Forbidden,
             HttpStatusCode.NotFound
         ).forEach { status ->
-            val engine = MockEngine { request ->
-                assertTrue(
-                    request.url.toString().contains("embeddings.json"),
-                    request.url.toString()
-                )
-                respond(
-                    content = "denied",
-                    status = status,
-                    headers = headersOf(HttpHeaders.ContentType, "text/plain")
-                )
+            val received = CopyOnWriteArrayList<Received>()
+            withServer(routes = {
+                get("/release/embeddings.json") {
+                    received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                    call.respondBytes("denied".toByteArray(), status = status)
+                }
+            }) { base ->
+                val client = createRegistryDownloadClient()
+                try {
+                    assertNull(
+                        RagStore.downloadRemoteEmbeddings(
+                            client = client,
+                            urls = listOf("$base/release/embeddings.json"),
+                            token = null
+                        ),
+                        "HTTP $status must skip the registry store"
+                    )
+                } finally {
+                    client.close()
+                }
             }
-            val client = createRegistryDownloadClient(engine)
-            try {
-                assertNull(
-                    RagStore.downloadRemoteEmbeddings(client, token = null),
-                    "HTTP $status must skip the registry store"
-                )
-            } finally {
-                client.close()
-            }
+            assertEquals(1, received.size, "the remote was really contacted for $status")
+            assertTrue(received.single().uri.contains("embeddings.json"), received.single().uri)
         }
-    }
 
-    @Test
-    fun downloadFromRegistryCorruptBodyIsSkippedWithoutLiveNetwork() {
-        val engine = MockEngine {
-            respond(
-                content = "not-an-embedding-store",
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val client = createRegistryDownloadClient(engine)
+        val client = createRegistryDownloadClient()
         try {
-            assertNull(RagStore.downloadRemoteEmbeddings(client, token = null), "corrupt registry body must not throw")
+            assertNull(
+                RagStore.downloadRemoteEmbeddings(client = client, urls = listOf(closedPortUrl), token = null),
+                "a refused connection must skip the remote, not crash the boot"
+            )
         } finally {
             client.close()
         }
     }
 
-    private fun fixtureJson(vararg names: String): String {
-        val store = InMemoryEmbeddingStore<TextSegment>()
-        names.forEach { name ->
-            store.add(Embedding.from(FloatArray(4) { 0.25f }), TextSegment.from("doc $name", Metadata.from("file_name", name)))
+    @Test
+    fun downloadFromRegistryCorruptBodyIsSkippedWithoutLiveNetwork() {
+        withServer(routes = {
+            get("/release/embeddings.json") {
+                call.respondBytes("not-an-embedding-store".toByteArray(), status = HttpStatusCode.OK)
+            }
+        }) { base ->
+            val client = createRegistryDownloadClient()
+            try {
+                assertNull(
+                    RagStore.downloadRemoteEmbeddings(
+                        client = client,
+                        urls = listOf("$base/release/embeddings.json"),
+                        token = null
+                    ),
+                    "corrupt registry body must not throw"
+                )
+            } finally {
+                client.close()
+            }
         }
-        return store.serializeToJson()
     }
 
     @Test
@@ -158,60 +247,46 @@ class RagStoreRegistryDownloadTest {
         // A blank override is no override; an override equal to a default is not tried twice.
         assertEquals(2, RagStore.remoteEmbeddingsUrls(mapOf(RagStore.EMBEDDINGS_URL_ENV to "  ")).size)
         assertEquals(2, RagStore.remoteEmbeddingsUrls(mapOf(RagStore.EMBEDDINGS_URL_ENV to RagStore.GITHUB_RELEASE_URL)).size)
+        // The origin each of those URLs is reported as, for the provenance line.
+        assertTrue(RagStore.describeRemote(RagStore.GITHUB_RELEASE_URL).startsWith("GitHub release asset"))
+        assertTrue(RagStore.describeRemote("${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}").startsWith("GitLab registry package"))
     }
 
     @Test
-    fun theGitHubReleaseAssetIsTakenFirstAndItsLastModifiedIsKept() {
-        val requested = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            requested += request.url.toString()
-            respond(
-                content = fixtureJson("fresh.md"),
-                status = HttpStatusCode.OK,
-                headers = headersOf(
-                    HttpHeaders.ContentType to listOf("application/octet-stream"),
-                    HttpHeaders.LastModified to listOf("Mon, 31 Aug 2026 11:20:00 GMT")
-                )
-            )
-        }
-        val client = createRegistryDownloadClient(engine)
-        try {
-            val remote = RagStore.downloadRemoteEmbeddings(client, token = null)!!
-            assertEquals(listOf(RagStore.GITHUB_RELEASE_URL), requested, "GitLab must not be contacted when the release asset loads")
-            assertEquals(RagStore.GITHUB_RELEASE_URL, remote.url)
-            assertEquals(Instant.parse("2026-08-31T11:20:00Z"), remote.lastModified)
-            assertEquals("fresh.md", embeddingStoreSegments(remote.store).single().metadata().getString("file_name"))
-            assertTrue(RagStore.describeRemote(remote.url).startsWith("GitHub release asset"))
-        } finally {
-            client.close()
-        }
-    }
-
-    @Test
-    fun aMissingOrCorruptReleaseAssetFallsThroughToTheGitLabPackage() {
-        listOf<(String) -> Pair<String, HttpStatusCode>>(
-            { _ -> "Not Found" to HttpStatusCode.NotFound },
-            { _ -> "<html>rate limited</html>" to HttpStatusCode.TooManyRequests },
-            { _ -> "{\"entries\":[{\"id\":\"x\"}]}" to HttpStatusCode.OK } // corrupt: entry without vector
-        ).forEach { githubAnswer ->
-            val requested = mutableListOf<String>()
-            val engine = MockEngine { request ->
-                val url = request.url.toString()
-                requested += url
-                if (url == RagStore.GITHUB_RELEASE_URL) {
-                    val (body, status) = githubAnswer(url)
-                    respond(body, status)
-                } else {
-                    respond(fixtureJson("old.md"), HttpStatusCode.OK)
-                }
+    fun theFirstRemoteThatAnswersWinsAndItsLastModifiedIsKept() {
+        // Production's first entry is the GitHub release asset and its second is
+        // the GitLab package (asserted as a fact of the list above); over real
+        // HTTP what matters is that the SECOND endpoint is never contacted once
+        // the first serves a parseable index, and that the server's real
+        // Last-Modified is what ends up in the provenance.
+        val received = CopyOnWriteArrayList<Received>()
+        val body = indexBytes("fresh.md")
+        withServer(routes = {
+            get("/release/embeddings.json") {
+                received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                call.response.header(HttpHeaders.LastModified, "Mon, 31 Aug 2026 11:20:00 GMT")
+                call.respondBytes(body, status = HttpStatusCode.OK)
             }
-            val client = createRegistryDownloadClient(engine)
+            get("/package/embeddings.json") {
+                received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                call.respondBytes(indexBytes("old.md"), status = HttpStatusCode.OK)
+            }
+        }) { base ->
+            val client = createRegistryDownloadClient()
             try {
-                val remote = RagStore.downloadRemoteEmbeddings(client, token = null)!!
-                assertEquals(listOf(RagStore.GITHUB_RELEASE_URL, "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"), requested)
-                assertEquals("${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}", remote.url)
-                assertNull(remote.lastModified, "no Last-Modified header on the fallback response")
-                assertTrue(RagStore.describeRemote(remote.url).startsWith("GitLab registry package"))
+                val remote = RagStore.downloadRemoteEmbeddings(
+                    client = client,
+                    urls = listOf("$base/release/embeddings.json", "$base/package/embeddings.json"),
+                    token = null
+                )!!
+                assertEquals(
+                    listOf("/release/embeddings.json"),
+                    received.map { it.uri },
+                    "the fallback must not be contacted when the first remote loads"
+                )
+                assertEquals("$base/release/embeddings.json", remote.url)
+                assertEquals(Instant.parse("2026-08-31T11:20:00Z"), remote.lastModified)
+                assertEquals("fresh.md", embeddingStoreSegments(remote.store).single().metadata().getString("file_name"))
             } finally {
                 client.close()
             }
@@ -219,95 +294,152 @@ class RagStoreRegistryDownloadTest {
     }
 
     @Test
-    fun withATokenThePrivateReleaseAssetIsResolvedThroughTheApiAndTheCredentialStopsAtGitHub() {
-        val seen = mutableListOf<Pair<String, Map<String, String>>>()
-        val storage = "https://objects.githubusercontent.com/github-production-release-asset/abc?X-Amz-Signature=sig"
-        val engine = MockEngine { request ->
-            val url = request.url.toString()
-            seen += url to request.headers.names().associateWith { request.headers[it]!! }
-            when {
-                url == RagStore.GITHUB_RELEASE_API_URL -> {
-                    assertEquals("Bearer t0k3n", request.headers[HttpHeaders.Authorization])
-                    respond(
-                        """{"tag_name":"embeddings","assets":[
-                             {"name":"embeddings.provenance.json","url":"https://api.github.com/repos/${RagStore.GITHUB_REPO}/releases/assets/1"},
-                             {"name":"embeddings.json","url":"https://api.github.com/repos/${RagStore.GITHUB_REPO}/releases/assets/2"}]}""",
-                        HttpStatusCode.OK,
-                        headersOf(HttpHeaders.ContentType, "application/json")
+    fun aMissingOrCorruptReleaseAssetFallsThroughToTheGitLabPackage() {
+        // Each of these is a real answer from a real server: a 404, a rate-limit
+        // page, and a 200 whose body is not an embedding store (an entry with no
+        // vector). All three must fall through to the next remote.
+        listOf<Pair<HttpStatusCode, ByteArray>>(
+            HttpStatusCode.NotFound to "Not Found".toByteArray(),
+            HttpStatusCode.TooManyRequests to "<html>rate limited</html>".toByteArray(),
+            HttpStatusCode.OK to "{\"entries\":[{\"id\":\"x\"}]}".toByteArray()
+        ).forEach { (status, firstBody) ->
+            val received = CopyOnWriteArrayList<Received>()
+            val fallbackBody = indexBytes("old.md")
+            withServer(routes = {
+                get("/release/embeddings.json") {
+                    received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                    call.respondBytes(firstBody, status = status)
+                }
+                get("/package/embeddings.json") {
+                    received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                    call.respondBytes(fallbackBody, status = HttpStatusCode.OK)
+                }
+            }) { base ->
+                val client = createRegistryDownloadClient()
+                try {
+                    val remote = RagStore.downloadRemoteEmbeddings(
+                        client = client,
+                        urls = listOf("$base/release/embeddings.json", "$base/package/embeddings.json"),
+                        token = null
+                    )!!
+                    assertEquals(
+                        listOf("/release/embeddings.json", "/package/embeddings.json"),
+                        received.map { it.uri }
                     )
+                    assertEquals("$base/package/embeddings.json", remote.url)
+                    assertNull(remote.lastModified, "no Last-Modified header on the fallback response")
+                    assertEquals("old.md", embeddingStoreSegments(remote.store).single().metadata().getString("file_name"))
+                } finally {
+                    client.close()
                 }
-                url == "https://api.github.com/repos/${RagStore.GITHUB_REPO}/releases/assets/2" -> {
-                    assertEquals("Bearer t0k3n", request.headers[HttpHeaders.Authorization])
-                    assertEquals("application/octet-stream", request.headers[HttpHeaders.Accept])
-                    respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, storage))
-                }
-                url == storage -> {
-                    assertNull(request.headers[HttpHeaders.Authorization], "the bearer token must not reach object storage")
-                    respond(fixtureJson("fresh.md"), HttpStatusCode.OK, headersOf(HttpHeaders.LastModified, "Fri, 04 Sep 2026 20:53:44 GMT"))
-                }
-                else -> error("unexpected request $url")
             }
-        }
-        val client = createRegistryDownloadClient(engine)
-        try {
-            val remote = RagStore.downloadRemoteEmbeddings(client, token = "t0k3n")!!
-            assertEquals(RagStore.GITHUB_RELEASE_URL, remote.url, "provenance names the release, not the signed storage URL")
-            assertEquals(Instant.parse("2026-09-04T20:53:44Z"), remote.lastModified)
-            assertEquals("fresh.md", embeddingStoreSegments(remote.store).single().metadata().getString("file_name"))
-            assertEquals(3, seen.size, seen.map { it.first }.toString())
-            assertFalse(seen.any { it.first.startsWith(RagStore.PACKAGE_URL) }, "GitLab is not contacted when the asset loads")
-        } finally {
-            client.close()
         }
     }
 
+    // REMOVED 2026-09-07: `withATokenThePrivateReleaseAssetIsResolvedThroughTheApiAndTheCredentialStopsAtGitHub`
+    // and `aTokenThatGitHubRejectsStillFallsBackToThePublicUrlThenGitLab`.
+    //
+    // Both drove `MockEngine` and both asserted a branch that only exists for two
+    // hard-coded github.com URLs: `RagStore.resolveDownload` looks the asset up on
+    // GITHUB_RELEASE_API_URL only when the URL it was handed IS
+    // GITHUB_RELEASE_URL. A loopback server can never be that URL, so the
+    // releases-API lookup (asset id -> `Accept: application/octet-stream`) and the
+    // "a rejected token falls back to the public URL" ordering cannot be produced
+    // by any real server this test can start.
+    //
+    // WHAT NOW COVERS WHAT THEY CARRIED:
+    //  - the credential rule ("the bearer token must not reach object storage") is
+    //    covered for real below, over two real servers and a real 302, because it
+    //    lives in `downloadFile` and is not GitHub-specific;
+    //  - falling through to the next remote after a failure is covered for real by
+    //    `aMissingOrCorruptReleaseAssetFallsThroughToTheGitLabPackage` and
+    //    `withoutATokenNoCredentialIsSentAndA404FallsThroughToTheNextRemote`;
+    //  - the token PRECEDENCE (env var, secret file, GITHUB_TOKEN) is still covered
+    //    by `tokenComesFromTheDedicatedVariableThenTheSecretFileThenGitHubToken`.
+    //
+    // NOT COVERED any more: the releases-API asset lookup itself. Only CI's live
+    // download steps (`scripts/rag-eval.mjs --production-shaped`,
+    // `scripts/stdio-smoke.mjs --launcher-download`) touch the real release, and
+    // they run WITHOUT a token, so the private-repo path is untested. Making it
+    // testable needs the API URL to be a configuration point the way the download
+    // URL list should be - the same change named in the removal note above.
+
     @Test
-    fun withoutATokenThePublicUrlIsTriedAndAPrivateRepos404FallsThroughToGitLab() {
-        val requested = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            val url = request.url.toString()
-            requested += url
-            assertNull(request.headers[HttpHeaders.Authorization])
-            when (url) {
-                RagStore.GITHUB_RELEASE_URL -> respond("Not Found", HttpStatusCode.NotFound)
-                "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}" -> respond(fixtureJson("old.md"), HttpStatusCode.OK)
-                else -> error("unexpected request $url")
+    fun theBearerCredentialIsNotForwardedAcrossAHostRedirect() {
+        // The real rule from Utils.downloadFile: a credential is for the origin we
+        // were given, not for wherever it sends us (GitHub answers an authenticated
+        // release-asset request with a 302 to pre-signed object storage, which
+        // rejects a request carrying a second credential). Two real servers on two
+        // different host names, one real 302, one real socket each.
+        val atOrigin = CopyOnWriteArrayList<Received>()
+        val atStorage = CopyOnWriteArrayList<Received>()
+        val body = indexBytes("fresh.md")
+        withServer(host = "localhost", routes = {
+            get("/storage/embeddings.json") {
+                atStorage += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                call.respondBytes(body, status = HttpStatusCode.OK)
+            }
+        }) { storageBase ->
+            withServer(routes = {
+                get("/release/embeddings.json") {
+                    atOrigin += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                    call.respondRedirect("$storageBase/storage/embeddings.json", permanent = false)
+                }
+            }) { originBase ->
+                val client = createRegistryDownloadClient()
+                val downloaded = try {
+                    runBlocking {
+                        client.downloadFile(
+                            "$originBase/release/embeddings.json",
+                            mapOf(HttpHeaders.Authorization to "Bearer t0k3n")
+                        )
+                    }
+                } finally {
+                    client.close()
+                }
+                try {
+                    assertTrue(downloaded != null, "the redirect must be followed to the body")
+                    assertTrue(Files.readAllBytes(downloaded!!).contentEquals(body), "the storage body is what was kept")
+                } finally {
+                    downloaded?.deleteIfExists()
+                }
             }
         }
-        val client = createRegistryDownloadClient(engine)
-        try {
-            val remote = RagStore.downloadRemoteEmbeddings(client, token = null)!!
-            assertEquals(listOf(RagStore.GITHUB_RELEASE_URL, "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"), requested)
-            assertEquals("${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}", remote.url)
-        } finally {
-            client.close()
-        }
+        assertEquals("Bearer t0k3n", atOrigin.single().authorization, "the origin gets the credential it was given")
+        assertNull(atStorage.single().authorization, "the bearer token must not reach the redirect target")
     }
 
     @Test
-    fun aTokenThatGitHubRejectsStillFallsBackToThePublicUrlThenGitLab() {
-        val requested = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            val url = request.url.toString()
-            requested += url
-            when (url) {
-                RagStore.GITHUB_RELEASE_API_URL -> respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
-                RagStore.GITHUB_RELEASE_URL -> respond("Not Found", HttpStatusCode.NotFound)
-                "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}" -> respond(fixtureJson("old.md"), HttpStatusCode.OK)
-                else -> error("unexpected request $url")
+    fun withoutATokenNoCredentialIsSentAndA404FallsThroughToTheNextRemote() {
+        val received = CopyOnWriteArrayList<Received>()
+        val fallbackBody = indexBytes("old.md")
+        withServer(routes = {
+            get("/release/embeddings.json") {
+                received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                call.respondBytes("Not Found".toByteArray(), status = HttpStatusCode.NotFound)
+            }
+            get("/package/embeddings.json") {
+                received += Received(call.request.uri, call.request.headers[HttpHeaders.Authorization])
+                call.respondBytes(fallbackBody, status = HttpStatusCode.OK)
+            }
+        }) { base ->
+            val client = createRegistryDownloadClient()
+            try {
+                val remote = RagStore.downloadRemoteEmbeddings(
+                    client = client,
+                    urls = listOf("$base/release/embeddings.json", "$base/package/embeddings.json"),
+                    token = null
+                )!!
+                assertEquals(
+                    listOf("/release/embeddings.json", "/package/embeddings.json"),
+                    received.map { it.uri }
+                )
+                assertEquals("$base/package/embeddings.json", remote.url)
+            } finally {
+                client.close()
             }
         }
-        val client = createRegistryDownloadClient(engine)
-        try {
-            val remote = RagStore.downloadRemoteEmbeddings(client, token = "expired")!!
-            assertEquals(
-                listOf(RagStore.GITHUB_RELEASE_API_URL, RagStore.GITHUB_RELEASE_URL, "${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}"),
-                requested
-            )
-            assertEquals("${RagStore.PACKAGE_URL}/${RagStore.FILE_NAME}", remote.url)
-        } finally {
-            client.close()
-        }
+        assertTrue(received.all { it.authorization == null }, "no token means no Authorization header on the wire")
     }
 
     @Test
@@ -336,14 +468,23 @@ class RagStoreRegistryDownloadTest {
 
     @Test
     fun registryDownloadClientHasTimeoutsAndDoesNotExpectSuccess() {
-        val engine = MockEngine {
-            respond("denied", HttpStatusCode.Unauthorized)
-        }
-        val client = createRegistryDownloadClient(engine)
-        try {
-            assertTrue(client.pluginOrNull(HttpTimeout) != null)
-        } finally {
-            client.close()
+        // `expectSuccess = false` used to be asserted by inspecting a MockEngine
+        // client; here a real 401 comes back from a real server as a status, not
+        // as a thrown exception, which is the behaviour that matters.
+        withServer(routes = {
+            get("/release/embeddings.json") {
+                call.respondBytes("denied".toByteArray(), status = HttpStatusCode.Unauthorized)
+            }
+        }) { base ->
+            val client = createRegistryDownloadClient()
+            try {
+                assertTrue(client.pluginOrNull(HttpTimeout) != null)
+                val status = runBlocking { client.get("$base/release/embeddings.json").status }
+                assertEquals(HttpStatusCode.Unauthorized, status)
+                assertFalse(status.isSuccess())
+            } finally {
+                client.close()
+            }
         }
     }
 }

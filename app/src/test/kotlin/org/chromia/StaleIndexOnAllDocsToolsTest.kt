@@ -49,10 +49,12 @@ class StaleIndexOnAllDocsToolsTest {
         Metadata.from("file_name", "chain_context.md")
     )
 
-    private fun answering(): RagStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? = listOf(segment).also { rememberQueryHits(it) }
-        override fun fetchById(id: String): TextSegment? = segment.takeIf { id == segmentId(segment) }
-    }
+    // A real store: the "module_args" query really retrieves [segment] through
+    // the exact-identifier lexical boost, and fetchById really resolves it from
+    // the segment index the store builds at construction. Both used to be
+    // overridden, so the audit-F2 note this class pins was asserted against a
+    // double of our own retrieval rather than against retrieval.
+    private fun answering(): RagStore = TestDocsIndex.store(segment)
 
     private val staleAt = Instant.parse("2025-10-21T09:13:14Z")
 

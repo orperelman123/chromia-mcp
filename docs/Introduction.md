@@ -52,7 +52,8 @@ Chromia MCP Server enables AI assistants to interact with Chromia blockchain dat
 
 - Direct MCP protocol communication from AI assistant clients (Cursor, Claude Desktop, JetBrains AI Assistant, ChatGPT)
 - Configuration in MCP client settings
-- Both local development (stdio mode) and remote production (SSE mode) access
+- Both local development (stdio) and URL-addressed access (`--sse`: Streamable HTTP at
+  `/mcp`, legacy HTTP+SSE at the root)
 
 ## Upstream and Downstream Projects
 
@@ -154,9 +155,11 @@ Chromia MCP Server enables AI assistants to interact with Chromia blockchain dat
 - Falls back to the GitLab generic package if the local file is missing
 - If both fail, documentation search will not work (but server continues running)
 
-**Transport Modes:**
-- **SSE Mode:** Server runs as HTTP server, clients connect via HTTP/SSE
-- **Stdio Mode:** Server runs as subprocess, communicates via stdin/stdout
+**Transports:**
+- **URL server (`--sse`, alias `--http`):** one HTTP server carrying BOTH HTTP
+  transports - Streamable HTTP at `<base>/mcp` (preferred) and the legacy HTTP+SSE at
+  the ROOT, `GET <base>/`. The flag name is historical; there is no `/sse` path.
+- **Stdio:** Server runs as a subprocess, communicating over stdin/stdout
 
 ### Data Persistence
 

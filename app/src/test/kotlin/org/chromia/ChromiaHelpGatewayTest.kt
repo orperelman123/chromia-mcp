@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test
 
 class ChromiaHelpGatewayTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private fun call(arguments: kotlinx.serialization.json.JsonObject) = runBlocking {
         executor.executeTool(callToolRequest(name = "chromia_help", arguments = arguments))

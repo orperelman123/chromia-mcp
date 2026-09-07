@@ -57,7 +57,6 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 class DappBuildToolsTest {
@@ -111,7 +110,7 @@ class DappBuildToolsTest {
                 name = "validate_chromia_yml",
                 arguments = buildJsonObject { put("yaml", goodYml()) }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -205,7 +204,7 @@ class DappBuildToolsTest {
                 name = "validate_chromia_yml",
                 arguments = buildJsonObject { put("yaml", yaml) }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
         assertEquals(true, payload["ok"]!!.jsonPrimitive.content.toBoolean(), payload.toString())
@@ -240,7 +239,7 @@ class DappBuildToolsTest {
                     put("includeIccf", true)
                 }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -352,7 +351,7 @@ class DappBuildToolsTest {
     fun chrBuildHelpReturnsOfficialCommands() = runBlocking {
         val result = ChrBuildHelpStrategy().execute(
             callToolRequest(name = "chr_build_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -449,7 +448,7 @@ class DappBuildToolsTest {
     fun chrReplHelpIsOfficialFlags() = runBlocking {
         val result = ChrReplHelpStrategy().execute(
             callToolRequest(name = "chr_repl_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -500,7 +499,7 @@ class DappBuildToolsTest {
     fun chrToolsHelpIsOfficialFlags() = runBlocking {
         val result = ChrToolsHelpStrategy().execute(
             callToolRequest(name = "chr_tools_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -554,7 +553,7 @@ class DappBuildToolsTest {
     fun chrSeederHelpIsOfficialFlags() = runBlocking {
         val result = ChrSeederHelpStrategy().execute(
             callToolRequest(name = "chr_seeder_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -601,7 +600,7 @@ class DappBuildToolsTest {
     fun blockchainPropertiesHelpIsOfficialKeys() = runBlocking {
         val result = BlockchainPropertiesHelpStrategy().execute(
             callToolRequest(name = "blockchain_properties_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -650,7 +649,7 @@ class DappBuildToolsTest {
     fun chrEifHelpIsOfficialFlags() = runBlocking {
         val result = ChrEifHelpStrategy().execute(
             callToolRequest(name = "chr_eif_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -701,7 +700,7 @@ class DappBuildToolsTest {
     fun chromiaYmlDefinitionsHelpIsOfficialExamples() = runBlocking {
         val result = ChromiaYmlDefinitionsHelpStrategy().execute(
             callToolRequest(name = "chromia_yml_definitions_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -752,7 +751,7 @@ class DappBuildToolsTest {
     fun chrCompletionHelpIsOfficialFlags() = runBlocking {
         val result = ChrCompletionHelpStrategy().execute(
             callToolRequest(name = "chr_completion_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -835,7 +834,7 @@ class DappBuildToolsTest {
     fun chromiaProjectStructureHelpIsOfficialLayouts() = runBlocking {
         val result = ChromiaProjectStructureHelpStrategy().execute(
             callToolRequest(name = "chromia_project_structure_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -886,7 +885,7 @@ class DappBuildToolsTest {
     fun chrMultiSignatureHelpIsReadOnlyView() = runBlocking {
         val result = ChrMultiSignatureHelpStrategy().execute(
             callToolRequest(name = "chr_multi_signature_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1138,7 +1137,7 @@ class DappBuildToolsTest {
                     put("yaml", DappScaffold.files("wallet").getValue("chromia.yml"))
                 }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1200,7 +1199,7 @@ class DappBuildToolsTest {
                     put("yaml", DappScaffold.files("hello").getValue("chromia.yml"))
                 }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1255,7 +1254,7 @@ class DappBuildToolsTest {
                 name = "write_deployment_config",
                 arguments = buildJsonObject { put("network", "devnet") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertEquals(true, result.isError)
         val text = (result.content.first() as TextContent).text!!
@@ -1352,7 +1351,7 @@ class DappBuildToolsTest {
     fun chrDeployHelpReturnsOfficialFlags() = runBlocking {
         val result = ChrDeployHelpStrategy().execute(
             callToolRequest(name = "chr_deploy_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1731,7 +1730,7 @@ class DappBuildToolsTest {
     fun chrNodeHelpReturnsOfficialFlags() = runBlocking {
         val result = ChrNodeHelpStrategy().execute(
             callToolRequest(name = "chr_node_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1806,7 +1805,7 @@ class DappBuildToolsTest {
     fun chrQueryHelpIsReadOnlyOfficialFlags() = runBlocking {
         val result = ChrQueryHelpStrategy().execute(
             callToolRequest(name = "chr_query_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1890,7 +1889,7 @@ class DappBuildToolsTest {
     fun vaultLeaseHelpUsesOfficialDirectoryBridsOnly() = runBlocking {
         val result = VaultLeaseHelpStrategy().execute(
             callToolRequest(name = "vault_lease_help", arguments = buildJsonObject {}),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -1952,10 +1951,7 @@ class DappBuildToolsTest {
         // in `cmd /c`, so going through it both fixes the launch and makes this
         // probe real coverage of the launcher agents actually depend on.
         val chr = org.chromia.tools.ChrLocator.resolve(System.getenv())
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-            findOnPath("chr") != null,
-            "chr not on PATH; skipping live probe"
-        )
+        LiveEnv.requireChrOnPath("the live `chr version` probe")
         val proc = try {
             ProcessBuilder(chr.command + "version")
                 .redirectErrorStream(true)
@@ -2038,7 +2034,7 @@ class DappBuildToolsTest {
         val files = DappScaffold.files("hello_dapp")
         val ragLoads = AtomicInteger(0)
         val result = ToolExecutor(
-            RecordingRepository(),
+            McpTestSupport.offlineRepository(),
             PromptManager(),
             ragStoreFactory = {
                 ragLoads.incrementAndGet()
@@ -2083,7 +2079,7 @@ class DappBuildToolsTest {
                     )
                 }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
@@ -2104,11 +2100,4 @@ class DappBuildToolsTest {
         assertTrue(one.warnings.any { it.contains("cross-chain") }, one.warnings.toString())
     }
 
-    private fun findOnPath(name: String): String? {
-        val paths = System.getenv("PATH")?.split(File.pathSeparator).orEmpty()
-        return paths.asSequence()
-            .map { File(it, name) }
-            .firstOrNull { it.isFile && it.canExecute() }
-            ?.absolutePath
-    }
 }

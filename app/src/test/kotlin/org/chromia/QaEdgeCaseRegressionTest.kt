@@ -23,13 +23,61 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Regressions for the adversarial QA edge-case findings (2026-08-31). */
+/**
+ * Regressions for the adversarial QA edge-case findings (2026-08-31).
+ *
+ * THE REPOSITORY HERE IS REAL, AND POINTED AT A CLOSED PORT.
+ *
+ * These findings are all about the boundary between "the tool rejects this
+ * locally" and "the tool lets this through": a negative limit must be refused
+ * before it costs a round trip, and a malformed-but-harmless timestamp must NOT
+ * be refused. A `RecordingRepository` - a double of our own `ChromiaRepository`
+ * that answered `{"ok":true}` to everything - could describe neither side
+ * honestly: on the reject side it could only be asked whether it had been
+ * called, and on the pass-through side it manufactured a success that proved the
+ * request had gone nowhere in particular.
+ *
+ * [McpTestSupport.offlineRepository] is the production repository aimed at a
+ * real loopback port nothing listens on, so the two sides now read off the
+ * result itself:
+ *
+ *   rejected  - an IllegalArgumentException / a validation message, and NO
+ *               "Request failed" in the text;
+ *   let through - "Request failed: ..." - the operating system refusing a real
+ *               socket, which is only reachable once validation has passed and
+ *               the strategy has actually built and dispatched the request.
+ */
 class QaEdgeCaseRegressionTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
+
+    /**
+     * The marker of a request that left the process: HttpClientService only
+     * produces it from the transport-failure branch, so it cannot be reached by
+     * a call that was rejected locally.
+     */
+    private val leftTheProcess = "Request failed"
 
     private fun call(strategy: org.chromia.tools.ToolStrategy, args: kotlinx.serialization.json.JsonObject) =
         runBlocking { strategy.execute(callToolRequest(name = "t", arguments = args), repo) }
+
+    /**
+     * The claim "this input is not rejected locally": the strategy accepted it,
+     * built the request and handed it to the socket, where the closed port
+     * refused it. Anything else - a validation message, an exception - means the
+     * tool refused an input it is supposed to pass through.
+     */
+    private fun assertReachedTheNetwork(
+        result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult,
+        what: String
+    ) {
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(
+            text.contains(leftTheProcess),
+            "$what must not be rejected locally - the call has to reach the network, where the closed " +
+                "test port refuses it. Got: $text"
+        )
+    }
 
     /** Real agent path: the executor converts validation failures into tool errors. */
     private fun callViaExecutor(tool: String, args: kotlinx.serialization.json.JsonObject) = runBlocking {
@@ -140,7 +188,11 @@ class QaEdgeCaseRegressionTest {
         val result = callViaExecutor("get_asset_top_holders", buildJsonObject { put("assetId", "x"); put("limit", -1) })
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("limit must be a positive integer"), text.take(200))
-        assertEquals(null, repo.lastCall, "must not reach the repository")
+        assertFalse(
+            text.contains(leftTheProcess),
+            "\"locally\" means the call never reached the socket; a request that had gone out would " +
+                "carry the closed port's refusal instead: $text"
+        )
     }
 
     @Test
@@ -163,7 +215,7 @@ class QaEdgeCaseRegressionTest {
     @Test
     fun validPaginationStillPassesThrough() {
         val result = call(AllTransactionsStrategy(), buildJsonObject { put("limit", 5); put("offset", 0) })
-        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+        assertReachedTheNetwork(result, "a valid limit/offset pair")
     }
 
     // 6. ISO time windows were never validated: requireOrderedTimestamps only
@@ -185,7 +237,7 @@ class QaEdgeCaseRegressionTest {
             AllTransactionsStrategy(),
             buildJsonObject { put("timestampFrom", "2024-01-01"); put("timestampTo", "2025-06-01T12:30:00Z") }
         )
-        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+        assertReachedTheNetwork(result, "an ordered ISO time window")
     }
 
     @Test
@@ -194,7 +246,7 @@ class QaEdgeCaseRegressionTest {
             AllTransactionsStrategy(),
             buildJsonObject { put("timestampFrom", "not-a-date"); put("timestampTo", "also-bad") }
         )
-        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+        assertReachedTheNetwork(result, "a pair of timestamps neither format can parse")
     }
 
     @Test
@@ -203,7 +255,7 @@ class QaEdgeCaseRegressionTest {
             AllTransactionsStrategy(),
             buildJsonObject { put("timestampFrom", "1700000000000"); put("timestampTo", "2020-01-01T00:00:00Z") }
         )
-        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+        assertReachedTheNetwork(result, "an epoch/ISO mixture the order check cannot compare")
     }
 
     // 7. Malformed pagination used to be silently dropped by extractInt,
@@ -324,18 +376,24 @@ class QaEdgeCaseRegressionTest {
         assertTrue(okGate.errors.none { it.contains("moduleArgs has no") }, okGate.errors.toString())
 
         // The deploy preflight blocks on it too (it is what the dry run consults).
+        // The height probe is passed as null rather than as a lambda answering
+        // "height 1": a scripted probe is a double of the one piece of network
+        // I/O this preflight has, and this test is about module_args, which the
+        // preflight decides from the yaml and the compiled app alone. With no
+        // probe the reachability check records "skipped - no probe available"
+        // and every finding below is still the preflight's own work.
         val preflight = org.chromia.tools.DeploymentPreflight.run(
             yml.trimEnd() + "\n\n" + WriteDeploymentConfig.deploymentsYaml(WriteDeploymentConfig.resolveNetwork("testnet")!!, "peg").replace("<containerIID>", "c1"),
-            "testnet", rell, null
-        ) { _, _ -> org.chromia.domain.NetworkResult.Success(1L) }
+            "testnet", rell, null, null
+        )
         assertFalse(preflight.ready, preflight.toJson().toString())
         val blocker = preflight.findings.single { it.check == "module_args" }
         assertTrue(blocker.message.contains("has no `main` entry"), blocker.message)
         assertTrue(blocker.fix.startsWith("Add under blockchains.peg.moduleArgs:"), blocker.fix)
         val readyPreflight = org.chromia.tools.DeploymentPreflight.run(
             configured.trimEnd() + "\n\n" + WriteDeploymentConfig.deploymentsYaml(WriteDeploymentConfig.resolveNetwork("testnet")!!, "peg").replace("<containerIID>", "c1"),
-            "testnet", rell, null
-        ) { _, _ -> org.chromia.domain.NetworkResult.Success(1L) }
+            "testnet", rell, null, null
+        )
         assertTrue(readyPreflight.findings.none { it.check == "module_args" }, readyPreflight.toJson().toString())
 
         // Another chain in the same yml whose module is not this one is not judged.
@@ -371,64 +429,154 @@ class QaEdgeCaseRegressionTest {
         assertEquals(mapOf("main" to listOf("admin")), defaulted.requiredModuleArgs)
     }
 
-    // Live stablecoin chain 2922E3E2... (2026-09-04): `get_cdp` with `account`
-    // instead of `owner` came back "Query 'get_cdp' failed: Invalid argument(s):
-    // account" - the node names the wrong name and never the right one, although
-    // it publishes the signature through rell.get_app_structure.
+    /**
+     * A REFUSED QUERY, ANSWERED WITH THE SIGNATURE THE CHAIN PUBLISHES - LIVE.
+     *
+     * Live stablecoin chain 2922E3E2... (2026-09-04): `get_cdp` with `account`
+     * instead of `owner` came back "Query 'get_cdp' failed: Invalid argument(s):
+     * account" - the node names the wrong name and never the right one, although
+     * it publishes the signature through `rell.get_app_structure`.
+     *
+     * That chain is gone, and the test that replaced it had the node's structure
+     * TYPED INTO IT as a JSON literal, handed to a RecordingRepository which
+     * played it back on demand. Every assertion was therefore about a shape the
+     * test had written: the "captured from the live chain" comment was the only
+     * thing connecting it to a chain, and a comment cannot go red.
+     *
+     * The testnet Economy Chain publishes the same structure and refuses in the
+     * same words, so the whole feature is asserted against it. What the chain
+     * supplies here that no fixture could:
+     *
+     *   - the refusal text itself (the trigger for the extra read),
+     *   - `get_chr_asset`, a real zero-parameter query,
+     *   - `ft4.get_account_main_auth_descriptor`, a real one-parameter query
+     *     whose parameter is a `byte_array`,
+     *   - `ft4.get_assets_filtered`, whose signature carries real nullable and
+     *     nested types,
+     *   - `find_dapp_details`, whose signature carries a real nullable LIST,
+     *   - 215 real mounted names, including mounted-module names with a dot in
+     *     them - the "mounted names, not Rell names" claim.
+     */
     @Test
     fun aRefusedQueryIsAnsweredWithItsRealSignature() = runBlocking {
-        // Shape as the node returns it (captured from the live chain).
-        val structure = kotlinx.serialization.json.Json.parseToJsonElement(
-            """{"modules":{"lib.ft4":{"name":"lib.ft4","functions":{}},"main":{"name":"main","queries":{
-              "get_cdp":{"mount":"get_cdp","parameters":[{"name":"owner","type":"byte_array"}],"type":{"type":"nullable","value":{"type":"tuple","fields":[]}}},
-              "get_system":{"mount":"get_system","parameters":[],"type":{"type":"tuple","fields":[]}},
-              "get_tokens":{"mount":"get_tokens","parameters":[{"name":"owner","type":"byte_array"}],"type":"integer"},
-              "paged":{"mount":"acct.paged","parameters":[{"name":"page_size","type":{"type":"nullable","value":"integer"}},{"name":"ids","type":{"type":"list","value":"byte_array"}}],"type":"integer"}
-            }}}}"""
-        ).jsonObject
-        val wrongName = org.chromia.tools.QuerySignatureHint.hint(structure, "get_cdp", setOf("account"))!!
-        assertTrue(wrongName.startsWith("The chain's `get_cdp` takes (owner: byte_array) (from rell.get_app_structure) - not a parameter: account; missing: owner."), wrongName)
-        assertEquals("The chain's `get_system` takes no arguments (from rell.get_app_structure) - not a parameter: x. Argument names must match exactly; byte_array values are hex strings.",
-            org.chromia.tools.QuerySignatureHint.hint(structure, "get_system", setOf("x")))
-        val typed = org.chromia.tools.QuerySignatureHint.hint(structure, "acct.paged", emptySet())!!
-        assertTrue(typed.contains("(page_size: integer?, ids: list<byte_array>)"), typed)
-        val unknown = org.chromia.tools.QuerySignatureHint.hint(structure, "get_cdps", emptySet())!!
-        assertTrue(unknown.startsWith("No query is mounted as `get_cdps` on this chain. Did you mean `get_cdp`"), unknown)
-        assertTrue(unknown.contains("Mounted queries (4): get_cdp, "), unknown)
-        assertTrue(unknown.contains("acct.paged"), "mounted names, not Rell names: $unknown")
-        assertEquals(null, org.chromia.tools.QuerySignatureHint.hint(kotlinx.serialization.json.buildJsonObject { }, "q", emptySet()))
-        assertTrue(org.chromia.tools.QuerySignatureHint.applies("query: 400 Bad Request  Query 'get_cdp' failed: Invalid argument(s): account from https://node8"))
-        assertFalse(org.chromia.tools.QuerySignatureHint.applies("Connection refused"))
+        LiveChromia.requireLive("calls a real query with a wrong argument name and reads the chain's own signature")
+        val repository = LiveChromia.repository()
 
-        // Through the tool: the node's refusal stays first, the signature follows, one extra read.
-        val repo = RecordingRepository()
-        repo.next = org.chromia.domain.NetworkResult.Error("Postchain client error for blockchain X: query: 400 Bad Request  Query 'get_cdp' failed: Invalid argument(s): account from https://node8")
-        repo.dappAnswers["rell.get_app_structure"] = org.chromia.domain.NetworkResult.Success(structure)
+        // 1. END TO END: the node's refusal stays first, the signature follows.
+        //    The strategy pays for one extra read (rell.get_app_structure) only
+        //    on this class of failure, and both reads are real.
         val result = org.chromia.tools.DappInteractionStrategy().execute(
-            callToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
-                put("blockchainRid", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-                put("query", "get_cdp")
-                put("arguments", buildJsonObject { put("account", "abcd") })
-            }),
-            repo
+            callToolRequest(
+                name = "chromia_dapp_query",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "ft4.get_account_main_auth_descriptor")
+                    put("arguments", buildJsonObject { put("account", LiveChromia.KNOWN_REGISTERED_ACCOUNT_ID_HEX) })
+                }
+            ),
+            repository
         )
-        assertEquals(true, result.isError)
+        assertEquals(true, result.isError, "the chain refuses `account`: $result")
         val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.startsWith("Failed to execute dapp query get_cdp --> {account=abcd}: Postchain client error"), text)
-        assertTrue(text.contains("Invalid argument(s): account from https://node8. The chain's `get_cdp` takes (owner: byte_array)"), text)
-        assertEquals(listOf("get_cdp", "rell.get_app_structure"), repo.dappCalls.map { it.query })
-
-        // A refusal of another kind is passed through untouched - no structure read.
-        val other = RecordingRepository()
-        other.next = org.chromia.domain.NetworkResult.Error("Connection refused")
-        org.chromia.tools.DappInteractionStrategy().execute(
-            callToolRequest(name = "chromia_dapp_query", arguments = buildJsonObject {
-                put("blockchainRid", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-                put("query", "get_cdp")
-            }),
-            other
+        assertTrue(
+            text.startsWith("Failed to execute dapp query ft4.get_account_main_auth_descriptor --> "),
+            text
         )
-        assertEquals(listOf("get_cdp"), other.dappCalls.map { it.query })
+        assertTrue(
+            text.contains("Invalid argument(s): account"),
+            "the node's own words must come first, unedited: $text"
+        )
+        assertTrue(
+            text.contains(
+                "The chain's `ft4.get_account_main_auth_descriptor` takes (account_id: byte_array) " +
+                    "(from rell.get_app_structure) - not a parameter: account; missing: account_id."
+            ),
+            "the signature the chain publishes must follow the refusal: $text"
+        )
+
+        // 2. THE STRUCTURE ITSELF, read from the chain, driving the hint's other
+        //    branches. This is the same document the strategy just used.
+        val structureResult = repository.executeCustomQuery(
+            LiveChromia.NETWORK, LiveChromia.economyChainRid, "rell.get_app_structure", emptyMap()
+        )
+        assertTrue(
+            structureResult is org.chromia.domain.NetworkResult.Success,
+            "the chain publishes its structure: $structureResult"
+        )
+        val structure =
+            (structureResult as org.chromia.domain.NetworkResult.Success<kotlinx.serialization.json.JsonObject>).data
+
+        // A real zero-parameter query, called with an argument it does not take.
+        assertEquals(
+            "The chain's `get_chr_asset` takes no arguments (from rell.get_app_structure) - not a " +
+                "parameter: name. Argument names must match exactly; byte_array values are hex strings.",
+            org.chromia.tools.QuerySignatureHint.hint(structure, "get_chr_asset", setOf("name"))
+        )
+
+        // Real nullable types, and a real nullable LIST one query over.
+        val nullable = org.chromia.tools.QuerySignatureHint.hint(structure, "ft4.get_assets_filtered", emptySet())!!
+        assertTrue(
+            nullable.contains("page_size: integer?") && nullable.contains("page_cursor: text?"),
+            "nullable parameter types come out of the chain's own type tree: $nullable"
+        )
+        val listed = org.chromia.tools.QuerySignatureHint.hint(structure, "find_dapp_details", emptySet())!!
+        assertTrue(
+            listed.contains("requested_content_types: list<"),
+            "a nullable list parameter must render as a list: $listed"
+        )
+
+        // An unknown query lists the MOUNTED names, dots and all.
+        val unknown = org.chromia.tools.QuerySignatureHint.hint(
+            structure, "ft4.get_account_main_auth_descriptors", emptySet()
+        )!!
+        assertTrue(
+            unknown.startsWith(
+                "No query is mounted as `ft4.get_account_main_auth_descriptors` on this chain. " +
+                    "Did you mean `ft4.get_account_main_auth_descriptor`"
+            ),
+            unknown
+        )
+        assertTrue(unknown.contains("Mounted queries ("), unknown)
+        assertTrue(
+            unknown.contains("ft4.get_account_main_auth_descriptor,"),
+            "mounted names, not Rell names: $unknown"
+        )
+        // An unusable structure yields no hint rather than a wrong one.
+        assertEquals(
+            null,
+            org.chromia.tools.QuerySignatureHint.hint(kotlinx.serialization.json.buildJsonObject { }, "q", emptySet())
+        )
+        assertTrue(
+            org.chromia.tools.QuerySignatureHint.applies(text),
+            "the trigger must fire on the node's real refusal: $text"
+        )
+
+        // 3. A REFUSAL OF ANOTHER KIND is passed through untouched. An unknown
+        //    chain rid is refused by the directory ("Unknown blockchain"), which
+        //    is not an argument error, so no signature is appended - the trigger
+        //    says so and the tool's text confirms it.
+        val otherKind = org.chromia.tools.DappInteractionStrategy().execute(
+            callToolRequest(
+                name = "chromia_dapp_query",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.unknownChainRid.toHex())
+                    put("query", "get_chr_asset")
+                }
+            ),
+            repository
+        )
+        assertEquals(true, otherKind.isError, "no chain answers for that rid: $otherKind")
+        val otherText = (otherKind.content.first() as TextContent).text!!
+        assertFalse(
+            org.chromia.tools.QuerySignatureHint.applies(otherText),
+            "an unknown-chain refusal is not an argument error: $otherText"
+        )
+        assertFalse(
+            otherText.contains("rell.get_app_structure"),
+            "no signature may be appended to a refusal the hint does not apply to: $otherText"
+        )
     }
 
     // DX audit 2026-09-04 round 2 (Q2): a tab in the indentation surfaced as

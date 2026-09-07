@@ -11,7 +11,6 @@ import io.ktor.http.contentType
 import kotlinx.coroutines.runBlocking
 import org.chromia.tools.LocalChain
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import net.postchain.common.hexStringToByteArray
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -44,7 +43,7 @@ class LocalChainIntegrationTest {
 
     @Test
     fun chainStartsAnswersQueriesAndStops() {
-        assumeTrue(!databaseUrl.isNullOrBlank(), "needs ${LocalChain.DATABASE_URL_ENV}")
+        LiveEnv.requireDatabaseUrl("a real Postchain node is started against it")
 
         val up = LocalChain.up(files, databaseUrl = databaseUrl, ttlSeconds = 300)
         assertTrue(up.ok, "chain failed to start: ${up.notes}")
@@ -76,6 +75,17 @@ class LocalChainIntegrationTest {
 
         // A real WRITE: sign a transaction with the dev key, post it, await a
         // block - proves the single-signer node actually builds blocks.
+        //
+        // ONE operation, and that matters. A one-element GTX operations array
+        // merkle-hashes differently under version 1 and version 2
+        // (GtvBinaryTreeFactoryArray flattens the single child in v1, keeps it
+        // in v2), so this call used to carry a filler `.addNop()`: the chain was
+        // meant to run version 2, the bridge served no /config/{brid}/features
+        // route, and a stock client's auto-detect therefore fell back to version
+        // 1 and signed a digest the node would have refused. Both ends are fixed
+        // (2026-09-07), so the single-operation transaction a real agent writes
+        // goes through as written - and if either end regresses, this is the
+        // line that goes red.
         val clientConfig = net.postchain.client.config.PostchainClientConfig(
             blockchainRid = net.postchain.common.BlockchainRid.buildFromHex(brid),
             endpointPool = net.postchain.client.request.EndpointPool.singleUrl(apiUrl),
@@ -93,7 +103,6 @@ class LocalChainIntegrationTest {
                     net.postchain.gtv.GtvFactory.gtv("978-3-16-148410-0"),
                     net.postchain.gtv.GtvFactory.gtv("Rell for Agents")
                 )
-                .addNop()
                 .postAwaitConfirmation()
             assertEquals(
                 net.postchain.common.tx.TransactionStatus.CONFIRMED,

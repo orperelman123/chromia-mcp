@@ -98,7 +98,7 @@ class DappScaffoldTest {
                 name = "scaffold_dapp",
                 arguments = buildJsonObject { put("name", "wallet") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject

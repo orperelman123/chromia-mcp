@@ -14,12 +14,11 @@ A Model Context Protocol (MCP) server that provides access to Chromia blockchain
 
 The Chromia MCP Server enables AI assistants to query and analyze Chromia blockchain data, including:
 
-- Network statistics and analytics
+- Blockchain, asset and transaction analytics
 - Blockchain information and metadata
 - Transaction data and analysis
 - Asset information and distribution
 - Account activity and analytics
-- Node performance monitoring
 - dApp deployment information
 - **Documentation retrieval and search**
 - **In-process Rell compilation (`rell_check`)** — the agent feedback loop
@@ -29,6 +28,16 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - **Deployment verification (`verify_deployment`)** — prove a deployed dapp is live with no keys: is the BRID known on the network (name or custom node URL), is the block height progressing (bounded wait), and does an optional read-only smoke query answer
 - **Deployment preflight (`deployment_preflight`)** — catch every deployment problem before a human burns a lease step or signs anything: validates the `deployments.<target>` block (brid/url/container/chains), flags wrong-network BRIDs or URLs as HIGH blockers, probes the target node read-only, runs the compile + security source gate when `rell` is supplied (CRITICAL/HIGH block mainnet), and checks the production pins. `ready:true` only with zero blockers — a mainnet target without sources stays blocked until the source gate runs, other targets note the skipped gate; when ready it emits the exact `chr deployment create|update` command
 - **Testnet provisioning (`provision_testnet_container`, `claim_testnet_tchr`, `deploy_testnet_chain`)** — agent-headless container leasing and dapp deployment on the Chromia TESTNET, funded by a server-held key that never appears in any output. See [Testnet Provisioning](#testnet-provisioning-agent-headless) below
+
+**Retired tools.** `get_network_stats`, `get_transactions_by_cluster`,
+`get_blockchains_transactions` and `get_node_unavailability` were removed on 2026-09-07:
+the live explorer answers `INTERNAL_ERROR` for `dashboardData` and for top-level
+`groupedTransactionsByBlockchain` on every selection set, and gates `getNodeUnavailability`
+behind an `X-reCAPTCHA-Token` header, with nowhere else in the schema serving the same data
+(probed live; see [docs/UPSTREAM.md](docs/UPSTREAM.md) #3a and #7a). All four had a green
+unit test, because a recorded fixture was answering on the explorer's behalf - which is why
+this repository no longer has any. `filter_blockchains` keeps working, but its `state`
+filter is refused upstream the same way (#3b).
 
 ## Documentation Tools
 
@@ -218,6 +227,23 @@ If no funding account is usable the tools degrade to dryRun and state the exact 
 
 ## Transports
 
+### One statement about transports
+
+`--stdio` is the local product: one process per client, no port, the full
+toolset. **`--sse` is the name of the URL-server flag, not a mode.** It is kept
+because existing scripts and configs pass it; `--http` is an alias for it. The
+server it starts serves **both** HTTP transports on one port at the same time:
+
+- **Streamable HTTP at `<base>/mcp`** — `POST`/`GET`/`DELETE`. Preferred, and
+  what every current URL-based MCP client should be pointed at.
+- **legacy HTTP+SSE at the ROOT** — `GET <base>/` opens the stream,
+  `POST <base>/?sessionId=…` delivers messages.
+
+**This server has no `/sse` path**: `GET /sse` is a 404 here, so a connector
+configured with one will fail to connect. ChromaWay's hosted instance at
+`https://mcp.chromia.dev/sse` is a **different server** with its own routing;
+its path says nothing about this one.
+
 Three, from one jar:
 
 | Transport | How to start it | Endpoint | Who uses it |
@@ -268,7 +294,7 @@ tunnel or load balancer does not cut a quiet session.
 - `CHROMIA_MCP_TEST_TIMEOUT_SECONDS=<1..90>` — tighten-only override of the per-call
   `run_rell_tests` execution timeout (default 90s). Useful on small instances where a runaway
   test pins a core; values outside 1..90 or non-numeric fall back to the default.
-- The SSE server warms the RAG store and embedding model at startup, eliminating the ~15s
+- The URL server (`--sse`) warms the RAG store and embedding model at startup, eliminating the ~15s
   first-search latency measured on fresh instances.
 - `/health` and the MCP serverInfo report the real build version (git tag/commit), stamped by the
   Docker, CI, and release builds.
@@ -282,10 +308,10 @@ commit this work started from and on this one (bytes of the `tools/list`, `promp
 
 | | before (b982fbb) | now |
 |---|---|---|
-| tools advertised, full / compact | 74 / 43 | 75 / 44 |
+| tools advertised, full / compact | 74 / 43 | 71 / 40 |
 | `tools/list`, full | 126,463 B | **111,270 B** |
 | `tools/list`, compact | 101,208 B | **24,044 B** |
-| `prompts/list` | JSON-RPC error −32601 | 90 prompts, 24,920 B (19,575 B compact) |
+| `prompts/list` | JSON-RPC error −32601 | 82 prompts (19,575 B compact) |
 | `resources/list` | 579 B | 579 B |
 | **first contact, compact** | **101,787 B (~25.4k tok)** | **44,198 B (~11.0k tok)** |
 
@@ -403,7 +429,8 @@ limit; measured steady state is ~1.5 GB), waits for `/health`, and prints the UR
 
 ```
   Chromia MCP server is UP (v0.5.0, pid 12240)
-    MCP SSE endpoint : http://127.0.0.1:3010/
+    Streamable HTTP  : http://127.0.0.1:3010/mcp
+    legacy HTTP+SSE  : http://127.0.0.1:3010/
     Health check     : http://127.0.0.1:3010/health
 ```
 
@@ -473,8 +500,9 @@ surface by omission (it does not compile until someone classifies it).
 Settings → Connectors → Advanced → **Developer mode**, then Create:
 
 - **MCP server URL**: `https://<name>.trycloudflare.com/mcp` — Streamable HTTP, prefer this.
-  Use `https://<name>.trycloudflare.com/sse` only if the connector insists on SSE
-  (ChatGPT's own docs still show the `/sse` shape).
+  Use `https://<name>.trycloudflare.com/` (the ROOT, not `/sse`) if the connector
+  insists on the legacy HTTP+SSE shape ChatGPT's own docs still show. There is no
+  `/sse` path on this server - pointing a connector at one 404s.
 - **Authentication**: *No authentication*, or API key / Bearer set to your
   `CHROMIA_MCP_AUTH_TOKEN` if you set one.
 - ChatGPT calls `search` and `fetch` for research; developer mode exposes the rest.
@@ -567,7 +595,7 @@ least `-Xmx512m`. When `search`, `fetch_docs` and `fetch` are ALL in
 `CHROMIA_MCP_DISABLE_TOOLS`, startup logs `docs tools disabled - skipping index warmup` and
 never loads the index.
 
-## Hosted SSE deployment (retired 2026-09-05)
+## Hosted URL deployment (retired 2026-09-05)
 
 This fork was hosted on Render (`chromia-mcp.onrender.com`) as a public docs/analytics
 endpoint and ChatGPT connector from 2026-09-02 to 2026-09-05. It was retired because the
@@ -585,7 +613,8 @@ the only margin) and `render.yaml`. The Dockerfile is still live for the
 for the hosted shape are kept in [docs/Deployment.md](docs/Deployment.md). ChatGPT's `search`
 / `fetch` contract tools are still in the server; point a connector at
 [`serve-public.ps1`](#publish-it-to-chatgpt-serve-publicps1), at a local server (Shape 2
-above), or at ChromaWay's own `https://mcp.chromia.dev/sse`.
+above), or at ChromaWay's own `https://mcp.chromia.dev/sse` - a different server, whose
+routing is its own: on anything you start from this repository that URL is a 404.
 
 ## Upstreaming
 
@@ -600,7 +629,98 @@ account.
 
 Every push runs the full pyramid — none of these can be skipped:
 
-1. **Unit + regression suite** (`./gradlew test`, 557 tests) — includes `RellToolsFuzzTest`,
+### There are no test doubles
+
+Not a mock, not a fake, not a stub, not a recorded response, not an `object :`
+substitute for one of our own types, and no mocking framework on the classpath.
+`NoTestDoublesTest` scans every `.kt` file under `app/src/test/kotlin` for
+declarations of substitute behaviour — doubles by name, anonymous objects over
+production types, `MockEngine`, SAM lambdas for our own `fun interface`s, client
+and loader seams, any `*OverrideForTests`, classes implementing a production seam
+type — and asserts the list is **empty**, printing every offender it finds. A
+companion test drives each detector against a literal example of the shape it
+looks for, so its silence means "found nothing", not "stopped matching".
+
+This replaced a ledger of 41 doubles, each with a live check said to cover the
+same path. The conversion is what proved the ledger wrong: pointed at the real
+explorer, **four** of the sixteen explorer tools turned out not to work at all,
+and every one had a green unit test. They are retired (see *Retired tools*
+above). What a double is replaced by is one of three things, decided per site:
+the real thing in process (the `chr` on PATH, the embedded Postchain node the
+suite starts, the production embedding model, a real HTTP server on a real port,
+a real *closed* port when a connection error is the honest outcome), the real
+thing live, or **deletion** — and a deleted test takes its claim with it, in a
+comment saying what now covers it, or that nothing does.
+
+The production seams the doubles came through went with them: an interface with
+one implementation and a defaulted constructor parameter is not an abstraction
+once nothing is left to inject.
+
+### The live third-party tests are part of the gate, and an outage is a red
+
+The tests that call the public explorer, the testnet Economy Chain and the real
+`chr` are not a separate optional tier: the gate refuses to start unless
+`CHROMIA_TEST_DATABASE_URL`, `CHROMIA_LIVE_PROVISIONING_TESTS=true` and
+`CHROMIA_REQUIRE_CHR=true` are set, and `LiveEnv` turns an
+enabled-but-broken resource into a **failure** rather than a skip.
+
+So when an upstream service is down, this suite goes red. That is deliberate.
+The remedy is to fix or wait for the upstream and **re-run** — never to skip the
+test, never to add an allowlist entry, never to swap in a recorded answer for the
+duration. A green tally that was reached by not asking is the failure mode this
+whole section exists to prevent.
+
+(The e2e sweep, layer 2 below, is the one place with a softer rule, and it is
+bounded: demonstrably third-party failures become `WARN-UPSTREAM` through an
+allowlisted classifier, but all-live-warn is a FAIL, more than
+`SWEEP_MAX_UPSTREAM_WARNS` warnings is a FAIL, and non-network checks always fail
+hard.)
+
+### The merge gate, and the two modes it has
+
+`node scripts/loop-gate.mjs --dir <repo> --expect-min <previously verified count>`
+is the only thing that certifies a branch. It forces a rerun (`--rerun-tasks`;
+Gradle's up-to-date check is the largest single source of "successful" builds
+that executed nothing), refuses result files older than the run it started, and
+exits non-zero on any failure, any error, **any skip**, or a tally below
+`--expect-min`.
+
+**There is no skip allowlist.** `--allow-skip <Class::test>` existed until
+2026-09-07 and was removed: CI's own check has always been `ALLOWED = set()`, so
+the flag made the local gate accept evidence the gate that decides merges would
+have refused. Two definitions of green is one gate and one bypass. Passing the
+flag now fails immediately with that explanation rather than being ignored.
+
+The same reasoning closed the quieter version of the hole: every
+environment-gated test skips when its variable is unset, and those variables live
+in a **gitignored** `local-test-env.properties`, so a fresh worktree skipped them
+all and still printed a green tally. The gate now refuses to start unless
+`CHROMIA_TEST_DATABASE_URL`, `CHROMIA_LIVE_PROVISIONING_TESTS=true` and
+`CHROMIA_REQUIRE_CHR=true` are set (as real environment variables, which is CI's
+path, or in that file), and `LiveEnv` escalates a broken-but-enabled resource
+from a skip to a failure. `AssumptionLedgerTest` pins the eleven remaining
+assumption sites with the third party each depends on.
+
+**`--docs-only --base <last gated commit>`** is the cheap mode for a commit that
+changes nothing but prose. It does not accept a list of tests — a docs-only
+commit was once verified by rerunning "the five classes that read GOAL.md" when
+`grep -rl GOAL.md app/src/test/kotlin` returns **six**, and nothing in the
+process could have noticed. The mode derives the list instead:
+
+1. `git diff --name-only <base>..HEAD`;
+2. **refuse** unless every changed path is documentation — prose outside
+   `app/`, `scripts/`, `packages/`, `gradle/`, `.github/`, `claude-code-chromia/`
+   and `upstream/`. A `.md` inside those is code or test data (the exploit
+   corpus's `CORPUS.md` is scored by a test), and anything else runs the full
+   suite;
+3. grep `app/src/test/kotlin` for each changed path and its bare file name;
+4. run exactly those classes plus `ExploitCorpusScoreboardTest`, which always
+   runs because the prose is part of the attack surface;
+5. require every derived class to have produced results — a `--tests` filter
+   that matches nothing narrows a run silently — and print the derivation in the
+   gate line, so a reader can recompute it.
+
+1. **Unit + regression suite** (`./gradlew test`, 1536 tests, zero skips) — includes `RellToolsFuzzTest`,
    a seeded property-based fuzzer that throws generated/mutated Rell at the compiler tools and
    asserts they always return structured results, never crash or hang (found a real crash on
    its first run: unterminated `operation x() {` at EOF).
@@ -673,15 +793,16 @@ git clone https://gitlab.com/chromaway/core-tools/chromia-mcp.git
 cd chromia-mcp
 ```
 
-Run the application using gradle run in sse mode:
+Run the application as a URL server:
 
 ```bash
 ./gradlew :app:runSse
 ```
 
-This will start the MCP server in SSE mode on `127.0.0.1:3001` by default.
+This starts the URL server on `127.0.0.1:3001` by default, serving Streamable HTTP at
+`/mcp` and the legacy HTTP+SSE at the root.
 
-> **Note for local development**: When running locally, point your MCP client at `http://127.0.0.1:3001/mcp` (Streamable HTTP) instead of `https://mcp.chromia.dev/sse`. The legacy SSE endpoint is also live on the same port, at the **root** path (`http://127.0.0.1:3001/`) rather than `/sse` — see [Transports](#transports).
+> **Note for local development**: point your MCP client at `http://127.0.0.1:3001/mcp` (Streamable HTTP, preferred). The legacy HTTP+SSE endpoint is live on the same port at the **root** path (`http://127.0.0.1:3001/`); this server has no `/sse` path. `https://mcp.chromia.dev/sse` is ChromaWay's hosted server, not this one — see [Transports](#transports).
 
 ## Setup
 
@@ -691,7 +812,8 @@ The MCP server runs automatically when configured in your AI assistant.
 
 All AI assistants use the same MCP configuration format. Add the following JSON configuration:
 
-**For production/remote server:**
+**For ChromaWay's hosted server** - a different deployment from this fork. Its path is
+its own routing; nothing you run from this repository answers a `/sse` URL, it 404s:
 
 ```json
 {
@@ -748,9 +870,10 @@ walkthrough, including the tunnel, is
    OpenAI's [`tunnel-client`](https://github.com/openai/tunnel-client) if you would
    rather not publish one.
 3. Connectors → Create:
-   - **MCP Server URL**: `<base>/mcp` — Streamable HTTP. `<base>/sse` also works and is
-     what ChatGPT's own docs show; both are served by the same process.
-     ChromaWay's hosted instance is `https://mcp.chromia.dev/sse`.
+   - **MCP Server URL**: `<base>/mcp` — Streamable HTTP, prefer this. If the connector
+     insists on the legacy HTTP+SSE shape ChatGPT's own docs show, use `<base>/` — the
+     ROOT. This server serves no `/sse` path. (ChromaWay's hosted instance answers at
+     `https://mcp.chromia.dev/sse`; that is a different server.)
    - **Authentication**: No authentication, or Bearer/API key = your `CHROMIA_MCP_AUTH_TOKEN`.
 4. Create. The connector detail page lists the tools the server advertises — that
    list is the profile you published; `/health` names it too.

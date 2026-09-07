@@ -21,20 +21,11 @@ class ChromiaRepositoryImpl(
         return postchainClientService.currentBlockHeight(network, blockchainRid)
     }
 
-    override suspend fun getBlockchainsTransactions(network: String?): JsonResult =
-        httpClientService.executeGraphQLQuery(NetworkQueries.getBlockchainsTransactions(), network)
-
-    override suspend fun getTransactionsByCluster(network: String?): JsonResult =
-        httpClientService.executeGraphQLQuery(NetworkQueries.getTransactionsByCluster(), network)
-
     override suspend fun getAllAssets(network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(NetworkQueries.getAllAssets(), network)
 
     override suspend fun getTotalRewardsPaid(network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(NetworkQueries.getTotalRewardsPaid(), network)
-
-    override suspend fun getNetworkStats(network: String?): JsonResult =
-        httpClientService.executeGraphQLQuery(NetworkQueries.getNetworkStats(), network)
 
     override suspend fun getAllOperations(network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(NetworkQueries.getAllOperations(), network)
@@ -96,15 +87,6 @@ class ChromiaRepositoryImpl(
 
     override suspend fun getAccountBlockchains(accountId: String, network: String?): JsonResult =
         httpClientService.executeGraphQLQuery(TransactionQueries.getAccountBlockchains(accountId), network)
-
-    override suspend fun getNodeUnavailability(
-        pubkey: String,
-        startTimestamp: String,
-        network: String?
-    ): JsonResult = httpClientService.executeGraphQLQuery(
-        TransactionQueries.getNodeUnavailability(pubkey, startTimestamp),
-        network
-    )
 
     override suspend fun getChrAggregates(
         network: String?,

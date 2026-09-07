@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test
  */
 class VerifyGuardsToolTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private val main = """
         module;

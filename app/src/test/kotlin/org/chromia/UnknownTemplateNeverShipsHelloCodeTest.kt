@@ -49,7 +49,7 @@ class UnknownTemplateNeverShipsHelloCodeTest {
         "erc20", "stable", "Bridge"
     )
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private fun scaffold(template: String) = runBlocking {
         executor.executeTool(

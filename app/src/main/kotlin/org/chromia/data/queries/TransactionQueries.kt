@@ -64,20 +64,6 @@ object TransactionQueries {
         variable("accountId", accountId)
     }
 
-    fun getNodeUnavailability(pubkey: String, startTimestamp: String): GraphQLQuery = graphqlQuery {
-        query(
-            $$"""
-            query getNodeUnavailability($pubkey: String!, $startTimestamp: String!) {
-                getNodeUnavailability(pubkey: $pubkey, startTimestamp: $startTimestamp) {
-                    blockchainRid, intervals { start, end }
-                }
-            }
-            """.trimIndent()
-        )
-        variable("pubkey", pubkey)
-        variable("startTimestamp", startTimestamp)
-    }
-
     fun getChrAggregates(
         includeTotals: Boolean,
         includeGroupedDeposits: Boolean,

@@ -1,12 +1,8 @@
 package org.chromia
 
 import dev.langchain4j.data.document.Metadata
-import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
 import org.chromia.tools.RagStore
-import org.chromia.tools.embeddingStoreSegments
-import org.chromia.tools.persistLocalEmbeddings
 import org.chromia.tools.segmentId
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -16,6 +12,25 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 
+/**
+ * The id round-trip: what `search`/`fetch_docs` hands out must be what `fetch`
+ * takes back, and nothing else must.
+ *
+ * Every store here is a real [RagStore] over a real index built with the model
+ * the server ships ([TestDocsIndex]) - real `query()`, real `lexicalHits`/
+ * `mergeHits`, real `fetchById`, real segment-id index.
+ *
+ * Two things changed on 2026-09-07. The stores that meant "load this file, do
+ * not go to the registry" passed `registryLoader = { null }`, a constructor
+ * lambda no production caller ever used that replaced the whole download path;
+ * they now pass `remoteUrls = emptyList()`, a real deployment (an air-gapped
+ * install with no remote configured) that takes the same code path. And the
+ * hit-COUNT assertions are gone: with the real BGE-small encoder two unrelated
+ * English sentences still sit well above `minScore = 0.6`, so in a fixture index
+ * of two or three segments practically everything is retrieved for practically
+ * every query - exactly as in production, where the counts were never the point.
+ * What a retrieval test can honestly assert is which segment LEADS.
+ */
 class RagStoreFetchByIdTest {
 
     private val authSegment = TextSegment.from(
@@ -31,51 +46,37 @@ class RagStoreFetchByIdTest {
         Metadata.from("file_name", "postchain.md")
     )
 
-    private fun store(): RagStore = object : RagStore(loadFromRegistry = false) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = listOf(authSegment, rellSegment).filter { segment ->
-                segment.text().contains(query, ignoreCase = true) ||
-                    (segment.metadata()?.getString("file_name")?.contains(query, ignoreCase = true) == true)
-            }
-            return hits.ifEmpty { null }?.also { rememberQueryHits(it) }
-        }
-    }
+    // Real stores, real query()/fetchById(). Both of these used to be
+    // `object : RagStore { override fun query(...) }` - a substring filter
+    // standing in for our own retrieval, which meant the id round-trip these
+    // tests exist to prove was never driven by the code that produces the ids.
+    private fun store(): RagStore = TestDocsIndex.store(authSegment, rellSegment)
 
-    private fun writeFixture(@TempDir tempDir: Path): Path {
-        val path = tempDir.resolve("embeddings.json")
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
-            store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
-            store.add(Embedding.from(floatArrayOf(0.2f, 0.1f, 0.3f)), rellSegment)
-            store.add(Embedding.from(floatArrayOf(0.3f, 0.3f, 0.1f)), postchainSegment)
-        }
-        persistLocalEmbeddings(fixture, path)
-        return path
-    }
+    private fun writeFixture(@TempDir tempDir: Path): Path =
+        TestDocsIndex.persist(tempDir.resolve("embeddings.json"), authSegment, rellSegment, postchainSegment)
 
+    /**
+     * The production loader over [path], with no remote configured at all - the
+     * air-gapped shape, which is how this reaches `fetchById` on a store the test
+     * never queried.
+     */
     private fun loadedStore(path: Path): RagStore = RagStore(
         loadFromRegistry = true,
         localEmbeddingsPath = path,
-        registryLoader = { null }
+        remoteUrls = emptyList(),
+        cacheEmbeddingsPath = path.resolveSibling("cache").resolve(RagStore.FILE_NAME)
     )
 
-    private fun queryingStore(path: Path): RagStore = object : RagStore(
-        loadFromRegistry = true,
-        localEmbeddingsPath = path,
-        registryLoader = { null }
-    ) {
-        override fun query(query: String): List<TextSegment>? {
-            val hits = embeddingStoreSegments(embeddingStore ?: return null).filter { segment ->
-                segment.text().contains(query, ignoreCase = true)
-            }
-            return hits.ifEmpty { null }
-        }
-    }
+    private fun queryingStore(path: Path): RagStore = TestDocsIndex.storeLoadedFrom(path)
+
+    /** The segment a query led with, or null when nothing came back. */
+    private fun leader(hits: List<TextSegment>?): TextSegment? = hits?.firstOrNull()
 
     @Test
     fun knownIdAfterQueryHitsExactSegment() {
         val rag = store()
         val hits = rag.query("FT4 authentication")
-        assertEquals(1, hits?.size)
+        assertEquals(authSegment.text(), leader(hits)?.text(), "the asked-about segment leads: $hits")
         val knownId = segmentId(authSegment)
         assertEquals(authSegment.text(), rag.fetchById(knownId)?.text())
     }
@@ -85,8 +86,8 @@ class RagStoreFetchByIdTest {
         val rag = store()
         rag.query("FT4 authentication")
         val knownId = segmentId(authSegment)
-        val fakeId = "ft4-auth.md-deadbeef-99"
-        assertNull(rag.fetchById(fakeId), "filename-similar unknown id must not return a neighbor")
+        val unknownButFilenameShaped = "ft4-auth.md-deadbeef-99"
+        assertNull(rag.fetchById(unknownButFilenameShaped), "filename-similar unknown id must not return a neighbor")
         assertEquals(authSegment.text(), rag.fetchById(knownId)?.text())
     }
 
@@ -101,11 +102,11 @@ class RagStoreFetchByIdTest {
     fun queryRemainsFuzzy() {
         val rag = store()
         val hits = rag.query("auth descriptors")
-        assertEquals(1, hits?.size)
-        assertTrue(hits!![0].text().contains("FT4 authentication"))
+        assertTrue(hits!!.isNotEmpty())
+        assertTrue(hits!![0].text().contains("FT4 authentication"), "wording, not the exact phrase, still leads: $hits")
         val rellHits = rag.query("compiler pipeline")
-        assertEquals(1, rellHits?.size)
-        assertTrue(rellHits!![0].text().contains("Rell compiler pipeline"))
+        assertTrue(rellHits!!.isNotEmpty())
+        assertTrue(rellHits!![0].text().contains("Rell compiler pipeline"), "and the other query leads with the other segment: $rellHits")
     }
 
     @Test
@@ -123,8 +124,9 @@ class RagStoreFetchByIdTest {
         val storeB = loadedStore(path)
 
         val hits = storeA.query("FT4 authentication")
-        assertEquals(1, hits?.size)
-        val id = segmentId(hits!![0])
+        val hit = leader(hits)
+        assertEquals(authSegment.text(), hit?.text(), "the asked-about segment leads: $hits")
+        val id = segmentId(hit!!)
         assertEquals(64, id.length)
         assertTrue(id.matches(Regex("[0-9a-f]{64}")))
         assertEquals(authSegment.text(), storeB.fetchById(id)?.text())
@@ -173,13 +175,13 @@ class RagStoreFetchByIdTest {
 
     @Test
     fun initialStoreIndexesForCaseInsensitiveFetchById() {
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
-            store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
-            store.add(Embedding.from(floatArrayOf(0.2f, 0.1f, 0.3f)), rellSegment)
-        }
+        // The index handed to the constructor is built by the real embedder, at
+        // the real width; a hand-written three-float vector used to stand here,
+        // and a fixture at a width the shipped model never produces is the kind
+        // that passes while production would not.
         val rag = RagStore(
             loadFromRegistry = false,
-            initialStore = fixture
+            initialStore = TestDocsIndex.index(listOf(authSegment, rellSegment))
         )
         assertEquals(authSegment.text(), rag.fetchById(segmentId(authSegment))?.text())
         assertEquals(authSegment.text(), rag.fetchById(segmentId(authSegment).uppercase())?.text())

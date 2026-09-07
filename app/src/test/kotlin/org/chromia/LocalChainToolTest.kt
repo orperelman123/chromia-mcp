@@ -2,7 +2,6 @@ package org.chromia
 
 import org.chromia.tools.propertiesOrEmpty
 
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import org.chromia.tools.callToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
@@ -15,6 +14,9 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import net.postchain.common.toHex
@@ -22,15 +24,21 @@ import org.junit.jupiter.api.Test
 import java.net.ServerSocket
 
 /**
- * Unit coverage for local_chain_up that needs NO database: input validation,
- * blockchain-config generation, planning (compile -> BRID), the registry's
- * idempotency/restart/down lifecycle (via the test starter seam), and the
- * failure diagnostics. The database-backed end-to-end path (real node, REST
- * queries, signed tx, block building) lives in LocalChainIntegrationTest.
+ * Coverage for local_chain_up: input validation, blockchain-config generation,
+ * planning (compile -> BRID), the failure diagnostics, the tool's schemas, and
+ * the registry's idempotency/restart/down lifecycle.
+ *
+ * The lifecycle used to run on a test starter seam that fabricated a
+ * `LocalChain.Running` without a node; it now starts REAL nodes against the
+ * real PostgreSQL ([LiveEnv.requireDatabaseUrl]), because a registry that only
+ * ever held a fake Running proved nothing about the registry that production
+ * fills with real ones. Everything above the lifecycle section is pure and
+ * still needs no database. The database-backed query/transaction end-to-end
+ * path lives in LocalChainIntegrationTest and LocalChainRestBridgeTest.
  */
 class LocalChainToolTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private val goodFiles = mapOf(
         "main.rell" to "module;\nentity item { key name; }\nquery item_count() = (item @* {}).size();"
@@ -49,9 +57,6 @@ class LocalChainToolTest {
     @AfterEach
     fun tearDown() {
         LocalChain.stopAll()
-        LocalChain.starterOverrideForTests = null
-        LocalChain.nodeStarterOverrideForTests = null
-        LocalChain.startTimeoutSecondsOverrideForTests = null
     }
 
     // ------------------------------------------------------------------
@@ -315,45 +320,60 @@ class LocalChainToolTest {
     }
 
     // ------------------------------------------------------------------
-    // Registry lifecycle via the starter seam (no database, no node)
+    // Registry lifecycle - REAL nodes, real database
     // ------------------------------------------------------------------
 
-    private fun installFakeStarter(): MutableList<String> {
-        val startedFingerprints = mutableListOf<String>()
-        LocalChain.starterOverrideForTests = { plan ->
-            startedFingerprints.add(plan.fingerprint)
-            LocalChain.Running(
-                node = null,
-                brid = plan.brid,
-                apiPort = plan.apiPort,
-                fingerprint = plan.fingerprint,
-                nodePubkey = plan.pubKeyHex,
-                expiresAtMillis = Long.MAX_VALUE,
-                ttlTask = null
-            )
-        }
-        return startedFingerprints
-    }
-
+    /**
+     * The registry contract an agent depends on, driven end to end with real
+     * embedded Postchain nodes: identical sources reuse the RUNNING chain (same
+     * Running instance - not merely the same reported BRID, which a restart
+     * would also produce), changed sources really do replace it, and
+     * status/down report the truth afterwards.
+     *
+     * The JSON-shape assertions in the middle are what
+     * `upResultJsonShapeMatchesOutputSchema` used to check on a fabricated
+     * result; they were folded in here rather than dropped, because
+     * [LocalChain.UpResult.toJson] only emits brid/apiUrl/chainId/nodePubkey/
+     * expiresInSeconds when they are present, so the claim needs a genuinely
+     * started chain and a second real node start just to assert it would be
+     * minutes of CI for nothing.
+     */
     @Test
     fun upIsIdempotentForIdenticalSourcesAndRestartsOnChange() {
-        val started = installFakeStarter()
+        val databaseUrl = LiveEnv.requireDatabaseUrl(
+            "the local_chain_up registry lifecycle is driven with real embedded Postchain node starts"
+        )
 
-        val first = LocalChain.up(goodFiles, databaseUrl = dbUrl, ttlSeconds = 120)
+        val first = LocalChain.up(goodFiles, databaseUrl = databaseUrl, ttlSeconds = 120)
         assertTrue(first.ok, first.notes)
         assertEquals("started", first.status)
         assertTrue(first.expiresInSeconds!! in 100..120, first.expiresInSeconds.toString())
         assertTrue(first.notes.contains(first.apiUrl!!), first.notes)
         assertTrue(first.notes.contains("rell.get_app_structure"), first.notes)
+        val startedChain = LocalChain.running
+        assertNotNull(startedChain, "a started chain must be registered")
+        // Self-verifying: a registered chain with no PostchainNode behind it
+        // could only come from a substitute starter, and this test's whole point
+        // is that the registry is exercised with real ones.
+        assertNotNull(startedChain?.node, "the started chain must be a REAL Postchain node")
 
-        val second = LocalChain.up(goodFiles, databaseUrl = dbUrl, ttlSeconds = 120)
+        val json = with(LocalChain) { first.toJson() }
+        for (key in listOf("ok", "status", "brid", "apiUrl", "chainId", "nodePubkey", "expiresInSeconds", "notes")) {
+            assertTrue(json.containsKey(key), "missing $key in ${json.keys}")
+        }
+        assertEquals("0", json.getValue("chainId").jsonPrimitive.content)
+
+        val second = LocalChain.up(goodFiles, databaseUrl = databaseUrl, ttlSeconds = 120)
         assertEquals("already_running", second.status)
         assertEquals(first.brid, second.brid)
-        assertEquals(1, started.size, "identical sources must not restart the chain")
+        assertEquals(first.apiUrl, second.apiUrl)
+        assertSame(startedChain, LocalChain.running, "identical sources must not restart the chain")
 
-        val third = LocalChain.up(goodFiles + ("extra.rell" to "module;"), databaseUrl = dbUrl)
+        val third = LocalChain.up(goodFiles + ("extra.rell" to "module;"), databaseUrl = databaseUrl)
+        assertTrue(third.ok, third.notes)
         assertEquals("started", third.status)
-        assertEquals(2, started.size, "changed sources must restart the chain")
+        assertNotSame(startedChain, LocalChain.running, "changed sources must restart the chain")
+        assertNotEquals(first.brid, third.brid, "different sources are a different blockchain")
 
         assertEquals("running", LocalChain.status().status)
         assertEquals("stopped", LocalChain.down().status)
@@ -361,16 +381,13 @@ class LocalChainToolTest {
         assertEquals("not_running", LocalChain.down().status)
     }
 
-    @Test
-    fun upResultJsonShapeMatchesOutputSchema() {
-        installFakeStarter()
-        val result = LocalChain.up(goodFiles, databaseUrl = dbUrl)
-        val json = with(LocalChain) { result.toJson() }
-        for (key in listOf("ok", "status", "brid", "apiUrl", "chainId", "nodePubkey", "expiresInSeconds", "notes")) {
-            assertTrue(json.containsKey(key), "missing $key in ${json.keys}")
-        }
-        assertEquals("0", json.getValue("chainId").jsonPrimitive.content)
-    }
+    // DELETED 2026-09-07 (zero-doubles): upResultJsonShapeMatchesOutputSchema
+    // asserted that UpResult.toJson emits every key the output schema
+    // advertises. It stood on a fabricated LocalChain.Running from
+    // starterOverrideForTests. The claim was NOT dropped - it is asserted in
+    // upIsIdempotentForIdenticalSourcesAndRestartsOnChange above, against the
+    // result of a real node start, which is the only state in which toJson
+    // emits the optional keys at all.
 
     @Test
     fun localChainUpIsRegisteredWithSchemas() {
@@ -418,71 +435,26 @@ class LocalChainToolTest {
     // Abandoned-start lifecycle
     // ------------------------------------------------------------------
 
-    /**
-     * A start that outlives the timeout is abandoned with future.cancel(true),
-     * but a non-interruptible JDBC connect ignores the interrupt: when the
-     * start then COMPLETED anyway, the fully started node and its REST bridge
-     * leaked forever - never registered in `running`, invisible to the
-     * shutdown hook, port held, schema shared with the next `up` (QA lens
-     * 2026-09-02). The late-completing start must be shut down.
-     */
-    @Test
-    fun lateCompletingStartAfterTimeoutIsShutDownNotLeaked() {
-        val stubGateway = object : org.chromia.tools.LocalChainRestBridge.ChainGateway {
-            override fun query(name: String, args: net.postchain.gtv.Gtv): net.postchain.gtv.Gtv =
-                net.postchain.gtv.GtvFactory.gtv("x")
-            override fun queryWithHeight(name: String, args: net.postchain.gtv.Gtv): Pair<net.postchain.gtv.Gtv, Long> =
-                net.postchain.gtv.GtvFactory.gtv("x") to 0L
-            override fun postTransaction(raw: ByteArray) {}
-            override fun transactionStatus(txRid: ByteArray): net.postchain.common.tx.TransactionStatus =
-                net.postchain.common.tx.TransactionStatus.UNKNOWN
-        }
-        val lateBridge = org.chromia.tools.LocalChainRestBridge(
-            stubGateway, "AB".repeat(32), LocalChain.freePortIn(LocalChain.API_PORT_RANGE)
-        )
-        LocalChain.startTimeoutSecondsOverrideForTests = 1
-        LocalChain.nodeStarterOverrideForTests = { plan ->
-            // Mimic the non-interruptible hang (JDBC socket connect): swallow
-            // the cancel(true) interrupt and complete anyway.
-            val end = System.currentTimeMillis() + 2_500
-            while (System.currentTimeMillis() < end) {
-                try {
-                    Thread.sleep(50)
-                } catch (_: InterruptedException) {
-                }
-            }
-            LocalChain.Running(
-                node = null,
-                brid = plan.brid,
-                apiPort = lateBridge.port,
-                fingerprint = plan.fingerprint,
-                nodePubkey = plan.pubKeyHex,
-                expiresAtMillis = Long.MAX_VALUE,
-                ttlTask = null,
-                bridge = lateBridge
-            )
-        }
-
-        val result = LocalChain.up(goodFiles, databaseUrl = dbUrl)
-        assertFalse(result.ok, result.notes)
-        assertTrue(result.notes.contains("exceeded 1s"), result.notes)
-
-        // Once the abandoned start completes, its queued cleanup must close the
-        // bridge - on the old code the port stayed open forever.
-        val deadline = System.currentTimeMillis() + 10_000
-        var closed = false
-        while (System.currentTimeMillis() < deadline && !closed) {
-            closed = runCatching {
-                java.net.Socket().use { s ->
-                    s.connect(java.net.InetSocketAddress("127.0.0.1", lateBridge.port), 250)
-                    false
-                }
-            }.getOrElse { true }
-            if (!closed) Thread.sleep(100)
-        }
-        assertTrue(
-            closed,
-            "late-started bridge on port ${lateBridge.port} must be shut down after the abandoned start completes"
-        )
-    }
+    // DELETED 2026-09-07 (zero-doubles): lateCompletingStartAfterTimeoutIsShutDownNotLeaked
+    // asserted that a node start which outlives START_TIMEOUT_SECONDS, is
+    // abandoned with future.cancel(true), and then COMPLETES anyway, has its
+    // REST bridge closed and its node shut down by the cleanup queued behind it
+    // in LocalChain.startBounded - instead of leaking a listening port and a
+    // schema-sharing node forever.
+    //
+    // No real input can produce it. The test needed a node starter that (a)
+    // swallows the cancellation interrupt, (b) completes on a schedule the test
+    // chooses, and (c) hands back a LocalChain.Running holding a bridge the
+    // test had already bound to a port it could watch - i.e. a fabricated
+    // replacement for our own startNode (LocalChain.nodeStarterOverrideForTests).
+    // A REAL start does complete late if START_TIMEOUT_SECONDS is shrunk, but
+    // its bridge binds and is closed again by the queued cleanup within
+    // microseconds of each other, so no poll can observe the port ever being
+    // held; and the abandoned node keeps running in the background for the rest
+    // of the real start, where it would collide with the next test's chain on
+    // the shared local_chain schema.
+    //
+    // Nothing covers it now - the LocalChain.startBounded timeout branch (both
+    // the "Node start exceeded Ns" message and the late-completion cleanup that
+    // closes the bridge and shuts the node down) is unverified.
 }

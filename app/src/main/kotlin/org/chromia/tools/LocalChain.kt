@@ -72,6 +72,14 @@ object LocalChain {
     const val SCHEMA = "chromia_mcp_local_chain"
 
     /**
+     * The same production pin every help tool in this server tells agents to
+     * ship ([DappScaffold.MERKLE_HASH_VERSION]). The local chain runs it too -
+     * a sandbox that quietly runs the deprecated version 1 would teach the
+     * opposite of what the server advises.
+     */
+    const val MERKLE_HASH_VERSION = DappScaffold.MERKLE_HASH_VERSION
+
+    /**
      * The Chromia CLI's default dev node key (chromia-cli NodeConfig.kt,
      * getDefaultNodeConfig). Deliberately well-known; never valid on any real
      * network. Do NOT replace with a generated key - a stable pubkey keeps
@@ -91,8 +99,7 @@ object LocalChain {
     )
 
     internal class Running(
-        /** Null only in tests (starterOverrideForTests) - a real chain always has a node. */
-        val node: PostchainNode?,
+        val node: PostchainNode,
         val brid: String,
         val apiPort: Int,
         val fingerprint: String,
@@ -124,14 +131,13 @@ object LocalChain {
     internal var running: Running? = null
     private var shutdownHookInstalled = false
 
-    /** Test seam: replaces the real node bring-up when set. */
-    internal var starterOverrideForTests: ((StartPlan) -> Running)? = null
-
-    /** Test seam: replaces [startNode] INSIDE the bounded start executor when set. */
-    internal var nodeStarterOverrideForTests: ((StartPlan) -> Running)? = null
-
-    /** Test seam: shrinks [START_TIMEOUT_SECONDS] so the timeout path is testable. */
-    internal var startTimeoutSecondsOverrideForTests: Long? = null
+    // Three test seams stood here until 2026-09-07 - a starter override, a node
+    // starter override and a start-timeout override - and between them they let a
+    // test replace the entire bring-up of a chain with a lambda. Everything
+    // asserted through them was asserted about the lambda: `Running(node = null)`
+    // even had to be permitted below, and isAlive() carried a branch that called a
+    // chain with no node alive. The tests that used them start a REAL embedded
+    // Postchain node against a real PostgreSQL now.
 
     // ------------------------------------------------------------------
     // Public entry points
@@ -325,6 +331,19 @@ object LocalChain {
      * Blockchain config template matching what `chr build` emits for a plain
      * dapp: base block strategy, GTX configuration factory, the Rell module
      * plus standard ops, and merkle_hash_version 2 (production pin - never 1).
+     *
+     * `merkle_hash_version` lives under the `features` dict, which is the only
+     * place Postchain reads it: BlockchainConfigurationData parses the raw
+     * config's `features` key and BaseBlockchainConfiguration does
+     * `configData.features["merkle_hash_version"]` (postchain 3.49.18,
+     * disassembled 2026-09-07). Until then this template put the key at the top
+     * level, where nothing reads it, so every chain `local_chain_up` started ran
+     * on version 1 - the version this server's own help tools call deprecated
+     * and tell agents never to ship. It was invisible because a stock
+     * postchain-client's auto-detect ALSO fell back to 1 (the bridge served no
+     * `/config/{brid}/features` route), so two defects agreed with each other.
+     * Both are fixed; [LocalChainRestBridge] now serves the features route with
+     * the version the running engine actually reports.
      */
     internal fun configTemplate(moduleArgs: Map<String, Map<String, JsonElement>>): Gtv {
         val rell = mutableMapOf<String, Gtv>()
@@ -348,7 +367,9 @@ object LocalChain {
                         "rell" to gtv(rell)
                     )
                 ),
-                "merkle_hash_version" to gtv(2L)
+                "features" to gtv(
+                    mapOf("merkle_hash_version" to gtv(MERKLE_HASH_VERSION.toLong()))
+                )
             )
         )
     }
@@ -443,15 +464,14 @@ object LocalChain {
     // ------------------------------------------------------------------
 
     private fun startBounded(plan: StartPlan): Running {
-        starterOverrideForTests?.let { return it(plan) }
-        val timeoutSeconds = startTimeoutSecondsOverrideForTests ?: START_TIMEOUT_SECONDS
+        val timeoutSeconds = START_TIMEOUT_SECONDS
         val executor = newStartExecutor()
         // Read by the timeout path below: cancel(true) makes future.get() throw
         // CancellationException even when the callable completed, so the future
         // alone cannot hand a late-started node to cleanup.
         val lateResult = java.util.concurrent.atomic.AtomicReference<Running?>()
         val future = executor.submit<Running> {
-            (nodeStarterOverrideForTests ?: ::startNode)(plan).also { lateResult.set(it) }
+            startNode(plan).also { lateResult.set(it) }
         }
         return try {
             future.get(timeoutSeconds, TimeUnit.SECONDS)
@@ -466,7 +486,7 @@ object LocalChain {
             executor.submit {
                 lateResult.get()?.let { late ->
                     runCatching { late.bridge?.close() }
-                    runCatching { late.node?.shutdown() }
+                    runCatching { late.node.shutdown() }
                     org.chromia.App.logger.info(
                         "local-chain start completed after the ${timeoutSeconds}s timeout - late node shut down"
                     )
@@ -532,10 +552,8 @@ object LocalChain {
         }
     }
 
-    private fun isAlive(chain: Running): Boolean {
-        val node = chain.node ?: return true // test stub: treated as alive until stopped
-        return runCatching { node.isBlockchainRunning(CHAIN_IID) }.getOrDefault(false)
-    }
+    private fun isAlive(chain: Running): Boolean =
+        runCatching { chain.node.isBlockchainRunning(CHAIN_IID) }.getOrDefault(false)
 
     private fun stopLocked(reason: String) {
         val current = running ?: return

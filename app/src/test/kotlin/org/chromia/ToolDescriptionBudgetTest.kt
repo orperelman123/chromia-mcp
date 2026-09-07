@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test
  */
 class ToolDescriptionBudgetTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private val baseline: Map<String, String> by lazy {
         val text = checkNotNull(javaClass.classLoader.getResourceAsStream("tool-descriptions-baseline.json")) {
@@ -60,8 +60,33 @@ class ToolDescriptionBudgetTest {
         assertEquals(74, baseline.size, "the baseline fixture must hold all 74 base-commit tools")
         val current = McpTools.allTools(compact = false).map { it.name }.toSet()
         val missing = baseline.keys - current
-        assertTrue(missing.isEmpty(), "tools that existed on the base commit and are gone now: $missing")
+        assertEquals(
+            RETIRED_TOOLS.keys, missing,
+            "a base-commit tool disappeared without a reason. Retiring a tool is allowed - it is\n" +
+                "how a tool the upstream service will not serve stops being advertised - but the\n" +
+                "reason belongs in RETIRED_TOOLS where a reviewer can check it."
+        )
     }
+
+    /**
+     * Tools deliberately RETIRED, with the reason. A retired tool takes its whole
+     * description with it, so it is excluded from the sentence pin below - the
+     * guidance is not "moved somewhere else", it described data that cannot be
+     * fetched at all. Probed live 2026-09-07 against explorer.chromia.com.
+     */
+    private val RETIRED_TOOLS: Map<String, String> = mapOf(
+        "get_network_stats" to
+            "explorer `dashboardData` answers INTERNAL_ERROR for every selection set, and the " +
+            "schema has no top-level replacement for its counts",
+        "get_transactions_by_cluster" to
+            "the same `dashboardData` resolver; top-level groupedTransactionsByCluster was " +
+            "removed upstream (docs/UPSTREAM.md #3)",
+        "get_blockchains_transactions" to
+            "top-level `groupedTransactionsByBlockchain` answers INTERNAL_ERROR with no arguments",
+        "get_node_unavailability" to
+            "the explorer demands an X-reCAPTCHA-Token header (docs/UPSTREAM.md #7a); there is " +
+            "no programmatic path and bypassing a CAPTCHA is not one"
+    )
 
     /**
      * Sentences deliberately RETIRED, with the reason. The rule is that guidance
@@ -119,6 +144,7 @@ class ToolDescriptionBudgetTest {
     fun everySentenceThatLeftADescriptionIsReachableByName() {
         val unreachable = mutableListOf<String>()
         baseline.forEach { (tool, original) ->
+            if (tool in RETIRED_TOOLS) return@forEach
             val full = normalize(describe(tool).getValue("description").jsonPrimitive.content)
             val allowed = retired[tool].orEmpty().map { normalize(it) }
             sentences(original).forEach { sentence ->

@@ -7,13 +7,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import net.postchain.common.BlockchainRid
+import net.postchain.common.hexStringToByteArray
 import net.postchain.gtv.GtvBigInteger
-import net.postchain.gtv.GtvFactory
 import net.postchain.gtv.GtvInteger
-import net.postchain.gtv.GtvNull
-import org.chromia.data.client.PostchainClientService
-import org.chromia.data.config.ChromiaConfig
 import org.chromia.domain.NetworkResult
 import org.chromia.tools.RellCheck
 import org.chromia.tools.RunRellTests
@@ -35,46 +31,110 @@ import org.junit.jupiter.api.Test
  */
 class AuditGtvAndFt4TreeRegressionTest {
 
-    private val rid = BlockchainRid.buildFromHex(
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    )
-
-    // 2^70: far past Long, definitely a GtvBigInteger on the wire.
+    // 2^70: far past Long. Still used by the F4 moduleArgs test below, which is
+    // about a value an AGENT supplies, not one a chain returns - so it is input
+    // data, not a stand-in for anything.
     private val big = BigInteger.TWO.pow(70)
 
-    // F1: a big_integer response value round-trips to a JSON string instead of erroring.
+    /**
+     * F1, ON THE REAL CHAIN.
+     *
+     * The bug was that `make_gtv_gson()`'s BIGINTEGER branch throws, so every
+     * FT4 balance / total_supply / amount query reported an error although the
+     * chain had succeeded. The regression test used to supply the big_integer
+     * itself, through a trailing-lambda query client - which meant the thing it
+     * proved was that `makeStrictGtvGson` serializes a Gtv the TEST built.
+     *
+     * `get_chr_asset` on the live Economy Chain returns a real `big_integer`
+     * supply next to a real `integer`, real `text`s and a real `byte_array`, so
+     * the whole discrimination the fix rests on - big_integer becomes a JSON
+     * string, everything else is untouched - is asserted against GTV that came
+     * off the wire. If FT4 ever stops returning big_integer here, this goes red
+     * for the right reason instead of staying green against a memory of 2026.
+     */
     @Test
-    fun bigIntegerQueryResponseSerializesAsStringNotError() {
-        val service = PostchainClientService(ChromiaConfig()) { _, _, _ ->
-            GtvFactory.gtv(
-                mapOf(
-                    "amount" to GtvFactory.gtv(big),
-                    "nested" to GtvFactory.gtv(mapOf("supply" to GtvFactory.gtv(big))),
-                    "list" to GtvFactory.gtv(listOf(GtvFactory.gtv(big))),
-                    "count" to GtvFactory.gtv(7L),
-                    "name" to GtvFactory.gtv("CHR"),
-                    "id" to GtvFactory.gtv(byteArrayOf(0xAB.toByte(), 0xCD.toByte())),
-                    "missing" to GtvNull
-                )
-            )
-        }
-        val result = service.executeBlockchainQuery("testnet", rid, "ft4.get_asset_balance", emptyMap())
-        assertTrue(result is NetworkResult.Success, result.toString())
+    fun liveBigIntegerResponseSerializesAsStringAndNothingElseChanges() {
+        LiveChromia.requireLive("reads a real big_integer supply off the live Economy Chain")
+        val result = LiveChromia.postchain().executeBlockchainQuery(
+            LiveChromia.NETWORK, LiveChromia.economyChainRid, "get_chr_asset", emptyMap()
+        )
+        assertTrue(result is NetworkResult.Success, "live get_chr_asset failed: $result")
         val obj = (result as NetworkResult.Success<JsonObject>).data
-        val amount = obj.getValue("amount").jsonPrimitive
-        assertTrue(amount.isString, "big_integer must serialize as a JSON string: $amount")
-        assertEquals(big.toString(), amount.content)
-        // Nested big_integer inside a dict and an array works too.
-        assertEquals(big.toString(), obj.getValue("nested").jsonObject.getValue("supply").jsonPrimitive.content)
-        assertEquals(big.toString(), obj.getValue("list").jsonArray[0].jsonPrimitive.content)
-        // The strict gson differs ONLY in the big_integer branch - Long stays a
-        // number, string stays a string, byte_array stays hex, null stays null.
-        val count = obj.getValue("count").jsonPrimitive
-        assertFalse(count.isString, "integer must stay a JSON number: $count")
-        assertEquals("7", count.content)
-        assertEquals("CHR", obj.getValue("name").jsonPrimitive.content)
-        assertEquals("ABCD", obj.getValue("id").jsonPrimitive.content.uppercase())
-        assertTrue(obj.getValue("missing") is JsonNull)
+
+        // big_integer -> JSON string (the fix). Rell's total_supply is a
+        // big_integer; a plain gson would have thrown before producing this.
+        val supply = obj.getValue("supply").jsonPrimitive
+        assertTrue(supply.isString, "big_integer must serialize as a JSON string: $supply")
+        assertTrue(
+            supply.content.matches(Regex("""[0-9]+""")) && BigInteger(supply.content) > BigInteger.ZERO,
+            "supply must be a positive integer in a string: ${supply.content}"
+        )
+
+        // integer stays a JSON number - the strict gson differs ONLY in the
+        // big_integer branch, and this is the assertion that pins that.
+        val decimals = obj.getValue("decimals").jsonPrimitive
+        assertFalse(decimals.isString, "integer must stay a JSON number: $decimals")
+        assertTrue(decimals.content.toInt() >= 0, decimals.content)
+
+        // text stays text; byte_array stays hex.
+        assertTrue(obj.getValue("name").jsonPrimitive.isString)
+        val id = obj.getValue("id").jsonPrimitive.content
+        assertEquals(64, id.length, "an FT4 asset id is 32 bytes of hex: $id")
+        assertTrue(id.uppercase().matches(Regex("""[0-9A-F]+""")), id)
+    }
+
+    /**
+     * The same discrimination one level down: a big_integer nested inside an
+     * array of dictionaries, plus a real `null` cursor. Nested and null are the
+     * two shapes the fixture used to fabricate.
+     */
+    @Test
+    fun liveNestedBigIntegerAndNullSurviveTheStrictGson() {
+        LiveChromia.requireLive("reads a nested big_integer and a null cursor off the live Economy Chain")
+        val result = LiveChromia.postchain().executeBlockchainQuery(
+            LiveChromia.NETWORK,
+            LiveChromia.economyChainRid,
+            "ft4.get_assets_filtered",
+            mapOf(
+                "asset_filter" to mapOf("ids" to null, "name" to null, "symbol" to null, "type" to null),
+                "page_size" to 1,
+                "page_cursor" to null
+            )
+        )
+        assertTrue(result is NetworkResult.Success, "live filtered query failed: $result")
+        val page = (result as NetworkResult.Success<JsonObject>).data
+        val rows = page.getValue("data").jsonArray
+        assertTrue(rows.isNotEmpty(), "the Economy Chain has at least one asset: $page")
+        val nestedSupply = rows[0].jsonObject.getValue("supply").jsonPrimitive
+        assertTrue(nestedSupply.isString, "a big_integer inside an array of dicts must be a string too: $page")
+        assertTrue(BigInteger(nestedSupply.content) >= BigInteger.ZERO)
+        assertTrue(page.getValue("next_cursor") is JsonNull, "a real null must survive as JsonNull: $page")
+    }
+
+    /**
+     * A real `null` and a real nested ARRAY, from the auth-descriptor of a
+     * public, known-registered account. `rules` is null on a main descriptor and
+     * `args` is a nested array whose first element is itself an array of flags.
+     */
+    @Test
+    fun liveNullAndNestedArrayFromARealAuthDescriptor() {
+        LiveChromia.requireLive("reads a real main auth descriptor - a null field and a nested array")
+        val result = LiveChromia.postchain().executeBlockchainQuery(
+            LiveChromia.NETWORK,
+            LiveChromia.economyChainRid,
+            "ft4.get_account_main_auth_descriptor",
+            mapOf("account_id" to LiveChromia.KNOWN_REGISTERED_ACCOUNT_ID_HEX.hexStringToByteArray())
+        )
+        assertTrue(result is NetworkResult.Success, "live auth-descriptor query failed: $result")
+        val descriptor = (result as NetworkResult.Success<JsonObject>).data
+        assertTrue(
+            descriptor.getValue("rules") is JsonNull,
+            "a main auth descriptor has no rules; a real null must arrive as JsonNull: $descriptor"
+        )
+        val args = descriptor.getValue("args").jsonArray
+        assertTrue(args.isNotEmpty(), "auth descriptor args must not be empty: $descriptor")
+        val flags = args[0].jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(flags.contains("A"), "the account flags must include A (account): $flags")
     }
 
     // F2: rell_check compiles the user's OWN lib/ft4 tree - a deliberate marker

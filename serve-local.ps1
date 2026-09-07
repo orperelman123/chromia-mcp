@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-  Run the Chromia MCP server locally as an SSE server on localhost.
+  Run the Chromia MCP server locally as a URL server on localhost (Streamable HTTP at
+  /mcp, legacy HTTP+SSE at the root - there is no /sse path).
 
 .DESCRIPTION
   One command to get a URL-addressable MCP endpoint on this machine, with the
@@ -159,7 +160,8 @@ try {
     $h = Invoke-RestMethod -Uri $healthUrl
     Write-Host ''
     Write-Host "  Chromia MCP server is UP (v$($h.version), pid $($proc.Id))" -ForegroundColor Green
-    Write-Host "    MCP SSE endpoint : http://${probeHost}:${Port}/"
+    Write-Host "    Streamable HTTP  : http://${probeHost}:${Port}/mcp   (prefer this)"
+    Write-Host "    legacy HTTP+SSE  : http://${probeHost}:${Port}/      (the ROOT; no /sse path)"
     Write-Host "    Health check     : $healthUrl"
     Write-Host ''
     Write-Host '  Connect an MCP client with:  { "url": "http://' -NoNewline

@@ -98,8 +98,6 @@ class ToolExecutor(
             runCatching { org.chromia.App.effectiveDisabledTools() }.getOrElse { McpTools.disabledTools() }
         },
         "get_prompts" to PromptsToolStrategy(promptManager),
-        "get_blockchains_transactions" to BlockchainsTransactionsStrategy(),
-        "get_transactions_by_cluster" to TransactionsByClusterStrategy(),
         "get_all_assets" to AllAssetsStrategy(),
         "get_total_rewards_paid" to TotalRewardsPaidStrategy(),
         "get_asset_distribution" to AssetDistributionStrategy(),
@@ -115,8 +113,6 @@ class ToolExecutor(
         "get_asset_blockchains" to AssetBlockchainsStrategy(),
         "get_signer_blockchains" to SignerBlockchainsStrategy(),
         "get_account_blockchains" to AccountBlockchainsStrategy(),
-        "get_node_unavailability" to NodeUnavailabilityStrategy(),
-        "get_network_stats" to NetworkStatsStrategy(),
         "fetch_docs" to FetchDocsStrategy(ragStoreDeferred),
         "search" to SearchDocsStrategy(ragStoreDeferred),
         "fetch" to FetchDocumentStrategy(ragStoreDeferred),
@@ -899,30 +895,6 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
     }
 }
 
-class BlockchainsTransactionsStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getBlockchainsTransactions(network)
-        return handleResult(result, "Failed to get blockchains transactions")
-    }
-}
-
-class TransactionsByClusterStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getTransactionsByCluster(network)
-        return handleResult(result, "Failed to get transactions by cluster")
-    }
-}
-
 class AllAssetsStrategy : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = false
 
@@ -971,6 +943,25 @@ class AssetDistributionStrategy : BaseToolStrategy() {
 class AssetTopHoldersStrategy : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = false
 
+    companion object {
+        /**
+         * The explorer appends a synthetic remainder row to every top-holders
+         * answer: `accountId` and `accountType` both the literal "Others",
+         * `chainCount` 0 and `chainBrid` blank, carrying the combined balance of
+         * every holder outside the page. Verified live against the mainnet
+         * explorer (CHR, 2026-09-07): `limit: 3` comes back with FOUR entries.
+         *
+         * It is not a holder and not an account, so it does not belong in a list
+         * an agent will count, sum, or index by account id - and it must not
+         * consume one of the N rows the caller asked for.
+         */
+        internal const val REMAINDER_ROW = "Others"
+
+        internal fun isRemainderRow(entry: JsonObject): Boolean =
+            (entry["accountId"] as? JsonPrimitive)?.contentOrNull == REMAINDER_ROW &&
+                (entry["accountType"] as? JsonPrimitive)?.contentOrNull == REMAINDER_ROW
+    }
+
     override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
         val args = request.argumentsOrEmpty as Map<String, Any>
         val assetId = requireParameter(args, "assetId")
@@ -989,7 +980,122 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         )
 
         val result = repository.getAssetTopHolders(assetId, network, limit, filters)
-        return handleResult(result, "Failed to get asset top holders")
+        if (result !is NetworkResult.Success) {
+            return handleResult(result, "Failed to get asset top holders")
+        }
+
+        // Defensive on purpose: `.jsonObject` / `.jsonArray` THROW on the wrong
+        // shape, and a shape this code did not expect must not turn a live
+        // explorer answer into a stack trace. Anything unrecognised is passed
+        // through exactly as the explorer sent it.
+        val rows = (result.data["data"] as? JsonObject)
+            ?.get("getAssetTopHolders")
+            ?.let { it as? JsonArray }
+            ?.mapNotNull { it as? JsonObject }
+            ?: return toolSuccessResult(result.data)
+
+        val holders = rows.filterNot { isRemainderRow(it) }
+        val remainder = rows.firstOrNull { isRemainderRow(it) }
+
+        if (holders.isEmpty() && remainder == null) {
+            return emptyAnswer(assetId, network, filters, repository)
+        }
+
+        return toolSuccessResult(
+            buildJsonObject {
+                put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(holders)) })
+                put("holderCount", holders.size)
+                if (remainder != null) {
+                    put(
+                        "othersRemainder",
+                        buildJsonObject {
+                            put("totalBalance", remainder["totalBalance"] ?: JsonNull)
+                            put(
+                                "note",
+                                "NOT a holder and NOT an account: the explorer's own synthetic " +
+                                    "\"$REMAINDER_ROW\" row, carrying the combined balance of every " +
+                                    "holder outside the ${holders.size} returned. It has been moved " +
+                                    "out of the list, so the list is holders only and honours `limit`."
+                            )
+                        }
+                    )
+                }
+            }
+        )
+    }
+
+    /**
+     * The explorer answers an unknown asset id and a real asset whose holders
+     * were all filtered out with the SAME empty list (verified live 2026-09-07:
+     * a well-formed 64-hex id naming nothing returns
+     * `{"getAssetTopHolders":[]}` with HTTP 200, exactly as an over-narrow
+     * filter would). An empty array on its own therefore reads as "this asset
+     * has no holders", which for a mistyped id is a wrong answer delivered as a
+     * successful one.
+     *
+     * `getAssetBlockchains` does tell the two apart - empty for an id the
+     * explorer knows nothing about, a list of chains for a real asset - so that
+     * one extra upstream call is made here, and ONLY here, on the empty path.
+     * If it fails, nothing is claimed: the empty answer comes back with the
+     * ambiguity named rather than resolved.
+     */
+    private suspend fun emptyAnswer(
+        assetId: String,
+        network: String?,
+        filters: org.chromia.domain.AssetFilters,
+        repository: ChromiaRepository
+    ): CallToolResult {
+        val where = network?.let { " on $it" } ?: ""
+        val chains = repository.getAssetBlockchains(network, assetId)
+        val known = ((chains as? NetworkResult.Success)?.data
+            ?.get("data") as? JsonObject)
+            ?.get("getAssetBlockchains")
+            ?.let { it as? JsonArray }
+        return when {
+            known != null && known.isEmpty() -> toolErrorResult(
+                "No such asset: the explorer knows no asset with id \"$assetId\"$where, and no " +
+                    "blockchain carrying it. Check the id with filter_assets (search by name or " +
+                    "symbol) or get_all_assets; an asset id is 64 hex characters and is not the " +
+                    "same thing as a blockchain RID."
+            )
+            known != null -> toolSuccessResult(
+                buildJsonObject {
+                    put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(emptyList())) })
+                    put("holderCount", 0)
+                    put(
+                        "note",
+                        "The asset EXISTS$where - get_asset_blockchains lists ${known.size} chain(s) " +
+                            "carrying it - but no holder matched, so this is the filters and not the " +
+                            "id: ${describeFilters(filters)}."
+                    )
+                }
+            )
+            else -> toolSuccessResult(
+                buildJsonObject {
+                    put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(emptyList())) })
+                    put("holderCount", 0)
+                    put(
+                        "note",
+                        "No holders returned$where. The explorer gives the same empty list for an " +
+                            "unknown asset id and for a real asset whose holders were all filtered " +
+                            "out, and the get_asset_blockchains call that would have told them apart " +
+                            "did not answer - so which one this is has NOT been determined."
+                    )
+                }
+            )
+        }
+    }
+
+    private fun describeFilters(filters: org.chromia.domain.AssetFilters): String {
+        val parts = buildList {
+            filters.brids?.let { add("brids=${it.size}") }
+            filters.accountTypes?.let { add("accountTypes=$it") }
+            filters.excludeAccounts?.let { add("excludeAccounts=${it.size}") }
+            filters.excludeBrids?.let { add("excludeBrids=${it.size}") }
+            filters.excludeAccountTypes?.let { add("excludeAccountTypes=$it") }
+        }
+        return if (parts.isEmpty()) "no filters were sent, so this is the explorer's own answer"
+        else parts.joinToString(", ")
     }
 }
 
@@ -1200,32 +1306,6 @@ class AccountBlockchainsStrategy : BaseToolStrategy() {
 
         val result = repository.getAccountBlockchains(accountId, network)
         return handleResult(result, "Failed to get account blockchains")
-    }
-}
-
-class NodeUnavailabilityStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val pubkey = requireParameter(args, "pubkey")
-        val startTimestamp = requireParameter(args, "startTimestamp")
-        val network = extractString(args, "network")
-
-        val result = repository.getNodeUnavailability(pubkey, startTimestamp, network)
-        return handleResult(result, "Failed to get node unavailability")
-    }
-}
-
-class NetworkStatsStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getNetworkStats(network)
-        return handleResult(result, "Failed to get network stats")
     }
 }
 
@@ -3762,8 +3842,6 @@ class OnboardingNextStepStrategy(
 }
 
 class VerifyDeploymentStrategy(
-    /** Test seam so the height-progression wait costs no suite time. */
-    private val delayFn: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
     /**
      * Overall wall-clock deadline across ALL probe work (client construction
      * with its signer discovery, both height reads, the wait, the smoke
@@ -3840,7 +3918,7 @@ class VerifyDeploymentStrategy(
         }
         val firstHeight = (first as NetworkResult.Success).data
 
-        delayFn(waitMs.coerceAtMost(remainingMs().coerceAtLeast(0L)))
+        kotlinx.coroutines.delay(waitMs.coerceAtMost(remainingMs().coerceAtLeast(0L)))
         val second = ProbeBudget.withBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
         val secondHeight = (second as? NetworkResult.Success)?.data ?: firstHeight
         if (second == null) {

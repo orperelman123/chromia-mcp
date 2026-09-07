@@ -5,27 +5,12 @@ import org.chromia.domain.graphqlQuery
 
 object NetworkQueries {
 
-    fun getBlockchainsTransactions(): GraphQLQuery = graphqlQuery {
-        query(
-            """
-            query { 
-                groupedTransactionsByBlockchain { 
-                    brid, 
-                    blockchain { name, system, cluster, state }, 
-                    blockHeight, 
-                    throughput, 
-                    count 
-                } 
-            }
-            """.trimIndent()
-        )
-    }
-
-    // Top-level groupedTransactionsByCluster was removed from the explorer schema;
-    // the data now lives only under dashboardData.
-    fun getTransactionsByCluster(): GraphQLQuery = graphqlQuery {
-        query("query { dashboardData { groupedTransactionsByCluster { cluster, count } } }")
-    }
+    // Retired 2026-09-07 together with their tools: the explorer answers
+    // INTERNAL_ERROR for `dashboardData` (get_network_stats,
+    // get_transactions_by_cluster) and for top-level
+    // `groupedTransactionsByBlockchain` (get_blockchains_transactions) on every
+    // selection set, so there was no working form of these queries to keep.
+    // See docs/UPSTREAM.md #3a.
 
     fun getAllAssets(): GraphQLQuery = graphqlQuery {
         query(
@@ -42,29 +27,6 @@ object NetworkQueries {
 
     fun getTotalRewardsPaid(): GraphQLQuery = graphqlQuery {
         query("query { totalRewardsPaid }")
-    }
-
-    fun getNetworkStats(): GraphQLQuery = graphqlQuery {
-        query(
-            """
-            query { 
-                dashboardData { 
-                    countAllAccounts, 
-                    countAllTransfers, 
-                    countAllTransactions, 
-                    monthlyActiveAccounts, 
-                    topDappBlockchains { 
-                        brid, blockchain { name, system, cluster, state }, 
-                        blockHeight, throughput, count 
-                    }, 
-                    topAssets { 
-                        id, brid, name, iconUrl, symbol, transferCount, blockchainCount 
-                    }, 
-                    groupedTransactionsByCluster { cluster, count } 
-                } 
-            }
-            """.trimIndent()
-        )
     }
 
     fun getAllOperations(): GraphQLQuery = graphqlQuery {

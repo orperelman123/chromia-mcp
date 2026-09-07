@@ -43,7 +43,7 @@ class CheckDappProjectFilesAliasTest {
     private val main = scaffold.getValue("src/main.rell")
 
     private fun call(args: kotlinx.serialization.json.JsonObject) = runBlocking {
-        ToolExecutor(RecordingRepository(), PromptManager())
+        ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
             .executeTool(callToolRequest(name = "check_dapp_project", arguments = args))
     }
 

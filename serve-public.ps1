@@ -22,8 +22,8 @@
        is a process you can see and stop.
 
   It prints BOTH endpoints on the tunnel host:
-    https://<name>.trycloudflare.com/mcp   Streamable HTTP (current transport)
-    https://<name>.trycloudflare.com/      SSE (what ChatGPT's own docs show)
+    https://<name>.trycloudflare.com/mcp   Streamable HTTP (current transport, prefer this)
+    https://<name>.trycloudflare.com/      legacy HTTP+SSE, at the ROOT (there is no /sse path)
   ...and the exact ChatGPT connector steps for each.
 
   Ctrl+C stops the tunnel and the server, in that order, and verifies the port
@@ -205,7 +205,7 @@ try {
     Write-Host ''
     Write-Host "  Chromia MCP server is UP (v$($health.version), profile $($health.profile), pid $($proc.Id))" -ForegroundColor Green
     Write-Host "    local Streamable HTTP : http://127.0.0.1:${Port}/mcp"
-    Write-Host "    local SSE             : http://127.0.0.1:${Port}/"
+    Write-Host "    local legacy HTTP+SSE : http://127.0.0.1:${Port}/   (the ROOT; no /sse path)"
     Write-Host "    health                : $healthUrl"
     Write-Host ''
 
@@ -242,13 +242,14 @@ try {
     Write-Host ''
     Write-Host "  PUBLIC URL: $publicUrl" -ForegroundColor Green
     Write-Host "    Streamable HTTP : $publicUrl/mcp"
-    Write-Host "    SSE             : $publicUrl/"
+    Write-Host "    legacy HTTP+SSE : $publicUrl/   (the ROOT; no /sse path)"
     Write-Host "    health          : $publicUrl/health"
     Write-Host ''
     Write-Host '  Connect it in ChatGPT (Settings -> Connectors -> Create / Advanced -> Developer mode):' -ForegroundColor Cyan
     Write-Host "    Name             : Chromia MCP"
     Write-Host "    MCP server URL   : $publicUrl/mcp     (Streamable HTTP - prefer this)"
-    Write-Host "                       $publicUrl/sse     (only if the connector insists on SSE)"
+    Write-Host "                       $publicUrl/        (the ROOT - only if the connector insists on legacy SSE;"
+    Write-Host "                                           this server has no /sse path, that URL would 404)"
     Write-Host "    Authentication   : $(if ($env:CHROMIA_MCP_AUTH_TOKEN) { 'API key / Bearer -> your CHROMIA_MCP_AUTH_TOKEN' } else { 'No authentication (anyone with the URL can call it)' })"
     Write-Host "    Then 'Create'. ChatGPT calls search/fetch for research and the other tools in developer mode."
     Write-Host ''

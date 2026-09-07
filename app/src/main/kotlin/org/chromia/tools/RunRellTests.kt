@@ -95,9 +95,6 @@ object RunRellTests {
      */
     internal class RunAbandonedOnInterruptException(message: String) : InterruptedException(message)
 
-    /** Test seam: replaces RellApiRunTests.runTests on the runner thread when set. */
-    internal var runnerOverrideForTests: (() -> Unit)? = null
-
     private fun newRunnerExecutor() =
         // One dedicated thread per call: an unstoppable runaway runner must not
         // poison a shared pool, and queueing follow-up work on the same thread
@@ -512,8 +509,7 @@ object RunRellTests {
         // test returns a clear failure instead of hanging the tool call forever.
         val executor = newRunnerExecutor()
         val future = executor.submit {
-            runnerOverrideForTests?.invoke()
-                ?: RellApiRunTests.runTests(config, sourceDir.toFile(), appModules, testModules)
+            RellApiRunTests.runTests(config, sourceDir.toFile(), appModules, testModules)
         }
         var runnerAbandoned = false
         try {

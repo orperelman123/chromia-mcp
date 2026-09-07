@@ -100,7 +100,7 @@ class TranslateErrorToolTest {
     fun explorerTestnet400() =
         assertRule(
             "explorer_testnet_400",
-            "Failed to get network stats: explorer returned HTTP 400 for network=testnet"
+            "Failed to get all assets: explorer returned HTTP 400 for network=testnet"
         )
 
     @Test
@@ -109,7 +109,7 @@ class TranslateErrorToolTest {
         assertRule(
             "explorer_testnet_400",
             "HTTP error: 400 Bad Request",
-            context = "calling get_network_stats with network=testnet"
+            context = "calling get_all_assets with network=testnet"
         )
 
     @Test
@@ -444,7 +444,7 @@ class TranslateErrorToolTest {
 
     private fun executor(): ToolExecutor =
         ToolExecutor(
-            RecordingRepository(),
+            McpTestSupport.offlineRepository(),
             PromptManager(),
             CompletableDeferred(RagStore(loadFromRegistry = false))
         )

@@ -158,9 +158,9 @@ object ErrorTranslator {
             family = "explorer",
             pattern = "recaptcha",
             meaning = "The explorer rejected the call because it now requires a browser reCAPTCHA token for this query.",
-            likelyCause = "explorer.chromia.com gates getNodeUnavailability (and possibly other queries) behind reCAPTCHA (docs/UPSTREAM.md #7a) - every programmatic client is blocked, not just yours.",
+            likelyCause = "explorer.chromia.com gates getNodeUnavailability (and possibly other queries) behind reCAPTCHA (docs/UPSTREAM.md #7a) - every programmatic client is blocked, not just yours. This server retired its own get_node_unavailability tool on 2026-09-07 for exactly this reason.",
             nextAction = "There is no programmatic path until the explorer offers one - view node unavailability in the explorer web UI, and use the other analytics tools for what they still serve.",
-            relatedTools = listOf("get_network_stats")
+            relatedTools = listOf("get_blockchain_analytics")
         ),
         rule(
             id = "explorer_testnet_400",
@@ -169,7 +169,7 @@ object ErrorTranslator {
             meaning = "The explorer API returned HTTP 400 for a testnet request that would succeed on mainnet.",
             likelyCause = "explorer.chromia.com currently rejects network=testnet outright (docs/UPSTREAM.md #9) even though tools advertise it.",
             nextAction = "Retry the same call with network=mainnet; treat testnet analytics as unavailable until the explorer serves it again.",
-            relatedTools = listOf("get_network_stats")
+            relatedTools = listOf("get_all_assets")
         ),
         rule(
             id = "graphql_unknown_argument",
@@ -186,7 +186,7 @@ object ErrorTranslator {
             meaning = "The GraphQL query selects a field that no longer exists at that position in the explorer schema.",
             likelyCause = "Explorer schema drift - e.g. top-level groupedTransactionsByCluster was removed and now lives only under dashboardData (docs/UPSTREAM.md #3).",
             nextAction = "Introspect the schema to find where the field moved and requery it at the new path (dashboardData { ... } for cluster transaction groups).",
-            relatedTools = listOf("get_transactions_by_cluster")
+            relatedTools = listOf("get_blockchain_analytics")
         ),
         rule(
             id = "graphql_wrong_type_variable",
@@ -207,7 +207,7 @@ object ErrorTranslator {
             meaning = "The explorer's backend answered INTERNAL_ERROR - an upstream incident inside the explorer service, not a fault in your call or its arguments.",
             likelyCause = "A live explorer outage or degraded backend: during a real incident several explorer-backed tools fail with this at once while chain-direct tools keep working. The opaque id after 'for' is the explorer's request id - useful only to its operators. (One known self-inflicted variant - negative/zero pagination values - is already rejected locally by this server before reaching the explorer.)",
             nextAction = "Not your fault - retry later with the SAME call; meanwhile try a different explorer tool for the data, or go chain-direct with chromia_dapp_query for on-chain data (it does not pass through the explorer). If it persists across tools for hours, it is an upstream incident to wait out.",
-            relatedTools = listOf("chromia_dapp_query", "get_network_stats")
+            relatedTools = listOf("chromia_dapp_query", "get_blockchain_analytics")
         ),
         rule(
             id = "http_rate_limited",
@@ -223,8 +223,8 @@ object ErrorTranslator {
             pattern = "service unavailable|bad gateway|http 50[23]|status(?: code)?[ :=]{1,3}50[23]",
             meaning = "The remote endpoint (explorer or node) is temporarily down or overloaded (HTTP 502/503).",
             likelyCause = "Transient outage or restart on the server side - not a problem with your request.",
-            nextAction = "Retry after a short delay; if it persists, check get_network_stats / the Chromia status page rather than changing your call.",
-            relatedTools = listOf("get_network_stats")
+            nextAction = "Retry after a short delay; if it persists, check get_all_assets / the Chromia status page rather than changing your call.",
+            relatedTools = listOf("get_all_assets")
         ),
 
         // ---- GTV / serialization ------------------------------------------
@@ -334,7 +334,7 @@ object ErrorTranslator {
             meaning = "The remote side did not answer within the client's time budget.",
             likelyCause = "A slow or unreachable node/explorer, a cold-starting hosted service, or a long-running query.",
             nextAction = "Retry once; if it persists, check the target URL is reachable, prefer a lighter query (pagination, narrower time range), and only then raise the client timeout.",
-            relatedTools = listOf("get_network_stats")
+            relatedTools = listOf("get_all_assets")
         ),
 
         // ---- MCP transport ------------------------------------------------

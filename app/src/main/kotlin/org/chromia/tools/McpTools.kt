@@ -109,58 +109,6 @@ object McpTools {
         outputSchema = null
     )
 
-    fun getBlockchainsTransactionsTool() = Tool(
-        name = "get_blockchains_transactions",
-        description = """
-            - Get transactions grouped by blockchains on a specific network
-            - Returns transactions grouped by blockchains with metadata including:
-                - Blockchain names and RIDs
-                - The cluster they're deployed on
-                - Their state and system chain status
-                - Block height and transaction count
-            - Can be used to get Blockchain's RID
-        """.trimIndent(),
-        inputSchema = ToolSchema(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    )
-                )
-            ),
-            required = listOf()
-        ),
-        title = "Get Blockchain Transactions",
-        annotations = null,
-        outputSchema = null
-    )
-
-    fun getTransactionsByClusterTool() = Tool(
-        name = "get_transactions_by_cluster",
-        description = """
-           - Returns transaction counts grouped by cluster on a specific network, 
-        """,
-        inputSchema = ToolSchema(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    )
-                )
-            ),
-            required = listOf()
-        ),
-        title = "Get Transactions by Cluster",
-        annotations = null,
-        outputSchema = null
-    )
-
     fun getAllAssetsTool() = Tool(
         name = "get_all_assets",
         description = "Get information about all assets on a specific network",
@@ -300,6 +248,18 @@ object McpTools {
                 - Identifying major stakeholders
                 - Understanding asset holder demographics by account type
                 - Cross-chain asset holder analysis
+            - Output shape (this server, not the raw explorer):
+                - `data.getAssetTopHolders` is HOLDERS ONLY and honours `limit`
+                - `holderCount` is how many came back
+                - `othersRemainder` appears when the explorer sent its synthetic
+                  "Others" row - the combined balance of every holder outside the
+                  page. It is not an account and is not in the holders list; the
+                  raw explorer returns it as an N+1th entry with accountId
+                  "Others", which is why it is lifted out here
+                - an asset id the explorer knows nothing about is an ERROR saying
+                  so, not an empty list (the raw explorer answers 200 with `[]`
+                  for both an unknown id and an over-narrow filter; this tool asks
+                  get_asset_blockchains to tell the two apart and says which)
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -561,7 +521,7 @@ object McpTools {
                     "state" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED')")
+                            "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED'). UPSTREAM LIMITATION (verified live 2026-09-07): the explorer answers INTERNAL_ERROR whenever this argument is supplied, with or without the others - it is not your call that is wrong (docs/UPSTREAM.md #3b). Filter by cluster/container/name instead and read `state` off the rows.")
                         )
                     ),
 
@@ -1128,98 +1088,6 @@ object McpTools {
             required = listOf("accountId")
         ),
         title = "Get Account Blockchains",
-        annotations = null,
-        outputSchema = null
-    )
-
-    fun getNodeUnavailabilityTool() = Tool(
-        name = "get_node_unavailability",
-        description = """
-            - KNOWN LIMITATION (2026-08-31): the explorer currently requires a reCAPTCHA token
-              for this query, so programmatic calls fail with "reCAPTCHA verification failed" -
-              an upstream policy, not a server bug. Kept for when the requirement is lifted.
-            - Get detailed information about node unavailability periods for a specific node
-            - Returns comprehensive node downtime information including:
-                - Blockchain RID where the node was unavailable
-                - Time intervals when the node was unavailable (start and end timestamps)
-            - This tool is useful for:
-                - Monitoring node uptime and reliability
-                - Analyzing node performance and availability patterns
-                - Identifying problematic periods for specific nodes
-                - Understanding blockchain network stability
-                - Compliance and SLA monitoring for node operators
-                - Investigating network issues and outages
-                - Planning maintenance windows and understanding impact
-                - Auditing node operator performance
-        """.trimIndent(),
-        inputSchema = ToolSchema(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    ),
-                    "pubkey" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The node's public key (e.g., '02DDAEA392006A93DC65A660CA93712A546E71B0F64AEA09B24A1B64A2053BC7E6')")
-                        )
-                    ),
-                    "startTimestamp" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The start timestamp for the query period in milliseconds (e.g., '1736373600000')")
-                        )
-                    )
-                )
-            ),
-            required = listOf("pubkey", "startTimestamp")
-        ),
-        title = "Get Node Unavailability",
-        annotations = null,
-        outputSchema = null
-    )
-
-    fun getNetworkStats() = Tool(
-        name = "get_network_stats",
-        description = """
-            - Get comprehensive data with key network metrics and statistics
-            - Returns a complete overview of network activity including:
-                - Total count of all accounts across the network
-                - Total count of all transfers across the network
-                - Total count of all transactions across the network
-                - Number of monthly active accounts
-                - Top dApp blockchains with detailed information:
-                    - Blockchain RID and metadata (name, system status, cluster, state)
-                    - Current block height and transaction throughput
-                    - Total transaction count
-                - Top assets by activity with detailed information:
-                    - Asset ID, blockchain RID, name, symbol, and icon URL
-                    - Transfer count and blockchain distribution count
-                - Transaction distribution grouped by cluster with counts
-            - This tool is ideal for:
-                - Monitoring overall network health and activity
-                - Understanding network growth and adoption trends
-                - Identifying top-performing dApps and popular assets
-                - Analyzing cluster distribution and load balancing
-                - Quick network status checks and health monitoring
-        """.trimIndent(),
-        inputSchema = ToolSchema(
-            properties = JsonObject(
-                mapOf(
-                    "network" to JsonObject(
-                        mapOf(
-                            "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("The network name (e.g. 'mainnet', 'testnet')")
-                        )
-                    )
-                )
-            ),
-            required = listOf()
-        ),
-        title = "Get Network Statistics",
         annotations = null,
         outputSchema = null
     )
@@ -4232,8 +4100,6 @@ object McpTools {
         chromiaVectorSearchHelpTool(),
         chrLibraryHelpTool(),
         chrCreateRellDappHelpTool(),
-        getBlockchainsTransactionsTool(),
-        getTransactionsByClusterTool(),
         getAllAssetsTool(),
         getTotalRewardsPaidTool(),
         getAssetTopHoldersTool(),
@@ -4249,8 +4115,6 @@ object McpTools {
         getAssetBlockchainsTool(),
         getSignerBlockchainsTool(),
         getAccountBlockchainsTool(),
-        getNodeUnavailabilityTool(),
-        getNetworkStats(),
         fetchDocsTool(),
         fetchTool(),
         searchTool(),

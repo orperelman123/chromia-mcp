@@ -1,6 +1,7 @@
 package org.chromia.tools
 
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
@@ -45,47 +46,51 @@ import java.util.concurrent.TimeUnit
  *   POST /query_gtv/{brid} (GTV binary)  -> GTV binary query result
  *   POST /tx/{brid}    {"tx": "<hex>"}   -> {} (enqueued)
  *   GET  /tx/{brid}/{txRid}/status       -> {"status": "waiting|confirmed|rejected|unknown"}
+ *   GET  /config/{brid}/features         -> GTV/JSON dict: merkle_hash_version
  */
 internal class LocalChainRestBridge(
-    private val gateway: ChainGateway,
+    chainEngine: BlockchainEngine,
     private val brid: String,
     val port: Int
 ) : AutoCloseable {
 
-    constructor(chainEngine: BlockchainEngine, brid: String, port: Int) :
-        this(EngineGateway(chainEngine), brid, port)
+    private val gateway = EngineGateway(chainEngine)
+
+    /**
+     * What the RUNNING engine reports, not what the template asked for - the
+     * point of the features route is to tell a client the truth about the chain
+     * it is about to sign for.
+     */
+    private val merkleHashVersion: Long = chainEngine.getConfiguration().merkleHashVersion
 
     companion object {
         const val QUERY_TIMEOUT_SECONDS = 30L
     }
 
-    /**
-     * The narrow slice of a running chain the REST facade needs - lets unit
-     * tests exercise the HTTP surface without a database-backed node.
-     */
-    internal interface ChainGateway {
-        fun query(name: String, args: Gtv): Gtv
-        fun queryWithHeight(name: String, args: Gtv): kotlin.Pair<Gtv, Long>
-        /** Throws [DuplicateTx], [QueueFull], or UserMistake on refusal. */
-        fun postTransaction(raw: ByteArray)
-        fun transactionStatus(txRid: ByteArray): TransactionStatus
-    }
-
     internal class DuplicateTx(message: String) : RuntimeException(message)
     internal class QueueFull(message: String) : RuntimeException(message)
 
-    /** Production gateway over the in-process Postchain engine. */
-    internal class EngineGateway(private val chainEngine: BlockchainEngine) : ChainGateway {
-        override fun query(name: String, args: Gtv): Gtv =
+    /**
+     * The chain, as this facade uses it.
+     *
+     * There was a `ChainGateway` interface in front of this until 2026-09-07,
+     * with exactly one production implementation and one anonymous substitute in
+     * a test - which is the whole reason the interface existed. The substitute is
+     * gone (the bridge is driven over a real running node now), so the seam went
+     * with it and this is a plain class over the in-process Postchain engine.
+     */
+    private class EngineGateway(private val chainEngine: BlockchainEngine) {
+        fun query(name: String, args: Gtv): Gtv =
             chainEngine.getBlockQueries().query(name, args)
                 .toCompletableFuture().get(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
-        override fun queryWithHeight(name: String, args: Gtv): kotlin.Pair<Gtv, Long> =
+        fun queryWithHeight(name: String, args: Gtv): kotlin.Pair<Gtv, Long> =
             chainEngine.getBlockQueries().queryWithHeight(name, args)
                 .toCompletableFuture().get(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
         /** Mirrors PostchainEBFTModel.postTransaction (minus metrics). */
-        override fun postTransaction(raw: ByteArray) {
+        /** Throws [DuplicateTx], [QueueFull], or UserMistake on refusal. */
+        fun postTransaction(raw: ByteArray) {
             val tx = chainEngine.getConfiguration().getTransactionFactory().decodeAndValidateTransaction(raw)
             if (tx.isSpecial()) throw UserMistake("Cannot post special transaction")
             if (chainEngine.getBlockQueries().isTransactionConfirmed(tx.getRID()).get()) {
@@ -100,7 +105,7 @@ internal class LocalChainRestBridge(
         }
 
         /** Mirrors PostchainEBFTModel.getStatus: queue first, then confirmation. */
-        override fun transactionStatus(txRid: ByteArray): TransactionStatus {
+        fun transactionStatus(txRid: ByteArray): TransactionStatus {
             val queued = chainEngine.getTransactionQueue().getTransactionStatus(txRid)
             if (queued != TransactionStatus.UNKNOWN) return queued
             return if (chainEngine.getBlockQueries().isTransactionConfirmed(txRid).get()) {
@@ -144,6 +149,28 @@ internal class LocalChainRestBridge(
         routing {
             get("/brid/iid_0") {
                 call.respondText(brid, ContentType.Text.Plain)
+            }
+            /**
+             * postchain-client asks for this on its FIRST signed transaction
+             * (PostchainClientImpl.autoDetectMerkleHashVersion -> getFeatures ->
+             * `GET {endpoint}/config/{brid}/features`, Accept
+             * application/octet-stream, body decoded as a GTV dict). When the
+             * request fails it logs "fallback to merkleHashVersion: 1" and signs
+             * version 1 - which is what every client talking to this bridge did
+             * until this route existed. Same shape as postchain's RestApi:
+             * binary GTV for octet-stream, JSON otherwise.
+             */
+            get("/config/{brid}/features") {
+                handle(call.parameters["brid"]) {
+                    val features = gtv(mapOf("merkle_hash_version" to gtv(merkleHashVersion)))
+                    val wantsGtv = call.request.headers[HttpHeaders.Accept]
+                        ?.contains(ContentType.Application.OctetStream.toString(), ignoreCase = true) == true
+                    if (wantsGtv) {
+                        call.respondBytes(GtvEncoder.encodeGtv(features), ContentType.Application.OctetStream)
+                    } else {
+                        call.respondText(gson.toJson(features, Gtv::class.java), ContentType.Application.Json)
+                    }
+                }
             }
             get("/query/{brid}") {
                 handle(call.parameters["brid"]) {

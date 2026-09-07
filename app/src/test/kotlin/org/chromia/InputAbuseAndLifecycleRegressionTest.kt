@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test
 class InputAbuseAndLifecycleRegressionTest {
 
     private val executor = ToolExecutor(
-        RecordingRepository(),
+        McpTestSupport.offlineRepository(),
         PromptManager(),
         ragStoreFactory = { McpTestSupport.fixtureRagStore() }
     )
@@ -51,7 +51,6 @@ class InputAbuseAndLifecycleRegressionTest {
     @AfterEach
     fun tearDown() {
         LocalChain.stopAll()
-        LocalChain.starterOverrideForTests = null
     }
 
     // ---- Lens 1: undeclared arguments were silently ignored --------------------
@@ -339,30 +338,47 @@ class InputAbuseAndLifecycleRegressionTest {
 
     // ---- Lens 2: a failed restart silently took the previous chain down --------
 
+    /**
+     * The only test in this class that needs a node, so it starts exactly one.
+     *
+     * It used to install `LocalChain.starterOverrideForTests` - a production
+     * hook that let this test hand `up` a chain with no node and then throw a
+     * "simulated node start failure" on the second call. Both halves were
+     * doubles of our own chain lifecycle, and the claim ("the chain you had is
+     * really gone") is precisely the half a double cannot make. Zero doubles
+     * (2026-09-07): a REAL chain is started against the real database, and the
+     * restart is made to fail for a real reason - the replacement sources are
+     * pointed at a CLOSED port, so PostgreSQL genuinely refuses the connection,
+     * the same way [McpTestSupport.offlineRepository] makes an offline tool
+     * fail with a real ConnectException.
+     */
     @Test
     fun failedRestartSaysThePreviousChainIsGone() {
-        var calls = 0
-        LocalChain.starterOverrideForTests = { plan ->
-            calls++
-            if (calls > 1) throw IllegalStateException("simulated node start failure")
-            LocalChain.Running(
-                node = null,
-                brid = plan.brid,
-                apiPort = plan.apiPort,
-                fingerprint = plan.fingerprint,
-                nodePubkey = plan.pubKeyHex,
-                expiresAtMillis = Long.MAX_VALUE,
-                ttlTask = null
-            )
-        }
-        val dbUrl = "jdbc:postgresql://localhost:5432/db?user=u&password=p"
+        val dbUrl = LiveEnv.requireDatabaseUrl(
+            "the claim is that a failed restart took a REAL running chain down, which needs a real chain first"
+        )
         val first = LocalChain.up(mapOf("main.rell" to "module; entity item { name; }"), databaseUrl = dbUrl)
         assertTrue(first.ok, first.notes)
+        assertEquals("started", first.status, first.notes)
+        assertEquals("running", LocalChain.status().status)
 
-        val second = LocalChain.up(mapOf("main.rell" to "module; entity other { name; }"), databaseUrl = dbUrl)
+        // Different sources (so this is a restart, not an idempotent `up`) and a
+        // database nothing is listening on: the node start fails for real.
+        val closedDbUrl = "jdbc:postgresql://127.0.0.1:1/chromia_mcp_no_such_db?user=u&password=p"
+        val second = LocalChain.up(
+            mapOf("main.rell" to "module; entity other { name; }"),
+            databaseUrl = closedDbUrl
+        )
         assertFalse(second.ok, second.notes)
-        assertTrue(second.notes.contains("simulated node start failure"), second.notes)
+        assertEquals("error", second.status, second.notes)
+        // The real failure is reported - not swallowed into the lifecycle note.
+        assertTrue(
+            second.notes.substringBefore(" The previously running chain").isNotBlank(),
+            "the start failure itself must be reported: ${second.notes}"
+        )
         assertTrue(second.notes.contains("previously running chain (${first.brid}) was stopped"), second.notes)
+        assertTrue(second.notes.contains("nothing is running now"), second.notes)
+        // ...and it really is gone: the registry agrees with what the note says.
         assertEquals("not_running", LocalChain.status().status)
     }
 
@@ -370,8 +386,7 @@ class InputAbuseAndLifecycleRegressionTest {
 
     @Test
     fun ft4TestsWithoutTheAdminArgsGetTheModuleArgsHint() {
-        val dbUrl = System.getenv(RunRellTests.DATABASE_URL_ENV)
-        org.junit.jupiter.api.Assumptions.assumeTrue(!dbUrl.isNullOrBlank(), "needs ${RunRellTests.DATABASE_URL_ENV}")
+        val dbUrl = LiveEnv.requireDatabaseUrl("the FT4 module_args error path runs real Rell tests")
         val rell = DappScaffold.files("notes", template = "ft4")
             .filterKeys { it.endsWith(".rell") }
             .mapKeys { (path, _) -> path.removePrefix("src/") }
@@ -402,8 +417,7 @@ class InputAbuseAndLifecycleRegressionTest {
      */
     @Test
     fun missingModuleArgsAreNamedFromTheCompiledApp() {
-        val dbUrl = System.getenv(RunRellTests.DATABASE_URL_ENV)
-        org.junit.jupiter.api.Assumptions.assumeTrue(!dbUrl.isNullOrBlank(), "needs ${RunRellTests.DATABASE_URL_ENV}")
+        val dbUrl = LiveEnv.requireDatabaseUrl("the missing-module_args note is computed from a real compiled app")
         val rell = DappScaffold.files("peg", template = "stablecoin")
             .filterKeys { it.endsWith(".rell") }
             .mapKeys { (path, _) -> path.removePrefix("src/") }

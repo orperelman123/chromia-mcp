@@ -159,7 +159,11 @@ object ToolDocs {
             - Filter by RID: Find specific blockchain by its RID
             - Filter by cluster: Find blockchains in specific clusters (e.g., 'pink', 'system')
             - Filter by container: Find blockchains in specific containers
-            - Filter by state: Find blockchains by operational state (RUNNING, REMOVED, PAUSED)
+            - Filter by state: Find blockchains by operational state (RUNNING, REMOVED, PAUSED).
+              UPSTREAM LIMITATION, verified live 2026-09-07: the explorer answers INTERNAL_ERROR
+              whenever this argument is supplied, with or without the others, so this one filter
+              is unusable today through any client (docs/UPSTREAM.md #3b). Filter by
+              cluster/container/name and read `state` off the rows instead.
             - Filter by system status: Find system chains vs user applications
             - Pagination support: limit and offset for large result sets
             - Sorting options: sortBy and sortDirection for ordered results

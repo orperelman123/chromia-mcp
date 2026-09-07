@@ -2,13 +2,8 @@ package org.chromia
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
-import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.sse.SSE
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
+import org.chromia.data.config.ChromiaConfig
 import org.chromia.tools.readResourceRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
@@ -95,24 +90,30 @@ class McpSseSessionTest {
         }
     }
 
+    /**
+     * THE LIVE EXPLORER, THROUGH THE IN-PROCESS SSE SESSION.
+     *
+     * A MockEngine used to answer with a recorded `allBlockchains` envelope while the
+     * test asserted over the request the engine had captured. That proved the
+     * GraphQL document and the variables the repository builds - and nothing at
+     * all about the explorer, which never saw either.
+     *
+     * Live, the answer proves both: the explorer returns the directory chain for name="directory", system=true only if the
+     * document was well formed and the variables bound, and what comes back is
+     * what the explorer says today rather than what it said when the fixture was
+     * written. The `network` parameter is mainnet because the public explorer
+     * answers 400 for every other one (docs/UPSTREAM.md #9) - a fixture was free
+     * to pretend otherwise, and did.
+     */
     @Test
-    fun sseFilterBlockchainsUsesMockEngine200ThroughMcpSession() = runBlocking {
-        val fixture = """{"data":{"allBlockchains":[{"rid":"abc","name":"directory_chain","system":true}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        withSseSession(engine = engine) { client ->
-            val call = withTimeout(10_000) {
+    fun sseFilterBlockchainsReachesTheLiveExplorerThroughMcpSession() = runBlocking {
+        LiveChromia.requireLive("calls filter_blockchains against the live explorer over an in-process SSE session")
+        withSseSession(config = LiveChromia.config()) { client ->
+            val call = withTimeout(60_000) {
                 client.callTool(
                     name = "filter_blockchains",
                     arguments = mapOf(
-                        "network" to "testnet",
+                        "network" to LiveChromia.EXPLORER_NETWORK,
                         "name" to "directory",
                         "limit" to 5,
                         "system" to true
@@ -120,92 +121,59 @@ class McpSseSessionTest {
                 )
             }
             assertNotNull(call)
-            assertEquals(false, call!!.isError == true)
+            assertEquals(false, call!!.isError == true, (call.content.first() as TextContent).text)
             val structured = call.structuredContent!!
-            assertEquals(
-                "directory_chain",
-                structured
-                    .getValue("data")
-                    .jsonObject
-                    .getValue("allBlockchains")
-                    .jsonArray[0]
-                    .jsonObject
-                    .getValue("name")
-                    .jsonPrimitive
-                    .content
+            val chains = structured.getValue("data").jsonObject.getValue("allBlockchains").jsonArray
+            val names = chains.map { it.jsonObject.getValue("name").jsonPrimitive.content }
+            assertTrue(
+                names.contains("directory_chain"),
+                "name/system did not bind - the live explorer returned $names"
             )
             val text = (call.content.first() as TextContent).text!!
             assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-            assertEquals(1, engine.requestHistory.size)
-            assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-            assertEquals(1, capturedBodies.size)
-            val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-            assertTrue(
-                posted["query"]!!.jsonPrimitive.content.contains("allBlockchains"),
-                posted["query"]!!.jsonPrimitive.content
-            )
-            val variables = posted.getValue("variables").jsonObject
-            assertEquals("directory", variables["name"]!!.jsonPrimitive.content)
-            assertEquals("5", variables["limit"]!!.jsonPrimitive.content)
-            assertEquals("true", variables["system"]!!.jsonPrimitive.content)
         }
     }
 
+    /**
+     * THE LIVE EXPLORER, THROUGH THE IN-PROCESS SSE SESSION.
+     *
+     * A MockEngine used to answer with a recorded `filterAssets` envelope while the
+     * test asserted over the request the engine had captured. That proved the
+     * GraphQL document and the variables the repository builds - and nothing at
+     * all about the explorer, which never saw either.
+     *
+     * Live, the answer proves both: the explorer returns an asset whose symbol mentions CHR for searchQuery="CHR" only if the
+     * document was well formed and the variables bound, and what comes back is
+     * what the explorer says today rather than what it said when the fixture was
+     * written. The `network` parameter is mainnet because the public explorer
+     * answers 400 for every other one (docs/UPSTREAM.md #9) - a fixture was free
+     * to pretend otherwise, and did.
+     */
     @Test
-    fun sseFilterAssetsUsesMockEngine200ThroughMcpSession() = runBlocking {
-        val fixture = """{"data":{"filterAssets":{"assets":[{"name":"Chromia","symbol":"CHR","type":"FT"}],"totalCount":1}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        withSseSession(engine = engine) { client ->
-            val call = withTimeout(10_000) {
+    fun sseFilterAssetsReachesTheLiveExplorerThroughMcpSession() = runBlocking {
+        LiveChromia.requireLive("calls filter_assets against the live explorer over an in-process SSE session")
+        withSseSession(config = LiveChromia.config()) { client ->
+            val call = withTimeout(60_000) {
                 client.callTool(
                     name = "filter_assets",
                     arguments = mapOf(
-                        "network" to "mainnet",
+                        "network" to LiveChromia.EXPLORER_NETWORK,
                         "searchQuery" to "CHR",
-                        "type" to "FT",
                         "limit" to 10
                     )
                 )
             }
             assertNotNull(call)
-            assertEquals(false, call!!.isError == true)
+            assertEquals(false, call!!.isError == true, (call.content.first() as TextContent).text)
             val structured = call.structuredContent!!
-            assertEquals(
-                "CHR",
-                structured
-                    .getValue("data")
-                    .jsonObject
-                    .getValue("filterAssets")
-                    .jsonObject
-                    .getValue("assets")
-                    .jsonArray[0]
-                    .jsonObject
-                    .getValue("symbol")
-                    .jsonPrimitive
-                    .content
-            )
+            val assets = structured.getValue("data").jsonObject
+                .getValue("filterAssets").jsonObject
+                .getValue("assets").jsonArray
+            assertTrue(assets.isNotEmpty(), "searchQuery=CHR matched nothing on mainnet: $structured")
+            val symbols = assets.map { it.jsonObject.getValue("symbol").jsonPrimitive.content }
+            assertTrue(symbols.any { it.contains("CHR") }, "searchQuery did not bind: $symbols")
             val text = (call.content.first() as TextContent).text!!
             assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-            assertEquals(1, engine.requestHistory.size)
-            assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-            assertEquals(1, capturedBodies.size)
-            val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-            assertTrue(
-                posted["query"]!!.jsonPrimitive.content.contains("filterAssets"),
-                posted["query"]!!.jsonPrimitive.content
-            )
-            val variables = posted.getValue("variables").jsonObject
-            assertEquals("CHR", variables["searchQuery"]!!.jsonPrimitive.content)
-            assertEquals("FT", variables["type"]!!.jsonPrimitive.content)
-            assertEquals("10", variables["limit"]!!.jsonPrimitive.content)
         }
     }
 
@@ -258,7 +226,10 @@ class McpSseSessionTest {
             assertNotNull(search)
             assertEquals(false, search!!.isError == true)
             val searchHits = search.structuredContent!!["results"]!!.jsonArray
-            assertEquals(1, searchHits.size)
+            // Two segments, and the real BGE-small embedder scores any two short English
+            // sentences above the store's 0.6 retrieval floor, so a two-segment fixture
+            // index returns both. The claim this test makes is which one LEADS.
+            assertEquals(2, searchHits.size)
             val id = searchHits.first().jsonObject["id"]!!.jsonPrimitive.content
             assertEquals(org.chromia.tools.segmentId(McpTestSupport.AUTH_SEGMENT), id)
             assertEquals("ft4-auth.md", searchHits.first().jsonObject["title"]!!.jsonPrimitive.content)
@@ -283,7 +254,10 @@ class McpSseSessionTest {
             assertNotNull(docs)
             assertEquals(false, docs!!.isError == true)
             val docsHits = docs.structuredContent!!["hits"]!!.jsonArray
-            assertEquals(1, docsHits.size)
+            // Two segments, and the real BGE-small embedder scores any two short English
+            // sentences above the store's 0.6 retrieval floor, so a two-segment fixture
+            // index returns both. The claim this test makes is which one LEADS.
+            assertEquals(2, docsHits.size)
             val rellId = docsHits.first().jsonObject["id"]!!.jsonPrimitive.content
             assertEquals(org.chromia.tools.segmentId(McpTestSupport.RELL_SEGMENT), rellId)
             assertEquals(McpTestSupport.RELL_SEGMENT.text(), docsHits.first().jsonObject["text"]!!.jsonPrimitive.content)
@@ -302,10 +276,10 @@ class McpSseSessionTest {
     }
 
     private suspend fun withSseSession(
-        engine: MockEngine = McpTestSupport.errorEngine(),
+        config: ChromiaConfig = McpTestSupport.offlineConfig(),
         block: suspend (Client) -> Unit
     ) {
-        val app = McpTestSupport.testApp(engine = engine)
+        val app = McpTestSupport.testApp(config = config)
         val server = app.runSseMcpServer(host = "127.0.0.1", port = 0, wait = false)
         val http = HttpClient(CIO) { install(SSE) }
         try {

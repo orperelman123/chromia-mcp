@@ -322,7 +322,7 @@ class OnboardingNextStepToolTest {
                     put("goal", "local")
                 }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         assertTrue(result.isError != true)
         val how = result.structuredContent!!["nextAction"]!!
@@ -439,7 +439,7 @@ class OnboardingNextStepToolTest {
     // ---- MCP wiring ----------------------------------------------------------
 
     private fun callViaExecutor(args: kotlinx.serialization.json.JsonObject) = runBlocking {
-        ToolExecutor(RecordingRepository(), PromptManager())
+        ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
             .executeTool(callToolRequest(name = "onboarding_next_step", arguments = args))
     }
 

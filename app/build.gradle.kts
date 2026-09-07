@@ -128,7 +128,12 @@ dependencies {
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-    testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
+    // Ktor's mock engine artifact was here until 2026-09-07. It is a substitute for
+    // the transport itself: with it on the classpath a test can replace the HTTP
+    // client and still call itself an integration test. Every use is gone (real
+    // embedded servers, real closed ports, the real explorer), and NoTestDoublesTest
+    // refuses the dependency by name so it cannot come back quietly - which is why
+    // this comment does not spell the artifact out.
     // Tests compile against Client/StdioClientTransport and the Streamable HTTP client transport.
     testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
 }
@@ -149,8 +154,37 @@ tasks.named<Test>("test") {
     // run, 588 the next) and Gradle removed the result XMLs on the way out -
     // which the merge gate then read as "the suite did not run". Round 9 added
     // four full dapp builds and five samples to the corpus, each analysed on
-    // every run. CI's own job budget is 50 minutes, so this stays inside it.
-    timeout.set(Duration.ofMinutes(60))
+    // every run.
+    //
+    // 60 was not a budget, it was a coin flip, and it came up tails on
+    // 2026-09-08. THE CHECK THE OLD COMMENT ASKS FOR, done before this number
+    // moved - is it a hang or a long suite?  It is a long suite:
+    //
+    //   - the last run that COMPLETED (2026-09-07 17:43-18:42Z, 1534 tests, 0
+    //     ignored) measured 58m54.93s. That is 65 seconds inside the old cap.
+    //     Its report is the evidence: DappScaffoldSecureTemplatesTest alone is
+    //     28m50.58s of it - 126 tests, each compiling and running a real Rell
+    //     dapp - and the ten slowest classes are 50.3 of the 58.9 minutes;
+    //   - the run that was killed made steady progress the whole hour. Its
+    //     captured output carries 4453 timestamped lines spread evenly from
+    //     23:39:52 to 00:39:10 with no stall longer than 220s (that one during
+    //     the first dapp build), and it died INSIDE the template class, not
+    //     waiting on anything;
+    //   - it also shared the machine: the fix_round17_template worktree ran its
+    //     own test task from 23:43 to 23:56 of that hour.
+    //
+    // So the suite needs an hour of real work and had no headroom for a second
+    // JVM on the box. 90 gives it that headroom without hiding much: a genuine
+    // hang still fails, and the gate prints the partial tally and names the
+    // timeout, which is how this one was diagnosed.
+    //
+    // FLAG, not a claim: the old comment said "CI's own job budget is 50
+    // minutes, so this stays inside it". A 59-minute suite does not stay inside
+    // 50 minutes. Either the ubuntu-latest runner is materially faster than this
+    // box or .github/workflows/ci.yml (timeout-minutes: 50, and that job also
+    // builds the fat jar) is being killed - unverified from here, and worth
+    // checking before the next release rather than assuming.
+    timeout.set(Duration.ofMinutes(90))
 
     // Environment-gated tests (a PostgreSQL with C.UTF-8 collation, the live
     // testnet probes) skip unless their env vars are set - and a skip is a test
