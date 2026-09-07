@@ -1,6 +1,7 @@
 package org.chromia.tools
 
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
@@ -45,6 +46,7 @@ import java.util.concurrent.TimeUnit
  *   POST /query_gtv/{brid} (GTV binary)  -> GTV binary query result
  *   POST /tx/{brid}    {"tx": "<hex>"}   -> {} (enqueued)
  *   GET  /tx/{brid}/{txRid}/status       -> {"status": "waiting|confirmed|rejected|unknown"}
+ *   GET  /config/{brid}/features         -> GTV/JSON dict: merkle_hash_version
  */
 internal class LocalChainRestBridge(
     chainEngine: BlockchainEngine,
@@ -53,6 +55,13 @@ internal class LocalChainRestBridge(
 ) : AutoCloseable {
 
     private val gateway = EngineGateway(chainEngine)
+
+    /**
+     * What the RUNNING engine reports, not what the template asked for - the
+     * point of the features route is to tell a client the truth about the chain
+     * it is about to sign for.
+     */
+    private val merkleHashVersion: Long = chainEngine.getConfiguration().merkleHashVersion
 
     companion object {
         const val QUERY_TIMEOUT_SECONDS = 30L
@@ -140,6 +149,28 @@ internal class LocalChainRestBridge(
         routing {
             get("/brid/iid_0") {
                 call.respondText(brid, ContentType.Text.Plain)
+            }
+            /**
+             * postchain-client asks for this on its FIRST signed transaction
+             * (PostchainClientImpl.autoDetectMerkleHashVersion -> getFeatures ->
+             * `GET {endpoint}/config/{brid}/features`, Accept
+             * application/octet-stream, body decoded as a GTV dict). When the
+             * request fails it logs "fallback to merkleHashVersion: 1" and signs
+             * version 1 - which is what every client talking to this bridge did
+             * until this route existed. Same shape as postchain's RestApi:
+             * binary GTV for octet-stream, JSON otherwise.
+             */
+            get("/config/{brid}/features") {
+                handle(call.parameters["brid"]) {
+                    val features = gtv(mapOf("merkle_hash_version" to gtv(merkleHashVersion)))
+                    val wantsGtv = call.request.headers[HttpHeaders.Accept]
+                        ?.contains(ContentType.Application.OctetStream.toString(), ignoreCase = true) == true
+                    if (wantsGtv) {
+                        call.respondBytes(GtvEncoder.encodeGtv(features), ContentType.Application.OctetStream)
+                    } else {
+                        call.respondText(gson.toJson(features, Gtv::class.java), ContentType.Application.Json)
+                    }
+                }
             }
             get("/query/{brid}") {
                 handle(call.parameters["brid"]) {

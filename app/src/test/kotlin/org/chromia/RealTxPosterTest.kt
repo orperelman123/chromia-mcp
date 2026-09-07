@@ -80,21 +80,24 @@ class RealTxPosterTest {
     }
 
     /**
-     * TWO operations, always.
+     * ONE operation is the interesting case, and until 2026-09-07 it could not
+     * be tested here at all.
      *
-     * A GTX operations array holding exactly ONE element hashes differently
-     * under merkle version 1 and 2 (GtvBinaryTreeFactoryArray flattens the
-     * single child node in v1, keeps it in v2). The local chain runs
-     * merkle_hash_version 2, but LocalChainRestBridge serves no
-     * `/config/{brid}/features` route, so postchain-client's auto-detect falls
-     * back to version 1 - and `RealTxPoster.post` builds its own client config,
-     * so a test cannot pin the version. With two operations both versions agree,
-     * which is also why LocalChainIntegrationTest's real write carries an
-     * addNop(). (Reported as a production gap - see the report for this change.)
+     * A GTX operations array holding exactly ONE element merkle-hashes
+     * differently under version 1 and version 2 (GtvBinaryTreeFactoryArray
+     * flattens the single child node in v1, keeps it in v2). The local chain was
+     * supposed to run merkle_hash_version 2, LocalChainRestBridge served no
+     * `/config/{brid}/features` route, and `RealTxPoster.post` builds its own
+     * client config - so postchain-client auto-detected nothing, fell back to
+     * version 1, and a test could not pin its way around it. These tests
+     * therefore always sent TWO operations, the one shape where both versions
+     * agree, and the disagreement stayed invisible.
+     *
+     * Both ends are fixed now (the chain really configures version 2 under
+     * `features`, and the bridge serves the route the client asks for), so every
+     * post below sends the single operation an agent actually writes. A
+     * regression at either end shows up as a rejected transaction right here.
      */
-    private fun twoOps(first: TxOp, isbn: String, title: String): List<TxOp> =
-        listOf(first, TxOp("add_book", listOf(gtv(isbn), gtv(title))))
-
     private fun postToTheRealChain(ops: List<TxOp>, bridHex: String = brid, url: String = apiUrl): TxOutcome =
         RealTxPoster.post(urls = listOf(url), bridHex = bridHex, ops = ops, privKey = devPrivKey)
 
@@ -104,11 +107,7 @@ class RealTxPosterTest {
     @Test
     fun confirmedTransactionIsConfirmedWithNoReasonAndTheConfirmingPollIsRecorded() {
         val outcome = postToTheRealChain(
-            twoOps(
-                TxOp("add_book", listOf(gtv("978-1-00-000001-0"), gtv("First"))),
-                "978-1-00-000002-7",
-                "Second"
-            )
+            listOf(TxOp("add_book", listOf(gtv("978-1-00-000001-0"), gtv("First"))))
         )
         val wire = "finalStatus=${outcome.finalStatus} rejectReason=${outcome.rejectReason} " +
             "lastStatusPoll=${outcome.lastStatusPollResponse}"
@@ -136,11 +135,7 @@ class RealTxPosterTest {
     @Test
     fun rejectedTransactionEndsThePollAtRejectedAndKeepsTheExactStatusBody() {
         val outcome = postToTheRealChain(
-            twoOps(
-                TxOp("always_fails", listOf(gtv("boom"))),
-                "978-1-00-000003-4",
-                "Never stored"
-            )
+            listOf(TxOp("always_fails", listOf(gtv("boom"))))
         )
         val wire = "finalStatus=${outcome.finalStatus} rejectReason=${outcome.rejectReason} " +
             "lastStatusPoll=${outcome.lastStatusPollResponse}"
@@ -166,11 +161,7 @@ class RealTxPosterTest {
     @Test
     fun postRejectedOnTheWireHasAReasonAndNoStatusPoll() {
         val outcome = postToTheRealChain(
-            twoOps(
-                TxOp("add_book", listOf(gtv("978-1-00-000004-1"), gtv("Wrong chain"))),
-                "978-1-00-000005-8",
-                "Wrong chain too"
-            ),
+            listOf(TxOp("add_book", listOf(gtv("978-1-00-000004-1"), gtv("Wrong chain")))),
             bridHex = "CD".repeat(32)
         )
         val wire = "finalStatus=${outcome.finalStatus} rejectReason=${outcome.rejectReason}"
@@ -193,11 +184,7 @@ class RealTxPosterTest {
     @Test
     fun postToAClosedLoopbackPortIsRejectedWithAReasonAndNeverPolls() {
         val outcome = postToTheRealChain(
-            twoOps(
-                TxOp("add_book", listOf(gtv("978-1-00-000006-5"), gtv("Nobody listening"))),
-                "978-1-00-000007-2",
-                "Still nobody"
-            ),
+            listOf(TxOp("add_book", listOf(gtv("978-1-00-000006-5"), gtv("Nobody listening")))),
             url = "http://127.0.0.1:1"
         )
         val wire = "finalStatus=${outcome.finalStatus} rejectReason=${outcome.rejectReason}"

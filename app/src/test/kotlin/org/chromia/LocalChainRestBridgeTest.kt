@@ -3,10 +3,13 @@ package org.chromia
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.readRawBytes
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
@@ -25,6 +28,7 @@ import net.postchain.crypto.PubKey
 import net.postchain.crypto.Secp256K1CryptoSystem
 import net.postchain.crypto.secp256k1_derivePubKey
 import net.postchain.gtv.Gtv
+import net.postchain.gtv.GtvDecoder
 import net.postchain.gtv.GtvFactory.gtv
 import net.postchain.gtx.Gtx
 import org.chromia.tools.LocalChain
@@ -95,11 +99,10 @@ class LocalChainRestBridgeTest {
      * surface with ktor, so the JSON-hex and octet-stream bodies are the ones
      * under test rather than whatever postchain-client happens to send.
      *
-     * merkleHashVersion is pinned to 2 on purpose: the chain is configured with
-     * merkle_hash_version 2 ([LocalChain.configTemplate]) and this bridge
-     * serves no `/config/{brid}/features` route, so the client's auto-detect
-     * would fall back to version 1 and sign a digest the node does not agree
-     * with. (Reported as a production gap - see the report for this change.)
+     * NOTHING is pinned on it - no merkleHashVersion, no crypto override. It is
+     * exactly the client a real agent writes from the docs, and the transaction
+     * tests below only pass if the bridge tells it the truth about the chain
+     * (see [featuresRouteReportsTheVersionTheChainActuallyRuns]).
      */
     private lateinit var builderClient: PostchainClient
 
@@ -123,8 +126,7 @@ class LocalChainRestBridgeTest {
             PostchainClientConfig(
                 blockchainRid = BlockchainRid.buildFromHex(brid),
                 endpointPool = EndpointPool.singleUrl(base),
-                signers = listOf(devKeyPair),
-                merkleHashVersion = 2
+                signers = listOf(devKeyPair)
             )
         )
     }
@@ -167,6 +169,42 @@ class LocalChainRestBridgeTest {
     @Test
     fun bridEndpointReturnsPlainTextRid() = runBlocking {
         assertEquals(brid, http.get("$base/brid/iid_0").bodyAsText())
+    }
+
+    /**
+     * The route postchain-client fetches before it signs anything, asserted
+     * three ways at once:
+     *
+     *  - the RUNNING engine reports merkle hash version 2, so the chain really
+     *    is on the production pin the rest of this server tells agents to ship
+     *    (before 2026-09-07 `merkle_hash_version` sat at the top level of
+     *    [LocalChain.configTemplate], where Postchain never reads it, and every
+     *    local chain silently ran the deprecated version 1);
+     *  - the binary GTV form is what the client asks for and what it decodes;
+     *  - the JSON form is what a person with curl sees.
+     *
+     * The transaction tests below are the end-to-end half of the same claim: a
+     * stock client with nothing pinned signs a digest the node accepts only if
+     * this route answered, and answered 2.
+     */
+    @Test
+    fun featuresRouteReportsTheVersionTheChainActuallyRuns() = runBlocking {
+        assertEquals(2L, realEngine().getConfiguration().merkleHashVersion)
+
+        val binary = http.get("$base/config/$brid/features") {
+            header(HttpHeaders.Accept, ContentType.Application.OctetStream.toString())
+        }
+        assertEquals(HttpStatusCode.OK, binary.status)
+        val decoded = GtvDecoder.decodeGtv(binary.readRawBytes()).asDict()
+        assertEquals(2L, decoded["merkle_hash_version"]!!.asInteger())
+
+        val json = http.get("$base/config/$brid/features").bodyAsText()
+        assertTrue(json.contains("\"merkle_hash_version\""), json)
+        assertTrue(json.contains("2"), json)
+
+        // Wrong RID is a 404, exactly like every other {brid} route here.
+        val wrong = http.get("$base/config/${"0".repeat(64)}/features")
+        assertEquals(HttpStatusCode.NotFound, wrong.status)
     }
 
     @Test
