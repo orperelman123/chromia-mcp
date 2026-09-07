@@ -357,19 +357,18 @@ data class TxOutcome(
 )
 
 /**
- * Posts a signed GTX transaction to a chain. Test seam - unit tests never
- * construct the production implementation, so no live network or key use.
+ * The poster: postchain-client GTX build + secp256k1 sign + post, awaiting
+ * confirmation. The private key never leaves this process.
+ *
+ * A `TxPoster` fun interface used to sit in front of this, with exactly one
+ * implementation - this one - and a defaulted constructor parameter on two
+ * strategies so a test could hand in a scripted poster instead. The scripted
+ * posters are gone (the poster is driven against a real embedded node and, for
+ * the signing pipeline end to end, the live Economy Chain), and an interface
+ * with one implementation and nothing left to inject is not an abstraction.
  */
-fun interface TxPoster {
-    fun post(urls: List<String>, bridHex: String, ops: List<TxOp>, privKey: ByteArray): TxOutcome
-}
-
-/**
- * Production poster: postchain-client GTX build + secp256k1 sign + post,
- * awaiting confirmation. The private key never leaves this process.
- */
-object RealTxPoster : TxPoster {
-    override fun post(urls: List<String>, bridHex: String, ops: List<TxOp>, privKey: ByteArray): TxOutcome {
+object RealTxPoster {
+    fun post(urls: List<String>, bridHex: String, ops: List<TxOp>, privKey: ByteArray): TxOutcome {
         val pubKey = TestnetProvisioning.derivePubKey(privKey)
         val config = PostchainClientConfig(
             blockchainRid = BlockchainRid.buildFromHex(bridHex),
@@ -511,15 +510,16 @@ class DeployKeyStore(private val dir: Path) {
     }
 }
 
-/** Subprocess seam for deploy_testnet_chain's `chr` invocation. */
+/** What deploy_testnet_chain's `chr` invocation returns. */
 data class ProcOut(val exitCode: Int, val stdout: String, val stderr: String)
 
-fun interface ProcessRunner {
-    fun run(command: List<String>, workDir: Path, extraEnv: Map<String, String>, timeoutMs: Long): ProcOut
-}
-
-object RealProcessRunner : ProcessRunner {
-    override fun run(command: List<String>, workDir: Path, extraEnv: Map<String, String>, timeoutMs: Long): ProcOut {
+/**
+ * Runs `chr`. The `ProcessRunner` fun interface that used to front this went
+ * with the scripted runners: the deploy tests invoke the real `chr` on PATH
+ * (CHROMIA_REQUIRE_CHR), so there is nothing left to substitute.
+ */
+object RealProcessRunner {
+    fun run(command: List<String>, workDir: Path, extraEnv: Map<String, String>, timeoutMs: Long): ProcOut {
         val pb = ProcessBuilder(command).directory(workDir.toFile())
         pb.environment().putAll(extraEnv)
         val proc = pb.start()

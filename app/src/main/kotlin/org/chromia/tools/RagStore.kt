@@ -675,8 +675,7 @@ open class RagStore(
      * that produced the store. Without this fallback a default-constructed
      * RagStore answered every search with "not found".
      */
-    /** Test seam for the SPI fallback below; production uses the ServiceLoader. */
-    internal var embeddingModelSpiLoader: () -> EmbeddingModel? = {
+    private fun spiEmbeddingModel(): EmbeddingModel? =
         runCatching {
             java.util.ServiceLoader.load(
                 dev.langchain4j.spi.model.embedding.EmbeddingModelFactory::class.java
@@ -684,10 +683,9 @@ open class RagStore(
         }.onFailure { error ->
             logger.warn("SPI embedding model load failed: ${error.message}")
         }.getOrNull()
-    }
 
     private val resolvedEmbeddingModel: EmbeddingModel? by lazy {
-        embeddingModel ?: embeddingModelSpiLoader()
+        embeddingModel ?: spiEmbeddingModel()
     }
 
     /** True while the background model warm-up of [init] is running or done; a test seam, not a contract. */

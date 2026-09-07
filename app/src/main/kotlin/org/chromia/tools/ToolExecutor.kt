@@ -3570,8 +3570,6 @@ class OnboardingNextStepStrategy(
 }
 
 class VerifyDeploymentStrategy(
-    /** Test seam so the height-progression wait costs no suite time. */
-    private val delayFn: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
     /**
      * Overall wall-clock deadline across ALL probe work (client construction
      * with its signer discovery, both height reads, the wait, the smoke
@@ -3648,7 +3646,7 @@ class VerifyDeploymentStrategy(
         }
         val firstHeight = (first as NetworkResult.Success).data
 
-        delayFn(waitMs.coerceAtMost(remainingMs().coerceAtLeast(0L)))
+        kotlinx.coroutines.delay(waitMs.coerceAtMost(remainingMs().coerceAtLeast(0L)))
         val second = ProbeBudget.withBudget(remainingMs()) { repository.getBlockchainHeight(network, rid) }
         val secondHeight = (second as? NetworkResult.Success)?.data ?: firstHeight
         if (second == null) {

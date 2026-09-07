@@ -290,8 +290,9 @@ class ProvisioningToolsTest {
         LiveChromia.requireLive(
             "prices a container lease on the live Economy Chain and reports where the funding key came from"
         )
-        // No txPoster is passed, so the production RealTxPoster is in place:
-        // the answer being "dry_run" is the proof that nothing was signed.
+        // There is no poster to pass any more - RealTxPoster is the only one
+        // there is - so the answer being "dry_run" is the proof that nothing
+        // was signed.
         val privHex = throwawayPrivHex()
         val strategy = provisionStrategy(
             envWith(TestnetProvisioning.FUNDING_KEY_ENV to privHex, dir = dir),
