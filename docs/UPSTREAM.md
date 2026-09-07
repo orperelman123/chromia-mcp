@@ -156,7 +156,12 @@ vendored v1.1.0r copy, and scans any file that differs, with a note (commits
 `b66f033`, `15dbaf8`). Relevant to upstream if it ever grows scanning, and
 to any other Rell security tooling.
 
-## Status (2026-09-06)
+## Status (2026-09-06, amended 2026-09-07)
+
+Findings #3a and #3b were added on 2026-09-07 and are NOT part of the ported
+branch: they are outages inside the explorer service, not defects in upstream's
+code, so there is nothing to patch - what upstream can do is stop advertising the
+three tools built on the dead fields, which is what this fork did.
 
 The nine code findings are ported to a clone of upstream `dev`
 (`146777767968721ecb6c97b1905721516d3281d0`) on branch `fix/fork-findings`,
