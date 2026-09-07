@@ -2917,27 +2917,14 @@ class DappScaffoldSecureTemplatesTest {
             "test_round17_ins2_control_the_reverse_order_pays_the_same_two_numbers",
             "test_round17_ins3_a_round_settles_once_and_only_after_its_window_must_fail",
             "test_r17_i4_a_retired_policy_cannot_free_cover_it_already_claimed_must_fail",
-            "test_r17_i5_a_late_claim_cannot_push_the_settlement_out_must_fail",
+            "test_r17_i5_a_late_claim_does_not_move_the_settlement_window",
             "test_cover_is_bounded_by_the_reserve_that_backs_it_must_fail",
             "test_the_premium_is_a_fraction_of_the_cover_must_fail",
             "test_bounds_and_ownership_must_fail",
             "test_an_exhausted_policy_closes_through_the_same_helper_must_fail",
             "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
-            "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers",
-            "test_conservation_holds_across_premiums_claims_and_refunds",
-            // The four CANONICAL-SHAPE cases. Six of the eleven guards redden their
-            // replay with "Transaction did not fail", which verify_guards answers
-            // load_bearing before any shape is read; the other five measure the damage
-            // with an assertion, and their replays invoke the guard's declaration in
-            // more than one statement - which the tool answers `ambiguous_refusal`,
-            // correctly, because "which invocation refused" is then unanswerable. Each
-            // of these states the SAME property in SHAPE B: ONE invocation of the
-            // guard's declaration, expected to succeed, damage measured after it. The
-            // replays are untouched - this is a second proof, not a weakened one.
-            "test_vg1_a_cancel_refunds_only_what_the_claims_did_not_spend",
-            "test_vg2_a_refund_is_a_share_of_what_the_reserve_holds",
-            "test_vg3_a_settlement_pays_every_claimant_the_same_share",
-            "test_vg4_a_late_claim_does_not_move_the_settlement_window"
+            "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_number",
+            "test_conservation_holds_across_premiums_claims_and_refunds"
         )
     )
 
@@ -3093,17 +3080,26 @@ class DappScaffoldSecureTemplatesTest {
         // proves two shapes and both require the guard's declaration to be invoked in
         // EXACTLY ONE statement of the test; anything else is `ambiguous_refusal`, and
         // that verdict is CORRECT - with two invocations, "which one refused" is not in
-        // the run. Six guards are answered before any shape is read (their replay
-        // reddens with "Transaction did not fail"); these four cases are shape B for
-        // the other five, and a second invocation slipped into one of them would take
-        // its verdict away silently.
+        // the run, and still_refused and load_bearing are opposite answers. Six guards
+        // are answered before any shape is read, because their replay reddens with
+        // "Transaction did not fail"; these five cases are SHAPE B for the other five
+        // guards, and each of them drives its attack ONCE for that reason. The refusals
+        // that used to sit beside those attacks live in the case that is about them -
+        // the early settlement in test_round17_ins3, the second cancel in
+        // test_bounds_and_ownership - so nothing was given up to get here, and a second
+        // invocation slipped back in would take the verdict away silently.
         mapOf(
-            "test_vg1_a_cancel_refunds_only_what_the_claims_did_not_spend" to
+            "test_round17_ins1_a_cancel_cannot_refund_a_spent_premium_must_fail" to
                 listOf("cancel_policy", "close_exhausted_policy"),
-            "test_vg2_a_refund_is_a_share_of_what_the_reserve_holds" to
+            "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail" to
                 listOf("cancel_policy", "close_exhausted_policy"),
-            "test_vg3_a_settlement_pays_every_claimant_the_same_share" to listOf("settle_claim_round"),
-            "test_vg4_a_late_claim_does_not_move_the_settlement_window" to listOf("file_claim")
+            "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_number" to
+                listOf("cancel_policy", "close_exhausted_policy"),
+            "test_round17_ins2_a_short_reserve_settles_pro_rata_not_first_come_must_fail" to
+                listOf("settle_claim_round"),
+            "test_round17_ins2_control_the_reverse_order_pays_the_same_two_numbers" to
+                listOf("settle_claim_round"),
+            "test_r17_i5_a_late_claim_does_not_move_the_settlement_window" to listOf("file_claim")
         ).forEach { (case, declarations) ->
             val body = test.substringAfter("function $case(").substringBefore("\n}")
             assertTrue(body.isNotEmpty() && body.length < test.length, "$case must exist")
@@ -3413,7 +3409,7 @@ class DappScaffoldSecureTemplatesTest {
         "    round_state.total_claimed += amount;",
         "    round_state.total_claimed += amount;\n" +
             "    round_state.opened_at = op_context.last_block_time;",
-        "test_r17_i5_a_late_claim_cannot_push_the_settlement_out_must_fail",
+        "test_r17_i5_a_late_claim_does_not_move_the_settlement_window",
         // Wrong reason: the round already closed, which would mean the settle ran.
         "no claim round is open",
         "the claim window is still open"

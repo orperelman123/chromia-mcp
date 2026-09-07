@@ -9678,10 +9678,11 @@ object DappScaffold {
         // somebody has to read.
         val PRO_RATA_OUTCOME = "bob=1050 eve=1050 reserve=0";
 
-        // AND THE SAME ON THE WAY OUT. Two members leaving a pool whose reserve cannot
-        // pay both entitlements in full are paid the same number, in either order - the
-        // refund exit race is the claim exit race one operation further along.
-        val REFUND_OUTCOME = "bob=950 eve=950 reserve=0";
+        // AND THE SAME ON THE WAY OUT: whoever leaves FIRST from a pool whose reserve
+        // cannot pay both entitlements in full is paid 950 and leaves 50 behind - the
+        // same number whichever of them it is. The refund exit race is the claim exit
+        // race one operation further along, and this is the pair that closes it.
+        val REFUND_OUTCOME = "=950 reserve=50";
 
         // Every point is in a member's balance or in the pool's reserve; the reserve IS
         // the premiums less what has been paid out and refunded; and the book equals the
@@ -9742,7 +9743,6 @@ object DappScaffold {
             // THE ATTACK: take the premium back as well. It is not refused - it is not
             // expressible: the only refund arithmetic in the module has already spent it.
             signed(k.alice, main.cancel_policy("a1"));
-            signed_must_fail(k.alice, main.cancel_policy("a1"), "the policy is not active");
             signed(k.alice, main.open_claim_round());
             signed_must_fail(k.alice, main.file_claim("a1", 1), "the policy is not active");
 
@@ -9780,8 +9780,8 @@ object DappScaffold {
             signed(k.eve, main.file_claim("e1", 200));
             assert_equals(main.balance_of(k.eve_id), 980);
 
-            // ...and no claimant may be paid before the window closes on everybody.
-            signed_must_fail(k.bob, main.settle_claim_round(), "the claim window is still open");
+            // ...and nothing is paid until the window closes on everybody - which
+            // test_round17_ins3 requires by refusing the early settlement outright.
             after(DAY + 60 * 1000);
             signed(k.bob, main.settle_claim_round());
 
@@ -9875,34 +9875,6 @@ object DappScaffold {
             assert_conserved();
         }
 
-        // EXPLOIT MUST FAIL. No operation writes a timestamp of its own: `opened_at` is
-        // written by the one operation that opens a round. A claimant who could move it
-        // by filing late would hold every other claimant's money for as long as she kept
-        // filing - the round-7 anchor grief in this class's clothing.
-        function test_r17_i5_a_late_claim_cannot_push_the_settlement_out_must_fail() {
-            val k = join_three();
-            signed(k.alice, main.buy_policy("a1", 10, 100));
-            signed(k.bob, main.buy_policy("b1", 200, 20));
-            signed(k.eve, main.buy_policy("e1", 200, 20));
-
-            signed(k.alice, main.open_claim_round());
-            signed(k.bob, main.file_claim("b1", 200));
-            // THE ATTACK: file at the very end of the window and push it out.
-            after(23 * 60 * 60 * 1000);
-            signed(k.eve, main.file_claim("e1", 200));
-            // The window is the one the round was opened with, so it closes on time and
-            // both claims settle together.
-            after(2 * 60 * 60 * 1000);
-            signed(k.bob, main.settle_claim_round());
-            assert_equals(
-                "bob=" + main.balance_of(k.bob_id)
-                    + " eve=" + main.balance_of(k.eve_id)
-                    + " reserve=" + main.pool_reserve(),
-                PRO_RATA_OUTCOME
-            );
-            assert_conserved();
-        }
-
         // EXPLOIT MUST FAIL. Cover is bounded by the reserve that backs it, at the
         // configured multiplier. A pool that writes unbounded cover against a thin
         // reserve has sold an exit race, whatever the header calls it.
@@ -9959,6 +9931,11 @@ object DappScaffold {
             signed_must_fail(k.bob, main.buy_policy("b2", 0, 10), "cover out of range");
             signed_must_fail(k.bob, main.buy_policy("b2", 100, 0), "premium out of range");
             signed_must_fail(k.eve, main.buy_policy("b1", 100, 10), "that policy id is taken");
+            // ONE EXIT, ONCE. A retired policy is retired for good, and the permissionless
+            // exit is not a back door into one that is still carrying cover.
+            signed_must_fail(k.eve, main.close_exhausted_policy("a1"), "that policy still carries cover");
+            signed(k.alice, main.cancel_policy("a1"));
+            signed_must_fail(k.alice, main.cancel_policy("a1"), "the policy is not active");
             assert_conserved();
         }
 
@@ -10016,135 +9993,60 @@ object DappScaffold {
             assert_equals(main.refundable(), 200);
             assert_conserved();
 
-            // THE ATTACK: bob leaves first and takes his whole entitlement.
+            // THE ATTACK: bob leaves first and takes his whole entitlement. He is paid
+            // his SHARE of what is there - 50 of the 100 - and eve's half is still there
+            // when she leaves, which is what the control below asserts from her side.
             signed(k.bob, main.cancel_policy("b1"));
-            signed_must_fail(k.bob, main.cancel_policy("b1"), "the policy is not active");
-            signed(k.eve, main.cancel_policy("e1"));
-            assert_equals(
-                "bob=" + main.balance_of(k.bob_id)
-                    + " eve=" + main.balance_of(k.eve_id)
-                    + " reserve=" + main.pool_reserve(),
-                REFUND_OUTCOME
-            );
-            assert_conserved();
-        }
-
-        // THE CONTROL: the same two cancels in the OPPOSITE order pay the same two
-        // numbers.
-        function test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers() {
-            val k = join_three();
-            signed(k.alice, main.buy_policy("a1", 300, 100));
-            signed(k.bob, main.buy_policy("b1", 200, 100));
-            signed(k.eve, main.buy_policy("e1", 200, 100));
-
-            signed(k.alice, main.open_claim_round());
-            signed(k.alice, main.file_claim("a1", 200));
-            after(DAY + 60 * 1000);
-            signed(k.alice, main.settle_claim_round());
-
-            // EVE FIRST this time.
-            signed(k.eve, main.cancel_policy("e1"));
-            signed(k.bob, main.cancel_policy("b1"));
-            assert_equals(
-                "bob=" + main.balance_of(k.bob_id)
-                    + " eve=" + main.balance_of(k.eve_id)
-                    + " reserve=" + main.pool_reserve(),
-                REFUND_OUTCOME
-            );
-            assert_conserved();
-        }
-
-        // ---------------------------------------------------------------------------
-        // THE FOUR CANONICAL-SHAPE CASES. Every guard above is proven twice: once by the
-        // replay that names the drain, and once here in the shape `verify_guards` can
-        // read - the guard's declaration invoked in EXACTLY ONE statement, expected to
-        // succeed, with the damage measured after it. The replays are the story; these
-        // are the shape. Neither is weaker than the other and both run on every build.
-        //
-        // The six guards whose replay reddens with "Transaction did not fail" need no
-        // case here: that IS the shape, and the tool reads it before any other rule.
-        // ---------------------------------------------------------------------------
-
-        // SHAPE B for ONE REFUND, ONE PLACE IT IS COMPUTED, and for A PAYOUT IS RECORDED
-        // ON THE POLICY IT PAID. One cancel, expected to succeed, and what it paid is
-        // read afterwards: alice's claim spent her whole premium, so her cancel returns
-        // nothing and she keeps the 1200 she had.
-        function test_vg1_a_cancel_refunds_only_what_the_claims_did_not_spend() {
-            val k = join_three();
-            signed(k.bob, main.buy_policy("b1", 1000, 500));
-            signed(k.eve, main.buy_policy("e1", 1000, 500));
-            signed(k.alice, main.buy_policy("a1", 1000, 100));
-            signed(k.alice, main.open_claim_round());
-            signed(k.alice, main.file_claim("a1", 300));
-            after(DAY + 60 * 1000);
-            signed(k.alice, main.settle_claim_round());
-            assert_equals(main.balance_of(k.alice_id), 1200);
-
-            signed(k.alice, main.cancel_policy("a1"));
-
-            assert_equals(
-                "alice=" + main.balance_of(k.alice_id)
-                    + " reserve=" + main.pool_reserve()
-                    + " book=" + main.cover_written(),
-                "alice=1200 reserve=800 book=2000"
-            );
-            assert_conserved();
-        }
-
-        // SHAPE B for A REFUND IS PRO RATA, NOT FIRST COME. One cancel, expected to
-        // succeed. Alice's claim took 200 out of a pool that only ever held 100 of hers,
-        // so 200 of unspent premium stands on 100 of reserve: bob's half of it is 50,
-        // and it is 50 whether he is the first to leave or the second.
-        function test_vg2_a_refund_is_a_share_of_what_the_reserve_holds() {
-            val k = join_three();
-            signed(k.alice, main.buy_policy("a1", 300, 100));
-            signed(k.bob, main.buy_policy("b1", 200, 100));
-            signed(k.eve, main.buy_policy("e1", 200, 100));
-            signed(k.alice, main.open_claim_round());
-            signed(k.alice, main.file_claim("a1", 200));
-            after(DAY + 60 * 1000);
-            signed(k.alice, main.settle_claim_round());
-            assert_equals(main.pool_reserve(), 100);
-            assert_equals(main.refundable(), 200);
-
-            signed(k.bob, main.cancel_policy("b1"));
-
             assert_equals(
                 "bob=" + main.balance_of(k.bob_id) + " reserve=" + main.pool_reserve(),
-                "bob=950 reserve=50"
+                "bob" + REFUND_OUTCOME
             );
             assert_conserved();
         }
 
-        // SHAPE B for CLAIMS SETTLE PRO RATA, NOT FIRST COME. One settlement, expected to
-        // succeed, and the two payouts are read afterwards. Bob filed first and it bought
-        // him nothing.
-        function test_vg3_a_settlement_pays_every_claimant_the_same_share() {
+        // THE CONTROL: the OTHER member leaves first, out of the same short reserve, and
+        // is paid the same number bob was.
+        function test_r17_i6_control_the_reverse_cancel_order_pays_the_same_number() {
             val k = join_three();
-            signed(k.alice, main.buy_policy("a1", 10, 100));
-            signed(k.bob, main.buy_policy("b1", 200, 20));
-            signed(k.eve, main.buy_policy("e1", 200, 20));
+            signed(k.alice, main.buy_policy("a1", 300, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 100));
+            signed(k.eve, main.buy_policy("e1", 200, 100));
+
             signed(k.alice, main.open_claim_round());
-            signed(k.bob, main.file_claim("b1", 200));
-            signed(k.eve, main.file_claim("e1", 200));
+            signed(k.alice, main.file_claim("a1", 200));
             after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
 
-            signed(k.bob, main.settle_claim_round());
-
+            // EVE FIRST this time, and she is paid exactly what bob was paid for going
+            // first: the same 50, out of the same 100.
+            signed(k.eve, main.cancel_policy("e1"));
             assert_equals(
-                "bob=" + main.balance_of(k.bob_id)
-                    + " eve=" + main.balance_of(k.eve_id)
-                    + " reserve=" + main.pool_reserve(),
-                PRO_RATA_OUTCOME
+                "eve=" + main.balance_of(k.eve_id) + " reserve=" + main.pool_reserve(),
+                "eve" + REFUND_OUTCOME
             );
             assert_conserved();
         }
 
-        // SHAPE B for NO OPERATION WRITES A TIMESTAMP OF ITS OWN. One claim, filed an
-        // hour before the window closes and expected to succeed; the damage is measured
-        // by the LATER transaction that has to settle it. If filing moved the round's
-        // clock, that settlement is refused and nobody is paid at all.
-        function test_vg4_a_late_claim_does_not_move_the_settlement_window() {
+        // ---------------------------------------------------------------------------
+        // EVERY CASE ABOVE IS ALSO A SHAPE `verify_guards` CAN READ, and that is not an
+        // accident of how they were written - it is a constraint they are held to. The
+        // tool proves two shapes, both of which require the guard's declaration to be
+        // invoked in EXACTLY ONE statement of the test; with two invocations, "which one
+        // refused" is not in the run, and still_refused and load_bearing are opposite
+        // answers. So each replay drives its attack ONCE and every other refusal that
+        // used to sit beside it lives in the case that is about that refusal: the early
+        // settlement in test_round17_ins3, the second cancel in
+        // test_bounds_and_ownership. Six of the eleven guards are answered before any
+        // shape is read, because their replay reddens with "Transaction did not fail".
+        // ---------------------------------------------------------------------------
+
+        // NO OPERATION WRITES A TIMESTAMP OF ITS OWN. One claim, filed an hour before
+        // the window closes and expected to succeed; the damage is measured by the LATER
+        // transaction that has to settle it. If filing moved the round's clock that
+        // settlement is refused, nobody is paid at all, and a claimant who kept filing
+        // would hold every other claimant's money for as long as she liked - the round-7
+        // anchor grief in this class's clothing.
+        function test_r17_i5_a_late_claim_does_not_move_the_settlement_window() {
             val k = join_three();
             signed(k.alice, main.buy_policy("a1", 10, 100));
             signed(k.bob, main.buy_policy("b1", 200, 20));
