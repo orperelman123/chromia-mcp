@@ -1,7 +1,5 @@
 package org.chromia
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -18,16 +16,33 @@ import java.io.File
  * `unbacked-conversion-credit`.
  *
  * Each of those four is a resolution step, and each has an input that does not
- * reach it. This class is a RECORDER: it runs the shipped analyzer over eleven
- * samples - five attack/control pairs plus the correct DAO whose floor arrives
- * at deployment - and writes what it said into
- * `realworld/adversary-round17/seccheck/raw.json`, so the round's claims about
- * the rules are measurements rather than readings of the source. Nothing is
- * asserted here; what evades becomes a CORPUS row with a sample and a control.
+ * reach it. This class is the RECORDER for the round's twelve samples - five
+ * attack/control pairs, the correct DAO whose floor arrives at deployment, and
+ * the insurance build - so the round's claims about the rules are measurements
+ * rather than readings of the source.
+ *
+ * THE EVIDENCE IS FROZEN (the b640e6c pattern, [Round17Evidence]). This class
+ * used to write straight into the committed
+ * `realworld/adversary-round17/seccheck/raw.json`, so a gate left it modified
+ * and the file the round README cites was whatever the last build said. Now the
+ * run records to `build/adversary-round17/seccheck/raw.json` and ASSERTS it
+ * equal, value by value, to the committed one; a finding that drifts is a
+ * regression reported with both values and both paths.
+ *
+ * There are two frozen files, because round 17's rule lane changed the analyzer
+ * this was measuring:
+ *  - `seccheck/raw.before-fix.json` is the ADVERSARY'S OWN recording, the
+ *    analyzer as the round found it. Nothing runs against it; it is the only
+ *    record of what was wrong.
+ *  - `seccheck/raw.json` is the AFTER-FIX recording, re-recorded once when
+ *    `r17-quorum-floor-behind-a-function-call` and
+ *    `r17-quorum-floor-set-by-a-second-operation` were closed, and it is what
+ *    this run is asserted against. The two evasions now draw MEDIUM
+ *    `majority-without-quorum`; every other verdict in the file - including the
+ *    correct DAO at `p17s5` and both insurance drains, which stay clean - is
+ *    unchanged from the before-fix recording.
  */
 class Round17SecurityRuleProbeTest {
-
-    private val out = File("src/test/resources/exploit-corpus/realworld/adversary-round17/seccheck")
 
     /** A DAO whose participation floor is returned by a FUNCTION, not a literal or a val. */
     private val floorThroughAFunction = """
@@ -345,7 +360,6 @@ class Round17SecurityRuleProbeTest {
 
     @Test
     fun `record what rell_security_check says about the round 17 rule probes`() {
-        out.mkdirs()
         val lines = mutableListOf<String>()
         val rows = buildJsonArray {
             for ((name, source, why) in probes) {
@@ -363,9 +377,9 @@ class Round17SecurityRuleProbeTest {
                 )
             }
         }
-        File(out, "raw.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        val relative = "seccheck/raw.json"
+        Round17Evidence.record(relative, rows)
         println("ROUND17-SECCHECK\n" + lines.joinToString("\n"))
+        Round17Evidence.assertFrozen(relative, rows)
     }
 }
