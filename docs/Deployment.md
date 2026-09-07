@@ -52,7 +52,8 @@ bypasses it entirely.
    with `--profile public`, verifies `/health` reports that profile, then runs
    `cloudflared tunnel --url http://127.0.0.1:<port>` (a quick tunnel: no account, no
    login) and prints the `https://<name>.trycloudflare.com` URL plus the ChatGPT
-   connector steps for `/mcp` and `/sse`. Ctrl+C stops the tunnel, then the server.
+   connector steps for `/mcp` and for the root (this server serves no `/sse` path).
+   Ctrl+C stops the tunnel, then the server.
    `-NoTunnel` does everything up to the tunnel and stops — that is what CI exercises,
    because starting a public tunnel is the operator's decision, not a test's.
    OpenAI's [`tunnel-client`](https://github.com/openai/tunnel-client) is the
@@ -88,9 +89,9 @@ bypasses it entirely.
   tunnel or proxy idle timeout does not silently drop a quiet session. A POST-only
   Streamable HTTP client never opens a stream and needs none.
 
-#### Optional: auto-start the SSE server on login (Windows)
+#### Optional: auto-start the URL server on login (Windows)
 
-Nothing is installed by default. If you want the local SSE endpoint always available,
+Nothing is installed by default. If you want the local URL server always available,
 create a Scheduled Task once (regular user, no admin needed):
 
 ```powershell
