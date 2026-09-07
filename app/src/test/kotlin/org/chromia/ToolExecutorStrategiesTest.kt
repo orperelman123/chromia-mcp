@@ -425,22 +425,41 @@ class ToolExecutorStrategiesTest {
                     put("network", LiveChromia.EXPLORER_NETWORK)
                     put("limit", JsonNull)
                     put("offset", JsonNull)
-                    put("system", JsonNull)
                 }
             ),
             repository
         )
-        val allRows = assertLiveExplorerTool("filter_blockchains", nullLimit, "allBlockchains")
+        val defaultPage = assertLiveExplorerTool("filter_blockchains", nullLimit, "allBlockchains")
             ?: return@runBlocking
         assertTrue(
-            allRows.jsonArray.size > 3,
-            "a JSON null limit must be ABSENT, not parsed into one - the explorer's own page is " +
-                "larger than 3: got ${allRows.jsonArray.size} rows"
+            defaultPage.jsonArray.size > 3,
+            "a JSON null limit must be ABSENT, not parsed into one - the explorer then answers its " +
+                "OWN default page, which is larger than the 3 above: got ${defaultPage.jsonArray.size} rows"
         )
-        val systems = allRows.jsonArray.map { it.jsonObject.getValue("system").jsonPrimitive.content }
+
+        // A JSON null `system` must not become a boolean. Neither `true` nor
+        // `false` can produce a page holding BOTH kinds of chain, so a page that
+        // does is proof the argument was absent. (The explorer's default page is
+        // too small to settle it: on 2026-09-07 its first ten rows were all
+        // system=false, which is why the limit is explicit here.)
+        val nullSystem = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("system", JsonNull)
+                    put("limit", 300)
+                }
+            ),
+            repository
+        )
+        val everyChain = assertLiveExplorerTool("filter_blockchains", nullSystem, "allBlockchains")
+            ?: return@runBlocking
+        val systems = everyChain.jsonArray.map { it.jsonObject.getValue("system").jsonPrimitive.content }
         assertTrue(
             systems.contains("true") && systems.contains("false"),
-            "a JSON null `system` must not filter to one kind of chain: $systems"
+            "a JSON null `system` must not filter to one kind of chain - mainnet has both system and " +
+                "application chains, and only an ABSENT filter returns both: ${systems.distinct()}"
         )
 
         val aggregates = ChrAggregatesStrategy().execute(
