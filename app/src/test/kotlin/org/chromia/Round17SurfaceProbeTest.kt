@@ -1,7 +1,5 @@
 package org.chromia
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -27,8 +25,6 @@ import java.io.File
  * guards do not cover it is a finding whatever the note says.
  */
 class Round17SurfaceProbeTest {
-
-    private val out = File("src/test/resources/exploit-corpus/realworld/adversary-round17")
 
     /**
      * Thirty-four asks. The first block is the classes `docs/TEMPLATE-GAPS.md`
@@ -80,8 +76,6 @@ class Round17SurfaceProbeTest {
 
     @Test
     fun `record where the redirect sends thirty-four asks`() {
-        out.mkdirs()
-        File(out, "redirect").mkdirs()
         val lines = mutableListOf<String>()
         val rows = buildJsonArray {
             for (ask in asks) {
@@ -102,10 +96,9 @@ class Round17SurfaceProbeTest {
                 )
             }
         }
-        File(out, "redirect/raw.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        Round17Evidence.record("redirect/raw.json", rows)
         println("ROUND17-REDIRECT\n" + lines.joinToString("\n"))
+        Round17Evidence.assertFrozen("redirect/raw.json", rows)
     }
 
     /**
@@ -117,8 +110,6 @@ class Round17SurfaceProbeTest {
      */
     @Test
     fun `record every tool's short description beside its describe_tool long form`() {
-        out.mkdirs()
-        File(out, "describe").mkdirs()
         val names = McpTools.allTools().map { it.name }.sorted()
         val rows = buildJsonArray {
             for (name in names) {
@@ -137,15 +128,14 @@ class Round17SurfaceProbeTest {
                 )
             }
         }
-        File(out, "describe/raw.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        Round17Evidence.record("describe/raw.json", rows)
         val summary = names.joinToString("\n") { n ->
             val short = McpTools.advertisedDescription(n).orEmpty().toByteArray().size
             val long = McpTools.fullDescription(n).orEmpty().toByteArray().size
             "%-34s short=%5d long=%6d moved=%s".format(n, short, long, n in ToolDocs.LONG)
         }
         println("ROUND17-DESCRIBE\n$summary")
+        Round17Evidence.assertFrozen("describe/raw.json", rows)
     }
 
     /**
@@ -229,10 +219,7 @@ class Round17SurfaceProbeTest {
                 )
             }
         }
-        File(out, "describe").mkdirs()
-        File(out, "describe/verify_guards_claims.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        Round17Evidence.record("describe/verify_guards_claims.json", rows)
         println("ROUND17-VG-CLAIMS\n" + rows.joinToString("\n") { (it as JsonObject).toString() })
         val missing = claims.filterNot { (_, where, text) -> sources.getValue(where).contains(flat(text)) }
             .map { (id, where, text) -> "$id ($where): $text" }
@@ -242,5 +229,6 @@ class Round17SurfaceProbeTest {
             "verify_guards sentence(s) round 17 added are no longer in the text an agent reads:\n" +
                 missing.joinToString("\n")
         )
+        Round17Evidence.assertFrozen("describe/verify_guards_claims.json", rows)
     }
 }
