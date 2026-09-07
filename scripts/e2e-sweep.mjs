@@ -330,6 +330,37 @@ await check('fetch_docs live+search', async () => {
   const t = liveText(await call('fetch_docs', { query: 'what is ICCF cross-chain proof' }, 120000));
   expect(t.length > 100, 'no content'); return null;
 }, null, { live: true });
+// The docs SITE, not our copy of it. SitemapDocsFetcher's whole ingest path is
+// tested against a Ktor MockEngine and nothing else, so the suite could not
+// notice docs.chromia.com changing the SHAPE those fixtures assume - a sitemap
+// index instead of a urlset, <loc> gone, the host moved. That is exactly what a
+// double with no live counterpart costs, and this is the counterpart named by
+// the mock ledger for SitemapDocsFetcherTest. The site being DOWN is the site's
+// problem (WARN-UPSTREAM); the site answering in a shape our parser cannot read
+// is ours (FAIL), and so is the URL we hardcode having moved.
+await check('docs site sitemap shape (live)', async () => {
+  const url = 'https://docs.chromia.com/sitemap.xml';
+  let res;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  } catch (e) {
+    throw new UpstreamError('docs-site-unreachable', `${url}: ${e.message}`);
+  }
+  if (res.status === 429 || res.status >= 500) {
+    throw new UpstreamError(`docs-site-http-${res.status}`, `${url} answered HTTP ${res.status}`);
+  }
+  expect(res.ok, `${url} answered HTTP ${res.status} - if the sitemap moved, SitemapDocsFetcher.DEFAULT_SITEMAP_URL is stale`);
+  const xml = await res.text();
+  expect(
+    /<urlset\b/i.test(xml),
+    `the sitemap is no longer a <urlset>; SitemapDocsFetcher parses <loc> out of one: ${xml.slice(0, 200)}`
+  );
+  const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]);
+  expect(locs.length >= 20, `only ${locs.length} <loc> entries in the live sitemap`);
+  const onSite = locs.filter((u) => u.startsWith('https://docs.chromia.com/'));
+  expect(onSite.length >= 20, `only ${onSite.length} of ${locs.length} <loc> entries are docs.chromia.com pages`);
+  return `${locs.length} sitemap URLs, ${onSite.length} on docs.chromia.com`;
+}, null, { live: true });
 await check('rell_check valid', async () => {
   const j = JSON.parse(text(await call('rell_check', { source: 'module;\nquery ping() = "pong";' }, 120000)));
   expect(j.ok === true, JSON.stringify(j).slice(0, 120)); return null;
