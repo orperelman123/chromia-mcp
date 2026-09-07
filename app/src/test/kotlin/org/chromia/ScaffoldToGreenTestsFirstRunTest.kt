@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -243,10 +242,7 @@ class ScaffoldToGreenTestsFirstRunTest {
      * one call and keep batches = 1.
      */
     private fun runFirstHonestPass(template: String, batches: Int = 1) {
-        assumeTrue(
-            System.getenv(RunRellTests.DATABASE_URL_ENV) != null,
-            "${RunRellTests.DATABASE_URL_ENV} is required: these are real transactions, not a simulation"
-        )
+        LiveEnv.requireDatabaseUrl("these are real transactions, not a simulation")
         val payload = scaffold(template)
         val files = payload["files"]!!.jsonObject
         val expectedCases = declaredTestFunctions(rellOnly(files))

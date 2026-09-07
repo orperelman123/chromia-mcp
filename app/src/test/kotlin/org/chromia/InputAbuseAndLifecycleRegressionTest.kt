@@ -370,8 +370,7 @@ class InputAbuseAndLifecycleRegressionTest {
 
     @Test
     fun ft4TestsWithoutTheAdminArgsGetTheModuleArgsHint() {
-        val dbUrl = System.getenv(RunRellTests.DATABASE_URL_ENV)
-        org.junit.jupiter.api.Assumptions.assumeTrue(!dbUrl.isNullOrBlank(), "needs ${RunRellTests.DATABASE_URL_ENV}")
+        val dbUrl = LiveEnv.requireDatabaseUrl("the FT4 module_args error path runs real Rell tests")
         val rell = DappScaffold.files("notes", template = "ft4")
             .filterKeys { it.endsWith(".rell") }
             .mapKeys { (path, _) -> path.removePrefix("src/") }
@@ -402,8 +401,7 @@ class InputAbuseAndLifecycleRegressionTest {
      */
     @Test
     fun missingModuleArgsAreNamedFromTheCompiledApp() {
-        val dbUrl = System.getenv(RunRellTests.DATABASE_URL_ENV)
-        org.junit.jupiter.api.Assumptions.assumeTrue(!dbUrl.isNullOrBlank(), "needs ${RunRellTests.DATABASE_URL_ENV}")
+        val dbUrl = LiveEnv.requireDatabaseUrl("the missing-module_args note is computed from a real compiled app")
         val rell = DappScaffold.files("peg", template = "stablecoin")
             .filterKeys { it.endsWith(".rell") }
             .mapKeys { (path, _) -> path.removePrefix("src/") }

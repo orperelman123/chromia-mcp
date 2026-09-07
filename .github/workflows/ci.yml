@@ -69,6 +69,13 @@ jobs:
           # reads get_balance for a public, known-registered account id. They
           # were skipping here purely because the flag was unset.
           CHROMIA_LIVE_PROVISIONING_TESTS: "true"
+          # The chr CLI is installed above, so the two probes that use it must
+          # not be allowed to shrug. With this set, LiveEnv escalates "chr is
+          # missing" and "chr is present but would not run" from a SKIP to a
+          # FAILURE. The second case is the one that mattered: the box most
+          # likely to have an unlaunchable chr (a Windows .cmd shim) was exactly
+          # the box that silently opted out of the launch-path coverage.
+          CHROMIA_REQUIRE_CHR: "true"
         run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
 
       # A skip is a test that silently did not run. Gradle prints the skip count

@@ -47,7 +47,6 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -1364,9 +1363,9 @@ class ProvisioningToolsTest {
         val out = runCatching {
             RealProcessRunner.run(resolved.command + "--version", Path.of("."), emptyMap(), 60_000)
         }.getOrNull()
-        assumeTrue(
+        LiveEnv.requireChrRan(
             out != null && out.exitCode == 0,
-            "no working chr on this machine (resolution: ${resolved.source})"
+            "resolution: ${resolved.source}, exit=${out?.exitCode}, stdout=${out?.stdout?.take(200)}"
         )
         val versions = ChrVersions.parse(out!!.stdout + "\n" + out.stderr)
         assertNotNull(versions.cli, "unparseable chr --version output: ${out.stdout}")

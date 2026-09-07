@@ -11,7 +11,6 @@ import io.ktor.http.contentType
 import kotlinx.coroutines.runBlocking
 import org.chromia.tools.LocalChain
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import net.postchain.common.hexStringToByteArray
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -44,7 +43,7 @@ class LocalChainIntegrationTest {
 
     @Test
     fun chainStartsAnswersQueriesAndStops() {
-        assumeTrue(!databaseUrl.isNullOrBlank(), "needs ${LocalChain.DATABASE_URL_ENV}")
+        LiveEnv.requireDatabaseUrl("a real Postchain node is started against it")
 
         val up = LocalChain.up(files, databaseUrl = databaseUrl, ttlSeconds = 300)
         assertTrue(up.ok, "chain failed to start: ${up.notes}")

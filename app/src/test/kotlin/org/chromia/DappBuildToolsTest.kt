@@ -57,7 +57,6 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 class DappBuildToolsTest {
@@ -1952,10 +1951,7 @@ class DappBuildToolsTest {
         // in `cmd /c`, so going through it both fixes the launch and makes this
         // probe real coverage of the launcher agents actually depend on.
         val chr = org.chromia.tools.ChrLocator.resolve(System.getenv())
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-            findOnPath("chr") != null,
-            "chr not on PATH; skipping live probe"
-        )
+        LiveEnv.requireChrOnPath("the live `chr version` probe")
         val proc = try {
             ProcessBuilder(chr.command + "version")
                 .redirectErrorStream(true)
@@ -2104,11 +2100,4 @@ class DappBuildToolsTest {
         assertTrue(one.warnings.any { it.contains("cross-chain") }, one.warnings.toString())
     }
 
-    private fun findOnPath(name: String): String? {
-        val paths = System.getenv("PATH")?.split(File.pathSeparator).orEmpty()
-        return paths.asSequence()
-            .map { File(it, name) }
-            .firstOrNull { it.isFile && it.canExecute() }
-            ?.absolutePath
-    }
 }
