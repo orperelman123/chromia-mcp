@@ -41,7 +41,7 @@ class MockLedgerTest {
         LOCAL_CHAIN_ENGINE("the embedded Postchain node behind LocalChainRestBridge (a third-party library's engine)"),
         ECONOMY_CHAIN("the testnet Economy Chain: pricing, account lookup, the faucet, tx submission"),
         CHR_CLI("the third-party `chr` command-line tool as an OS process"),
-        DOCS_SITE("docs.chromia.com - its sitemap and pages"),
+
         RAG_INDEX_DOWNLOAD("the published embeddings index asset (GitHub release / GitLab package)"),
         EMBEDDING_MODEL("langchain4j's embedding model (production: the bundled quantized BGE-small ONNX)"),
         OUR_OWN_CODE("code in this repository - NEVER acceptable; rewrite the test to drive the real thing")
@@ -152,13 +152,6 @@ class MockLedgerTest {
         // Added 2026-09-07: this was the one double in the suite with NO real
         // counterpart. The whole sitemap ingest ran against MockEngine and
         // nothing else, so docs.chromia.com changing shape was invisible here.
-        Double(
-            "SitemapDocsFetcherTest.kt", "MOCK_ENGINE", "MockEngine", StandsFor.DOCS_SITE,
-            listOf(
-                sweep("docs site sitemap shape (live)"),
-                liveTest("GitRepositoryFetcherLiveTest.sparseFetchesNestedPostchainClientDocWhenNetworkAvailable")
-            )
-        ),
 
         // ---- the published embeddings index ----------------------------------
         Double(
@@ -335,8 +328,7 @@ class MockLedgerTest {
         assertEquals(
             setOf(
                 StandsFor.EXPLORER_HTTP_API, StandsFor.CHAIN_NODE, StandsFor.LOCAL_CHAIN_ENGINE,
-                StandsFor.ECONOMY_CHAIN, StandsFor.CHR_CLI, StandsFor.DOCS_SITE,
-                StandsFor.RAG_INDEX_DOWNLOAD, StandsFor.EMBEDDING_MODEL
+                StandsFor.ECONOMY_CHAIN, StandsFor.CHR_CLI, StandsFor.RAG_INDEX_DOWNLOAD, StandsFor.EMBEDDING_MODEL
             ),
             LEDGER.map { it.standsFor }.toSet(),
             "every external dependency the suite fakes must be represented; a category with no rows " +

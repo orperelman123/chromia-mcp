@@ -244,4 +244,143 @@ class AssumptionLedgerTest {
             "the gate must fail on ANY skip"
         )
     }
+
+    // ---- 4. no test may end early without having asserted anything ---------
+
+    /**
+     * The shape this section exists for, found in the tree on 2026-09-07:
+     *
+     *     val doc = ...
+     *     if (!doc.exists()) {
+     *         System.err.println("live nested fetch skipped (path missing)")
+     *         return
+     *     }
+     *
+     * That is strictly worse than a skip. A skip is COUNTED - the gate fails on
+     * any non-zero skip count, CI's allowlist is empty, and [LiveEnv] escalates
+     * a skip to a failure the moment the environment is enabled. An early
+     * `return` is counted as a PASS: JUnit sees a method that completed
+     * normally, the XML says 1 test ran, and the claim in the method name is
+     * reported as verified by a body that verified nothing. Two of these were
+     * in the suite (GitRepositoryFetcherLiveTest, SitemapDocsFetcherTest); both
+     * now assert instead, and the scans below stop a third appearing.
+     */
+    private val testAnnotation = Regex("""^\s*@(Test|ParameterizedTest|RepeatedTest|TestFactory)\b""")
+
+    /**
+     * A return that LEAVES THE TEST. A bare `return`, or `return@runBlocking`
+     * for the `= runBlocking { }` bodies. Labelled returns into a collection
+     * builder (`return@forEach`) are continues, not exits, and are not matched.
+     */
+    private val testExitingReturn = Regex("""(?<![\w.@])return(@runBlocking)?\s*(?:\}\s*)?$""")
+    private val announcement = Regex("""\b(println|System\.(out|err)\.print(ln)?|logger\.|log\.(info|warn|debug|error))""")
+    private val anAssertion = Regex("""\b(assert[A-Z]\w*|assertThrows|fail)\s*[(<]""")
+
+    /** Every (file, testName, lineNumber, previousCodeLines) for a test-exiting return. */
+    private fun testExitingReturns(): List<TestReturn> {
+        val found = mutableListOf<TestReturn>()
+        for (file in RepoFiles.testSources()) {
+            if (RepoFiles.className(file) == "AssumptionLedgerTest") continue
+            val lines = stripKotlinComments(file.toFile().readText()).lines()
+            var pendingTest = false
+            var testName: String? = null
+            var entryDepth = 0
+            var depth = 0
+            val recent = ArrayDeque<String>()
+            lines.forEachIndexed { index, line ->
+                if (testAnnotation.containsMatchIn(line)) pendingTest = true
+                val declaration = functionDeclaration.find(line)
+                if (declaration != null && pendingTest) {
+                    testName = declaration.groupValues[1]
+                    entryDepth = depth
+                    pendingTest = false
+                    recent.clear()
+                }
+                val before = depth
+                depth += line.count { it == '{' } - line.count { it == '}' }
+                val name = testName
+                if (name != null) {
+                    if (testExitingReturn.containsMatchIn(line)) {
+                        found += TestReturn(
+                            file.fileName.toString(), name, index + 1, line.trim(), recent.toList()
+                        )
+                    }
+                    if (line.isNotBlank()) {
+                        recent.addLast(line.trim())
+                        while (recent.size > 5) recent.removeFirst()
+                    }
+                    if (before > entryDepth && depth <= entryDepth) testName = null
+                }
+            }
+        }
+        return found
+    }
+
+    data class TestReturn(
+        val file: String,
+        val test: String,
+        val line: Int,
+        val text: String,
+        val precedingCode: List<String>
+    )
+
+    /** The same comment stripper the double scan uses; a `return` in prose is not code. */
+    private fun stripKotlinComments(source: String): String {
+        val withoutBlocks = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
+            .replace(source) { m -> "\n".repeat(m.value.count { it == '\n' }) }
+        return withoutBlocks.lineSequence().joinToString("\n") { line ->
+            val guarded = line.replace("://", "\u0000\u0000\u0000")
+            val at = guarded.indexOf("//")
+            if (at >= 0) guarded.substring(0, at).replace("\u0000\u0000\u0000", "://") else line
+        }
+    }
+
+    @Test
+    fun noTestAnnouncesThatItIsNotTestingAndThenPasses() {
+        val offenders = testExitingReturns().filter { site ->
+            site.precedingCode.takeLast(3).any { announcement.containsMatchIn(it) }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "a test that logs why it is not testing and then returns reports a PASS for work it did " +
+                "not do, and unlike a skip nothing counts it - not the gate, not CI's skip check, not " +
+                "the XML. Assert instead: a third party that is missing or has moved is a red with " +
+                "retry as the remedy.\n  " +
+                offenders.joinToString("\n  ") { "${it.file}:${it.line} [${it.test}] ${it.text}" }
+        )
+    }
+
+    @Test
+    fun anEarlyReturnFromATestMustFollowAnAssertion() {
+        val offenders = testExitingReturns().filter { site ->
+            site.precedingCode.none { anAssertion.containsMatchIn(it) }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "an early `return` out of a test body is only honest once the test has actually asserted " +
+                "something - otherwise the method name makes a claim and the body proves nothing. " +
+                "Either assert the condition you were about to return on, or delete the claim:\n  " +
+                offenders.joinToString("\n  ") { "${it.file}:${it.line} [${it.test}] ${it.text}" }
+        )
+    }
+
+    /** The scan must be able to SEE the shape, or its silence means nothing. */
+    @Test
+    fun theSilentReturnScanFindsTheShapeItLooksFor() {
+        val exits = testExitingReturns()
+        // Present-tense proof the regexes match real code: these are the exact
+        // three forms, checked against literal source lines rather than a file.
+        assertTrue(testExitingReturn.containsMatchIn("            return"), "bare return not matched")
+        assertTrue(testExitingReturn.containsMatchIn("        return@runBlocking"), "runBlocking exit not matched")
+        assertTrue(!testExitingReturn.containsMatchIn("        return@forEach"), "loop continue must NOT match")
+        assertTrue(!testExitingReturn.containsMatchIn("        return amount;"), "return of a value must NOT match")
+        assertTrue(announcement.containsMatchIn("""System.err.println("skipped")"""), "announcement not matched")
+        assertTrue(anAssertion.containsMatchIn("assertTrue(x, \"y\")"), "assertion not matched")
+        // And it is looking at a real, non-empty corpus.
+        assertTrue(
+            exits.isNotEmpty(),
+            "the scan found no test-exiting return anywhere, which means it stopped parsing test " +
+                "bodies rather than that the tree is clean"
+        )
+    }
 }

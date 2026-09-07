@@ -1,11 +1,8 @@
 package org.chromia
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.pluginOrNull
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.chromia.tools.docs.fetcher.DOCS_HTTP_CONNECT_TIMEOUT_MS
@@ -62,15 +59,19 @@ class SitemapDocsFetcherTest {
         assertFalse(text.contains("<h1>"))
     }
 
+    /**
+     * The LIVE sitemap. This used to read the URL with `runCatching {}.getOrNull()`
+     * and, on any failure, print "Sitemap unreachable; skipped live check" and
+     * `return` - a green that fetched nothing, and one nothing counted: the gate
+     * counts skips, and this was not a skip. docs.chromia.com is a third party;
+     * a third party being down is a RED whose remedy is retry, and a third party
+     * that has REMOVED its sitemap is exactly the change this test exists to
+     * catch. Either way the answer is not "pass".
+     */
     @Test
-    fun publicSitemapIsParseableWhenReachable() {
-        val xml = runCatching {
-            URI("https://docs.chromia.com/sitemap.xml").toURL().readText()
-        }.getOrNull()
-        if (xml.isNullOrBlank()) {
-            System.err.println("Sitemap unreachable; skipped live check")
-            return
-        }
+    fun publicSitemapIsLiveAndParseable() {
+        val xml = URI("https://docs.chromia.com/sitemap.xml").toURL().readText()
+        assertTrue(xml.isNotBlank(), "docs.chromia.com/sitemap.xml served an empty body")
         val kept = parseSitemapLocs(xml).filter { shouldIngest(it) }
         assertTrue(kept.size > 50, "expected many public docs.chromia.com URLs, got ${kept.size}")
         assertTrue(kept.all { it.startsWith("https://docs.chromia.com/") })
@@ -118,56 +119,46 @@ class SitemapDocsFetcherTest {
         }
     }
 
+    /**
+     * The non-2xx branch of `fetchText`, driven by a REAL non-2xx from the real
+     * docs host. This used to be a MockEngine answering 500. It did not need to
+     * be: docs.chromia.com answers a genuine 404 for a path it does not serve,
+     * which is the same `!status.isSuccess()` branch and additionally proves the
+     * production client can talk to the real host at all.
+     */
     @Test
-    fun httpErrorSitemapSkips() {
-        val client = HttpClient(MockEngine) {
-            engine {
-                addHandler {
-                    respond(
-                        "nope",
-                        HttpStatusCode.InternalServerError
-                    )
-                }
-            }
-        }
+    fun realHttpErrorFromTheDocsHostSkips() {
         val dir = kotlin.io.path.createTempDirectory("sitemap-http-")
         try {
             val written = runBlocking {
                 SitemapDocsFetcher(
-                    sitemapUrl = "https://docs.chromia.com/sitemap.xml",
-                    client = client
+                    sitemapUrl = "https://docs.chromia.com/there-is-no-sitemap-here-9f3a2c.xml"
                 ).fetchInto(dir)
             }
-            org.junit.jupiter.api.Assertions.assertEquals(0, written)
+            assertEquals(0, written)
+            assertFalse(dir.toFile().walkTopDown().any { it.isFile }, "nothing may be written on an HTTP error")
         } finally {
-            client.close()
             dir.toFile().deleteRecursively()
         }
     }
 
+    /**
+     * The "downloaded fine, but there are no usable URLs in it" branch, driven
+     * by a REAL 200 from the real docs host that happens to contain no `<loc>`
+     * elements - the docs landing page. A MockEngine returning `<urlset></urlset>`
+     * used to stand in for this; the landing page is a real body that reaches the
+     * same branch, and it also proves `parseSitemapLocs` does not hallucinate
+     * locations out of ordinary HTML.
+     */
     @Test
-    fun emptyUrlsetSkips() {
-        val client = HttpClient(MockEngine) {
-            engine {
-                addHandler {
-                    respond(
-                        "<urlset></urlset>",
-                        HttpStatusCode.OK
-                    )
-                }
-            }
-        }
+    fun realTwoHundredWithNoLocationsSkips() {
         val dir = kotlin.io.path.createTempDirectory("sitemap-empty-")
         try {
             val written = runBlocking {
-                SitemapDocsFetcher(
-                    sitemapUrl = "https://docs.chromia.com/sitemap.xml",
-                    client = client
-                ).fetchInto(dir)
+                SitemapDocsFetcher(sitemapUrl = "https://docs.chromia.com/").fetchInto(dir)
             }
-            org.junit.jupiter.api.Assertions.assertEquals(0, written)
+            assertEquals(0, written)
         } finally {
-            client.close()
             dir.toFile().deleteRecursively()
         }
     }
@@ -198,39 +189,18 @@ class SitemapDocsFetcherTest {
         java.nio.file.Paths.get("out").resolve(sitemapPageRelativePath("https://docs.chromia.com/page?x=1") + ".md")
     }
 
-    // F1: end-to-end - a sitemap URL with a query string is fetched and written to disk.
-    @Test
-    fun queryStringUrlIsWrittenToSanitizedFile() {
-        val article = "<article><h1>page</h1><p>${"content ".repeat(50)}</p></article>"
-        val client = HttpClient(MockEngine) {
-            engine {
-                addHandler { request ->
-                    if (request.url.toString().endsWith("sitemap.xml")) {
-                        respond(
-                            "<urlset><url><loc>https://docs.chromia.com/build/page?x=1</loc></url></urlset>",
-                            HttpStatusCode.OK
-                        )
-                    } else {
-                        respond("<html><body>$article</body></html>", HttpStatusCode.OK)
-                    }
-                }
-            }
-        }
-        val dir = kotlin.io.path.createTempDirectory("sitemap-query-")
-        try {
-            val written = runBlocking {
-                SitemapDocsFetcher(
-                    sitemapUrl = "https://docs.chromia.com/sitemap.xml",
-                    client = client
-                ).fetchInto(dir)
-            }
-            assertEquals(1, written)
-            assertTrue(dir.resolve("build").resolve("page.md").toFile().exists())
-        } finally {
-            client.close()
-            dir.toFile().deleteRecursively()
-        }
-    }
+    // F1 (end-to-end) DELETED 2026-09-07, zero-doubles pass. The test drove the
+    // whole fetchInto pipeline over a MockEngine that served a fabricated sitemap
+    // containing `https://docs.chromia.com/build/page?x=1`. No real docs.chromia.com
+    // URL carries a query string, so no real input reaches that pipeline with one,
+    // and there is nothing left to point the fetcher at that is not a double.
+    // CLAIM REMOVED: "a sitemap URL with a query string survives fetchInto and lands
+    // on disk under a sanitized name".
+    // WHAT STILL COVERS IT: pageRelativePathStripsQueryAndInvalidChars below pins the
+    // sanitization itself (including that the result resolves as a Path on Windows),
+    // and realTwoHundredWithNoLocationsSkips / publicSitemapIsLiveAndParseable pin the
+    // live fetch. The JOIN of the two - sanitized name actually used as the written
+    // file's path inside fetchInto - is now unverified by this suite.
 
     // F2: &amp; is decoded LAST so double-encoded entities decode exactly once.
     @Test
@@ -246,10 +216,10 @@ class SitemapDocsFetcherTest {
     fun docsHttpClientsInstallTimeouts() {
         assertEquals(30_000L, DOCS_HTTP_REQUEST_TIMEOUT_MS)
         assertEquals(10_000L, DOCS_HTTP_CONNECT_TIMEOUT_MS)
-        val client = HttpClient(MockEngine) {
-            engine { addHandler { respond("ok", HttpStatusCode.OK) } }
-            installDocsHttpTimeout(this)
-        }
+        // The production client, built exactly as SitemapDocsFetcher builds its
+        // own. Nothing is requested - the claim is about the installed plugin -
+        // so there is no engine to fake and never was a reason to fake one.
+        val client = HttpClient { installDocsHttpTimeout(this) }
         try {
             assertNotNull(client.pluginOrNull(HttpTimeout))
         } finally {
