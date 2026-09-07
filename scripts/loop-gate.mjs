@@ -7,33 +7,109 @@
 //   - an empty results directory read as "0 failures"
 //   - a green suite quietly carrying skips, so it covered less than it claimed
 //   - a run whose XMLs belonged to an earlier, different tree
+//   - a HAND-PICKED subset of classes presented as "the tests that cover this"
 // Each was caught by hand, once, by remembering to look. This makes the looking
 // structural: one command, exit 0 only when the evidence is real.
 //
-//   node scripts/loop-gate.mjs [--dir <repo>] [--expect-min <n>] [--allow-skip <Class::test>]...
+//   node scripts/loop-gate.mjs [--dir <repo>] [--expect-min <n>]
+//   node scripts/loop-gate.mjs [--dir <repo>] --docs-only --base <commit>
 //
 // Exits 0 only if: the suite actually executed in THIS invocation, every result
-// file is newer than the run's start, 0 failures, 0 errors, and every skip is
-// named on the allowlist. Prints the tally it verified, always.
+// file is newer than the run's start, 0 failures, 0 errors, and ZERO SKIPS.
+// Prints the tally it verified, always.
+//
+// THERE IS NO SKIP ALLOWLIST. `--allow-skip <Class::test>` used to exist and was
+// removed 2026-09-07: it let a local gate pass with a test that did not run,
+// while CI's own check (`ALLOWED = set()`, "Fail on any skipped test") refused
+// the same evidence. Two gates with different definitions of green is one gate
+// and one bypass. The environment-gated tests are enabled instead - see the
+// live-environment preflight below - so nothing has to be excused.
 
 import { spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { readdirSync, readFileSync, statSync, rmSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, basename } from 'node:path';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => {
   const i = argv.indexOf(name);
   return i >= 0 && argv[i + 1] ? argv[i + 1] : fallback;
 };
+const flag = (name) => argv.includes(name);
 const repo = resolve(opt('--dir', process.cwd()));
 const expectMin = Number(opt('--expect-min', '0'));
-const allowSkip = new Set(argv.flatMap((a, i) => (a === '--allow-skip' ? [argv[i + 1]] : [])));
+const docsOnly = flag('--docs-only');
+const docsBase = opt('--base', null);
 const resultsDir = join(repo, 'app', 'build', 'test-results', 'test');
 
 const fail = (msg) => { console.error(`GATE FAILED: ${msg}`); process.exit(1); };
 
-// PREFLIGHT: is the database actually up?
+if (argv.includes('--allow-skip')) {
+  fail('--allow-skip was removed. A skip is a test that did not run, and CI has never accepted one;\n' +
+    '  a local flag that excused it made the local gate weaker than the gate that decides merges.\n' +
+    '  Enable the environment the test needs (local-test-env.properties) instead of excusing it.');
+}
+
+// PREFLIGHT 1: is the live test environment actually ENABLED?
+//
+// Every environment-gated test in this repo skips silently when its variable is
+// unset, and a green suite carrying eleven skips looked exactly like a green
+// suite carrying none. That is the same bypass `--allow-skip` was, arrived at by
+// omission rather than by flag: run the gate in a worktree whose gitignored
+// local-test-env.properties was never provisioned and the live database, the chr
+// CLI probes and the testnet probes all quietly sit out.
+//
+// Real environment variables win (that is CI's path); otherwise the properties
+// file must supply them, and the gate refuses to start without them.
+const REQUIRED_LIVE_ENV = [
+  {
+    key: 'CHROMIA_TEST_DATABASE_URL',
+    ok: (v) => typeof v === 'string' && v.trim() !== '',
+    why: 'the C.UTF-8 PostgreSQL the DB-backed tests need (RunRellTests, LocalChain, the scaffold-to-green runs)'
+  },
+  {
+    key: 'CHROMIA_LIVE_PROVISIONING_TESTS',
+    ok: (v) => String(v).trim().toLowerCase() === 'true',
+    why: 'the four live testnet probes in TestnetProvisioningLiveTest (network only, no key, nothing spent)'
+  },
+  {
+    key: 'CHROMIA_REQUIRE_CHR',
+    ok: (v) => String(v).trim().toLowerCase() === 'true',
+    why: 'the real `chr` CLI probes - with this set a missing or broken chr FAILS instead of skipping'
+  }
+];
+
+const envFile = [
+  join(repo, 'local-test-env.properties'),
+  join(repo, '..', 'chromia-mcp', 'local-test-env.properties')
+].find((f) => existsSync(f)) ?? null;
+
+const fileProps = (() => {
+  if (!envFile) return {};
+  const props = {};
+  for (const line of readFileSync(envFile, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
+    if (m && !line.trim().startsWith('#')) props[m[1]] = m[2].trim();
+  }
+  return props;
+})();
+
+const liveEnv = (key) => process.env[key] ?? fileProps[key];
+
+const missingLive = REQUIRED_LIVE_ENV.filter((r) => !r.ok(liveEnv(r.key)));
+if (missingLive.length) {
+  console.error(`  local-test-env.properties: ${envFile ?? 'NOT FOUND'}`);
+  for (const r of missingLive) {
+    console.error(`  missing/disabled: ${r.key} - ${r.why}`);
+  }
+  console.error('  Set these as real environment variables (CI does) or in local-test-env.properties');
+  console.error('  (gitignored; `bash scripts/new-lane.sh` writes one per worktree). A gate run that');
+  console.error('  silently skips the live tests certifies less than it claims.');
+  fail(`the live test environment is not enabled (${missingLive.map((r) => r.key).join(', ')})`);
+}
+console.log(`gate: live env enabled (${REQUIRED_LIVE_ENV.map((r) => r.key).join(', ')}) via ${envFile ?? 'process environment'}`);
+
+// PREFLIGHT 2: is the database actually up?
 //
 // A dead PostgreSQL does not look like a dead PostgreSQL from in here - it looks
 // like 58 failing tests. That happened on 2026-09-03: the WSL cluster stopped
@@ -43,17 +119,9 @@ const fail = (msg) => { console.error(`GATE FAILED: ${msg}`); process.exit(1); }
 // before anyone looked at the text. The suite cannot tell infrastructure from
 // code, so the gate says it up front - and fails in a second rather than in
 // twelve minutes.
-const dbUrl = (() => {
-  if (process.env.CHROMIA_TEST_DATABASE_URL) return process.env.CHROMIA_TEST_DATABASE_URL;
-  for (const f of [join(repo, 'local-test-env.properties'), join(repo, '..', 'chromia-mcp', 'local-test-env.properties')]) {
-    if (!existsSync(f)) continue;
-    const m = readFileSync(f, 'utf8').match(/^\s*CHROMIA_TEST_DATABASE_URL\s*=\s*(.+)$/m);
-    if (m) return m[1].trim();
-  }
-  return null;
-})();
+const dbUrl = liveEnv('CHROMIA_TEST_DATABASE_URL');
 
-if (dbUrl) {
+{
   const hp = dbUrl.match(/\/\/([^:/?]+):(\d+)/);
   if (hp) {
     const [, host, port] = hp;
@@ -91,8 +159,81 @@ if (dbUrl) {
     }
     console.log(`gate: database at ${host}:${port} is up`);
   }
-} else {
-  console.log('gate: no CHROMIA_TEST_DATABASE_URL found - DB-backed tests will fail, not skip (that is deliberate)');
+}
+
+// ---------------------------------------------------------------------------
+// DOCS-ONLY MODE: the list is DERIVED, never supplied.
+//
+// A docs-only commit was once verified by rerunning "the five classes that read
+// GOAL.md". `grep -rl GOAL.md app/src/test/kotlin` returns SIX, so the
+// hand-picked list was already wrong and nothing in the process could have said
+// so. This mode takes no list: it reads the diff, refuses anything that is not
+// documentation, and derives the classes by grepping the test sources for the
+// changed file names. The derivation is printed and recorded in the gate line,
+// so a reader can recompute it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Documentation, for gate purposes: prose, outside every directory that is
+ * compiled, executed or packaged. A .md under app/ (the exploit corpus's
+ * CORPUS.md is one) is test DATA, not prose - it runs the full suite.
+ */
+const CODE_DIRS = ['app/', 'scripts/', 'packages/', 'gradle/', '.github/', 'claude-code-chromia/', 'upstream/'];
+const DOC_EXTENSIONS = ['.md', '.mdx', '.txt', '.adoc', '.rst'];
+const isDocPath = (p) =>
+  !CODE_DIRS.some((d) => p.startsWith(d)) && DOC_EXTENSIONS.some((e) => p.toLowerCase().endsWith(e));
+
+const git = (args) => {
+  const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+  if (r.status !== 0) fail(`git ${args.join(' ')} failed: ${(r.stderr ?? '').trim()}`);
+  return r.stdout ?? '';
+};
+
+/** Every test source file whose text mentions any of [names]; returns class names. */
+const testClassesReferencing = (names) => {
+  const testRoot = join(repo, 'app', 'src', 'test', 'kotlin');
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
+  const hits = new Map();
+  for (const file of walk(testRoot).filter((f) => f.endsWith('.kt'))) {
+    const text = readFileSync(file, 'utf8');
+    const matched = names.filter((n) => text.includes(n));
+    if (matched.length) hits.set(basename(file, '.kt'), matched);
+  }
+  return hits;
+};
+
+let derivation = null;
+let gradleArgs = ['test', '--rerun-tasks'];
+
+if (docsOnly) {
+  if (!docsBase) fail('--docs-only needs --base <commit>: the diff is computed against the LAST GATED commit');
+  const changed = git(['diff', '--name-only', `${docsBase}..HEAD`]).split('\n').map((s) => s.trim()).filter(Boolean);
+  if (changed.length === 0) fail(`nothing changed between ${docsBase} and HEAD - there is nothing to gate`);
+  const nonDocs = changed.filter((p) => !isDocPath(p));
+  console.log(`gate: --docs-only, base ${docsBase}, ${changed.length} changed path(s)`);
+  for (const p of changed) console.log(`  changed: ${p}${isDocPath(p) ? '' : '   <- NOT documentation'}`);
+  if (nonDocs.length) {
+    fail(`--docs-only refused: ${nonDocs.length} changed path(s) are not documentation (${nonDocs.join(', ')}).\n` +
+      '  Run the full gate. Anything under app/, scripts/, packages/, gradle/ or .github/ is code, and so is\n' +
+      '  a .md inside them (the exploit corpus is test data that a test reads and scores).');
+  }
+  // Grep the test sources for BOTH the repo-relative path and the bare file
+  // name: tests reference GOAL.md by name and docs/X.md either way.
+  const names = [...new Set(changed.flatMap((p) => [p, basename(p)]))];
+  const hits = testClassesReferencing(names);
+  // ExploitCorpusScoreboardTest always runs: it is the acceptance test for the
+  // rules the prose describes, and prose that contradicts a rule is a defect of
+  // the same kind as a missing rule (GOAL.md, "the prose is part of the attack
+  // surface").
+  const classes = [...new Set([...hits.keys(), 'ExploitCorpusScoreboardTest'])].sort();
+  console.log(`gate: derived ${classes.length} test class(es) by grepping app/src/test/kotlin for ${names.join(', ')}`);
+  for (const c of classes) {
+    const why = hits.get(c);
+    console.log(`  run: ${c}${why ? ` (references ${why.join(', ')})` : ' (always: the exploit-corpus scoreboard)'}`);
+  }
+  derivation = { base: docsBase, changed, names, classes };
+  gradleArgs = ['test', '--rerun-tasks', ...classes.flatMap((c) => ['--tests', `*${c}*`])];
 }
 
 // Clear stale results so a crashed or cached run cannot be mistaken for this one.
@@ -102,16 +243,16 @@ if (existsSync(resultsDir)) {
 }
 
 const startedAt = Date.now();
-console.log(`gate: running full suite in ${repo} (forced rerun)`);
+console.log(`gate: running ${docsOnly ? 'the derived classes' : 'full suite'} in ${repo} (forced rerun)`);
 // --rerun-tasks: Gradle's up-to-date check is the single biggest source of
 // "successful" builds that executed nothing.
 // A .bat needs a shell on Windows; without one spawn fails silently and the
 // gate would report "the suite did not run" without saying it never started it.
 const isWin = process.platform === 'win32';
 const gradle = isWin
-  ? spawnSync('cmd', ['/c', join(repo, 'gradlew.bat'), 'test', '--rerun-tasks'],
+  ? spawnSync('cmd', ['/c', join(repo, 'gradlew.bat'), ...gradleArgs],
       { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-  : spawnSync(join(repo, 'gradlew'), ['test', '--rerun-tasks'],
+  : spawnSync(join(repo, 'gradlew'), gradleArgs,
       { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 if (gradle.error) fail(`could not start gradle: ${gradle.error.message}`);
 const out = `${gradle.stdout ?? ''}${gradle.stderr ?? ''}`;
@@ -140,7 +281,7 @@ const files = readdirSync(resultsDir).filter((f) => f.endsWith('.xml'));
 if (files.length === 0) fail('no result files - the suite did not run (a fast "BUILD SUCCESSFUL" means a cached task)');
 
 let tests = 0, failures = 0, errors = 0, skipped = 0;
-const skippedNames = [], stale = [];
+const skippedNames = [], stale = [], ranClasses = new Set();
 for (const f of files) {
   const path = join(resultsDir, f);
   if (statSync(path).mtimeMs < startedAt) stale.push(f);
@@ -149,6 +290,7 @@ for (const f of files) {
   const num = (attr) => Number(suite.match(new RegExp(`${attr}="(\\d+)"`))?.[1] ?? 0);
   tests += num('tests'); failures += num('failures'); errors += num('errors'); skipped += num('skipped');
   const cls = suite.match(/name="([^"]+)"/)?.[1] ?? f;
+  ranClasses.add(cls.replace(/^org\.chromia\./, '').replace(/\$.*$/, ''));
   for (const tc of xml.split('<testcase').slice(1)) {
     if (/<skipped\b/.test(tc)) {
       const name = tc.match(/name="([^"]+)"/)?.[1] ?? '?';
@@ -162,7 +304,15 @@ for (const s of skippedNames) console.log(`  skip: ${s}`);
 
 if (stale.length) fail(`${stale.length} result file(s) predate this run (e.g. ${stale[0]}) - you are reading someone else's evidence`);
 if (tests === 0) fail('zero tests recorded');
-if (tests < expectMin) fail(`only ${tests} tests ran, expected at least ${expectMin} - a filter or a compile failure silently narrowed the suite`);
+if (docsOnly) {
+  // A filter that matches nothing narrows the run in total silence, which is the
+  // failure this whole mode exists to prevent. Every derived class must have
+  // produced results.
+  const absent = derivation.classes.filter((c) => ![...ranClasses].some((r) => r === c || r.endsWith(`.${c}`)));
+  if (absent.length) fail(`derived class(es) produced no results: ${absent.join(', ')} - the --tests filter did not match them`);
+} else if (tests < expectMin) {
+  fail(`only ${tests} tests ran, expected at least ${expectMin} - a filter or a compile failure silently narrowed the suite`);
+}
 if (failures || errors) {
   // Same lesson from the other end: if the cluster dies PART WAY through, the
   // preflight above passed and the tally is still meaningless. Name it rather
@@ -177,8 +327,18 @@ if (failures || errors) {
   }
   fail(`${failures} failure(s), ${errors} error(s)`);
 }
-const unexpected = skippedNames.filter((s) => ![...allowSkip].some((a) => s.endsWith(a) || s === a));
-if (unexpected.length) fail(`unexpected skip(s) - a skip is a test that did not run:\n  ${unexpected.join('\n  ')}`);
+if (skippedNames.length) {
+  fail('skipped test(s) - a skip is a test that did not run, and there is no allowlist:\n  ' +
+    skippedNames.join('\n  '));
+}
 if (gradle.status !== 0) fail(`gradle exited ${gradle.status} despite a clean tally - read the output above`);
 
-console.log(`gate: PASSED (${tests} tests, ${skippedNames.length} allowlisted skip(s))`);
+if (docsOnly) {
+  console.log(
+    `gate: PASSED (docs-only, ${tests} tests, 0 skips) ` +
+    `base=${derivation.base} docs=[${derivation.changed.join(' ')}] ` +
+    `derived=[${derivation.classes.join(' ')}]`
+  );
+} else {
+  console.log(`gate: PASSED (${tests} tests, 0 skips)`);
+}
