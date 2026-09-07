@@ -7,7 +7,14 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import io.ktor.server.application.call
+import dev.langchain4j.data.document.Metadata
+import dev.langchain4j.data.segment.TextSegment
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.cio.CIO as ServerCIO
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import kotlinx.serialization.json.jsonArray
@@ -32,6 +39,7 @@ import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -132,7 +140,10 @@ class AuditConcurrencyRegressionTest {
         assertTrue(result is NetworkResult.Success, "the explorer must list mainnet chains: $result")
         val rows = (result as NetworkResult.Success).data
             .getValue("data").jsonObject.getValue("allBlockchains").jsonArray
-        val rids = rows.map { it.jsonObject.getValue("rid").jsonPrimitive.content }.distinct()
+        val rids = rows
+            .filter { it.jsonObject.getValue("state").jsonPrimitive.content == "RUNNING" }
+            .map { it.jsonObject.getValue("rid").jsonPrimitive.content }
+            .distinct()
         assertTrue(
             rids.size >= atLeast,
             "this test needs $atLeast distinct real chains to fill the client cache; mainnet listed " +
@@ -191,19 +202,19 @@ class AuditConcurrencyRegressionTest {
         LiveChromia.requireLive("opens a client per real mainnet chain until the LRU bound is reached")
         val rids = liveMainnetChainRids(PostchainClientService.MAX_CACHED_CLIENTS + 1)
         val service = PostchainClientService(ChromiaConfig())
-        var created = 0
+        // A Success means a client was really built for that chain and really
+        // answered, so counting answers counts distinct cache keys - which the
+        // cache size itself cannot do once it saturates at the bound.
+        var answered = 0
         for (rid in rids) {
-            if (created > PostchainClientService.MAX_CACHED_CLIENTS) break
-            val before = service.cachedClientCount()
-            service.currentBlockHeight(mainnetNodeUrl, BlockchainRid.buildFromHex(rid))
-            if (service.cachedClientCount() != before || before == PostchainClientService.MAX_CACHED_CLIENTS) {
-                created++
-            }
+            val height = service.currentBlockHeight(mainnetNodeUrl, BlockchainRid.buildFromHex(rid))
+            if (height is NetworkResult.Success) answered++
+            if (answered > PostchainClientService.MAX_CACHED_CLIENTS) break
         }
         assertTrue(
-            created > PostchainClientService.MAX_CACHED_CLIENTS,
-            "only $created distinct clients could be built against $mainnetNodeUrl, so the bound was " +
-                "never crossed and this test proved nothing"
+            answered > PostchainClientService.MAX_CACHED_CLIENTS,
+            "only $answered of ${rids.size} running mainnet chains answered a height through " +
+                "$mainnetNodeUrl, so the cache bound was never crossed and this test proved nothing"
         )
         assertEquals(
             PostchainClientService.MAX_CACHED_CLIENTS, service.cachedClientCount(),
@@ -326,24 +337,21 @@ class AuditConcurrencyRegressionTest {
     fun ragStoreRetriesAFailedIndexDownloadAfterTheCooldown(@TempDir tempDir: Path) {
         val indexFile = TestDocsIndex.persist(
             tempDir.resolve("published-embeddings.json"),
-            dev.langchain4j.data.segment.TextSegment.from(
+            TextSegment.from(
                 "RETRY_MARKER: the index served on the retry.",
-                dev.langchain4j.data.document.Metadata.from("file_name", "retry.md")
+                Metadata.from("file_name", "retry.md")
             )
         )
         val serving = AtomicBoolean(false)
         val requests = AtomicInteger()
-        val server = io.ktor.server.engine.embeddedServer(io.ktor.server.cio.CIO, port = 0) {
-            io.ktor.server.routing.routing {
-                io.ktor.server.routing.get("/embeddings.json") {
+        val server = embeddedServer(ServerCIO, port = 0) {
+            routing {
+                get("/embeddings.json") {
                     requests.incrementAndGet()
                     if (serving.get()) {
-                        call.respondBytes(
-                            java.nio.file.Files.readAllBytes(indexFile),
-                            io.ktor.http.ContentType.Application.Json
-                        )
+                        call.respondBytes(Files.readAllBytes(indexFile), ContentType.Application.Json)
                     } else {
-                        call.respond(io.ktor.http.HttpStatusCode.ServiceUnavailable, "index is being rebuilt")
+                        call.respond(HttpStatusCode.ServiceUnavailable, "index is being rebuilt")
                     }
                 }
             }

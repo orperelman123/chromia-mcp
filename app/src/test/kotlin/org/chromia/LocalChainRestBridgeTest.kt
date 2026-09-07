@@ -42,9 +42,12 @@ import org.junit.jupiter.api.TestInstance
  * HTTP-surface tests for the local chain's REST facade, driven against the REAL
  * embedded Postchain node.
  *
- * There is no gateway substitute here any more. Every request below is answered
- * by [LocalChainRestBridge.EngineGateway] over a real `BlockchainEngine`, which
- * is the only thing that ever answers it in production: a real Rell app is
+ * There is no gateway substitute here any more - and no gateway interface
+ * either: `ChainGateway` had exactly one production implementation and one
+ * anonymous substitute in this file, which is the whole reason it existed, so it
+ * went with the substitute. Every request below is answered by the bridge's own
+ * engine gateway over a real `BlockchainEngine`, which is the only thing that
+ * ever answers it in production: a real Rell app is
  * compiled, a real node is started against a real PostgreSQL, real Rell queries
  * run, and real secp256k1-signed GTX transactions are enqueued and confirmed in
  * real blocks.
