@@ -81,7 +81,7 @@ class DocsWarmupSkipTest {
     @Test
     fun docsToolNamesMatchAdvertisedAndExecutableTools() {
         val advertised = McpTools.allTools().map { it.name }.toSet()
-        val executable = ToolExecutor(RecordingRepository(), PromptManager()).registeredToolNames()
+        val executable = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager()).registeredToolNames()
         McpTools.DOCS_TOOL_NAMES.forEach { name ->
             assertTrue(name in advertised, "docs tool '$name' must exist in the advertised tool list")
             assertTrue(name in executable, "docs tool '$name' must exist in the executor strategies")
@@ -104,14 +104,14 @@ class DocsWarmupSkipTest {
     fun appWarmupSkipsWithoutTouchingRagStore() = runBlocking {
         val ragStoreTouched = AtomicBoolean(false)
         val executor = ToolExecutor(
-            RecordingRepository(),
+            McpTestSupport.offlineRepository(),
             PromptManager(),
             ragStoreFactory = {
                 ragStoreTouched.set(true)
                 RagStore(loadFromRegistry = false)
             }
         )
-        val app = App(RecordingRepository(), PromptManager(), executor)
+        val app = App(McpTestSupport.offlineRepository(), PromptManager(), executor)
 
         app.warmUpDocs(docsToolsDisabled = true)
         assertFalse(ragStoreTouched.get(), "skipped warmup must not lazy-init the RagStore")
@@ -133,7 +133,7 @@ class DocsWarmupSkipTest {
         val loadStarted = CountDownLatch(1)
         val releaseLoad = CountDownLatch(1)
         val executor = ToolExecutor(
-            RecordingRepository(),
+            McpTestSupport.offlineRepository(),
             PromptManager(),
             ragStoreFactory = {
                 loadStarted.countDown()
@@ -141,7 +141,7 @@ class DocsWarmupSkipTest {
                 RagStore(loadFromRegistry = false)
             }
         )
-        val app = App(RecordingRepository(), PromptManager(), executor)
+        val app = App(McpTestSupport.offlineRepository(), PromptManager(), executor)
         val originalIn = System.`in`
         System.setIn(ByteArrayInputStream(ByteArray(0))) // the client is already gone
         try {

@@ -3,10 +3,8 @@ package org.chromia
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
-import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.plugins.sse.SSE
+import org.chromia.data.config.ChromiaConfig
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -97,38 +95,43 @@ class McpStreamableHttpSessionTest {
         }
     }
 
+    /**
+     * THE LIVE EXPLORER, THROUGH THE IN-PROCESS streamable-HTTP SESSION.
+     *
+     * A MockEngine used to answer with a recorded `allBlockchains` envelope while the
+     * test asserted over the request the engine had captured. That proved the
+     * GraphQL document and the variables the repository builds - and nothing at
+     * all about the explorer, which never saw either.
+     *
+     * Live, the answer proves both: the explorer returns the directory chain for name="directory" only if the
+     * document was well formed and the variables bound, and what comes back is
+     * what the explorer says today rather than what it said when the fixture was
+     * written. The `network` parameter is mainnet because the public explorer
+     * answers 400 for every other one (docs/UPSTREAM.md #9) - a fixture was free
+     * to pretend otherwise, and did.
+     */
     @Test
-    fun toolCallReachesTheSameStrategiesAsSse() = runBlocking {
-        val fixture = """{"data":{"allBlockchains":[{"rid":"abc","name":"directory_chain","system":true}]}}"""
-        val captured = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            captured.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        withStreamableHttpSession(engine = engine) { client, _ ->
-            val call = withTimeout(10_000) {
+    fun toolCallReachesTheSameStrategiesAsSseAgainstTheLiveExplorer() = runBlocking {
+        LiveChromia.requireLive("calls filter_blockchains against the live explorer over streamable HTTP")
+        withStreamableHttpSession(config = LiveChromia.config()) { client, _ ->
+            val call = withTimeout(60_000) {
                 client.callTool(
                     name = "filter_blockchains",
-                    arguments = mapOf("network" to "testnet", "name" to "directory", "limit" to 5)
+                    arguments = mapOf(
+                        "network" to LiveChromia.EXPLORER_NETWORK,
+                        "name" to "directory",
+                        "limit" to 5
+                    )
                 )
             }
-            assertEquals(false, call.isError == true)
+            assertEquals(false, call.isError == true, (call.content.first() as TextContent).text)
             val structured = call.structuredContent!!
-            assertEquals(
-                "directory_chain",
-                structured.getValue("data").jsonObject
-                    .getValue("allBlockchains").jsonArray[0].jsonObject
-                    .getValue("name").jsonPrimitive.content
-            )
+            val names = structured.getValue("data").jsonObject
+                .getValue("allBlockchains").jsonArray
+                .map { it.jsonObject.getValue("name").jsonPrimitive.content }
+            assertTrue(names.contains("directory_chain"), "the name variable did not bind: $names")
             val text = (call.content.first() as TextContent).text
             assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-            assertEquals(1, engine.requestHistory.size)
-            assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-            assertEquals(1, captured.size)
         }
     }
 
@@ -267,10 +270,10 @@ class McpStreamableHttpSessionTest {
     }
 
     private suspend fun withStreamableHttpSession(
-        engine: MockEngine = McpTestSupport.errorEngine(),
+        config: ChromiaConfig = McpTestSupport.offlineConfig(),
         block: suspend (Client, Int) -> Unit
     ) {
-        val app = McpTestSupport.testApp(engine = engine)
+        val app = McpTestSupport.testApp(config = config)
         val server = app.runSseMcpServer(host = "127.0.0.1", port = 0, wait = false)
         val http = HttpClient(CIO) {
             install(SSE)

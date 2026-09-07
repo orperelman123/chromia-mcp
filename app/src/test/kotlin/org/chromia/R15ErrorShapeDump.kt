@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test
 
 /** TEMPORARY (round 15): print the runner's raw error for each r15 frame probe. */
 class R15ErrorShapeDump {
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private fun dump(label: String, files: Map<String, String>, guard: String, replacement: String, test: String) {
         val result = runBlocking {

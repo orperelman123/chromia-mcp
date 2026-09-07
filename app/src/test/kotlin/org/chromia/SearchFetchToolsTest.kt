@@ -380,7 +380,7 @@ class SearchFetchToolsTest {
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "FT4") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.startsWith("Error fetching documentation:"))
@@ -401,7 +401,7 @@ class SearchFetchToolsTest {
                 name = "search",
                 arguments = buildJsonObject { put("query", "FT4") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.startsWith("Error searching documentation:"))
@@ -421,7 +421,7 @@ class SearchFetchToolsTest {
                 name = "fetch",
                 arguments = buildJsonObject { put("id", "any-id") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         val text = (result.content.first() as TextContent).text!!
         val payload = Json.parseToJsonElement(text).jsonObject
@@ -443,7 +443,7 @@ class SearchFetchToolsTest {
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "no-such-documentation") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("Documentation not found"))
@@ -463,7 +463,7 @@ class SearchFetchToolsTest {
                 name = "fetch_docs",
                 arguments = buildJsonObject { put("query", "anything") }
             ),
-            RecordingRepository()
+            McpTestSupport.offlineRepository()
         )
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("Documentation not found") || text.isBlank())

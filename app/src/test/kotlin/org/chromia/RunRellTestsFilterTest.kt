@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test
  */
 class RunRellTestsFilterTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private val files = mapOf(
         "lib.rell" to "module;\nfunction double(x: integer): integer = x * 2;",

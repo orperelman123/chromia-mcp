@@ -178,7 +178,7 @@ class NoHumanBlockerForAutomatedStepTest {
     }
 
     private fun preflight(yaml: String, target: String) = runBlocking {
-        ToolExecutor(RecordingRepository(), PromptManager()).executeTool(
+        ToolExecutor(McpTestSupport.offlineRepository(), PromptManager()).executeTool(
             callToolRequest(
                 name = "deployment_preflight",
                 arguments = buildJsonObject {

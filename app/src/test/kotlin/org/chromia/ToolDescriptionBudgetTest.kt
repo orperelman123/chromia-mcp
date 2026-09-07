@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test
  */
 class ToolDescriptionBudgetTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private val baseline: Map<String, String> by lazy {
         val text = checkNotNull(javaClass.classLoader.getResourceAsStream("tool-descriptions-baseline.json")) {

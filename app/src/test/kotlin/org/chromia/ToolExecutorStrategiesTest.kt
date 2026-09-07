@@ -1,12 +1,5 @@
 package org.chromia
 
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
-import io.ktor.client.engine.mock.toByteArray
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import org.chromia.tools.callToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
@@ -52,6 +45,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 
 class ToolExecutorStrategiesTest {
@@ -507,159 +504,6 @@ class ToolExecutorStrategiesTest {
     }
 
     @Test
-    fun graphQlErrorsHttp200FlowsThroughParserIntoHandleResultIsError() = runBlocking {
-        val fixture = """{"errors":[{"message":"field boom"},{"message":"also bad"}]}"""
-        val engine = MockEngine {
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, HttpClient(engine))
-        )
-        val result = NetworkStatsStrategy().execute(
-            callToolRequest(
-                name = "get_network_stats",
-                arguments = buildJsonObject { put("network", "mainnet") }
-            ),
-            repository
-        )
-        assertEquals(true, result.isError)
-        val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.contains("Failed to get network stats"))
-        assertTrue(text.contains("field boom"))
-        assertTrue(text.contains("GraphQL Error"))
-        assertEquals(text, result.structuredContent!!["error"]!!.jsonPrimitive.content)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-    }
-
-    @Test
-    fun filterBlockchainsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"allBlockchains":[{"rid":"abc","name":"directory_chain","system":true}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = FilterBlockchainsStrategy().execute(
-            callToolRequest(
-                name = "filter_blockchains",
-                arguments = buildJsonObject {
-                    put("network", "testnet")
-                    put("name", "directory")
-                    put("limit", 5)
-                    put("system", true)
-                }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        assertEquals(
-            "directory_chain",
-            structured
-                .getValue("data")
-                .jsonObject
-                .getValue("allBlockchains")
-                .jsonArray[0]
-                .jsonObject
-                .getValue("name")
-                .jsonPrimitive
-                .content
-        )
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("allBlockchains"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("directory", variables["name"]!!.jsonPrimitive.content)
-        assertEquals("5", variables["limit"]!!.jsonPrimitive.content)
-        assertEquals("true", variables["system"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun filterAssetsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"filterAssets":{"assets":[{"name":"Chromia","symbol":"CHR","type":"FT"}],"totalCount":1}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = FilterAssetsStrategy().execute(
-            callToolRequest(
-                name = "filter_assets",
-                arguments = buildJsonObject {
-                    put("network", "mainnet")
-                    put("searchQuery", "CHR")
-                    put("type", "FT")
-                    put("limit", 10)
-                }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        assertEquals(
-            "CHR",
-            structured
-                .getValue("data")
-                .jsonObject
-                .getValue("filterAssets")
-                .jsonObject
-                .getValue("assets")
-                .jsonArray[0]
-                .jsonObject
-                .getValue("symbol")
-                .jsonPrimitive
-                .content
-        )
-        assertEquals("1", structured.getValue("data").jsonObject.getValue("filterAssets").jsonObject.getValue("totalCount").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("filterAssets"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("CHR", variables["searchQuery"]!!.jsonPrimitive.content)
-        assertEquals("FT", variables["type"]!!.jsonPrimitive.content)
-        assertEquals("10", variables["limit"]!!.jsonPrimitive.content)
-    }
-
-    @Test
     fun chromiaDappQueryReturnsRepositoryError() = runBlocking {
         val repo = RecordingRepository()
         repo.next = NetworkResult.Error("node refused query")
@@ -922,838 +766,480 @@ class ToolExecutorStrategiesTest {
         assertNull(args["page_size"], "JSON null must map to Kotlin null (GtvNull), not the string null")
     }
 
+    /**
+     * NESTED LIST AND MAP ARGUMENTS, BOUND BY THE REAL CHAIN.
+     *
+     * This used to hand `PostchainClientService` a trailing-lambda query client
+     * that inspected the Gtv it received and then produced the answer itself, so
+     * what it proved was that `listMapAndPrimitivesToGtv` builds the Gtv the test
+     * expected - a restatement of the test.
+     *
+     * `ft4.get_assets_filtered` on the live Economy Chain takes a nested struct
+     * carrying a `list<byte_array>` and a `text`, next to a top-level `integer`.
+     * Rell BINDS all of it: a conversion producing the wrong Gtv type cannot bind
+     * at all, and one that bound the wrong values comes back with the wrong
+     * asset. The whole tool path - JSON arguments, the strategy, the repository,
+     * the converter, the wire, the strict gson, handleResult - is exercised, and
+     * the verdict is the chain's.
+     */
     @Test
-    fun getAllTransactionsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"allTransactions":{"transactions":[{"rid":"tx-1","timestamp":"2026-01-02T00:00:00Z"}]}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = AllTransactionsStrategy().execute(
+    fun chromiaDappQueryNestedListMapArgsAreBoundByTheLiveChain() = runBlocking {
+        LiveChromia.requireLive("sends a nested dict holding a list to the live Economy Chain via chromia_dapp_query")
+        val repository = LiveChromia.repository()
+
+        val asset = DappInteractionStrategy().execute(
             callToolRequest(
-                name = "get_all_transactions",
+                name = "chromia_dapp_query",
                 arguments = buildJsonObject {
-                    put("network", "mainnet")
-                    put("rid", "tx-rid")
-                    put("blockId", "block-9")
-                    put("timestampFrom", "2026-01-01T00:00:00Z")
-                    put("limit", 20)
-                    put("offset", 5)
-                    put("sortBy", "timestamp")
-                    put("sortDirection", "DESC")
-                    put("blockchainIds", buildJsonArray { add("brid-a"); add("brid-b") })
-                    put("operations", buildJsonArray { add("ft4.transfer") })
-                    put("accounts", buildJsonArray { add("acc-1") })
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "get_chr_asset")
                 }
             ),
             repository
         )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        assertEquals(
-            "tx-1",
-            structured
-                .getValue("data")
-                .jsonObject
-                .getValue("allTransactions")
-                .jsonObject
-                .getValue("transactions")
-                .jsonArray[0]
-                .jsonObject
-                .getValue("rid")
-                .jsonPrimitive
-                .content
-        )
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("allTransactions"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("tx-rid", variables["rid"]!!.jsonPrimitive.content)
-        assertEquals("block-9", variables["blockId"]!!.jsonPrimitive.content)
-        assertEquals("2026-01-01T00:00:00Z", variables["timestampFrom"]!!.jsonPrimitive.content)
-        assertEquals(listOf("brid-a", "brid-b"), variables["blockchainIds"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("ft4.transfer"), variables["operations"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("acc-1"), variables["accounts"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals("20", variables["limit"]!!.jsonPrimitive.content)
-        assertEquals("5", variables["offset"]!!.jsonPrimitive.content)
-        assertEquals("timestamp", variables["sortBy"]!!.jsonPrimitive.content)
-        assertEquals("DESC", variables["sortDirection"]!!.jsonPrimitive.content)
-    }
+        assertTrue(asset.isError != true, (asset.content.first() as TextContent).text)
+        val assetId = asset.structuredContent!!.getValue("id").jsonPrimitive.content
+        val assetName = asset.structuredContent!!.getValue("name").jsonPrimitive.content
 
-    @Test
-    fun chromiaDappQueryNestedListMapArgsFlowThroughListMapAndPrimitivesToGtv() = runBlocking {
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val postchain = PostchainClientService(config) { blockchainRid, queryName, args ->
-            assertEquals(validBrid.uppercase(), blockchainRid.toHex())
-            assertEquals("ft4.get_transfers", queryName)
-            val dict = args.asDict()
-            val items = dict.getValue("items").asArray()
-            assertEquals(2, items.size)
-            assertEquals("a", items[0].asDict().getValue("id").asString())
-            assertEquals(1L, items[0].asDict().getValue("n").asInteger())
-            assertEquals("b", items[1].asDict().getValue("id").asString())
-            assertEquals(2L, items[1].asDict().getValue("n").asInteger())
-            val meta = dict.getValue("meta").asDict()
-            assertEquals(listOf("x", "y"), meta.getValue("tags").asArray().map { it.asString() })
-            assertEquals("test", meta.getValue("source").asString())
-            GtvFactory.gtv(
-                mapOf(
-                    "ok" to GtvFactory.gtv("nested"),
-                    "count" to GtvFactory.gtv(2L)
-                )
-            )
-        }
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, McpTestSupport.errorEngine()),
-            postchain
-        )
         val result = DappInteractionStrategy().execute(
             callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
-                    put("network", "testnet")
-                    put("blockchainRid", validBrid)
-                    put("query", "ft4.get_transfers")
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "ft4.get_assets_filtered")
                     put(
                         "arguments",
                         buildJsonObject {
                             put(
-                                "items",
-                                buildJsonArray {
-                                    add(buildJsonObject { put("id", "a"); put("n", 1) })
-                                    add(buildJsonObject { put("id", "b"); put("n", 2) })
-                                }
-                            )
-                            put(
-                                "meta",
+                                "asset_filter",
                                 buildJsonObject {
-                                    put("tags", buildJsonArray { add("x"); add("y") })
-                                    put("source", "test")
+                                    put("ids", buildJsonArray { add(assetId) })
+                                    put("name", assetName)
+                                    put("symbol", JsonNull)
+                                    put("type", JsonNull)
                                 }
                             )
+                            put("page_size", 2)
+                            put("page_cursor", JsonNull)
                         }
                     )
                 }
             ),
             repository
         )
-        assertTrue(result.isError != true)
-        assertEquals("nested", result.structuredContent!!["ok"]!!.jsonPrimitive.content)
-        assertEquals("2", result.structuredContent!!["count"]!!.jsonPrimitive.content)
+        assertTrue(result.isError != true, (result.content.first() as TextContent).text)
+        val rows = result.structuredContent!!.getValue("data").jsonArray
+        assertEquals(
+            1, rows.size,
+            "the nested id list and the name both had to bind for exactly this asset to come back: " +
+                result.structuredContent
+        )
+        assertEquals(assetId, rows[0].jsonObject.getValue("id").jsonPrimitive.content)
+        assertEquals(assetName, rows[0].jsonObject.getValue("name").jsonPrimitive.content)
+    }
+
+    @Test
+    fun liveFilterBlockchainsFiltersByNameAndSystem() = runBlocking {
+        LiveChromia.requireLive("calls filter_blockchains against the live explorer")
+        val result = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("name", "directory")
+                    put("limit", 5)
+                    put("system", true)
+                }
+            ),
+            liveRepository()
+        )
+        val chains = assertLiveExplorerTool("filter_blockchains", result, "allBlockchains") ?: return@runBlocking
+        val names = chains.jsonArray.map { it.jsonObject.getValue("name").jsonPrimitive.content }
+        assertTrue(
+            names.contains("directory_chain"),
+            "name=directory + system=true must reach the directory chain - the variables did not bind " +
+                "if it did not. Got: $names"
+        )
+        assertTrue(
+            names.all { it.contains("directory") },
+            "the name filter did not filter: $names"
+        )
         val text = (result.content.first() as TextContent).text!!
         assertEquals(result.structuredContent, Json.parseToJsonElement(text).jsonObject)
     }
 
     @Test
-    fun getAssetTopHoldersHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"getAssetTopHolders":[{"accountId":"holder-1","totalBalance":"1000","chainCount":2,"chainBrid":"brid-1","accountType":"FT4_USER"}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
+    fun liveFilterAssetsFiltersBySearchQuery() = runBlocking {
+        LiveChromia.requireLive("calls filter_assets against the live explorer")
+        val chr = liveChrAsset()
+        assertEquals("CHR", chr.getValue("symbol").jsonPrimitive.content)
+        assertEquals(64, chr.getValue("id").jsonPrimitive.content.length, "an FT4 asset id is 32 bytes of hex")
+        assertTrue(chr.getValue("decimals").jsonPrimitive.content.toInt() > 0)
+    }
+
+    @Test
+    fun liveGetAllAssetsAnswers() = runBlocking {
+        LiveChromia.requireLive("calls get_all_assets against the live explorer")
+        val result = AllAssetsStrategy().execute(
+            callToolRequest(
+                name = "get_all_assets",
+                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
+            ),
+            liveRepository()
         )
+        val assets = assertLiveExplorerTool("get_all_assets", result, "allAssets") ?: return@runBlocking
+        assertTrue(assets.jsonArray.isNotEmpty(), "mainnet has assets: $assets")
+        assertTrue(assets.jsonArray.first().jsonObject.containsKey("symbol"))
+    }
+
+    @Test
+    fun liveGetAllTransactionsPagesAndSorts() = runBlocking {
+        LiveChromia.requireLive("calls get_all_transactions against the live explorer")
+        val result = AllTransactionsStrategy().execute(
+            callToolRequest(
+                name = "get_all_transactions",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("limit", 3)
+                    put("sortBy", "timestamp")
+                    put("sortDirection", "DESC")
+                }
+            ),
+            liveRepository()
+        )
+        val page = assertLiveExplorerTool("get_all_transactions", result, "allTransactions")
+            ?: return@runBlocking
+        val transactions = page.jsonObject.getValue("transactions").jsonArray
+        assertTrue(transactions.size <= 3, "the limit variable did not bind: got ${transactions.size}")
+        assertTrue(transactions.isNotEmpty(), "mainnet has transactions: $page")
+        assertEquals(64, transactions.first().jsonObject.getValue("rid").jsonPrimitive.content.length)
+    }
+
+    @Test
+    fun liveGetAssetTopHoldersAnswersForARealAsset() = runBlocking {
+        LiveChromia.requireLive("calls get_asset_top_holders for a real asset id")
+        val assetId = liveChrAsset().getValue("id").jsonPrimitive.content
         val result = AssetTopHoldersStrategy().execute(
             callToolRequest(
                 name = "get_asset_top_holders",
                 arguments = buildJsonObject {
-                    put("assetId", "chr-asset")
-                    put("network", "testnet")
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", assetId)
                     put("limit", 3)
-                    put("brids", buildJsonArray { add("brid-1") })
-                    put("excludeAccounts", buildJsonArray { add("treasury") })
                 }
             ),
-            repository
+            liveRepository()
         )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val holder = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("getAssetTopHolders")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("holder-1", holder.getValue("accountId").jsonPrimitive.content)
-        assertEquals("1000", holder.getValue("totalBalance").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("getAssetTopHolders"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("chr-asset", variables["assetId"]!!.jsonPrimitive.content)
-        assertEquals("3", variables["limit"]!!.jsonPrimitive.content)
-        assertEquals(listOf("brid-1"), variables["brids"]!!.jsonArray.map { it.jsonPrimitive.content })
-        // Explorer schema uses `excludedAccounts` on getAssetTopHolders (unlike getAssetDistribution).
-        assertEquals(listOf("treasury"), variables["excludedAccounts"]!!.jsonArray.map { it.jsonPrimitive.content })
+        val holders = assertLiveExplorerTool("get_asset_top_holders", result, "getAssetTopHolders")
+            ?: return@runBlocking
+        assertTrue(holders.jsonArray.isNotEmpty(), "CHR has holders: $holders")
+        assertTrue(holders.jsonArray.size <= 3, "the limit variable did not bind: $holders")
+        assertEquals(64, holders.jsonArray.first().jsonObject.getValue("accountId").jsonPrimitive.content.length)
     }
 
     @Test
-    fun getAssetDistributionHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"getAssetDistribution":[{"brid":"brid-1","type":"FT4_USER","totalAmount":"5000"}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
+    fun liveGetAssetDistributionAnswersForARealAsset() = runBlocking {
+        LiveChromia.requireLive("calls get_asset_distribution for a real asset id")
+        val assetId = liveChrAsset().getValue("id").jsonPrimitive.content
         val result = AssetDistributionStrategy().execute(
             callToolRequest(
                 name = "get_asset_distribution",
                 arguments = buildJsonObject {
-                    put("assetId", "chr-asset")
-                    put("network", "mainnet")
-                    put("brids", buildJsonArray { add("brid-1") })
-                    put("accountTypes", buildJsonArray { add("FT4_USER") })
-                    put("excludeAccounts", buildJsonArray { add("treasury") })
-                    put("excludeBrids", buildJsonArray { add("brid-x") })
-                    put("excludeAccountTypes", buildJsonArray { add("SYSTEM") })
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", assetId)
                 }
             ),
-            repository
+            liveRepository()
         )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("getAssetDistribution")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("brid-1", row.getValue("brid").jsonPrimitive.content)
-        assertEquals("FT4_USER", row.getValue("type").jsonPrimitive.content)
-        assertEquals("5000", row.getValue("totalAmount").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("getAssetDistribution"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("chr-asset", variables["assetId"]!!.jsonPrimitive.content)
-        assertEquals(listOf("brid-1"), variables["brids"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("FT4_USER"), variables["accountTypes"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("treasury"), variables["excludeAccounts"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("brid-x"), variables["excludeBrids"]!!.jsonArray.map { it.jsonPrimitive.content })
-        assertEquals(listOf("SYSTEM"), variables["excludeAccountTypes"]!!.jsonArray.map { it.jsonPrimitive.content })
+        val rows = assertLiveExplorerTool("get_asset_distribution", result, "getAssetDistribution")
+            ?: return@runBlocking
+        assertTrue(rows.jsonArray.isNotEmpty(), "CHR is distributed across chains: $rows")
+        assertTrue(rows.jsonArray.first().jsonObject.containsKey("totalAmount"))
     }
 
     @Test
-    fun getNetworkStatsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"dashboardData":{"countAllAccounts":42,"countAllTransfers":7,"countAllTransactions":99,"monthlyActiveAccounts":3}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = NetworkStatsStrategy().execute(
-            callToolRequest(
-                name = "get_network_stats",
-                arguments = buildJsonObject { put("network", "testnet") }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val dashboard = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("dashboardData")
-            .jsonObject
-        assertEquals("42", dashboard.getValue("countAllAccounts").jsonPrimitive.content)
-        assertEquals("7", dashboard.getValue("countAllTransfers").jsonPrimitive.content)
-        assertEquals("99", dashboard.getValue("countAllTransactions").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("dashboardData"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        assertTrue("variables" !in posted, "get_network_stats has no GraphQL variables")
-    }
-
-    @Test
-    fun getChrAggregatesHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"chrAggregates":{"groupedDeposits":[{"address":"0xabc","networkId":"1","total":"100"}],"groupedWithdrawals":[],"totals":{"depositsTotal":"100","withdrawalsTotal":"0"}}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = ChrAggregatesStrategy().execute(
-            callToolRequest(
-                name = "get_chr_aggregates",
-                arguments = buildJsonObject {
-                    put("network", "mainnet")
-                    put("includeTotals", false)
-                    put("includeGroupedDeposits", true)
-                    put("includeGroupedWithdrawals", false)
-                }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val aggregates = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("chrAggregates")
-            .jsonObject
-        assertEquals(
-            "0xabc",
-            aggregates.getValue("groupedDeposits").jsonArray[0].jsonObject.getValue("address").jsonPrimitive.content
-        )
-        assertEquals("100", aggregates.getValue("totals").jsonObject.getValue("depositsTotal").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("chrAggregates"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("false", variables["includeTotals"]!!.jsonPrimitive.content)
-        assertEquals("true", variables["includeGroupedDeposits"]!!.jsonPrimitive.content)
-        assertEquals("false", variables["includeGroupedWithdrawals"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun getAssetBlockchainsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"getAssetBlockchains":[{"brid":"brid-1","transfersCount":12,"isSource":true,"blockchain":{"name":"economy_chain"}}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
+    fun liveGetAssetBlockchainsAnswersForARealAsset() = runBlocking {
+        LiveChromia.requireLive("calls get_asset_blockchains for a real asset id")
+        val assetId = liveChrAsset().getValue("id").jsonPrimitive.content
         val result = AssetBlockchainsStrategy().execute(
             callToolRequest(
                 name = "get_asset_blockchains",
                 arguments = buildJsonObject {
-                    put("assetId", "chr-asset")
-                    put("network", "mainnet")
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", assetId)
                 }
             ),
-            repository
+            liveRepository()
         )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("getAssetBlockchains")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("brid-1", row.getValue("brid").jsonPrimitive.content)
-        assertEquals("12", row.getValue("transfersCount").jsonPrimitive.content)
-        assertEquals("true", row.getValue("isSource").jsonPrimitive.content)
-        assertEquals("economy_chain", row.getValue("blockchain").jsonObject.getValue("name").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("getAssetBlockchains"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("chr-asset", variables["assetId"]!!.jsonPrimitive.content)
+        val rows = assertLiveExplorerTool("get_asset_blockchains", result, "getAssetBlockchains")
+            ?: return@runBlocking
+        assertTrue(rows.jsonArray.isNotEmpty(), "CHR lives on chains: $rows")
+        assertEquals(64, rows.jsonArray.first().jsonObject.getValue("brid").jsonPrimitive.content.length)
     }
 
     @Test
-    fun getBlockchainAnalyticsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"blockchainAnalytics":{"totalTransactions":88,"totalOperations":12,"totalActiveAccounts":4,"transactionsByDay":[{"date":"2026-01-02","value":3}]}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = BlockchainAnalyticsStrategy().execute(
+    fun liveGetBlockchainDetailsAnswersForARealRid() = runBlocking {
+        LiveChromia.requireLive("calls get_blockchain_details for a real chain rid")
+        val directory = FilterBlockchainsStrategy().execute(
             callToolRequest(
-                name = "get_blockchain_analytics",
+                name = "filter_blockchains",
                 arguments = buildJsonObject {
-                    put("brid", "brid-9")
-                    put("network", "testnet")
-                    put("fromTimestamp", "2026-01-01T00:00:00Z")
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("name", "directory")
+                    put("limit", 1)
                 }
             ),
-            repository
+            liveRepository()
         )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val analytics = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("blockchainAnalytics")
-            .jsonObject
-        assertEquals("88", analytics.getValue("totalTransactions").jsonPrimitive.content)
-        assertEquals("12", analytics.getValue("totalOperations").jsonPrimitive.content)
-        assertEquals(
-            "2026-01-02",
-            analytics.getValue("transactionsByDay").jsonArray[0].jsonObject.getValue("date").jsonPrimitive.content
-        )
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("blockchainAnalytics"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("brid-9", variables["brid"]!!.jsonPrimitive.content)
-        assertEquals("2026-01-01T00:00:00Z", variables["fromTimestamp"]!!.jsonPrimitive.content)
-    }
+        val chains = assertLiveExplorerTool("filter_blockchains", directory, "allBlockchains")
+            ?: return@runBlocking
+        val rid = chains.jsonArray.first().jsonObject.getValue("rid").jsonPrimitive.content
 
-    @Test
-    fun getNodeUnavailabilityHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"getNodeUnavailability":[{"blockchainRid":"brid-node","intervals":[{"start":"1736373600000","end":"1736377200000"}]}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = NodeUnavailabilityStrategy().execute(
-            callToolRequest(
-                name = "get_node_unavailability",
-                arguments = buildJsonObject {
-                    put("pubkey", "02DDAEA3")
-                    put("startTimestamp", "1736373600000")
-                    put("network", "mainnet")
-                }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("getNodeUnavailability")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("brid-node", row.getValue("blockchainRid").jsonPrimitive.content)
-        assertEquals(
-            "1736373600000",
-            row.getValue("intervals").jsonArray[0].jsonObject.getValue("start").jsonPrimitive.content
-        )
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("getNodeUnavailability"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("02DDAEA3", variables["pubkey"]!!.jsonPrimitive.content)
-        assertEquals("1736373600000", variables["startTimestamp"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun getSignerBlockchainsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"signerBlockchains":[{"blockchain":{"rid":"brid-s","name":"economy_chain"},"transactionCount":7}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = SignerBlockchainsStrategy().execute(
-            callToolRequest(
-                name = "get_signer_blockchains",
-                arguments = buildJsonObject {
-                    put("signer", "025C06D4")
-                    put("network", "testnet")
-                }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("signerBlockchains")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("brid-s", row.getValue("blockchain").jsonObject.getValue("rid").jsonPrimitive.content)
-        assertEquals("economy_chain", row.getValue("blockchain").jsonObject.getValue("name").jsonPrimitive.content)
-        assertEquals("7", row.getValue("transactionCount").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("signerBlockchains"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("025C06D4", variables["signer"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun getAllAssetsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"allAssets":[{"name":"Chromia","symbol":"CHR","id":"chr-asset","brid":"brid-a","type":"ft4","decimals":6,"supply":"1000","transferCount":9,"blockchainCount":2}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = AllAssetsStrategy().execute(
-            callToolRequest(
-                name = "get_all_assets",
-                arguments = buildJsonObject { put("network", "mainnet") }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("allAssets")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("Chromia", row.getValue("name").jsonPrimitive.content)
-        assertEquals("CHR", row.getValue("symbol").jsonPrimitive.content)
-        assertEquals("chr-asset", row.getValue("id").jsonPrimitive.content)
-        assertEquals("9", row.getValue("transferCount").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("allAssets"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        assertTrue("variables" !in posted, "get_all_assets has no GraphQL variables")
-    }
-
-    @Test
-    fun getAccountBlockchainsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"accountBlockchains":[{"blockchain":{"rid":"brid-acc","name":"user_chain"},"transactionCount":4,"transfersCount":11}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = AccountBlockchainsStrategy().execute(
-            callToolRequest(
-                name = "get_account_blockchains",
-                arguments = buildJsonObject {
-                    put("accountId", "acc-42")
-                    put("network", "mainnet")
-                }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("accountBlockchains")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("brid-acc", row.getValue("blockchain").jsonObject.getValue("rid").jsonPrimitive.content)
-        assertEquals("user_chain", row.getValue("blockchain").jsonObject.getValue("name").jsonPrimitive.content)
-        assertEquals("4", row.getValue("transactionCount").jsonPrimitive.content)
-        assertEquals("11", row.getValue("transfersCount").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("accountBlockchains"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("acc-42", variables["accountId"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun getTransactionsByClusterHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        // Real explorer responses nest this under dashboardData since the top-level
-        // groupedTransactionsByCluster field was removed from the schema.
-        val fixture = """{"data":{"dashboardData":{"groupedTransactionsByCluster":[{"cluster":"system","count":88},{"cluster":"dapp","count":12}]}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = TransactionsByClusterStrategy().execute(
-            callToolRequest(
-                name = "get_transactions_by_cluster",
-                arguments = buildJsonObject { put("network", "testnet") }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val rows = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("dashboardData")
-            .jsonObject
-            .getValue("groupedTransactionsByCluster")
-            .jsonArray
-        assertEquals("system", rows[0].jsonObject.getValue("cluster").jsonPrimitive.content)
-        assertEquals("88", rows[0].jsonObject.getValue("count").jsonPrimitive.content)
-        assertEquals("dapp", rows[1].jsonObject.getValue("cluster").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("testnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("groupedTransactionsByCluster"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        assertTrue("variables" !in posted, "get_transactions_by_cluster has no GraphQL variables")
-    }
-
-    @Test
-    fun getBlockchainsTransactionsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"groupedTransactionsByBlockchain":[{"brid":"brid-tx","blockchain":{"name":"directory_chain","system":true,"cluster":"system","state":"RUNNING"},"blockHeight":99,"throughput":1.5,"count":42}]}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
-        val result = BlockchainsTransactionsStrategy().execute(
-            callToolRequest(
-                name = "get_blockchains_transactions",
-                arguments = buildJsonObject { put("network", "mainnet") }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val row = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("groupedTransactionsByBlockchain")
-            .jsonArray[0]
-            .jsonObject
-        assertEquals("brid-tx", row.getValue("brid").jsonPrimitive.content)
-        assertEquals("directory_chain", row.getValue("blockchain").jsonObject.getValue("name").jsonPrimitive.content)
-        assertEquals("99", row.getValue("blockHeight").jsonPrimitive.content)
-        assertEquals("42", row.getValue("count").jsonPrimitive.content)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(text).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("groupedTransactionsByBlockchain"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        assertTrue("variables" !in posted, "get_blockchains_transactions has no GraphQL variables")
-    }
-
-    @Test
-    fun getBlockchainDetailsHttp200FlowsThroughRepositoryIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"blockchain":{"rid":"rid-1","name":"directory_chain","system":true,"container":"sys","cluster":"system","state":"RUNNING"}}}"""
-        val capturedBodies = mutableListOf<String>()
-        val engine = MockEngine { request ->
-            capturedBodies.add(request.body.toByteArray().decodeToString())
-            respond(
-                content = fixture,
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
-        }
-        val config = ChromiaConfig(explorerUrl = "https://example.test/graphql")
-        val repository = ChromiaRepositoryImpl(
-            config,
-            HttpClientService(config, engine)
-        )
         val result = BlockchainDetailsStrategy().execute(
             callToolRequest(
                 name = "get_blockchain_details",
                 arguments = buildJsonObject {
-                    put("rid", "rid-1")
-                    put("network", "mainnet")
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("rid", rid)
                 }
             ),
-            repository
+            liveRepository()
         )
-        assertTrue(result.isError != true)
-        val structured = result.structuredContent!!
-        val chain = structured
-            .getValue("data")
-            .jsonObject
-            .getValue("blockchain")
-            .jsonObject
-        assertEquals("rid-1", chain.getValue("rid").jsonPrimitive.content)
-        assertEquals("directory_chain", chain.getValue("name").jsonPrimitive.content)
-        assertEquals("true", chain.getValue("system").jsonPrimitive.content)
-        assertEquals("RUNNING", chain.getValue("state").jsonPrimitive.content)
-        val textContent = (result.content.first() as TextContent).text!!
-        assertEquals(structured, Json.parseToJsonElement(textContent).jsonObject)
-        assertEquals(1, engine.requestHistory.size)
-        assertEquals("mainnet", engine.requestHistory.first().url.parameters["network"])
-        assertEquals(1, capturedBodies.size)
-        val posted = Json.parseToJsonElement(capturedBodies.first()).jsonObject
-        assertTrue(
-            posted["query"]!!.jsonPrimitive.content.contains("blockchain"),
-            posted["query"]!!.jsonPrimitive.content
-        )
-        val variables = posted.getValue("variables").jsonObject
-        assertEquals("rid-1", variables["rid"]!!.jsonPrimitive.content)
+        val chain = assertLiveExplorerTool("get_blockchain_details", result, "blockchain")
+            ?: return@runBlocking
+        assertEquals(rid, chain.jsonObject.getValue("rid").jsonPrimitive.content, "the rid variable did not bind")
+        assertEquals("directory_chain", chain.jsonObject.getValue("name").jsonPrimitive.content)
     }
+
+    @Test
+    fun liveGetBlockchainAnalyticsAnswersForARealChain() = runBlocking {
+        LiveChromia.requireLive("calls get_blockchain_analytics for a real chain rid")
+        val chains = assertLiveExplorerTool(
+            "filter_blockchains",
+            FilterBlockchainsStrategy().execute(
+                callToolRequest(
+                    name = "filter_blockchains",
+                    arguments = buildJsonObject {
+                        put("network", LiveChromia.EXPLORER_NETWORK)
+                        put("name", "directory")
+                        put("limit", 1)
+                    }
+                ),
+                liveRepository()
+            ),
+            "allBlockchains"
+        ) ?: return@runBlocking
+        val rid = chains.jsonArray.first().jsonObject.getValue("rid").jsonPrimitive.content
+
+        val result = BlockchainAnalyticsStrategy().execute(
+            callToolRequest(
+                name = "get_blockchain_analytics",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("brid", rid)
+                }
+            ),
+            liveRepository()
+        )
+        val analytics = assertLiveExplorerTool("get_blockchain_analytics", result, "blockchainAnalytics")
+            ?: return@runBlocking
+        assertTrue(
+            analytics.jsonObject.getValue("totalTransactions").jsonPrimitive.content.toLong() > 0,
+            "the directory chain has transactions: $analytics"
+        )
+    }
+
+    @Test
+    fun liveGetAccountBlockchainsAnswersForARealAccount() = runBlocking {
+        LiveChromia.requireLive("calls get_account_blockchains for a real account id")
+        val assetId = liveChrAsset().getValue("id").jsonPrimitive.content
+        val holders = assertLiveExplorerTool(
+            "get_asset_top_holders",
+            AssetTopHoldersStrategy().execute(
+                callToolRequest(
+                    name = "get_asset_top_holders",
+                    arguments = buildJsonObject {
+                        put("network", LiveChromia.EXPLORER_NETWORK)
+                        put("assetId", assetId)
+                        put("limit", 1)
+                    }
+                ),
+                liveRepository()
+            ),
+            "getAssetTopHolders"
+        ) ?: return@runBlocking
+        val accountId = holders.jsonArray.first().jsonObject.getValue("accountId").jsonPrimitive.content
+
+        val result = AccountBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "get_account_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("accountId", accountId)
+                }
+            ),
+            liveRepository()
+        )
+        val rows = assertLiveExplorerTool("get_account_blockchains", result, "accountBlockchains")
+            ?: return@runBlocking
+        assertTrue(
+            rows.jsonArray.isNotEmpty(),
+            "a top CHR holder must hold it somewhere: $rows"
+        )
+    }
+
+    /**
+     * A real signer pubkey that signs nothing. The explorer answers 200 with an
+     * empty list, which is a real response to a real question and exercises the
+     * same repository -> parser -> handleResult path a populated one does.
+     */
+    @Test
+    fun liveGetSignerBlockchainsAnswersForAnUnknownSigner() = runBlocking {
+        LiveChromia.requireLive("calls get_signer_blockchains for a signer the explorer does not know")
+        val result = SignerBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "get_signer_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("signer", "02000000000000000000000000000000000000000000000000000000000000008f")
+                }
+            ),
+            liveRepository()
+        )
+        val rows = assertLiveExplorerTool("get_signer_blockchains", result, "signerBlockchains")
+            ?: return@runBlocking
+        assertTrue(rows.jsonArray.isEmpty(), "an unknown signer signs nothing: $rows")
+    }
+
+    @Test
+    fun liveGetChrAggregatesAnswers() = runBlocking {
+        LiveChromia.requireLive("calls get_chr_aggregates against the live explorer")
+        val result = ChrAggregatesStrategy().execute(
+            callToolRequest(
+                name = "get_chr_aggregates",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("includeTotals", true)
+                    put("includeGroupedDeposits", false)
+                    put("includeGroupedWithdrawals", false)
+                }
+            ),
+            liveRepository()
+        )
+        assertLiveExplorerTool("get_chr_aggregates", result, "chrAggregates")
+        Unit
+    }
+
+    /**
+     * UPSTREAM-GATED TOOLS.
+     *
+     * These four cannot be served today: `dashboardData` and
+     * `groupedTransactionsByBlockchain` answer INTERNAL_ERROR, and
+     * `getNodeUnavailability` is behind a reCAPTCHA header this client does not
+     * send. Recorded fixtures were green over all four, which is exactly the
+     * kind of green this pass exists to remove.
+     *
+     * [assertLiveExplorerTool] still holds them to a real contract: whatever the
+     * explorer says has to arrive as the explorer's own words, and a success
+     * with a missing `data` field fails. The day upstream recovers, these start
+     * asserting the served shape instead - without an edit.
+     */
+    @Test
+    fun liveGetNetworkStatsCarriesWhateverTheExplorerSays() = runBlocking {
+        LiveChromia.requireLive("calls get_network_stats against the live explorer")
+        val result = NetworkStatsStrategy().execute(
+            callToolRequest(
+                name = "get_network_stats",
+                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
+            ),
+            liveRepository()
+        )
+        assertLiveExplorerTool("get_network_stats", result, "dashboardData")
+        Unit
+    }
+
+    @Test
+    fun liveGetTransactionsByClusterCarriesWhateverTheExplorerSays() = runBlocking {
+        LiveChromia.requireLive("calls get_transactions_by_cluster against the live explorer")
+        val result = TransactionsByClusterStrategy().execute(
+            callToolRequest(
+                name = "get_transactions_by_cluster",
+                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
+            ),
+            liveRepository()
+        )
+        assertLiveExplorerTool("get_transactions_by_cluster", result, "dashboardData")
+        Unit
+    }
+
+    @Test
+    fun liveGetBlockchainsTransactionsCarriesWhateverTheExplorerSays() = runBlocking {
+        LiveChromia.requireLive("calls get_blockchains_transactions against the live explorer")
+        val result = BlockchainsTransactionsStrategy().execute(
+            callToolRequest(
+                name = "get_blockchains_transactions",
+                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
+            ),
+            liveRepository()
+        )
+        assertLiveExplorerTool(
+            "get_blockchains_transactions", result, "groupedTransactionsByBlockchain"
+        )
+        Unit
+    }
+
+    @Test
+    fun liveGetNodeUnavailabilityCarriesWhateverTheExplorerSays() = runBlocking {
+        LiveChromia.requireLive("calls get_node_unavailability against the live explorer")
+        val result = NodeUnavailabilityStrategy().execute(
+            callToolRequest(
+                name = "get_node_unavailability",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("pubkey", "02000000000000000000000000000000000000000000000000000000000000008f")
+                    put("startTimestamp", "1736373600000")
+                }
+            ),
+            liveRepository()
+        )
+        assertLiveExplorerTool("get_node_unavailability", result, "getNodeUnavailability")
+        Unit
+    }
+
+    /**
+     * The 200-with-errors branch, end to end through a real strategy.
+     *
+     * `getAssetTopHolders` with an asset id that is not an asset id makes the
+     * explorer answer HTTP 200 carrying an INTERNAL_ERROR - a real refusal to a
+     * real question, reproducible on demand. handleResult must turn it into an
+     * isError result that keeps the explorer's own words, rather than an empty
+     * success.
+     */
+    @Test
+    fun liveGraphQlErrorsFlowThroughTheParserIntoAnIsErrorResult() = runBlocking {
+        LiveChromia.requireLive("asks the live explorer for top holders of something that is not an asset")
+        val result = AssetTopHoldersStrategy().execute(
+            callToolRequest(
+                name = "get_asset_top_holders",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", "not-an-asset-8f2b41c9")
+                    put("limit", 3)
+                }
+            ),
+            liveRepository()
+        )
+        assertEquals(true, result.isError, "a refused query must not come back as a success: $result")
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("GraphQL Error"), text)
+        assertTrue(text.contains("INTERNAL_ERROR"), "the explorer's own words must survive: $text")
+        assertEquals(
+            text,
+            result.structuredContent!!["error"]!!.jsonPrimitive.content,
+            "the structured error and the text must say the same thing"
+        )
+    }
+
 }

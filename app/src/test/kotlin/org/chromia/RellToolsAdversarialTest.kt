@@ -141,7 +141,7 @@ class RellToolsAdversarialTest {
                         put("files", buildJsonObject { put("main.rell", "module;\n/*\n@test module docs\n*/\nquery q() = 1;") })
                     }
                 ),
-                RecordingRepository()
+                McpTestSupport.offlineRepository()
             )
         }
         assertTrue(result.isError == true)
@@ -158,7 +158,7 @@ class RellToolsAdversarialTest {
                         put("files", buildJsonObject { put("t.rell", "@test module;\nfunction test_x() { assert_equals(nope_undefined, 1); }") })
                     }
                 ),
-                RecordingRepository()
+                McpTestSupport.offlineRepository()
             )
         }
         val text = (result.content.first() as TextContent).text!!

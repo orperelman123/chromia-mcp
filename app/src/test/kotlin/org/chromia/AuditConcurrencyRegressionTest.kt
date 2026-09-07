@@ -43,7 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class AuditConcurrencyRegressionTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     // ---------------------------------------------------------------- F1
 

@@ -43,7 +43,7 @@ import org.junit.jupiter.api.Test
  */
 class ScaffoldNotesAreScopedToTheTemplateTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private fun scaffold(template: String, notesFor: String? = null): JsonObject = runBlocking {
         executor.executeTool(

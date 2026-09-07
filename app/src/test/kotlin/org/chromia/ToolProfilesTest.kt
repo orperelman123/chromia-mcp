@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test
  */
 class ToolProfilesTest {
 
-    private fun executor() = ToolExecutor(RecordingRepository(), PromptManager())
+    private fun executor() = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     @Test
     fun publicProfileDisablesExactlyTheMarkedStrategies() {

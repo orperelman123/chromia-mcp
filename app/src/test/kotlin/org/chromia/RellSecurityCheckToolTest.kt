@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test
 
 class RellSecurityCheckToolTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private fun run(arguments: kotlinx.serialization.json.JsonObject) = runBlocking {
         RellSecurityCheckStrategy().execute(

@@ -100,26 +100,14 @@ class MockLedgerTest {
         // ---- the chain node, behind postchain-client -----------------------
         Double("AuditConcurrencyRegressionTest.kt", "ANONYMOUS", "PostchainQuery", StandsFor.CHAIN_NODE, liveChain),
         Double("AuditConcurrencyRegressionTest.kt", "CLIENT_SEAM", "clientFactory", StandsFor.CHAIN_NODE, liveChain),
-        Double("AuditGtvAndFt4TreeRegressionTest.kt", "CLIENT_SEAM", "queryClient", StandsFor.CHAIN_NODE, liveChain),
         Double("AuditRound4RegressionTest.kt", "ANONYMOUS", "PostchainQuery", StandsFor.CHAIN_NODE, liveChain),
         Double("AuditRound4RegressionTest.kt", "CLIENT_SEAM", "clientFactory", StandsFor.CHAIN_NODE, liveChain),
         Double("AuditRound4RegressionTest.kt", "CLIENT_SEAM", "queryClient", StandsFor.CHAIN_NODE, liveChain),
-        Double("PostchainClientServiceTest.kt", "CLIENT_SEAM", "queryClient", StandsFor.CHAIN_NODE, liveChain),
-        Double("ToolExecutorStrategiesTest.kt", "CLIENT_SEAM", "queryClient", StandsFor.CHAIN_NODE, liveChain),
-        Double("VerifyDeploymentToolTest.kt", "CLIENT_SEAM", "heightClient", StandsFor.CHAIN_NODE, liveChain),
-        Double("McpJsonRpcSessionTest.kt", "CLIENT_SEAM", "queryClient", StandsFor.CHAIN_NODE, liveChain),
         // McpTestSupport's seam is a REFUSING double: it errors on any call, so
         // an in-process session that reaches for the network fails loudly. Its
         // counterpart is the same tool surface answered by a real server.
-        Double("McpTestSupport.kt", "CLIENT_SEAM", "queryClient", StandsFor.CHAIN_NODE, liveServerSurface + liveChain),
 
         // ---- the explorer's HTTP API, behind Ktor ---------------------------
-        Double("HttpClientServiceTest.kt", "MOCK_ENGINE", "MockEngine", StandsFor.EXPLORER_HTTP_API, liveExplorer),
-        Double("ToolExecutorStrategiesTest.kt", "MOCK_ENGINE", "MockEngine", StandsFor.EXPLORER_HTTP_API, liveExplorer),
-        Double("McpJsonRpcSessionTest.kt", "MOCK_ENGINE", "MockEngine", StandsFor.EXPLORER_HTTP_API, liveExplorer + liveServerSurface),
-        Double("McpSseSessionTest.kt", "MOCK_ENGINE", "MockEngine", StandsFor.EXPLORER_HTTP_API, liveExplorer + liveServerSurface),
-        Double("McpStreamableHttpSessionTest.kt", "MOCK_ENGINE", "MockEngine", StandsFor.EXPLORER_HTTP_API, liveExplorer + liveServerSurface),
-        Double("McpTestSupport.kt", "MOCK_ENGINE", "MockEngine", StandsFor.EXPLORER_HTTP_API, liveExplorer + liveServerSurface),
         Double("RecordingRepository.kt", "NAMED", "RecordingRepository", StandsFor.EXPLORER_HTTP_API, liveExplorer + liveChain),
         Double("RecordingRepository.kt", "IMPLEMENTS", "ChromiaRepository", StandsFor.EXPLORER_HTTP_API, liveExplorer + liveChain),
 

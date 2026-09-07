@@ -444,7 +444,7 @@ class TranslateErrorToolTest {
 
     private fun executor(): ToolExecutor =
         ToolExecutor(
-            RecordingRepository(),
+            McpTestSupport.offlineRepository(),
             PromptManager(),
             CompletableDeferred(RagStore(loadFromRegistry = false))
         )

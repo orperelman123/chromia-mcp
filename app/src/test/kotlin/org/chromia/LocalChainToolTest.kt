@@ -30,7 +30,7 @@ import java.net.ServerSocket
  */
 class LocalChainToolTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private val goodFiles = mapOf(
         "main.rell" to "module;\nentity item { key name; }\nquery item_count() = (item @* {}).size();"

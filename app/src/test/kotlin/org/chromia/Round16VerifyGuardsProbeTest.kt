@@ -42,7 +42,7 @@ import java.io.File
  */
 class Round16VerifyGuardsProbeTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     private val dir = File(Round16Evidence.committedRoot, "vg")
 

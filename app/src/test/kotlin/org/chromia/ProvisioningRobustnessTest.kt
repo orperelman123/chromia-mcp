@@ -75,7 +75,7 @@ class ProvisioningRobustnessTest {
         )
         return ChromiaRepositoryImpl(
             config = config,
-            httpClientService = HttpClientService(config, McpTestSupport.errorEngine()),
+            httpClientService = HttpClientService(config),
             postchainClientService = postchain
         )
     }

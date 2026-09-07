@@ -110,6 +110,14 @@ class AssumptionLedgerTest {
                 "the check exists for; with CHROMIA_REQUIRE_CHR set that is now a failure."
         ),
         Row(
+            "LiveChromia.kt", "requireLive", "requireLiveNetwork", Resource.CHROMIA_TESTNET,
+            "the single gate for the whole live surface. Every test that used to answer from a fixture - the " +
+                "explorer's GraphQL API, a chain node behind postchain-client, the Economy Chain - now asks the " +
+                "real network through this one call, so there is one row here instead of one per test. Nothing " +
+                "behind it signs or spends; it is all read-only queries against public infrastructure, and the " +
+                "only thing the JVM cannot conjure is the network itself."
+        ),
+        Row(
             "TestnetProvisioningLiveTest.kt", "liveDryRunPricesLeaseAndResolvesEverythingWithoutSpending",
             "requireLiveNetwork", Resource.CHROMIA_TESTNET,
             "prices a container lease against the live Economy Chain with a throwaway keypair; nothing is " +
@@ -301,8 +309,12 @@ class AssumptionLedgerTest {
                 val name = testName
                 if (name != null) {
                     if (testExitingReturn.containsMatchIn(line)) {
+                        // The window INCLUDES the current line: `val x = assertThing(..) ?: return`
+                        // asserted before it left, and `println("skipped"); return` announced on the
+                        // way out. Both judgements are about the line the return is on.
                         found += TestReturn(
-                            file.fileName.toString(), name, index + 1, line.trim(), recent.toList()
+                            file.fileName.toString(), name, index + 1, line.trim(),
+                            recent.toList() + line.trim()
                         )
                     }
                     if (line.isNotBlank()) {

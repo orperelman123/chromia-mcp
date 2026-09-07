@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test
 class InputAbuseAndLifecycleRegressionTest {
 
     private val executor = ToolExecutor(
-        RecordingRepository(),
+        McpTestSupport.offlineRepository(),
         PromptManager(),
         ragStoreFactory = { McpTestSupport.fixtureRagStore() }
     )

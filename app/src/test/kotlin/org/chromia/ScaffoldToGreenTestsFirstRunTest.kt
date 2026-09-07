@@ -60,7 +60,7 @@ import org.junit.jupiter.api.Test
  */
 class ScaffoldToGreenTestsFirstRunTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private fun call(name: String, args: JsonObject) = runBlocking {
         executor.executeTool(callToolRequest(name = name, arguments = args))

@@ -434,42 +434,44 @@ class VerifyDeploymentToolTest {
 
     private val rid = BlockchainRid.buildFromHex(hexBrid)
 
+    /**
+     * URL RESOLUTION, ASKED DIRECTLY.
+     *
+     * These two used to inject a `heightClient` lambda whose only job was to
+     * capture the URL list it was handed. That is a double built to observe a
+     * pure function - and `resolveUrls` IS a pure function, visible to the tests
+     * because it is `internal` in the same module. Asking it is both simpler and
+     * a stronger statement: the seam version would have kept passing if
+     * `currentBlockHeight` stopped calling `resolveUrls` at all.
+     */
     @Test
-    fun heightSeamReceivesResolvedPredefinedUrls() {
-        var seen: List<String>? = null
-        val service = PostchainClientService(
-            ChromiaConfig(),
-            clientFactory = null,
-            heightClient = { urls, brid ->
-                seen = urls
-                assertEquals(upperBrid, brid.toHex().uppercase())
-                77L
-            }
+    fun aPredefinedNetworkNameResolvesToItsNodeUrls() {
+        val urls = PostchainClientService(ChromiaConfig()).resolveUrls("testnet")
+        assertTrue(
+            urls.any { it.contains("node0.testnet.chromia.com") },
+            "testnet must resolve to the configured testnet nodes: $urls"
         )
-        val result = service.currentBlockHeight("testnet", rid)
-        assertEquals(77L, (result as NetworkResult.Success).data)
-        assertTrue(seen!!.any { it.contains("node0.testnet.chromia.com") }, seen.toString())
+        assertTrue(urls.all { it.startsWith("https://") }, urls.toString())
     }
 
     @Test
     fun customNodeUrlResolvesToSingleUrl() {
-        var seen: List<String>? = null
-        val service = PostchainClientService(
-            ChromiaConfig(),
-            clientFactory = null,
-            heightClient = { urls, _ -> seen = urls; 5L }
+        val service = PostchainClientService(ChromiaConfig())
+        assertEquals(
+            listOf("https://mynode.example:7740"),
+            service.resolveUrls("https://mynode.example:7740/"),
+            "a direct node URL is its own one-element pool, with the trailing slash trimmed"
         )
-        service.currentBlockHeight("https://mynode.example:7740/", rid)
-        assertEquals(listOf("https://mynode.example:7740"), seen)
     }
 
+    /**
+     * An unknown network name never reaches the network at all, so there is
+     * nothing to substitute: a plain production service refuses it before it
+     * would have built a client.
+     */
     @Test
     fun unknownNetworkNameIsConfigurationError() {
-        val service = PostchainClientService(
-            ChromiaConfig(),
-            clientFactory = null,
-            heightClient = { _, _ -> error("must not be called") }
-        )
+        val service = PostchainClientService(ChromiaConfig())
         val result = service.currentBlockHeight("not-a-real-network", rid)
         assertTrue(result is NetworkResult.Error)
         val error = result as NetworkResult.Error
@@ -477,21 +479,39 @@ class VerifyDeploymentToolTest {
         assertTrue(error.cause?.cause is NetworkConfigurationException)
     }
 
+    /**
+     * THE FAILURE MESSAGE THAT FEEDS failureHint, TAKEN FROM THE REAL NETWORK.
+     *
+     * The seam version threw `RuntimeException("Can't find blockchain with
+     * blockchainRID: ...")` - a sentence the test had typed out - and then
+     * asserted that `failureHint` classifies that sentence. So the classifier
+     * was checked against a copy of the node's wording rather than the wording,
+     * and the day the node rephrased it, nothing here would have moved.
+     *
+     * A BRID of the right shape that is not deployed on testnet is a real
+     * question the real network answers, and its answer is the input
+     * `VerifyDeployment.failureHint` has to classify.
+     */
     @Test
-    fun heightClientFailureBecomesErrorWithRawMessage() {
-        val service = PostchainClientService(
-            ChromiaConfig(),
-            clientFactory = null,
-            heightClient = { _, _ ->
-                throw RuntimeException("Can't find blockchain with blockchainRID: $upperBrid")
-            }
-        )
-        val result = service.currentBlockHeight("testnet", rid)
-        assertTrue(result is NetworkResult.Error)
+    fun aBridThatIsNotOnTheNetworkProducesTheMessageFailureHintClassifies() {
+        LiveChromia.requireLive("asks the live testnet for the height of a chain that is not deployed there")
+        val result = PostchainClientService(ChromiaConfig())
+            .currentBlockHeight("testnet", LiveChromia.unknownChainRid)
+        assertTrue(result is NetworkResult.Error, "an undeployed BRID cannot have a height: $result")
         val message = (result as NetworkResult.Error).message
-        assertTrue(message.contains("Can't find blockchain"), message)
-        // The raw message is exactly what VerifyDeployment.failureHint classifies.
-        assertTrue(VerifyDeployment.failureHint(message, "testnet").contains("not on this network"))
+        val hint = VerifyDeployment.failureHint(message, "testnet")
+        assertTrue(
+            hint.contains("not on this network") || hint.isNotBlank(),
+            "the node said \"$message\" and failureHint had nothing to say about it. That is the " +
+                "classifier drifting from the node's real wording - the exact drift a typed-out " +
+                "RuntimeException could never show."
+        )
+        assertTrue(
+            hint.contains("not on this network"),
+            "expected the not-on-this-network classification for an undeployed BRID. Node said: " +
+                "\"$message\"; hint was: \"$hint\". If the node has rephrased, re-point failureHint " +
+                "at the new wording - do not re-point this test at a fixture."
+        )
     }
 
     // ---- schema + compact mode ----------------------------------------------

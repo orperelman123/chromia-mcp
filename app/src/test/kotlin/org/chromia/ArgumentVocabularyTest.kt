@@ -46,7 +46,7 @@ import org.junit.jupiter.api.Test
  */
 class ArgumentVocabularyTest {
 
-    private val executor = ToolExecutor(RecordingRepository(), PromptManager())
+    private val executor = ToolExecutor(McpTestSupport.offlineRepository(), PromptManager())
 
     private fun call(name: String, args: kotlinx.serialization.json.JsonObject) = runBlocking {
         executor.executeTool(callToolRequest(name = name, arguments = args))

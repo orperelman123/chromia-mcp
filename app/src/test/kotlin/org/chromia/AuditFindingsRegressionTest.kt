@@ -42,7 +42,7 @@ import org.junit.jupiter.api.Test
  */
 class AuditFindingsRegressionTest {
 
-    private val repo = RecordingRepository()
+    private val repo = McpTestSupport.offlineRepository()
 
     // ---- Finding 1: header-aware module derivation -------------------------
 
