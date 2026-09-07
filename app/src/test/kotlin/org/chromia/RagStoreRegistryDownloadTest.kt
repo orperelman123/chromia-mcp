@@ -18,6 +18,15 @@ import io.ktor.server.routing.Routing
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.runBlocking
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.put
+import org.chromia.tools.FetchDocsStrategy
+import org.chromia.tools.FetchDocumentStrategy
+import org.chromia.tools.SearchDocsStrategy
+import org.chromia.tools.callToolRequest
 import org.chromia.tools.RagStore
 import org.chromia.tools.createRegistryDownloadClient
 import org.chromia.tools.embeddingStoreSegments
@@ -97,29 +106,65 @@ class RagStoreRegistryDownloadTest {
     /** A real address nothing listens on: the OS refuses the connection for real. */
     private val closedPortUrl = "http://127.0.0.1:1/embeddings.json"
 
-    // REMOVED 2026-09-07: `missingLocalAndThrowingRegistryDoesNotCrashOrInventDocs`.
-    //
-    // Its claim is real and audited: a RagStore whose index never loaded must
-    // answer search/fetch/fetch_docs with an explicit, retryable "index is
-    // unavailable" (audit F5) and `fetch` must not degrade into "Documentation
-    // not found" (audit round 4 F3). It is removed because the only way this
-    // suite could put a RagStore into that state was `registryLoader = { ... }`,
-    // a lambda double standing in for the published index download.
-    //
-    // No real configuration produces it today: with a missing local file
-    // `loadFreshestStore()` calls `downloadRemoteEmbeddings()`, which reads its
-    // URL list from `remoteEmbeddingsUrls()` INSIDE the call. A test cannot point
-    // that at the closed port above, and letting it run would fetch the real
-    // ~150 MB release asset on every build.
-    //
-    // TO RESTORE IT FOR REAL: give the RagStore constructor the URL list its env
-    // override already implies (`remoteUrls: List<String> = remoteEmbeddingsUrls()`,
-    // threaded into `downloadRemoteEmbeddings`). `remoteUrls = listOf(closedPortUrl)`
-    // then produces a genuinely unloadable index, and `registryLoader` can be
-    // deleted from production together with every `registryLoader = { ... }` still
-    // in this suite (AuditConcurrencyRegressionTest, AuditRound4RegressionTest,
-    // EmbeddingStoreSegmentsTest, RagStoreCwdIndependenceTest, RagStoreFetchByIdTest,
-    // RagStoreLocalEmbeddingsTest, RagStoreProvenanceTest).
+    /**
+     * RESTORED 2026-09-07, for real. This test was removed earlier the same day
+     * because the only way to put a RagStore into "the index never loaded" was
+     * `registryLoader = { throw }` - a lambda double for the whole download.
+     * `RagStore` now takes the URL list its `CHROMIA_EMBEDDINGS_URL` override
+     * already implies, so the state is produced by a genuinely closed port: the
+     * production client opens a real socket, the operating system refuses it,
+     * and the store really has no index.
+     *
+     * The claim, unchanged: an unavailable index is an explicit, retryable error
+     * on all three docs tools (audit F5), and `fetch` must never let it degrade
+     * into "Documentation not found" (audit round 4 F3).
+     */
+    @Test
+    fun anIndexThatCouldNotBeDownloadedIsReportedUnavailableByAllThreeDocsTools() = runBlocking {
+        val ragStore = RagStore(
+            loadFromRegistry = true,
+            localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
+            remoteUrls = listOf(closedPortUrl),
+            cacheEmbeddingsPath = null
+        )
+        assertNull(ragStore.embeddingStore)
+        assertTrue(ragStore.query("FT4 tokens").isNullOrEmpty())
+
+        val deferred = CompletableDeferred(ragStore)
+        val repository = McpTestSupport.offlineRepository()
+
+        val search = SearchDocsStrategy(deferred).execute(
+            callToolRequest(name = "search", arguments = buildJsonObject { put("query", "FT4 tokens") }),
+            repository
+        )
+        assertEquals(true, search.isError)
+        val searchText = (search.content.first() as TextContent).text!!
+        assertTrue(searchText.contains("index is unavailable"), searchText)
+        assertEquals(0, search.structuredContent!!.getValue("results").jsonArray.size)
+        assertFalse(searchText.contains("docs.chromia.com"))
+
+        val fetch = FetchDocumentStrategy(deferred).execute(
+            callToolRequest(
+                name = "fetch",
+                arguments = buildJsonObject { put("id", "https://docs.chromia.com") }
+            ),
+            repository
+        )
+        assertEquals(true, fetch.isError)
+        val fetchText = (fetch.content.first() as TextContent).text!!
+        assertTrue(fetchText.contains("index is unavailable"), fetchText)
+        assertFalse(fetchText.contains("Documentation not found"), fetchText)
+
+        val fetchDocs = FetchDocsStrategy(deferred).execute(
+            callToolRequest(
+                name = "fetch_docs",
+                arguments = buildJsonObject { put("query", "FT4 tokens") }
+            ),
+            repository
+        )
+        assertEquals(true, fetchDocs.isError)
+        assertEquals(0, fetchDocs.structuredContent!!.getValue("hits").jsonArray.size)
+    }
 
     @Test
     fun downloadFromRegistryHttpFailuresAreSkippedWithoutLiveNetwork() {

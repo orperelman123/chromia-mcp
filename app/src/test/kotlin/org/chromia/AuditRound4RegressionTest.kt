@@ -1,27 +1,19 @@
 package org.chromia
 
 import dev.langchain4j.data.document.Metadata
-import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import org.chromia.tools.callToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import net.postchain.common.BlockchainRid
-import net.postchain.gtv.GtvFactory
-import net.postchain.gtv.GtvNull
-import org.chromia.data.client.PostchainClientService
-import org.chromia.data.config.ChromiaConfig
 import org.chromia.domain.NetworkResult
 import org.chromia.tools.AssetDistributionStrategy
 import org.chromia.tools.DappInteractionStrategy
@@ -31,7 +23,6 @@ import org.chromia.tools.FilterBlockchainsStrategy
 import org.chromia.tools.RagStore
 import org.chromia.tools.RellSecurityCheck
 import org.chromia.tools.RunRellTests
-import org.chromia.tools.SearchDocsStrategy
 import org.chromia.tools.WriteDeploymentConfigStrategy
 import org.chromia.tools.segmentId
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -44,7 +35,6 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Regressions for the 2026-09-01 audit round 4:
@@ -61,7 +51,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class AuditRound4RegressionTest {
 
-    private val repo = RecordingRepository()
+    /**
+     * The production repository pointed at a REAL closed loopback port. Every
+     * test below that takes it asserts a validation failure raised BEFORE any
+     * call, or drives a docs tool that never touches the network - so a tool
+     * that unexpectedly reached for it would fail with a genuine
+     * ConnectException instead of being handed an answer a fixture invented.
+     * This replaced `RecordingRepository`, a double of our own repository.
+     */
+    private val repo = McpTestSupport.offlineRepository()
     private val validBrid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     // ---------------------------------------------------------------- F1
@@ -125,112 +123,50 @@ class AuditRound4RegressionTest {
         assertTrue(error.message!!.contains("boolean"), error.message)
     }
 
-    @Test
-    fun absentAndValidFilterArgumentsStillWork() = runBlocking {
-        // Absent stays "no filter".
-        FilterBlockchainsStrategy().execute(
-            callToolRequest(name = "filter_blockchains", arguments = buildJsonObject {}),
-            repo
-        )
-        assertNull(repo.lastBlockchainFilters?.system)
-
-        // Valid boolean still filters.
-        FilterBlockchainsStrategy().execute(
-            callToolRequest(
-                name = "filter_blockchains",
-                arguments = buildJsonObject { put("system", true) }
-            ),
-            repo
-        )
-        assertEquals(true, repo.lastBlockchainFilters?.system)
-
-        // Valid array still filters; absent list stays null.
-        AssetDistributionStrategy().execute(
-            callToolRequest(
-                name = "get_asset_distribution",
-                arguments = buildJsonObject {
-                    put("assetId", "chr")
-                    put("brids", buildJsonArray { add("brid-1"); add("brid-2") })
-                }
-            ),
-            repo
-        )
-        assertEquals(listOf("brid-1", "brid-2"), repo.lastAssetFilters?.brids)
-        assertNull(repo.lastAssetFilters?.accountTypes)
-    }
+    // DELETED 2026-09-07 (zero-doubles): absentAndValidFilterArgumentsStillWork
+    // asserted that an ABSENT filter stays "no filter" and that a VALID boolean
+    // or string array still filters. It read both back off a RecordingRepository,
+    // so it could only restate the strategy's own call.
+    // Both halves are asserted live now, where the explorer is the judge:
+    // ToolExecutorStrategiesTest.liveJsonNullFiltersAreAbsentAndTheLiteralStringNullIsAValue
+    // (absent/JSON-null filters do not filter) and
+    // ToolExecutorStrategiesTest.liveFilterBlockchainsFiltersByNameAndSystem plus
+    // ToolExecutorRemainingToolsTest's live asset-distribution filters (a valid
+    // boolean and a valid list really do narrow the answer).
 
     // ---------------------------------------------------------------- F2
 
-    @Test
-    fun dappQueryNullsPreservedInArraysAndNestedObjects() = runBlocking {
-        DappInteractionStrategy().execute(
-            callToolRequest(
-                name = "chromia_dapp_query",
-                arguments = buildJsonObject {
-                    put("blockchainRid", validBrid)
-                    put("query", "q")
-                    put(
-                        "arguments",
-                        buildJsonObject {
-                            put("top", JsonNull)
-                            put("list", buildJsonArray { add(1); add(JsonNull); add(2) })
-                            put(
-                                "obj",
-                                buildJsonObject {
-                                    put("a", JsonNull)
-                                    put("b", "x")
-                                }
-                            )
-                        }
-                    )
-                }
-            ),
-            repo
-        )
-        val args = repo.lastDapp!!.arguments
-        assertTrue("top" in args)
-        assertNull(args["top"])
-        assertEquals(listOf<Any?>(1, null, 2), args["list"], "[1,null,2] must keep length 3")
-        assertEquals(mapOf<String, Any?>("a" to null, "b" to "x"), args["obj"])
-    }
-
-    @Test
-    fun dappQueryNullsReachGtvAsGtvNull() {
-        var asserted = false
-        val service = PostchainClientService(ChromiaConfig()) { _, _, args ->
-            val dict = args.asDict()
-            assertEquals(GtvNull, dict.getValue("top"))
-            val list = dict.getValue("list").asArray()
-            assertEquals(3, list.size)
-            assertEquals(1L, list[0].asInteger())
-            assertEquals(GtvNull, list[1])
-            assertEquals(2L, list[2].asInteger())
-            assertEquals(GtvNull, dict.getValue("obj").asDict().getValue("a"))
-            asserted = true
-            GtvFactory.gtv(mapOf("ok" to GtvFactory.gtv(true)))
-        }
-        val result = service.executeBlockchainQuery(
-            "mainnet",
-            BlockchainRid.buildFromHex(validBrid),
-            "q",
-            mapOf(
-                "top" to null,
-                "list" to listOf(1, null, 2),
-                "obj" to mapOf("a" to null)
-            )
-        )
-        assertTrue(result is NetworkResult.Success, result.toString())
-        assertTrue(asserted)
-    }
+    // DELETED 2026-09-07 (zero-doubles): dappQueryNullsPreservedInArraysAndNestedObjects
+    // and dappQueryNullsReachGtvAsGtvNull asserted that an explicit JSON null
+    // survives as a Kotlin null and reaches the chain as GtvNull - the first by
+    // reading the arguments back off a RecordingRepository, the second by handing
+    // PostchainClientService a trailing-lambda query client that inspected the Gtv
+    // and then produced the answer itself. Both are restatements: the test wrote
+    // the expectation and the test checked it.
+    //
+    // What covers it now: ToolExecutorStrategiesTest
+    // .chromiaDappQueryNestedListMapArgsAreBoundByTheLiveChain sends
+    // `ft4.get_assets_filtered` a nested struct whose `symbol` and `type` members
+    // are explicit JSON nulls, next to a top-level `page_cursor` null, and Rell
+    // BINDS it on the live Economy Chain - a dropped null leaves the struct
+    // incomplete and cannot bind at all.
+    //
+    // NOT covered any more, and now unverified: a null as a LIST ELEMENT keeping
+    // the list's length ([1, null, 2] staying three long). No query on the live
+    // Economy Chain takes a list with nullable elements, so there is no real
+    // input that can produce it.
 
     // ---------------------------------------------------------------- F3
 
     @Test
     fun fetchWithFailedIndexLoaderReportsUnavailableNotNotFound(@TempDir tempDir: Path) = runBlocking {
+        // A real air-gapped configuration: registry download enabled, no remote
+        // URL configured, and no local file at the path - so the index is
+        // genuinely unavailable rather than a lambda saying it is.
         val store = RagStore(
             loadFromRegistry = true,
             localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
-            registryLoader = { null }
+            remoteUrls = emptyList()
         )
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(
             callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", "abc123") }),
@@ -250,10 +186,10 @@ class AuditRound4RegressionTest {
             "FT4 auth descriptors overview.",
             Metadata.from("file_name", "ft4-auth.md")
         )
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also {
-            it.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), segment)
-        }
-        val store = RagStore(loadFromRegistry = false, initialStore = fixture)
+        // A real index built with the production embedding model. The old
+        // fixture embedded three hand-written floats against the real model's
+        // 384 dimensions - a store the production code could never have made.
+        val store = TestDocsIndex.store(segment)
         val strategy = FetchDocumentStrategy(CompletableDeferred(store))
 
         val known = strategy.execute(
@@ -274,142 +210,107 @@ class AuditRound4RegressionTest {
 
     // ---------------------------------------------------------------- F4
 
-    private fun rid(n: Int): BlockchainRid = BlockchainRid.buildFromHex("%064x".format(n))
-
-    @Test
-    fun evictionDoesNotCloseClientMidQuery() {
-        val firstClientClosed = AtomicBoolean(false)
-        val queryStarted = CountDownLatch(1)
-        val releaseQuery = CountDownLatch(1)
-        val service = PostchainClientService(
-            ChromiaConfig(),
-            clientFactory = { _, brid ->
-                val blockFirst = brid == rid(1)
-                PostchainClientService.CachedQueryClient(
-                    object : net.postchain.client.core.PostchainQuery {
-                        override fun query(name: String, args: net.postchain.gtv.Gtv): net.postchain.gtv.Gtv {
-                            if (blockFirst) {
-                                queryStarted.countDown()
-                                releaseQuery.await()
-                            }
-                            return GtvFactory.gtv(mapOf("echo" to GtvFactory.gtv(name)))
-                        }
-                    }
-                ) { if (blockFirst) firstClientClosed.set(true) }
-            }
-        )
-        service.evictionCloseGraceMs = 5_000
-
-        val inFlight = Thread {
-            service.executeBlockchainQuery("mainnet", rid(1), "slow", emptyMap())
-        }.apply { isDaemon = true; start() }
-        assertTrue(queryStarted.await(10, TimeUnit.SECONDS), "first query never started")
-
-        // Evict rid(1) while its query is still in flight.
-        (2..PostchainClientService.MAX_CACHED_CLIENTS + 2).forEach { n ->
-            val result = service.executeBlockchainQuery("mainnet", rid(n), "q", emptyMap())
-            assertTrue(result is NetworkResult.Success, result.toString())
-        }
-        assertFalse(
-            firstClientClosed.get(),
-            "evicted client was closed while its query was still in flight (audit round 4 F4)"
-        )
-
-        releaseQuery.countDown()
-        inFlight.join(10_000)
-        assertFalse(inFlight.isAlive)
-
-        // The deferred close still happens after the grace window.
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
-        while (!firstClientClosed.get() && System.nanoTime() < deadline) Thread.sleep(20)
-        assertTrue(firstClientClosed.get(), "evicted client must eventually be closed")
-    }
+    // DELETED 2026-09-07 (zero-doubles): evictionDoesNotCloseClientMidQuery
+    // asserted audit round 4 F4 - an evicted client must not be closed while a
+    // query is still in flight on it, and must be closed once the grace window
+    // (PostchainClientService.EVICTION_CLOSE_GRACE_MS) passes.
+    //
+    // No real input can produce it: seeing the close required handing the service
+    // a `clientFactory` whose client the test could watch, and seeing it happen
+    // DURING a query required a client that blocks on command. No real node can
+    // be asked to hold one response open at a chosen moment while thirty-two
+    // other clients are built, so both halves needed a substitute.
+    //
+    // What covers the rest: AuditConcurrencyRegressionTest
+    // .theClientCacheStopsAtItsBound builds a client per real mainnet chain and
+    // requires the cache to stop at MAX_CACHED_CLIENTS, so the eviction itself
+    // still runs and is asserted. The DEFERRED CLOSE - the grace window, and the
+    // fact that the evictee is closed at all - is now unverified.
 
     // ---------------------------------------------------------------- F5
 
     @Test
-    fun interruptedDbRunDefersPermitReleaseUntilRunnerFinishes() {
+    fun interruptedDbRunDefersPermitReleaseUntilTheRealRunnerFinishes() {
+        val databaseUrl = LiveEnv.requireDatabaseUrl(
+            "a REAL run_rell_tests run has to still be holding the shared test database when its " +
+                "caller gives up; a lambda that blocks on a latch is not a runner"
+        )
         val baselineLeaked = RunRellTests.leakedRunners.get()
         assertEquals(1, RunRellTests.dbRunPermit.availablePermits(), "test needs an idle permit")
-        val runnerStarted = CountDownLatch(1)
-        val releaseRunner = CountDownLatch(1)
-        RunRellTests.runnerOverrideForTests = {
-            runnerStarted.countDown()
-            // Uninterruptible: future.cancel(true) interrupts the runner thread,
-            // and this test needs the runner to keep "owning the database".
-            while (releaseRunner.count > 0) {
-                try {
-                    releaseRunner.await()
-                } catch (_: InterruptedException) {
-                }
-            }
+
+        // A real Rell test that takes seconds, so the caller can be interrupted
+        // while the runner genuinely still owns the database. The loop is pure
+        // arithmetic - no entities, no blocks - so its cost is the interpreter's
+        // and nothing else.
+        val slowTest = mapOf(
+            "slow_test.rell" to (
+                "@test module;\n" +
+                    "function test_slow() {\n" +
+                    "    var i = 0;\n" +
+                    "    var s = 0;\n" +
+                    "    while (i < 8000000) { s += i; i += 1; }\n" +
+                    "    assert_true(s > 0);\n" +
+                    "}"
+                )
+        )
+        val caller = Thread {
+            runCatching { RunRellTests.run(slowTest, databaseUrl = databaseUrl) }
+        }.apply { isDaemon = true; start() }
+
+        // The permit is taken the moment the run starts.
+        val startDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120)
+        while (RunRellTests.dbRunPermit.availablePermits() == 1 && System.nanoTime() < startDeadline) {
+            Thread.sleep(5)
         }
-        try {
-            val caller = Thread {
-                runCatching {
-                    RunRellTests.run(
-                        mapOf("t_test.rell" to "@test module;\nfunction test_x() { assert_equals(1, 1); }"),
-                        databaseUrl = "jdbc:postgresql://localhost:5432/unused"
-                    )
-                }
-            }.apply { start() }
-            assertTrue(runnerStarted.await(10, TimeUnit.SECONDS), "runner never started")
+        assertEquals(0, RunRellTests.dbRunPermit.availablePermits(), "the real run never started")
 
-            caller.interrupt()
-            caller.join(10_000)
-            assertFalse(caller.isAlive, "interrupted caller must return promptly")
+        caller.interrupt()
+        caller.join(30_000)
+        assertFalse(caller.isAlive, "interrupted caller must return promptly")
 
-            // The runner still owns the shared test database: the permit must NOT
-            // have been released by the interrupted caller (audit round 4 F5).
-            assertEquals(
-                0,
-                RunRellTests.dbRunPermit.availablePermits(),
-                "DB permit was released while the runner was still executing"
-            )
-            assertEquals(baselineLeaked + 1, RunRellTests.leakedRunners.get())
+        // The runner still owns the shared test database: the permit must NOT
+        // have been released by the interrupted caller (audit round 4 F5).
+        assertEquals(
+            0,
+            RunRellTests.dbRunPermit.availablePermits(),
+            "DB permit was released while the real runner was still executing"
+        )
+        assertEquals(baselineLeaked + 1, RunRellTests.leakedRunners.get())
 
-            releaseRunner.countDown()
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-            while (RunRellTests.dbRunPermit.availablePermits() < 1 && System.nanoTime() < deadline) {
-                Thread.sleep(10)
-            }
-            assertEquals(
-                1,
-                RunRellTests.dbRunPermit.availablePermits(),
-                "permit must be released once the runner finishes"
-            )
-            while (RunRellTests.leakedRunners.get() > baselineLeaked && System.nanoTime() < deadline) {
-                Thread.sleep(10)
-            }
-            assertEquals(baselineLeaked, RunRellTests.leakedRunners.get())
-        } finally {
-            RunRellTests.runnerOverrideForTests = null
-            releaseRunner.countDown()
+        // ...and it IS released once the real run finishes on its own.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(300)
+        while (RunRellTests.dbRunPermit.availablePermits() < 1 && System.nanoTime() < deadline) {
+            Thread.sleep(50)
         }
+        assertEquals(
+            1,
+            RunRellTests.dbRunPermit.availablePermits(),
+            "permit must be released once the runner finishes"
+        )
+        while (RunRellTests.leakedRunners.get() > baselineLeaked && System.nanoTime() < deadline) {
+            Thread.sleep(50)
+        }
+        assertEquals(baselineLeaked, RunRellTests.leakedRunners.get())
     }
 
     // ---------------------------------------------------------------- F6
 
-    @Test
-    fun nullEmbeddingModelReportsIndexUnavailableNotEmptyResults() = runBlocking {
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also {
-            it.add(
-                Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)),
-                TextSegment.from("Rell compiler overview.", Metadata.from("file_name", "rell.md"))
-            )
-        }
-        val store = RagStore(loadFromRegistry = false, initialStore = fixture)
-        store.embeddingModelSpiLoader = { null }
-        assertNull(store.query("rell"), "no model must mean unavailable, not empty success")
-
-        val search = SearchDocsStrategy(CompletableDeferred(store)).execute(
-            callToolRequest(name = "search", arguments = buildJsonObject { put("query", "rell") }),
-            repo
-        )
-        assertEquals(true, search.isError)
-        val text = (search.content.first() as TextContent).text!!
-        assertTrue(text.contains("index is unavailable"), text)
-    }
+    // DELETED 2026-09-07 (zero-doubles): nullEmbeddingModelReportsIndexUnavailableNotEmptyResults
+    // asserted audit round 4 F6 - a RagStore that cannot resolve an embedding
+    // model must report the index as UNAVAILABLE rather than answer an empty
+    // success. It produced the condition with `store.embeddingModelSpiLoader =
+    // { null }`, a lambda standing in for langchain4j's SPI lookup.
+    //
+    // No real input can produce it in this build: the model is
+    // `dev.langchain4j:langchain4j-easy-rag`'s bundled quantized BGE-small ONNX,
+    // a compile-time dependency of the jar, so the SPI lookup cannot fail at
+    // runtime. The only way to reach the branch is to remove the dependency,
+    // which the shipped artifact never does.
+    //
+    // The sibling half is still covered for real:
+    // fetchWithFailedIndexLoaderReportsUnavailableNotNotFound above reports an
+    // unavailable index (no remote configured, no local file) as "unavailable"
+    // rather than "not found". The MODEL-absent branch is now unverified.
 
     // ---------------------------------------------------------------- F7 minors
 

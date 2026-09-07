@@ -128,7 +128,11 @@ dependencies {
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-    testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
+    // io.ktor:ktor-client-mock was here until 2026-09-07. MockEngine is a substitute
+    // for the transport itself: with it on the classpath a test can replace the HTTP
+    // client and still call itself an integration test. Every use is gone (real
+    // embedded servers, real closed ports, the real explorer), and NoTestDoublesTest
+    // refuses the dependency so it cannot come back quietly.
     // Tests compile against Client/StdioClientTransport and the Streamable HTTP client transport.
     testImplementation("io.modelcontextprotocol:kotlin-sdk-client:$mcpVersion")
 }

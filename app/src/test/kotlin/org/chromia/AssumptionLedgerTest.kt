@@ -103,6 +103,26 @@ class AssumptionLedgerTest {
                 "'an agent's first honest pass is green' claim is exactly the claim a simulation cannot make."
         ),
         Row(
+            "AuditRound4RegressionTest.kt", "interruptedDbRunDefersPermitReleaseUntilTheRealRunnerFinishes",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "audit round 4 F5 is about a real run_rell_tests run STILL OWNING the shared test database " +
+                "when its caller is interrupted; the lambda that used to stand in for the runner proved " +
+                "only that a latch blocks, and a real run needs the schema it holds."
+        ),
+        Row(
+            "ConcurrencyLensRegressionTest.kt", "ttlTaskAlreadyWaitingForTheLockMustNotStopAJustRefreshedChain",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "the race is between a real TTL task and a real local_chain_up over a REAL running node; with " +
+                "the starter override that used to fake the chain, the thing being raced over did not exist."
+        ),
+        Row(
+            "InputAbuseAndLifecycleRegressionTest.kt", "failedRestartSaysThePreviousChainIsGone",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "the claim is that a FAILED restart really took a running chain down, so there has to be a real " +
+                "chain to lose first - and the failure is a real refused PostgreSQL connection, not an " +
+                "invented one."
+        ),
+        Row(
             "ProvisioningToolsTest.kt", "realChrResolvesWithoutOverrideAndRuns", "requireChrRan",
             Resource.CHR_CLI,
             "resolves chr WITHOUT the CHROMIA_CHR_BIN override and actually runs it. It used to skip when " +

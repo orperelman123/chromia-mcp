@@ -660,33 +660,20 @@ class SearchFetchToolsTest {
 
     // REMOVED 2026-09-07: `defaultConstructWithoutEmbeddingsReportsIndexUnavailable`.
     //
-    // The claim it carried is a real and audited one - a RagStore whose index
-    // never loaded must answer search/fetch/fetch_docs with "index is
-    // unavailable" (audit F5) and must NOT let `fetch` degrade into
-    // "Documentation not found" (audit round 4 F3). It is removed here only
-    // because the ONLY way this suite could reach that state was
-    // `registryLoader = { null }`: a lambda double standing in for the published
-    // index download, which the no-doubles rule forbids.
+    // The claim it carried is real and audited - a RagStore whose index never
+    // loaded must answer search/fetch/fetch_docs with "index is unavailable"
+    // (audit F5) and must NOT let `fetch` degrade into "Documentation not found"
+    // (audit round 4 F3). It is removed FROM HERE because the only way this file
+    // could reach that state was `registryLoader = { null }`, a lambda double
+    // standing in for the published index download.
     //
-    // There is no real way in today. With `loadFromRegistry = true` and a missing
-    // local file, `loadFreshestStore()` goes straight to
-    // `downloadRemoteEmbeddings()`, whose URL list is `remoteEmbeddingsUrls()` -
-    // read inside the call, not passed in - so a unit test cannot point it at a
-    // closed loopback port or a local embedded server, and letting it run would
-    // pull the real ~150 MB release asset over the network on every build.
-    //
-    // WHAT NOW COVERS IT: only the `fetch` half, in
-    // AuditRound4RegressionTest.fetchWithFailedIndexLoaderReportsUnavailableNotNotFound
-    // - which reaches the state the same forbidden way and needs the same fix.
-    // The search and fetch_docs halves are uncovered until then.
-    //
-    // TO RESTORE IT FOR REAL: give RagStore the same URL list its env override
-    // already implies - e.g. `remoteUrls: List<String> = remoteEmbeddingsUrls()`
-    // on the constructor, passed through to `downloadRemoteEmbeddings`. A store
-    // built with `remoteUrls = listOf("http://127.0.0.1:1/embeddings.json")` then
-    // fails to load for real, against a genuinely closed port, with no double
-    // anywhere - and `registryLoader` can be deleted from production along with
-    // every `registryLoader = { ... }` in this suite.
+    // WHAT COVERS IT NOW, for real and on all three tools:
+    // RagStoreRegistryDownloadTest
+    // .anIndexThatCouldNotBeDownloadedIsReportedUnavailableByAllThreeDocsTools,
+    // which reaches the same state through a genuinely CLOSED loopback port -
+    // the production client opens a real socket and the operating system refuses
+    // it - now that `RagStore` takes `remoteUrls`, the URL list its
+    // `CHROMIA_EMBEDDINGS_URL` override always implied. Nothing is lost.
 
     @Test
     fun anAvailableButEmptyIndexAnswersNoMatchNotIndexUnavailable() = runBlocking {

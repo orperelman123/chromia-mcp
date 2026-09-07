@@ -262,7 +262,10 @@ class ToolExecutorTest {
         assertTrue(result.isError != true)
         val structured = result.structuredContent!!
         val hits = structured["results"]!!.jsonArray
-        assertEquals(1, hits.size)
+        // Two segments, and the real BGE-small embedder scores any two short English
+        // sentences above the store's 0.6 retrieval floor, so a two-segment fixture
+        // index returns both. The claim this test makes is which one LEADS.
+        assertEquals(2, hits.size)
         val hit = hits.first().jsonObject
         assertEquals(segmentId(authSegment), hit["id"]!!.jsonPrimitive.content)
         assertEquals("ft4-auth.md", hit["title"]!!.jsonPrimitive.content)
@@ -283,7 +286,10 @@ class ToolExecutorTest {
         )
         assertTrue(docs.isError != true)
         val hits = docs.structuredContent!!["hits"]!!.jsonArray
-        assertEquals(1, hits.size)
+        // Two segments, and the real BGE-small embedder scores any two short English
+        // sentences above the store's 0.6 retrieval floor, so a two-segment fixture
+        // index returns both. The claim this test makes is which one LEADS.
+        assertEquals(2, hits.size)
         val id = hits.first().jsonObject["id"]!!.jsonPrimitive.content
         assertEquals(segmentId(authSegment), id)
         assertEquals(authSegment.text(), hits.first().jsonObject["text"]!!.jsonPrimitive.content)

@@ -1,6 +1,7 @@
 package org.chromia
 
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import org.chromia.tools.callToolRequest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -10,12 +11,15 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.chromia.tools.AssetDistributionStrategy
 import org.chromia.tools.DappInteractionStrategy
 import org.chromia.tools.RellSecurityCheck
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -36,8 +40,30 @@ import org.junit.jupiter.api.assertThrows
  */
 class AuditSilentArgumentRegressionTest {
 
-    private val repo = RecordingRepository()
+    /**
+     * THE REPOSITORY FOR THE VALIDATION TESTS: the production one, aimed at a
+     * closed loopback port ([McpTestSupport.offlineRepository]).
+     *
+     * Every test that uses it asserts that the tool THROWS before any network
+     * call happens, and this repository is what makes that assertion mean
+     * something. The old `RecordingRepository` - a double of our own
+     * `ChromiaRepository` - answered a cheerful `{"ok":true}` to anything that
+     * got through, so `assertNull(repo.lastDapp)` was the test asking the double
+     * whether it had been called. Here, a silently-emptied argument list would
+     * put the call on a real socket and come back as a CallToolResult carrying
+     * the operating system's connection refusal - NOT as the
+     * IllegalArgumentException these tests demand. The throw is the proof.
+     */
+    private val repo = McpTestSupport.offlineRepository()
     private val validBrid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+    /**
+     * Mainnet CHR. A permanent, public asset id (docs quote it in the
+     * get_asset_blockchains tool description); it is the subject of the live
+     * explorer-filter test below and nothing else. If it ever moved, that test
+     * would go red for a real reason.
+     */
+    private val chrAssetId = "5F16D1545A0881F971B164F1601CBBF51C29EFD0633B2730DA18C403C3B428B5"
 
     private fun dappQueryRequest(arguments: JsonElement) = callToolRequest(
         name = "chromia_dapp_query",
@@ -62,7 +88,10 @@ class AuditSilentArgumentRegressionTest {
         }
         assertTrue(error.message!!.contains("arguments must be an object"), error.message)
         assertTrue(error.message!!.contains("do not JSON-encode it"), error.message)
-        assertNull(repo.lastDapp, "the query must not run with silently emptied arguments")
+        // The throw IS the "did not run with silently emptied arguments" claim:
+        // the repository behind this call is real, so a query that got through
+        // would have returned a CallToolResult from the socket instead of
+        // raising IllegalArgumentException, and assertThrows would have failed.
     }
 
     @Test
@@ -76,30 +105,75 @@ class AuditSilentArgumentRegressionTest {
             }
         }
         assertTrue(error.message!!.contains("arguments must be an object"), error.message)
-        assertNull(repo.lastDapp)
     }
 
+    /**
+     * F1, DECIDED BY THE CHAIN.
+     *
+     * The bug was that a wrong-typed `arguments` value ran the query with NO
+     * arguments, which produces wrong-but-plausible results whenever the Rell
+     * query has parameter defaults. The old version of this test handed a
+     * recorder an object and then asked the recorder what it had received - a
+     * restatement, and one that could never have caught the bug's real
+     * signature, which is a SUCCESS where there should have been a refusal.
+     *
+     * `get_chr_asset` on the live Economy Chain takes NO parameters, so the
+     * chain itself draws the line:
+     *
+     *   - send `{"name": "CHR"}` and the chain refuses with "Invalid
+     *     argument(s): name". That refusal is only possible if the object
+     *     actually reached the query - had it been silently emptied, the query
+     *     would have SUCCEEDED, which is exactly the failure F1 describes;
+     *   - send no `arguments` key at all and the chain answers the asset. So
+     *     "absent means no arguments" is the chain's verdict too, not ours.
+     */
     @Test
     fun dappQueryObjectAndAbsentArgumentsStillWork() = runBlocking {
-        // Valid object still reaches the repository.
-        DappInteractionStrategy().execute(
-            dappQueryRequest(buildJsonObject { put("name", "CHR") }),
-            repo
-        )
-        assertEquals(mapOf<String, Any?>("name" to "CHR"), repo.lastDapp?.arguments)
+        LiveChromia.requireLive("sends an object argument to a zero-parameter query on the live Economy Chain")
+        val repository = LiveChromia.repository()
 
-        // Absent arguments still means "no arguments".
-        DappInteractionStrategy().execute(
+        val withArguments = DappInteractionStrategy().execute(
             callToolRequest(
                 name = "chromia_dapp_query",
                 arguments = buildJsonObject {
-                    put("blockchainRid", validBrid)
-                    put("query", "q")
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "get_chr_asset")
+                    put("arguments", buildJsonObject { put("name", "CHR") })
                 }
             ),
-            repo
+            repository
         )
-        assertEquals(emptyMap<String, Any?>(), repo.lastDapp?.arguments)
+        assertEquals(
+            true, withArguments.isError,
+            "get_chr_asset takes no parameters; a success here means the `arguments` object was " +
+                "dropped on the way to the chain, which is finding F1 itself: $withArguments"
+        )
+        assertTrue(
+            (withArguments.content.first() as TextContent).text!!.contains("Invalid argument(s): name"),
+            "the chain must name the argument it received: ${(withArguments.content.first() as TextContent).text}"
+        )
+
+        val withoutArguments = DappInteractionStrategy().execute(
+            callToolRequest(
+                name = "chromia_dapp_query",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "get_chr_asset")
+                }
+            ),
+            repository
+        )
+        assertTrue(
+            withoutArguments.isError != true,
+            "absent `arguments` must mean no arguments: ${(withoutArguments.content.first() as TextContent).text}"
+        )
+        assertEquals(
+            64,
+            withoutArguments.structuredContent!!.getValue("id").jsonPrimitive.content.length,
+            "an FT4 asset id is 32 bytes of hex: ${withoutArguments.structuredContent}"
+        )
     }
 
     // ---------------------------------------------------------------- F2
@@ -204,20 +278,76 @@ class AuditSilentArgumentRegressionTest {
         assertTrue(error.message!!.contains("brids[0] is blank"), error.message)
     }
 
+    /**
+     * F3's other half, DECIDED BY THE EXPLORER.
+     *
+     * Two claims used to be checked by reading them back off a recorder: that a
+     * present list filter is trimmed and forwarded, and that an absent one stays
+     * unfiltered. The explorer settles both, and it is strict about the first in
+     * a way the recorder could not have known: live on 2026-09-07, the same brid
+     * with surrounding whitespace matched NOTHING
+     * (`getAssetDistribution(brids: ["  <brid>  "]) -> []`) while the trimmed
+     * form returned rows. So rows coming back for a padded brid is proof that
+     * OUR trim ran; a recorder asserting `listOf("brid-1")` would have been just
+     * as green if the explorer had trimmed for us, or if nothing ever trimmed.
+     */
     @Test
     fun validAndAbsentListFiltersStillWork() = runBlocking {
-        AssetDistributionStrategy().execute(
+        LiveChromia.requireLive("filters get_asset_distribution by a whitespace-padded brid on the live explorer")
+        val repository = LiveChromia.repository()
+
+        // Absent list filter: network-wide distribution, and the source of a
+        // real brid to filter by.
+        val unfiltered = AssetDistributionStrategy().execute(
             callToolRequest(
                 name = "get_asset_distribution",
                 arguments = buildJsonObject {
-                    put("assetId", "chr")
-                    put("brids", buildJsonArray { add(" brid-1 "); add("brid-2") })
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", chrAssetId)
                 }
             ),
-            repo
+            repository
         )
-        assertEquals(listOf("brid-1", "brid-2"), repo.lastAssetFilters?.brids, "entries are trimmed")
-        assertNull(repo.lastAssetFilters?.accountTypes, "absent list filter stays unfiltered")
+        assertTrue(
+            unfiltered.isError != true,
+            "the live explorer must serve CHR's distribution: ${(unfiltered.content.first() as TextContent).text}"
+        )
+        val allRows = unfiltered.structuredContent!!
+            .getValue("data").jsonObject.getValue("getAssetDistribution").jsonArray
+        assertTrue(allRows.size > 1, "CHR is spread over more than one chain: $allRows")
+        val brid = allRows.first().jsonObject.getValue("brid").jsonPrimitive.content
+
+        // Present list filter, with the whitespace an agent's copy-paste brings.
+        val filtered = AssetDistributionStrategy().execute(
+            callToolRequest(
+                name = "get_asset_distribution",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", chrAssetId)
+                    put("brids", buildJsonArray { add("  $brid  ") })
+                }
+            ),
+            repository
+        )
+        assertTrue(
+            filtered.isError != true,
+            "the filtered call must be served too: ${(filtered.content.first() as TextContent).text}"
+        )
+        val filteredRows = filtered.structuredContent!!
+            .getValue("data").jsonObject.getValue("getAssetDistribution").jsonArray
+        assertTrue(
+            filteredRows.isNotEmpty(),
+            "the explorer matches brids exactly and does not trim, so an empty answer here means the " +
+                "padded brid went out untrimmed: $filteredRows"
+        )
+        assertTrue(
+            filteredRows.size < allRows.size,
+            "the brid filter did not filter: ${filteredRows.size} of ${allRows.size} rows came back"
+        )
+        assertTrue(
+            filteredRows.all { it.jsonObject.getValue("brid").jsonPrimitive.content == brid },
+            "every row must be on the brid that was asked for: $filteredRows"
+        )
     }
 
     // ------------------------------------------------------------ minor
@@ -252,22 +382,106 @@ class AuditSilentArgumentRegressionTest {
         assertTrue(error.message!!.contains("send it as a string"), error.message)
     }
 
+    /**
+     * THE OTHER SIDE OF THE MINOR FINDING, BOUND BY THE REAL CHAIN.
+     *
+     * The two tests above prove a decimal and a past-Long integer fail LOCALLY
+     * with an actionable message. This one proves the values that are supposed
+     * to work still do - and it used to prove it by reading `repo.lastDapp`,
+     * i.e. by asking the recorder to confirm the Kotlin types the converter had
+     * just produced. Rell is the authority on that question, and it disagrees
+     * out loud: sending `page_size` as a string comes back
+     * "Decoding type 'integer': expected INTEGER, actual STRING (parameter:
+     * page_size)" (live, 2026-09-07). So the successful call below is not
+     * vacuous - the chain would have refused a GtvString - and it covers both
+     * halves at once:
+     *
+     *   - `page_size` = [Long.MAX_VALUE], an unquoted numeric literal at the top
+     *     of Long range, binds to a Rell `integer`;
+     *   - `name` = "3.14", the documented "send decimals as strings" workaround,
+     *     binds to a Rell `text` and is matched against real asset names.
+     *
+     * (An ordinary small integer is bound live by
+     * `ToolExecutorStrategiesTest.chromiaDappQueryNestedListMapArgsAreBoundByTheLiveChain`.)
+     */
     @Test
     fun integerAndStringNumericDappQueryArgumentsStillWork() = runBlocking {
-        DappInteractionStrategy().execute(
-            dappQueryRequest(
-                buildJsonObject {
-                    put("page_size", 10)
-                    put("big", Long.MAX_VALUE)
-                    put("price", "3.14") // decimals as strings pass through
+        LiveChromia.requireLive("binds a Long.MAX_VALUE integer and a decimal-as-string on the live Economy Chain")
+        val repository = LiveChromia.repository()
+
+        val bound = DappInteractionStrategy().execute(
+            callToolRequest(
+                name = "chromia_dapp_query",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "ft4.get_assets_filtered")
+                    put(
+                        "arguments",
+                        buildJsonObject {
+                            put(
+                                "asset_filter",
+                                buildJsonObject {
+                                    put("ids", JsonNull)
+                                    put("name", "3.14")
+                                    put("symbol", JsonNull)
+                                    put("type", JsonNull)
+                                }
+                            )
+                            put("page_size", Long.MAX_VALUE)
+                            put("page_cursor", JsonNull)
+                        }
+                    )
                 }
             ),
-            repo
+            repository
         )
-        val args = repo.lastDapp!!.arguments
-        assertEquals(10, args["page_size"])
-        assertEquals(Long.MAX_VALUE, args["big"])
-        assertEquals("3.14", args["price"])
+        assertTrue(
+            bound.isError != true,
+            "Long.MAX_VALUE must reach Rell as an integer and \"3.14\" as a text: " +
+                (bound.content.first() as TextContent).text
+        )
+        assertEquals(
+            0,
+            bound.structuredContent!!.getValue("data").jsonArray.size,
+            "no asset on the Economy Chain is named \"3.14\"; the text filter bound and matched nothing: " +
+                bound.structuredContent
+        )
+
+        // The discrimination that makes the call above mean something: the same
+        // number sent as a STRING is refused by the chain's own type decoder.
+        val asString = DappInteractionStrategy().execute(
+            callToolRequest(
+                name = "chromia_dapp_query",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.NETWORK)
+                    put("blockchainRid", LiveChromia.ECONOMY_CHAIN_BRID_HEX)
+                    put("query", "ft4.get_assets_filtered")
+                    put(
+                        "arguments",
+                        buildJsonObject {
+                            put(
+                                "asset_filter",
+                                buildJsonObject {
+                                    put("ids", JsonNull)
+                                    put("name", JsonNull)
+                                    put("symbol", JsonNull)
+                                    put("type", JsonNull)
+                                }
+                            )
+                            put("page_size", "${Long.MAX_VALUE}")
+                            put("page_cursor", JsonNull)
+                        }
+                    )
+                }
+            ),
+            repository
+        )
+        assertEquals(true, asString.isError, "the chain type-checks page_size: $asString")
+        assertTrue(
+            (asString.content.first() as TextContent).text!!.contains("expected INTEGER, actual STRING"),
+            "the refusal must be Rell's type decoder: ${(asString.content.first() as TextContent).text}"
+        )
     }
 
     // ------------------------------------- round 6 residuals (entries/strings)
@@ -292,7 +506,9 @@ class AuditSilentArgumentRegressionTest {
         }
         assertTrue(error.message!!.contains("brids[0] must be a string"), error.message)
         assertTrue(error.message!!.contains("an object"), error.message)
-        assertNull(repo.lastAssetFilters, "the query must not run with a coerced JSON-text filter")
+        // As above: the throw is the "did not run with a coerced JSON-text
+        // filter" claim, because the repository is real and a call that got
+        // through would have come back as a result rather than an exception.
     }
 
     @Test
@@ -334,17 +550,39 @@ class AuditSilentArgumentRegressionTest {
         assertTrue(error.message!!.contains("an object"), error.message)
     }
 
+    /**
+     * The counterpart of the test above, ON THE LIVE EXPLORER.
+     *
+     * Numeric-timestamp-as-string coercion is a documented reliance: only
+     * object/array values are rejected, a bare number becomes its text. The old
+     * version asserted `isError != true` against a recorder that answered
+     * `{"ok":true}` to everything, so it could not tell a coerced query from one
+     * the explorer would have refused. Here the explorer answers it.
+     */
     @Test
     fun numericPrimitiveForStringParamStillCoerces() = runBlocking {
-        // Numeric-timestamp-as-string coercion is a documented reliance; only
-        // object/array values are rejected.
+        LiveChromia.requireLive("sends a numeric searchQuery to the live explorer's filter_assets")
         val result = org.chromia.tools.FilterAssetsStrategy().execute(
             callToolRequest(
                 name = "filter_assets",
-                arguments = buildJsonObject { put("searchQuery", 42) }
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("searchQuery", 42)
+                    put("limit", 5)
+                }
             ),
-            repo
+            LiveChromia.repository()
         )
-        assertTrue(result.isError != true, "numeric primitive must coerce, not error")
+        val text = (result.content.first() as TextContent).text!!
+        assertFalse(
+            text.contains("searchQuery must be a string"),
+            "a bare number must coerce to its text, not be rejected: $text"
+        )
+        assertTrue(result.isError != true, "the live explorer answered the coerced searchQuery: $text")
+        assertTrue(
+            result.structuredContent!!.getValue("data").jsonObject
+                .containsKey("filterAssets"),
+            "the explorer served the query it was given: ${result.structuredContent}"
+        )
     }
 }

@@ -403,6 +403,7 @@ class ProbeImprovementsRegressionTest {
             )
             return null
         }
+        assertTrue(payload != null, "get_chr_aggregates answered neither a payload nor an error")
         val data = payload!!["data"]
         assertTrue(
             data != null && data is JsonObject,
@@ -495,7 +496,8 @@ class ProbeImprovementsRegressionTest {
             includeGroupedDeposits = false,
             includeGroupedWithdrawals = false
         )
-        val small = (result as? NetworkResult.Success)?.data
+        val small: JsonObject? =
+            if (result is NetworkResult.Success) (result as NetworkResult.Success<JsonObject>).data else null
         val aggregates = assertLiveChrAggregates(
             small,
             (result as? NetworkResult.Error)?.message

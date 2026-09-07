@@ -293,26 +293,48 @@ class RealWorldRound1RegressionTest {
     }
 
     // price-oracle run_rell_tests: a RellCliException raised without printing
-    // through cliEnv (e.g. module_args binding) produced "Rell test sources do
-    // not compile:" followed by NOTHING. Fall back to the exception message.
+    // through cliEnv (module_args binding) produced "Rell test sources do not
+    // compile:" followed by NOTHING. The diagnostics block now falls back to the
+    // exception's own message, so the agent is told what actually broke.
+    //
+    // This used to be driven through `RunRellTests.runnerOverrideForTests`, a
+    // production hook whose only purpose was to let this test throw a
+    // RellCliException of its own invention - a double of the Rell test runner,
+    // asserting that our error wrapper repeated a string the test itself wrote.
+    // Zero doubles (2026-09-07): the REAL runner is driven with the real input
+    // that produced the bug (price-oracle's module_args, which do not bind), and
+    // the assertion is the one an agent actually depends on - a binding failure
+    // never reports an empty diagnostics block, and it names the module and the
+    // key. The one thing no real input can separate is WHERE the text came from
+    // (captured cliEnv output vs. the cause.message fallback); the empty block is
+    // the regression either way, and that is what is pinned here.
     @Test
-    fun testCompileFailureWithoutCapturedDiagnosticsReportsCauseMessage() {
-        RunRellTests.runnerOverrideForTests = {
-            throw net.postchain.rell.api.base.RellCliBasicException("Bad module args for module 'price_oracle'")
-        }
-        try {
-            val e = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
-                RunRellTests.run(
-                    mapOf("t_test.rell" to "@test module;\nfunction test_x() { assert_equals(1, 1); }")
+    fun moduleArgsBindingFailureNeverReportsAnEmptyDiagnosticsBlock() {
+        val files = mapOf(
+            "price_oracle.rell" to
+                "module;\nstruct module_args { admin_pubkey: text; }\n" +
+                "function admin() = chain_context.args.admin_pubkey;",
+            "price_oracle_test.rell" to
+                "@test module;\nimport price_oracle;\n" +
+                "function test_admin() { assert_equals(price_oracle.admin(), \"02\"); }"
+        )
+        val e = org.junit.jupiter.api.assertThrows<IllegalArgumentException> {
+            RunRellTests.run(
+                files,
+                databaseUrl = null,
+                moduleArgs = mapOf(
+                    "price_oracle" to mapOf("admin_pubkeys" to kotlinx.serialization.json.JsonPrimitive("02"))
                 )
-            }
-            assertTrue(
-                e.message!!.contains("Bad module args"),
-                "fallback must surface the exception message: ${e.message}"
             )
-        } finally {
-            RunRellTests.runnerOverrideForTests = null
         }
+        val message = e.message.orEmpty()
+        val header = message.lineSequence().first()
+        val diagnostics = message.removePrefix(header).trim()
+        assertTrue(header.endsWith(":"), "the failure must be headed and then explained: $message")
+        assertTrue(diagnostics.isNotBlank(), "the diagnostics block must never be empty: $message")
+        assertFalse(message.contains("no compiler diagnostics captured"), message)
+        assertTrue(message.contains("price_oracle"), "the failing module must be named: $message")
+        assertTrue(message.contains("admin_pubkeys"), "the offending key must be named: $message")
     }
 
     // ------------------------------------------------------ security check --

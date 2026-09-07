@@ -721,9 +721,9 @@ class ProvisioningToolsTest {
         assertNull(outdatedChrNote("0.30.0"))
         assertNull(outdatedChrNote(null))
         assertNull(outdatedChrNote("not.a.version"))
-        val note = outdatedChrNote("0.29.10")
-        assertNotNull(note)
-        assertTrue(note!!.contains("WARNING: the installed chr 0.29.10 predates 0.30.0"), note)
+        val note: String = outdatedChrNote("0.29.10")
+            ?: throw AssertionError("chr 0.29.10 predates the documented 0.30.0 layout and must be warned about")
+        assertTrue(note.contains("WARNING: the installed chr 0.29.10 predates 0.30.0"), note)
         assertTrue(note.contains("Upgrade chr to a 0.33.x release"), note)
         assertEquals(listOf("my_dapp"), declaredChainNames(deployYml()))
         assertEquals(emptyList<String>(), declaredChainNames("compile:\n  rellVersion: 0.16.1\n"))
@@ -1153,7 +1153,7 @@ class ProvisioningToolsTest {
         // the newer default pin with "Unknown Rell version", so the generated
         // config must pin the Rell the INSTALLED chr bundles. The expectation is
         // taken from running that chr, not from a fixture that claims a version.
-        val probed = installedChr()
+        val probedRell: String? = installedChr()?.rell
         val result = deployStrategy(envWith(dir = dir), dir).execute(
             call("deploy_testnet_chain", buildJsonObject {
                 put("rell", buildJsonObject { goodRell.forEach { (k, v) -> put(k, v) } })
@@ -1165,8 +1165,8 @@ class ProvisioningToolsTest {
         assertEquals("dry_run", json["status"]!!.jsonPrimitive.content, resultText(result))
         val pin = json["rellVersion"]!!.jsonPrimitive.content
         val source = json["rellVersionSource"]!!.jsonPrimitive.content
-        if (probed?.rell != null) {
-            assertEquals(probed.rell, pin, resultText(result))
+        if (probedRell != null) {
+            assertEquals(probedRell, pin, resultText(result))
             assertTrue(source.contains("probed"), source)
             assertTrue(json["notes"]!!.jsonPrimitive.content.contains(pin), resultText(result))
         } else {

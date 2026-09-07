@@ -9,6 +9,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import net.postchain.client.config.PostchainClientConfig
 import net.postchain.client.core.PostchainClient
@@ -31,6 +32,7 @@ import org.chromia.tools.LocalChainRestBridge
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
@@ -103,8 +105,16 @@ class LocalChainRestBridgeTest {
         val databaseUrl = LiveEnv.requireDatabaseUrl(
             "the REST bridge is exercised against a real embedded Postchain node, not a substitute gateway"
         )
+        // Other classes install node-starter overrides on this global object; a
+        // leaked one would hand us a chain with no node and nothing would say so.
+        LocalChain.starterOverrideForTests = null
+        LocalChain.nodeStarterOverrideForTests = null
         val up = LocalChain.up(files, databaseUrl = databaseUrl, ttlSeconds = 900)
         assertTrue(up.ok, "local chain failed to start: ${up.notes}")
+        assertNotNull(
+            LocalChain.running?.node,
+            "the chain under test must be a REAL Postchain node, not a test starter's stand-in"
+        )
         brid = up.brid!!
         base = up.apiUrl!!
         builderClient = PostchainClientProviderImpl().createClient(
@@ -137,18 +147,17 @@ class LocalChainRestBridgeTest {
 
     private fun Gtx.ridHex(): String = calculateTxRid(builderClient.merkleHashCalculator).toHex()
 
-    private fun statusOf(txRidHex: String): String = runBlocking {
+    private suspend fun statusOf(txRidHex: String): String =
         http.get("$base/tx/$brid/$txRidHex/status").bodyAsText()
-    }
 
     /** Polls the bridge's own status endpoint until [wanted], or gives up. */
-    private fun awaitStatus(txRidHex: String, wanted: String, timeoutMs: Long = 60_000): String {
+    private suspend fun awaitStatus(txRidHex: String, wanted: String, timeoutMs: Long = 60_000): String {
         val deadline = System.currentTimeMillis() + timeoutMs
         var last = ""
         while (System.currentTimeMillis() < deadline) {
             last = statusOf(txRidHex)
-            if (last.contains(""""status":"$wanted"""")) return last
-            Thread.sleep(200)
+            if (last.contains("\"status\":\"$wanted\"")) return last
+            delay(200)
         }
         return last
     }

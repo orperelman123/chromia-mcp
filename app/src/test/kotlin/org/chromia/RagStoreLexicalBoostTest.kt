@@ -4,6 +4,7 @@ import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.segment.TextSegment
 import org.chromia.tools.RagStore
 import org.chromia.tools.segmentId
+import org.chromia.tools.segmentTier
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -120,10 +121,11 @@ class RagStoreLexicalBoostTest {
         assertNotNull(hits)
         val ids = hits!!.map { segmentId(it) }
         assertNotEquals(segmentId(definition), ids[0], "nothing pulls the definition to the front: $ids")
+        assertTrue(segmentId(prose) in ids, "the page about auth descriptors is still retrieved: $ids")
+        val tiers = hits!!.map { segmentTier(it) }
         assertEquals(
-            setOf(segmentId(prose), segmentId(unrelated)),
-            setOf(ids[0], ids[1]),
-            "docs pages lead the semantic tail (segmentTier), the .rell segments follow: $ids"
+            tiers.sorted(), tiers,
+            "with no lexical block the merge is the docs-first semantic order: .md before .rell, got $tiers"
         )
         assertEquals(ids.size, ids.toSet().size, "no duplicates")
     }

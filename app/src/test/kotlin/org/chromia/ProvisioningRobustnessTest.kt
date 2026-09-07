@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.Closeable
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -85,7 +86,7 @@ class ProvisioningRobustnessTest {
      * write always completes; without that, a full receive buffer could make
      * the write fail fast and turn the stall into an ordinary I/O error.
      */
-    private class SilentTcpEndpoint : AutoCloseable {
+    private class SilentTcpEndpoint : Closeable {
         private val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
         private val held = java.util.Collections.synchronizedList(mutableListOf<Socket>())
 
