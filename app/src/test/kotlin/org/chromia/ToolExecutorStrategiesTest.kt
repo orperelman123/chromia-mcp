@@ -1,6 +1,5 @@
 package org.chromia
 
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import org.chromia.tools.callToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
@@ -14,19 +13,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import net.postchain.gtv.GtvFactory
-import org.chromia.data.ChromiaRepositoryImpl
 import org.chromia.data.client.GraphQLResponseParser
-import org.chromia.data.client.HttpClientService
-import org.chromia.data.client.PostchainClientService
-import org.chromia.data.config.ChromiaConfig
 import org.chromia.domain.NetworkResult
 import org.chromia.tools.McpResources
 import org.chromia.tools.AccountBlockchainsStrategy
 import org.chromia.tools.AllAssetsStrategy
 import org.chromia.tools.AllTransactionsStrategy
 import org.chromia.tools.AssetBlockchainsStrategy
-import org.chromia.tools.BlockchainsTransactionsStrategy
 import org.chromia.tools.AssetDistributionStrategy
 import org.chromia.tools.AssetTopHoldersStrategy
 import org.chromia.tools.BlockchainAnalyticsStrategy
@@ -35,10 +28,7 @@ import org.chromia.tools.ChrAggregatesStrategy
 import org.chromia.tools.DappInteractionStrategy
 import org.chromia.tools.FilterAssetsStrategy
 import org.chromia.tools.FilterBlockchainsStrategy
-import org.chromia.tools.NetworkStatsStrategy
-import org.chromia.tools.NodeUnavailabilityStrategy
 import org.chromia.tools.SignerBlockchainsStrategy
-import org.chromia.tools.TransactionsByClusterStrategy
 import org.chromia.tools.PromptManager
 import org.chromia.tools.PromptsToolStrategy
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -55,236 +45,62 @@ class ToolExecutorStrategiesTest {
 
     private val validBrid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-    @Test
-    fun filterBlockchainsForwardsFiltersAndReturnsSuccessJson() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("name", "directory_chain")
-                put("rid", "abc")
-            }
-        )
-        val request = callToolRequest(
-            name = "filter_blockchains",
-            arguments = buildJsonObject {
-                put("network", "mainnet")
-                put("name", "directory")
-                put("limit", 5)
-                put("system", true)
-            }
-        )
-        val result = FilterBlockchainsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("mainnet", repo.lastNetwork)
-        assertEquals("directory", repo.lastBlockchainFilters?.name)
-        assertEquals(5, repo.lastBlockchainFilters?.pagination?.limit)
-        assertEquals(true, repo.lastBlockchainFilters?.system)
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("directory_chain", payload["name"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun filterAssetsForwardsSearchAndReturnsSuccessJson() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("symbol", "CHR")
-                put("totalCount", 1)
-            }
-        )
-        val request = callToolRequest(
-            name = "filter_assets",
-            arguments = buildJsonObject {
-                put("network", "testnet")
-                put("searchQuery", "CHR")
-                put("type", "FT")
-                put("limit", 10)
-            }
-        )
-        val result = FilterAssetsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("testnet", repo.lastNetwork)
-        assertEquals("CHR", repo.lastAssetSearchFilters?.searchQuery)
-        assertEquals("FT", repo.lastAssetSearchFilters?.type)
-        assertEquals(10, repo.lastAssetSearchFilters?.pagination?.limit)
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("CHR", payload["symbol"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun getNetworkStatsReturnsSuccessJson() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("countAllAccounts", 42)
-                put("countAllTransactions", 7)
-            }
-        )
-        val request = callToolRequest(
-            name = "get_network_stats",
-            arguments = buildJsonObject { put("network", "mainnet") }
-        )
-        val result = NetworkStatsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("mainnet", repo.lastNetwork)
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("42", payload["countAllAccounts"]!!.jsonPrimitive.content)
-        assertEquals("7", payload["countAllTransactions"]!!.jsonPrimitive.content)
-        assertTrue(result.isError != true)
-    }
-
-    @Test
-    fun getNetworkStatsRepositoryErrorSetsIsError() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Error("explorer HTTP 502")
-        val request = callToolRequest(
-            name = "get_network_stats",
-            arguments = buildJsonObject { put("network", "mainnet") }
-        )
-        val result = NetworkStatsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.contains("Failed to get network stats"))
-        assertTrue(text.contains("explorer HTTP 502"))
-        assertEquals(true, result.isError)
-    }
-
     /**
-     * Round 13 (2026-09-04): the explorer answered `GraphQL Error: INTERNAL_ERROR
-     * for <uuid>` on every aggregation field for hours (bisected live: `__typename`
-     * and `totalRewardsPaid` fine, every `dashboardData` sub-field and
-     * `groupedTransactionsByBlockchain` failing - the explorer, not our query).
-     * The tool relayed the opaque line and nothing else; the "not your fault,
-     * go chain-direct" verdict existed only in translate_error, one more call an
-     * agent had to know to make. An error the server can classify as UPSTREAM
-     * says so on the spot, in text and in a field scripts can branch on.
+     * The production repository pointed at a REAL closed loopback port. Used by
+     * the tests below that must not reach the network at all: they assert a
+     * validation failure raised BEFORE any call, so a tool that started making
+     * one would fail with a genuine ConnectException instead of being handed an
+     * invented answer. This replaced `RecordingRepository`, a double of our own
+     * `ChromiaRepository` that these tests were handed purely to be ignored.
      */
-    @Test
-    fun explorerUpstreamIncidentIsNamedInlineWithTheNextAction() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Error("GraphQL Error: INTERNAL_ERROR for 608627eb-bf9d-e9e5-971b-188b3dcf94bb")
-        val request = callToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
-        val result = NetworkStatsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(true, result.isError)
-        assertTrue(text.startsWith("Failed to get network stats: GraphQL Error: INTERNAL_ERROR"), text)
-        assertTrue(text.contains("UPSTREAM"), text)
-        assertTrue(text.contains("chromia_dapp_query"), "must point at the chain-direct alternative: $text")
-        val structured = result.structuredContent!!
-        assertEquals("true", structured.getValue("upstream").jsonPrimitive.content)
-        assertEquals("graphql_internal_error", structured.getValue("upstream_rule").jsonPrimitive.content)
-        assertTrue(structured.getValue("next_action").jsonPrimitive.content.contains("retry"), structured.toString())
-    }
+    private fun offline() = McpTestSupport.offlineRepository()
 
-    @Test
-    fun explorerTestnet400IsNamedUpstreamToo() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Error("HTTP 400: Bad Request (network=testnet)")
-        val request = callToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "testnet") })
-        val result = NetworkStatsStrategy().execute(request, repo)
-        val structured = result.structuredContent!!
-        assertEquals("explorer_testnet_400", structured.getValue("upstream_rule").jsonPrimitive.content)
-        assertTrue((result.content.first() as TextContent).text!!.contains("network=mainnet"))
-    }
-
-    /** An error the translator cannot classify as upstream keeps the plain shape - no false reassurance. */
-    @Test
-    fun unclassifiedExplorerErrorStaysPlain() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Error("explorer HTTP 502")
-        val request = callToolRequest(name = "get_network_stats", arguments = buildJsonObject { put("network", "mainnet") })
-        val result = NetworkStatsStrategy().execute(request, repo)
-        val structured = result.structuredContent!!
-        // 502 IS classified (http_unavailable) - it is upstream by definition.
-        assertEquals("http_unavailable", structured.getValue("upstream_rule").jsonPrimitive.content)
-
-        repo.next = NetworkResult.Error("Validation error of type FieldUndefined: Field 'foo' in type 'Query' is undefined")
-        val schemaDrift = NetworkStatsStrategy().execute(request, repo)
-        val plain = schemaDrift.structuredContent!!
-        assertTrue(!plain.containsKey("upstream"), "schema drift is OUR query, not an incident: $plain")
-        assertTrue((schemaDrift.content.first() as TextContent).text!!.startsWith("Failed to get network stats: Validation error"))
-    }
-
-    @Test
-    fun getAllTransactionsForwardsFiltersAndReturnsSuccessJson() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("totalCount", 2)
-                put("rid", "tx-1")
-            }
-        )
-        val request = callToolRequest(
-            name = "get_all_transactions",
-            arguments = buildJsonObject {
-                put("network", "mainnet")
-                put("rid", "tx-rid")
-                put("blockId", "block-9")
-                put("timestampFrom", "2026-01-01T00:00:00Z")
-                put("timestampTo", "2026-01-31T00:00:00Z")
-                put("limit", 20)
-                put("offset", 5)
-                put("sortBy", "timestamp")
-                put("sortDirection", "DESC")
-                put("blockchainIds", buildJsonArray { add("brid-a"); add("brid-b") })
-                put("operations", buildJsonArray { add("ft4.transfer") })
-                put("accounts", buildJsonArray { add("acc-1") })
-            }
-        )
-        val result = AllTransactionsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("mainnet", repo.lastNetwork)
-        val filters = repo.lastTransactionFilters!!
-        assertEquals("tx-rid", filters.rid)
-        assertEquals("block-9", filters.blockId)
-        assertEquals(listOf("brid-a", "brid-b"), filters.blockchainIds)
-        assertEquals("2026-01-01T00:00:00Z", filters.timestampFrom)
-        assertEquals("2026-01-31T00:00:00Z", filters.timestampTo)
-        assertEquals(listOf("ft4.transfer"), filters.operations)
-        assertEquals(listOf("acc-1"), filters.accounts)
-        assertEquals(20, filters.pagination.limit)
-        assertEquals(5, filters.pagination.offset)
-        assertEquals("timestamp", filters.sorting.sortBy)
-        assertEquals("DESC", filters.sorting.sortDirection)
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("2", payload["totalCount"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun getAssetTopHoldersForwardsFiltersAndReturnsSuccessJson() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("accountId", "holder-1")
-                put("amount", "1000")
-            }
-        )
-        val request = callToolRequest(
-            name = "get_asset_top_holders",
-            arguments = buildJsonObject {
-                put("assetId", "chr-asset")
-                put("network", "testnet")
-                put("limit", 3)
-                put("brids", buildJsonArray { add("brid-1") })
-                put("excludeAccounts", buildJsonArray { add("treasury") })
-            }
-        )
-        val result = AssetTopHoldersStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("testnet", repo.lastNetwork)
-        assertEquals("chr-asset", repo.lastAssetId)
-        assertEquals(3, repo.lastLimit)
-        assertEquals(listOf("brid-1"), repo.lastAssetFilters?.brids)
-        assertEquals(listOf("treasury"), repo.lastAssetFilters?.excludeAccounts)
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("holder-1", payload["accountId"]!!.jsonPrimitive.content)
-    }
+    // ------------------------------------------------------------------
+    // ARGUMENT MAPPING, PROVED BY THE THING THAT RECEIVES THE ARGUMENTS
+    // ------------------------------------------------------------------
+    //
+    // Twelve tests used to live here in the shape "hand the strategy a
+    // RecordingRepository, then assert on what the recorder recorded". That
+    // proves the strategy called a method with the arguments the test then
+    // looked for - a restatement, with no explorer and no chain in it, and it
+    // was green over four tools the explorer had stopped serving entirely.
+    //
+    // What replaces each of them is the same claim asserted where it can
+    // actually fail: the LIVE explorer either filters by the argument or it does
+    // not. Each deletion names its replacement.
+    //
+    //   filterBlockchainsForwardsFiltersAndReturnsSuccessJson
+    //       -> liveFilterBlockchainsFiltersByNameAndSystem (name, system, limit,
+    //          cluster and the structuredContent/text equality, all live)
+    //   filterAssetsForwardsSearchAndReturnsSuccessJson
+    //       -> liveFilterAssetsFiltersBySearchQuery
+    //   getAllTransactionsForwardsFiltersAndReturnsSuccessJson
+    //       -> liveGetAllTransactionsPagesAndSorts (limit, sortBy, sortDirection
+    //          and a real blockchainIds filter)
+    //   getAssetTopHoldersForwardsFiltersAndReturnsSuccessJson
+    //       -> liveGetAssetTopHoldersAnswersForARealAsset (limit and a real
+    //          excludeAccounts, checked against the account it excludes)
+    //   getBlockchainDetailsForwardsRidAndReturnsSuccessJson
+    //       -> liveGetBlockchainDetailsAnswersForARealRid
+    //   chromiaDappQuerySuccessExtractsArguments and
+    //   chromiaDappQueryJsonNullArgumentIsPreservedAsNull
+    //       -> chromiaDappQueryNestedListMapArgsAreBoundByTheLiveChain, where a
+    //          nested struct with a list<byte_array>, a text, an integer and
+    //          three explicit nulls is BOUND by Rell on the live Economy Chain.
+    //          A dropped null cannot bind that struct at all. (Not covered
+    //          there: a boolean argument - no FT4 query on the Economy Chain
+    //          takes one, so boolean argument conversion is now unverified.)
+    //   getNetworkStatsReturnsSuccessJson, getNetworkStatsRepositoryErrorSetsIsError,
+    //   graphQlSuccessFixtureFlowsIntoHandleResultStructuredContent
+    //       -> the tool is retired (see the retirement note further down); the
+    //          success shape is asserted live by every live explorer test, which
+    //          all check `structuredContent == Json.parse(text)`.
 
     @Test
     fun blankOptionalListItemsAreValidationErrors() {
         // Blank entries used to be silently dropped (shortening the filter),
         // and an all-blank list collapsed to "no filter" - both now fail fast,
         // consistent with the strictness convention for wrong-typed filters.
-        val repo = RecordingRepository()
         val blankEntry = assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
                 AssetTopHoldersStrategy().execute(
@@ -295,7 +111,7 @@ class ToolExecutorStrategiesTest {
                             put("excludeAccounts", buildJsonArray { add(""); add("   "); add("keep") })
                         }
                     ),
-                    repo
+                    offline()
                 )
             }
         }
@@ -311,7 +127,7 @@ class ToolExecutorStrategiesTest {
                             put("excludeAccounts", buildJsonArray { add(""); add("  ") })
                         }
                     ),
-                    repo
+                    offline()
                 )
             }
         }
@@ -320,20 +136,18 @@ class ToolExecutorStrategiesTest {
 
     @Test
     fun getAssetTopHoldersMissingAssetIdThrows() {
-        val repo = RecordingRepository()
         val request = callToolRequest(
             name = "get_asset_top_holders",
             arguments = buildJsonObject { put("network", "mainnet") }
         )
         val error = assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { AssetTopHoldersStrategy().execute(request, repo) }
+            runBlocking { AssetTopHoldersStrategy().execute(request, offline()) }
         }
         assertTrue(error.message!!.contains("assetId"))
     }
 
     @Test
     fun getAssetTopHoldersBlankAssetIdThrows() {
-        val repo = RecordingRepository()
         val request = callToolRequest(
             name = "get_asset_top_holders",
             arguments = buildJsonObject {
@@ -342,39 +156,14 @@ class ToolExecutorStrategiesTest {
             }
         )
         val error = assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { AssetTopHoldersStrategy().execute(request, repo) }
+            runBlocking { AssetTopHoldersStrategy().execute(request, offline()) }
         }
         assertTrue(error.message!!.contains("Missing required parameter"))
         assertTrue(error.message!!.contains("assetId"))
     }
 
     @Test
-    fun getBlockchainDetailsForwardsRidAndReturnsSuccessJson() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("name", "directory_chain")
-                put("rid", "details-rid")
-            }
-        )
-        val request = callToolRequest(
-            name = "get_blockchain_details",
-            arguments = buildJsonObject {
-                put("rid", "details-rid")
-                put("network", "mainnet")
-            }
-        )
-        val result = BlockchainDetailsStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("mainnet", repo.lastNetwork)
-        assertEquals("details-rid", repo.lastDetailsRid)
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("directory_chain", payload["name"]!!.jsonPrimitive.content)
-    }
-
-    @Test
     fun getBlockchainDetailsBlankRidThrows() {
-        val repo = RecordingRepository()
         val request = callToolRequest(
             name = "get_blockchain_details",
             arguments = buildJsonObject {
@@ -383,10 +172,63 @@ class ToolExecutorStrategiesTest {
             }
         )
         val error = assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { BlockchainDetailsStrategy().execute(request, repo) }
+            runBlocking { BlockchainDetailsStrategy().execute(request, offline()) }
         }
         assertTrue(error.message!!.contains("Missing required parameter"))
         assertTrue(error.message!!.contains("rid"))
+    }
+
+    @Test
+    fun chromiaDappQueryMissingBlockchainRidThrows() {
+        val request = callToolRequest(
+            name = "chromia_dapp_query",
+            arguments = buildJsonObject { put("query", "rell.get_app_structure") }
+        )
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { DappInteractionStrategy().execute(request, offline()) }
+        }
+        assertTrue(error.message!!.contains("blockchainRid"))
+    }
+
+    @Test
+    fun jsonNullRequiredParameterIsMissing() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                AssetTopHoldersStrategy().execute(
+                    callToolRequest(
+                        name = "get_asset_top_holders",
+                        arguments = buildJsonObject { put("assetId", JsonNull) }
+                    ),
+                    offline()
+                )
+            }
+        }
+        assertTrue(error.message!!.contains("Missing required parameter"))
+        assertTrue(error.message!!.contains("assetId"))
+    }
+
+    /**
+     * THE GRAPHQL ENVELOPE, PARSED BY THE REAL PARSER.
+     *
+     * `GraphQLResponseParser` is our own code and a response body is DATA, so
+     * this drives the parser directly with an envelope of the shape the explorer
+     * sends. What it used to do as well - push the parsed value through a
+     * strategy via a RecordingRepository and check it came out the other end -
+     * is now asserted live by every test in the live section, each of which
+     * requires `structuredContent` to equal the parsed text.
+     */
+    @Test
+    fun theGraphQlEnvelopeIsUnwrappedIntoTheDataObject() {
+        val parsed = GraphQLResponseParser.parseResponse(
+            """{"data":{"blockchain":{"name":"directory_chain","state":"RUNNING"}}}"""
+        )
+        assertTrue(parsed is NetworkResult.Success, parsed.toString())
+        val data = (parsed as NetworkResult.Success).data
+        assertEquals(
+            "directory_chain",
+            data.getValue("data").jsonObject.getValue("blockchain").jsonObject
+                .getValue("name").jsonPrimitive.content
+        )
     }
 
     @Test
@@ -398,7 +240,7 @@ class ToolExecutorStrategiesTest {
                 put("search", "not signed")
             }
         )
-        val result = PromptsToolStrategy(PromptManager()).execute(request, RecordingRepository())
+        val result = PromptsToolStrategy(PromptManager()).execute(request, offline())
         val text = (result.content.first() as TextContent).text!!
         val payload = Json.parseToJsonElement(text).jsonObject
         val prompts = payload["prompts"]!!.jsonObject
@@ -418,7 +260,7 @@ class ToolExecutorStrategiesTest {
             name = "get_prompts",
             arguments = buildJsonObject { put("tool", "filter_blockchains") }
         )
-        val result = PromptsToolStrategy(PromptManager()).execute(request, RecordingRepository())
+        val result = PromptsToolStrategy(PromptManager()).execute(request, offline())
         val text = (result.content.first() as TextContent).text!!
         val payload = Json.parseToJsonElement(text).jsonObject
         val prompts = payload["prompts"]!!.jsonObject
@@ -437,7 +279,7 @@ class ToolExecutorStrategiesTest {
     fun getPromptsStructuredContentMatchesCatalog() = runBlocking {
         val result = PromptsToolStrategy(PromptManager()).execute(
             callToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
-            RecordingRepository()
+            offline()
         )
         val text = (result.content.first() as TextContent).text!!
         val payload = Json.parseToJsonElement(text).jsonObject
@@ -459,7 +301,7 @@ class ToolExecutorStrategiesTest {
         val manager = PromptManager("broken_prompt_templates.json")
         val result = PromptsToolStrategy(manager).execute(
             callToolRequest(name = "get_prompts", arguments = buildJsonObject {}),
-            RecordingRepository()
+            offline()
         )
         val text = (result.content.first() as TextContent).text!!
         assertEquals(true, result.isError)
@@ -469,301 +311,158 @@ class ToolExecutorStrategiesTest {
         assertEquals(text, result.structuredContent!!["error"]!!.jsonPrimitive.content)
     }
 
+    /**
+     * JSON NULL IS ABSENT, THE STRING "null" IS A VALUE - ASKED OF THE EXPLORER.
+     *
+     * Five tests used to assert this against a RecordingRepository by reading
+     * the filter model the strategy had built. The bug the convention exists to
+     * prevent is not "the model held a null"; it is a filter string `"null"`
+     * reaching the explorer and silently matching nothing (audit round 4 F2), so
+     * the explorer is the only place the difference shows. It does, exactly:
+     * `name` absent returns rows, `name = "null"` returns none - verified live
+     * 2026-09-07, and the same for `filter_assets{searchQuery}`.
+     */
     @Test
-    fun graphQlSuccessFixtureFlowsIntoHandleResultStructuredContent() = runBlocking {
-        val fixture = """{"data":{"networkStats":{"blockCount":12,"transactionCount":48}}}"""
-        val parsed = GraphQLResponseParser.parseResponse(fixture)
-        assertTrue(parsed is NetworkResult.Success)
-        val repository = RecordingRepository()
-        repository.next = parsed
-        val result = NetworkStatsStrategy().execute(
-            callToolRequest(
-                name = "get_network_stats",
-                arguments = buildJsonObject { put("network", "mainnet") }
-            ),
-            repository
-        )
-        assertTrue(result.isError != true)
-        val body = (parsed as NetworkResult.Success).data
-        assertEquals(body, result.structuredContent)
-        assertEquals(
-            12,
-            result.structuredContent!!
-                .getValue("data")
-                .jsonObject
-                .getValue("networkStats")
-                .jsonObject
-                .getValue("blockCount")
-                .jsonPrimitive
-                .int
-        )
-        assertEquals("getNetworkStats", repository.lastCall)
-        assertEquals("mainnet", repository.lastNetwork)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals(body, Json.parseToJsonElement(text).jsonObject)
-    }
+    fun liveJsonNullFiltersAreAbsentAndTheLiteralStringNullIsAValue() = runBlocking {
+        LiveChromia.requireLive("asks the explorer to tell a JSON null filter from the string \"null\"")
+        val repository = liveRepository()
 
-    @Test
-    fun chromiaDappQueryReturnsRepositoryError() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Error("node refused query")
-        val request = callToolRequest(
-            name = "chromia_dapp_query",
-            arguments = buildJsonObject {
-                put("network", "testnet")
-                put("blockchainRid", validBrid)
-                put("query", "rell.get_app_structure")
-            }
-        )
-        val result = DappInteractionStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        assertEquals("testnet", repo.lastDapp?.network)
-        assertEquals(validBrid.uppercase(), repo.lastDapp?.brid)
-        assertEquals("rell.get_app_structure", repo.lastDapp?.query)
-        assertTrue(text.contains("Failed to execute dapp query rell.get_app_structure"))
-        assertTrue(text.contains("node refused query"))
-        assertEquals(true, result.isError)
-    }
-
-    @Test
-    fun chromiaDappQuerySuccessExtractsArguments() = runBlocking {
-        val repo = RecordingRepository()
-        repo.next = NetworkResult.Success(
-            buildJsonObject {
-                put("modules", "ok")
-                put("name", "CHR")
-            }
-        )
-        val request = callToolRequest(
-            name = "chromia_dapp_query",
-            arguments = buildJsonObject {
-                put("network", "mainnet")
-                put("blockchainRid", validBrid)
-                put("query", "ft4.get_assets_by_name")
-                put(
-                    "arguments",
-                    buildJsonObject {
-                        put("name", "CHR")
-                        put("page_size", 10)
-                        put("include_icon", true)
-                        put("ids", buildJsonArray { add("a"); add("b") })
-                        put("meta", buildJsonObject { put("source", "test") })
-                    }
-                )
-            }
-        )
-        val result = DappInteractionStrategy().execute(request, repo)
-        val text = (result.content.first() as TextContent).text!!
-        val args = repo.lastDapp!!.arguments
-        assertEquals("mainnet", repo.lastDapp?.network)
-        assertEquals(validBrid.uppercase(), repo.lastDapp?.brid)
-        assertEquals("ft4.get_assets_by_name", repo.lastDapp?.query)
-        assertEquals("CHR", args["name"])
-        assertEquals(10, args["page_size"])
-        assertEquals(true, args["include_icon"])
-        assertEquals(listOf("a", "b"), args["ids"])
-        @Suppress("UNCHECKED_CAST")
-        assertEquals("test", (args["meta"] as Map<String, Any>)["source"])
-        val payload = Json.parseToJsonElement(text).jsonObject
-        assertEquals("ok", payload["modules"]!!.jsonPrimitive.content)
-        assertEquals("CHR", payload["name"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun chromiaDappQueryMissingBlockchainRidThrows() {
-        val repo = RecordingRepository()
-        val request = callToolRequest(
-            name = "chromia_dapp_query",
-            arguments = buildJsonObject { put("query", "rell.get_app_structure") }
-        )
-        val error = assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { DappInteractionStrategy().execute(request, repo) }
-        }
-        assertTrue(error.message!!.contains("blockchainRid"))
-    }
-
-    @Test
-    fun jsonNullOptionalStringFiltersAreAbsent() = runBlocking {
-        val repo = RecordingRepository()
-        FilterBlockchainsStrategy().execute(
+        val nulls = FilterBlockchainsStrategy().execute(
             callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject {
-                    put("network", JsonNull)
+                    put("network", LiveChromia.EXPLORER_NETWORK)
                     put("name", JsonNull)
                     put("rid", JsonNull)
                     put("cluster", JsonNull)
                     put("container", JsonNull)
-                    put("state", JsonNull)
                     put("sortBy", JsonNull)
                     put("sortDirection", JsonNull)
+                    put("limit", 5)
                 }
             ),
-            repo
+            repository
         )
-        assertEquals("filterBlockchains", repo.lastCall)
-        assertNull(repo.lastNetwork, "JSON null network must be absent, not the string null")
-        val filters = repo.lastBlockchainFilters!!
-        assertNull(filters.name, "JSON null name must not become the filter string null")
-        assertNull(filters.rid)
-        assertNull(filters.cluster)
-        assertNull(filters.container)
-        assertNull(filters.state)
-        assertNull(filters.sorting.sortBy)
-        assertNull(filters.sorting.sortDirection)
-    }
+        val unfiltered = assertLiveExplorerTool("filter_blockchains", nulls, "allBlockchains")
+            ?: return@runBlocking
+        assertTrue(
+            unfiltered.jsonArray.isNotEmpty(),
+            "every filter was an explicit JSON null, so nothing should have been filtered: $unfiltered"
+        )
 
-    @Test
-    fun jsonNullAssetAndTransactionStringFiltersAreAbsent() = runBlocking {
-        val repo = RecordingRepository()
-        FilterAssetsStrategy().execute(
+        val literal = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("name", "null")
+                    put("limit", 5)
+                }
+            ),
+            repository
+        )
+        val matched = assertLiveExplorerTool("filter_blockchains", literal, "allBlockchains")
+            ?: return@runBlocking
+        assertTrue(
+            matched.jsonArray.isEmpty(),
+            "the string \"null\" is a NAME, and no mainnet chain is called that - if this is not " +
+                "empty the literal was dropped and the call was silently unfiltered: $matched"
+        )
+
+        val assets = FilterAssetsStrategy().execute(
             callToolRequest(
                 name = "filter_assets",
                 arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
                     put("brid", JsonNull)
                     put("searchQuery", JsonNull)
                     put("type", JsonNull)
                     put("sortBy", JsonNull)
+                    put("limit", 5)
                 }
             ),
-            repo
+            repository
         )
-        assertEquals("filterAssets", repo.lastCall)
-        assertNull(repo.lastAssetSearchFilters?.brid)
-        assertNull(repo.lastAssetSearchFilters?.searchQuery, "JSON null searchQuery must not become the filter string null")
-        assertNull(repo.lastAssetSearchFilters?.type)
-        assertNull(repo.lastAssetSearchFilters?.sorting?.sortBy)
-
-        AllTransactionsStrategy().execute(
-            callToolRequest(
-                name = "get_all_transactions",
-                arguments = buildJsonObject {
-                    put("rid", JsonNull)
-                    put("blockId", JsonNull)
-                    put("timestampFrom", JsonNull)
-                    put("timestampTo", JsonNull)
-                    put("sortBy", JsonNull)
-                    put("sortDirection", JsonNull)
-                }
-            ),
-            repo
+        val rows = assertLiveExplorerTool("filter_assets", assets, "filterAssets") ?: return@runBlocking
+        assertTrue(
+            rows.jsonObject.getValue("assets").jsonArray.isNotEmpty(),
+            "JSON-null asset filters must not filter: $rows"
         )
-        val tx = repo.lastTransactionFilters!!
-        assertNull(tx.rid, "JSON null rid must not become the filter string null")
-        assertNull(tx.blockId)
-        assertNull(tx.timestampFrom)
-        assertNull(tx.timestampTo)
-        assertNull(tx.sorting.sortBy)
-        assertNull(tx.sorting.sortDirection)
     }
 
+    /**
+     * The int and boolean extractors, same question, same judge. A JSON null
+     * `limit` must be ABSENT (the explorer then answers its own default page,
+     * which is larger than any limit this test would pass), and JSON-null
+     * booleans must keep the strategy's defaults - `get_chr_aggregates` defaults
+     * all three flags to true, and `includeGroupedDeposits = false` really does
+     * empty that array, so a live non-empty `groupedDeposits` is the proof that
+     * the null did not collapse to false.
+     */
     @Test
-    fun jsonNullIntAndBooleanExtractorsAreAbsent() = runBlocking {
-        val repo = RecordingRepository()
-        FilterBlockchainsStrategy().execute(
+    fun liveJsonNullIntsAndBooleansKeepTheirDefaults() = runBlocking {
+        LiveChromia.requireLive("asks the explorer whether a JSON null limit and null flags were dropped")
+        val repository = liveRepository()
+
+        val limited = FilterBlockchainsStrategy().execute(
             callToolRequest(
                 name = "filter_blockchains",
                 arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("limit", 3)
+                }
+            ),
+            repository
+        )
+        val threeRows = assertLiveExplorerTool("filter_blockchains", limited, "allBlockchains")
+            ?: return@runBlocking
+        assertEquals(3, threeRows.jsonArray.size, "limit = 3 did not bind: $threeRows")
+
+        val nullLimit = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
                     put("limit", JsonNull)
                     put("offset", JsonNull)
                     put("system", JsonNull)
                 }
             ),
-            repo
+            repository
         )
-        val filters = repo.lastBlockchainFilters!!
-        assertNull(filters.pagination.limit, "JSON null limit must be absent, not parsed")
-        assertNull(filters.pagination.offset)
-        assertNull(filters.system, "JSON null system must be absent, not a boolean")
-
-        AssetTopHoldersStrategy().execute(
-            callToolRequest(
-                name = "get_asset_top_holders",
-                arguments = buildJsonObject {
-                    put("assetId", "chr")
-                    put("limit", JsonNull)
-                }
-            ),
-            repo
+        val allRows = assertLiveExplorerTool("filter_blockchains", nullLimit, "allBlockchains")
+            ?: return@runBlocking
+        assertTrue(
+            allRows.jsonArray.size > 3,
+            "a JSON null limit must be ABSENT, not parsed into one - the explorer's own page is " +
+                "larger than 3: got ${allRows.jsonArray.size} rows"
         )
-        assertNull(repo.lastLimit)
+        val systems = allRows.jsonArray.map { it.jsonObject.getValue("system").jsonPrimitive.content }
+        assertTrue(
+            systems.contains("true") && systems.contains("false"),
+            "a JSON null `system` must not filter to one kind of chain: $systems"
+        )
 
-        ChrAggregatesStrategy().execute(
+        val aggregates = ChrAggregatesStrategy().execute(
             callToolRequest(
                 name = "get_chr_aggregates",
                 arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
                     put("includeTotals", JsonNull)
                     put("includeGroupedDeposits", JsonNull)
                     put("includeGroupedWithdrawals", JsonNull)
                 }
             ),
-            repo
+            repository
         )
-        assertEquals(true, repo.lastIncludeTotals, "JSON null boolean flags keep strategy defaults")
-        assertEquals(true, repo.lastIncludeGroupedDeposits)
-        assertEquals(true, repo.lastIncludeGroupedWithdrawals)
-    }
-
-    @Test
-    fun jsonNullRequiredParameterIsMissing() {
-        val error = assertThrows(IllegalArgumentException::class.java) {
-            runBlocking {
-                AssetTopHoldersStrategy().execute(
-                    callToolRequest(
-                        name = "get_asset_top_holders",
-                        arguments = buildJsonObject { put("assetId", JsonNull) }
-                    ),
-                    RecordingRepository()
-                )
-            }
-        }
-        assertTrue(error.message!!.contains("Missing required parameter"))
-        assertTrue(error.message!!.contains("assetId"))
-    }
-
-    @Test
-    fun literalStringNullRemainsAFilterValue() = runBlocking {
-        val repo = RecordingRepository()
-        FilterBlockchainsStrategy().execute(
-            callToolRequest(
-                name = "filter_blockchains",
-                arguments = buildJsonObject { put("name", "null") }
-            ),
-            repo
-        )
-        assertEquals("null", repo.lastBlockchainFilters?.name)
-    }
-
-    @Test
-    fun chromiaDappQueryJsonNullArgumentIsPreservedAsNull() = runBlocking {
-        // Explicit JSON null must reach the chain as GtvNull, not be dropped -
-        // a Rell parameter with a default would silently use the default
-        // instead of null (audit round 4 F2).
-        val repo = RecordingRepository()
-        DappInteractionStrategy().execute(
-            callToolRequest(
-                name = "chromia_dapp_query",
-                arguments = buildJsonObject {
-                    put("blockchainRid", validBrid)
-                    put("query", "ft4.get_assets_by_name")
-                    put(
-                        "arguments",
-                        buildJsonObject {
-                            put("name", "CHR")
-                            put("page_size", JsonNull)
-                        }
-                    )
-                }
-            ),
-            repo
-        )
-        val args = repo.lastDapp!!.arguments
-        assertEquals("CHR", args["name"])
+        val chr = assertLiveExplorerTool("get_chr_aggregates", aggregates, "chrAggregates")
+            ?: return@runBlocking
         assertTrue(
-            "page_size" in args,
-            "explicit JSON null dapp argument must be kept, not dropped"
+            chr.jsonObject.getValue("groupedDeposits").jsonArray.isNotEmpty(),
+            "JSON null boolean flags keep the strategy's `true` default; false really does empty " +
+                "this array, so an empty one means the null became false: $chr"
         )
-        assertNull(args["page_size"], "JSON null must map to Kotlin null (GtvNull), not the string null")
+        assertNotNull(chr.jsonObject["totals"], "includeTotals defaulted away: $chr")
     }
 
     /**
@@ -1031,6 +730,31 @@ class ToolExecutorStrategiesTest {
         )
         val text = (result.content.first() as TextContent).text!!
         assertEquals(result.structuredContent, Json.parseToJsonElement(text).jsonObject)
+
+        // cluster + limit, bound by the explorer - the other half of what
+        // filterBlockchainsForwardsFiltersAndReturnsSuccessJson used to assert
+        // by reading the filter model back out of a RecordingRepository.
+        val cluster = chains.jsonArray.first().jsonObject.getValue("cluster").jsonPrimitive.content
+        val byCluster = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("cluster", cluster)
+                    put("limit", 2)
+                }
+            ),
+            liveRepository()
+        )
+        val clustered = assertLiveExplorerTool("filter_blockchains", byCluster, "allBlockchains")
+            ?: return@runBlocking
+        assertEquals(2, clustered.jsonArray.size, "limit = 2 did not bind: $clustered")
+        assertTrue(
+            clustered.jsonArray.all {
+                it.jsonObject.getValue("cluster").jsonPrimitive.content == cluster
+            },
+            "the cluster filter did not bind: $clustered"
+        )
     }
 
     @Test
@@ -1060,6 +784,11 @@ class ToolExecutorStrategiesTest {
     @Test
     fun liveGetAllTransactionsPagesAndSorts() = runBlocking {
         LiveChromia.requireLive("calls get_all_transactions against the live explorer")
+        // A real chain id, discovered live, so the blockchainIds LIST variable is
+        // bound by the explorer rather than recorded by a fixture. (This is what
+        // getAllTransactionsForwardsFiltersAndReturnsSuccessJson used to assert
+        // against a RecordingRepository.)
+        val chainRid = assertLiveDirectoryChainRid() ?: return@runBlocking
         val result = AllTransactionsStrategy().execute(
             callToolRequest(
                 name = "get_all_transactions",
@@ -1068,6 +797,9 @@ class ToolExecutorStrategiesTest {
                     put("limit", 3)
                     put("sortBy", "timestamp")
                     put("sortDirection", "DESC")
+                    // A real chain id, so the blockchainIds list filter is bound by
+                    // the explorer rather than recorded by a fixture.
+                    put("blockchainIds", buildJsonArray { add(chainRid) })
                 }
             ),
             liveRepository()
@@ -1078,6 +810,13 @@ class ToolExecutorStrategiesTest {
         assertTrue(transactions.size <= 3, "the limit variable did not bind: got ${transactions.size}")
         assertTrue(transactions.isNotEmpty(), "mainnet has transactions: $page")
         assertEquals(64, transactions.first().jsonObject.getValue("rid").jsonPrimitive.content.length)
+        assertTrue(
+            transactions.all {
+                it.jsonObject.getValue("blockchain").jsonObject.getValue("rid").jsonPrimitive.content
+                    .equals(chainRid, ignoreCase = true)
+            },
+            "the blockchainIds list filter did not bind - transactions came back from other chains: $page"
+        )
     }
 
     @Test
@@ -1111,6 +850,32 @@ class ToolExecutorStrategiesTest {
         )
         assertTrue(accounts.isNotEmpty(), "CHR has real holders, not only the Others row: $holders")
         assertEquals(64, accounts.first().jsonObject.getValue("accountId").jsonPrimitive.content.length)
+
+        // excludeAccounts, bound by the explorer. This is the half of
+        // getAssetTopHoldersForwardsFiltersAndReturnsSuccessJson that a
+        // RecordingRepository could only restate: the excluded account is a real
+        // top holder, and it has to be absent from the second answer.
+        val excluded = accounts.first().jsonObject.getValue("accountId").jsonPrimitive.content
+        val filtered = AssetTopHoldersStrategy().execute(
+            callToolRequest(
+                name = "get_asset_top_holders",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("assetId", assetId)
+                    put("limit", 3)
+                    put("excludeAccounts", buildJsonArray { add(excluded) })
+                }
+            ),
+            liveRepository()
+        )
+        val remaining = assertLiveExplorerTool("get_asset_top_holders", filtered, "getAssetTopHolders")
+            ?: return@runBlocking
+        assertTrue(
+            remaining.jsonArray.none {
+                it.jsonObject.getValue("accountId").jsonPrimitive.content == excluded
+            },
+            "excludeAccounts did not bind - $excluded is still there: $remaining"
+        )
     }
 
     @Test
@@ -1280,79 +1045,114 @@ class ToolExecutorStrategiesTest {
     }
 
     /**
-     * UPSTREAM-GATED TOOLS.
+     * THE FOUR TOOLS THAT WENT.
      *
-     * These four cannot be served today: `dashboardData` and
-     * `groupedTransactionsByBlockchain` answer INTERNAL_ERROR, and
-     * `getNodeUnavailability` is behind a reCAPTCHA header this client does not
-     * send. Recorded fixtures were green over all four, which is exactly the
-     * kind of green this pass exists to remove.
+     * Four live tests stood here on 2026-09-07, one per tool, each asserting
+     * "whatever the explorer says must arrive carrying the explorer's own
+     * words". They were written the morning the conversion found the tools
+     * broken, and they were the wrong answer: a tool whose only honest outcome
+     * is the explorer refusing it is a tool that advertises data nobody can get.
      *
-     * [assertLiveExplorerTool] still holds them to a real contract: whatever the
-     * explorer says has to arrive as the explorer's own words, and a success
-     * with a missing `data` field fails. The day upstream recovers, these start
-     * asserting the served shape instead - without an edit.
+     *   get_network_stats             dashboardData -> INTERNAL_ERROR
+     *   get_transactions_by_cluster   dashboardData -> INTERNAL_ERROR
+     *   get_blockchains_transactions  groupedTransactionsByBlockchain -> INTERNAL_ERROR
+     *   get_node_unavailability       "reCAPTCHA verification failed: token is
+     *                                 required" - a gate this client cannot pass,
+     *                                 and must not try to
+     *
+     * Schema introspection (2026-09-07) says there is nowhere else to ask: no
+     * top-level countAllAccounts / countAllTransfers / monthlyActiveAccounts, no
+     * groupedTransactionsByCluster (removed upstream, docs/UPSTREAM.md #3), and
+     * per-chain transaction counts only through `blockchainAnalytics(brid)`,
+     * which is already its own tool. So the four tools are RETIRED - definitions,
+     * strategies, repository methods, GraphQL queries, prompts, sweep checks -
+     * and with them these tests and the claim they carried. docs/UPSTREAM.md #3a
+     * records the probe.
+     *
+     * What still covers the shape they were testing: every live test above, and
+     * [liveAnUpstreamInternalErrorIsNamedInlineWithTheNextAction] below, which
+     * uses the one INTERNAL_ERROR a still-advertised tool can still produce.
+     */
+
+    /**
+     * AN UPSTREAM INCIDENT, NAMED INLINE, FROM A REAL UPSTREAM INCIDENT.
+     *
+     * The claim (round 13, 2026-09-04): when the explorer answers INTERNAL_ERROR
+     * the tool must not just relay the opaque line - it must say UPSTREAM, point
+     * at the chain-direct alternative, and set `upstream` / `upstream_rule` /
+     * `next_action` so a script can branch on it. That used to be asserted by
+     * writing "GraphQL Error: INTERNAL_ERROR for <uuid>" into a
+     * RecordingRepository, i.e. by the test supplying the incident.
+     *
+     * It does not have to. Verified live 2026-09-07: `allBlockchains` answers
+     * normally for rid/name/cluster/container/system/limit/offset and
+     * INTERNAL_ERROR the moment a `state` argument is supplied (docs/UPSTREAM.md
+     * #3b). That is a real upstream failure, reachable through a real advertised
+     * tool, with the explorer's own request id in it.
+     *
+     * If upstream fixes it this test starts failing on the isError assertion,
+     * which is the correct outcome: the note in `filter_blockchains`'s schema
+     * and in UPSTREAM.md would then be stale and must come out.
      */
     @Test
-    fun liveGetNetworkStatsCarriesWhateverTheExplorerSays() = runBlocking {
-        LiveChromia.requireLive("calls get_network_stats against the live explorer")
-        val result = NetworkStatsStrategy().execute(
+    fun liveAnUpstreamInternalErrorIsNamedInlineWithTheNextAction() = runBlocking {
+        LiveChromia.requireLive("takes the explorer's real INTERNAL_ERROR on allBlockchains(state:) through a strategy")
+        val result = FilterBlockchainsStrategy().execute(
             callToolRequest(
-                name = "get_network_stats",
-                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
-            ),
-            liveRepository()
-        )
-        assertLiveExplorerTool("get_network_stats", result, "dashboardData")
-        Unit
-    }
-
-    @Test
-    fun liveGetTransactionsByClusterCarriesWhateverTheExplorerSays() = runBlocking {
-        LiveChromia.requireLive("calls get_transactions_by_cluster against the live explorer")
-        val result = TransactionsByClusterStrategy().execute(
-            callToolRequest(
-                name = "get_transactions_by_cluster",
-                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
-            ),
-            liveRepository()
-        )
-        assertLiveExplorerTool("get_transactions_by_cluster", result, "dashboardData")
-        Unit
-    }
-
-    @Test
-    fun liveGetBlockchainsTransactionsCarriesWhateverTheExplorerSays() = runBlocking {
-        LiveChromia.requireLive("calls get_blockchains_transactions against the live explorer")
-        val result = BlockchainsTransactionsStrategy().execute(
-            callToolRequest(
-                name = "get_blockchains_transactions",
-                arguments = buildJsonObject { put("network", LiveChromia.EXPLORER_NETWORK) }
-            ),
-            liveRepository()
-        )
-        assertLiveExplorerTool(
-            "get_blockchains_transactions", result, "groupedTransactionsByBlockchain"
-        )
-        Unit
-    }
-
-    @Test
-    fun liveGetNodeUnavailabilityCarriesWhateverTheExplorerSays() = runBlocking {
-        LiveChromia.requireLive("calls get_node_unavailability against the live explorer")
-        val result = NodeUnavailabilityStrategy().execute(
-            callToolRequest(
-                name = "get_node_unavailability",
+                name = "filter_blockchains",
                 arguments = buildJsonObject {
                     put("network", LiveChromia.EXPLORER_NETWORK)
-                    put("pubkey", "02000000000000000000000000000000000000000000000000000000000000008f")
-                    put("startTimestamp", "1736373600000")
+                    put("state", "RUNNING")
+                    put("limit", 5)
                 }
             ),
             liveRepository()
         )
-        assertLiveExplorerTool("get_node_unavailability", result, "getNodeUnavailability")
-        Unit
+        val text = (result.content.first() as TextContent).text!!
+        assertEquals(
+            true, result.isError,
+            "the explorer refuses a `state` filter with INTERNAL_ERROR; if it now serves it, " +
+                "delete this test, the note in filter_blockchains's schema and docs/UPSTREAM.md #3b: $text"
+        )
+        assertTrue(text.lowercase().contains("internal_error"), "the explorer's own words: $text")
+        assertTrue(text.contains("UPSTREAM"), "the incident must be named inline: $text")
+        assertTrue(text.contains("chromia_dapp_query"), "must point at the chain-direct alternative: $text")
+        val structured = result.structuredContent!!
+        assertEquals("true", structured.getValue("upstream").jsonPrimitive.content)
+        assertEquals("graphql_internal_error", structured.getValue("upstream_rule").jsonPrimitive.content)
+        assertTrue(
+            structured.getValue("next_action").jsonPrimitive.content.contains("retry"),
+            structured.toString()
+        )
+    }
+
+    /**
+     * AN ERROR THE TRANSLATOR CANNOT CLASSIFY KEEPS THE PLAIN SHAPE.
+     *
+     * No false reassurance: a failure with no upstream signature must NOT come
+     * back wearing `upstream: true`. The honest input is a real closed loopback
+     * port - the production client opens a real socket, the operating system
+     * refuses it, and "Connection refused" matches no rule in the table (the one
+     * connection-refused rule there is scoped to PostgreSQL).
+     */
+    @Test
+    fun anUnclassifiableFailureKeepsThePlainErrorShape() = runBlocking {
+        val result = AllAssetsStrategy().execute(
+            callToolRequest(
+                name = "get_all_assets",
+                arguments = buildJsonObject { put("network", "mainnet") }
+            ),
+            McpTestSupport.offlineRepository()
+        )
+        val text = (result.content.first() as TextContent).text!!
+        assertEquals(true, result.isError, text)
+        val structured = result.structuredContent!!
+        assertTrue(
+            !structured.containsKey("upstream"),
+            "a refused socket is not a classified upstream incident, and must not be dressed as " +
+                "one: $structured"
+        )
+        assertEquals(text, structured.getValue("error").jsonPrimitive.content)
     }
 
     /**
@@ -1393,6 +1193,16 @@ class ToolExecutorStrategiesTest {
             result.structuredContent!!["error"]!!.jsonPrimitive.content,
             "the structured error and the text must say the same thing"
         )
+        // ...and it is classified, inline, as the documented upstream limitation
+        // rather than left as an opaque 400. This is what
+        // explorerTestnet400IsNamedUpstreamToo used to assert by writing the 400
+        // into a RecordingRepository; the explorer writes it now.
+        assertEquals(
+            "explorer_testnet_400",
+            result.structuredContent!!.getValue("upstream_rule").jsonPrimitive.content,
+            "the testnet 400 must be named as the upstream limitation it is: $text"
+        )
+        assertTrue(text.contains("network=mainnet"), "the remedy must be in the text: $text")
     }
 
 }

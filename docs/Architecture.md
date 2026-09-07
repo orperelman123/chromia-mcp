@@ -70,7 +70,7 @@ Chromia MCP Server follows a layered architecture pattern with clear separation 
 
 **Example Tools:**
 - `get_blockchain_details` - Get blockchain information by RID
-- `get_network_stats` - Get network statistics
+- `get_total_rewards_paid` - Network-wide provider rewards paid to date
 - `chromia_dapp_query` - Execute custom dApp queries
 - `fetch_docs` - Semantic documentation search
 - `filter_blockchains` - Filter blockchains by criteria

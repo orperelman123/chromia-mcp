@@ -47,7 +47,18 @@ class McpJsonRpcSessionTest {
             assertTrue(names.contains("search"), "tools/list missing search: $names")
             assertTrue(names.contains("fetch"), "tools/list missing fetch: $names")
             assertTrue(names.contains("get_prompts"), "tools/list missing get_prompts: $names")
-            assertTrue(names.contains("get_network_stats"), "tools/list missing get_network_stats: $names")
+            assertTrue(
+                names.contains("get_total_rewards_paid"),
+                "tools/list missing get_total_rewards_paid: $names"
+            )
+            // Retired 2026-09-07 with the four tools the explorer will not serve:
+            // a tools/list that still advertised them is the thing this branch removes.
+            listOf(
+                "get_network_stats", "get_transactions_by_cluster",
+                "get_blockchains_transactions", "get_node_unavailability"
+            ).forEach { retired ->
+                assertTrue(!names.contains(retired), "tools/list still advertises $retired")
+            }
             assertTrue(names.contains("chromia_dapp_query"), "tools/list missing chromia_dapp_query: $names")
 
             val call = withTimeout(10_000) {

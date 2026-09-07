@@ -7,9 +7,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import io.ktor.server.application.call
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import net.postchain.common.BlockchainRid
-import net.postchain.gtv.Gtv
-import net.postchain.gtv.GtvFactory
 import org.chromia.data.client.PostchainClientService
 import org.chromia.data.config.ChromiaConfig
 import org.chromia.domain.NetworkResult
@@ -108,56 +111,105 @@ class AuditConcurrencyRegressionTest {
 
     // ---------------------------------------------------------------- F2
 
-    private fun rid(n: Int): BlockchainRid = BlockchainRid.buildFromHex("%064x".format(n))
+    /**
+     * ONE MAINNET SYSTEM NODE, ADDRESSED DIRECTLY.
+     *
+     * `resolveUrls` takes a node URL as well as a network name, so a single URL
+     * makes the cache key `<url>|<brid>` and the client talks to one endpoint
+     * instead of failing over across fourteen. Nothing here signs or spends:
+     * `currentBlockHeight` is a read.
+     */
+    private val mainnetNodeUrl = ChromiaConfig().predefinedNetworks.getValue("mainnet").first()
 
-    private fun countingService(
-        created: AtomicInteger,
-        closed: MutableList<String>
-    ): PostchainClientService = PostchainClientService(
-        ChromiaConfig(),
-        clientFactory = { _, brid ->
-            created.incrementAndGet()
-            PostchainClientService.CachedQueryClient(
-                object : net.postchain.client.core.PostchainQuery {
-                    override fun query(name: String, args: Gtv): Gtv =
-                        GtvFactory.gtv(mapOf("echo" to GtvFactory.gtv(name)))
-                }
-            ) { closed.add(brid.toHex()) }
-        }
-    )
-
-    @Test
-    fun repeatedQueriesToSameTargetReuseOneCachedClient() {
-        val created = AtomicInteger()
-        val closed = java.util.concurrent.CopyOnWriteArrayList<String>()
-        val service = countingService(created, closed)
-        repeat(5) {
-            val result = service.executeBlockchainQuery("mainnet", rid(1), "q", emptyMap())
-            assertTrue(result is NetworkResult.Success, result.toString())
-        }
-        assertEquals(1, created.get(), "every call used to build fresh clients (audit F2)")
-        assertEquals(1, service.cachedClientCount())
-        assertTrue(closed.isEmpty())
+    /** Real mainnet chain rids, asked of the live explorer. */
+    private suspend fun liveMainnetChainRids(atLeast: Int): List<String> {
+        val result = LiveChromia.repository().filterBlockchains(
+            LiveChromia.EXPLORER_NETWORK,
+            org.chromia.domain.BlockchainFilters(
+                pagination = org.chromia.domain.PaginationParams(limit = 300)
+            )
+        )
+        assertTrue(result is NetworkResult.Success, "the explorer must list mainnet chains: $result")
+        val rows = (result as NetworkResult.Success).data
+            .getValue("data").jsonObject.getValue("allBlockchains").jsonArray
+        val rids = rows.map { it.jsonObject.getValue("rid").jsonPrimitive.content }.distinct()
+        assertTrue(
+            rids.size >= atLeast,
+            "this test needs $atLeast distinct real chains to fill the client cache; mainnet listed " +
+                "${rids.size}. If mainnet really has fewer chains than the cache holds, the eviction " +
+                "bound can no longer be reached with real targets and this test must go."
+        )
+        return rids
     }
 
+    /**
+     * Audit F2: every chromia_dapp_query used to build a fresh
+     * StandardChromiaClient (each with its own Apache HC5 pool) and close none.
+     *
+     * This used to be asserted with `clientFactory = { ... }`, a lambda that
+     * counted its own invocations and handed back a client that answered from
+     * the test. That is a double of the thing whose caching is the claim. The
+     * REAL client against the REAL Economy Chain proves the same property
+     * through `cachedClientCount()`: five successful queries, one client.
+     */
     @Test
-    fun distinctTargetsGetDistinctCachedClientsAndEvictionCloses() {
-        val created = AtomicInteger()
-        val closed = java.util.concurrent.CopyOnWriteArrayList<String>()
-        val service = countingService(created, closed)
-        service.evictionCloseGraceMs = 0 // close promptly; production defers 30s
-        val total = PostchainClientService.MAX_CACHED_CLIENTS + 1
-        (1..total).forEach { n ->
-            val result = service.executeBlockchainQuery("mainnet", rid(n), "q", emptyMap())
-            assertTrue(result is NetworkResult.Success, result.toString())
+    fun repeatedQueriesToTheSameChainReuseOneCachedClient() {
+        LiveChromia.requireLive("queries the live Economy Chain five times and counts the cached clients")
+        val service = PostchainClientService(ChromiaConfig())
+        repeat(5) { attempt ->
+            val result = service.executeBlockchainQuery(
+                LiveChromia.NETWORK, LiveChromia.economyChainRid, "get_chr_asset", emptyMap()
+            )
+            assertTrue(result is NetworkResult.Success, "query ${attempt + 1} failed: $result")
         }
-        assertEquals(total, created.get())
-        assertEquals(PostchainClientService.MAX_CACHED_CLIENTS, service.cachedClientCount())
-        // LRU: the oldest entry (rid 1) was evicted and is eventually closed -
-        // deferred behind the grace window so in-flight queries survive (round 4 F4).
-        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
-        while (closed.isEmpty() && System.nanoTime() < deadline) Thread.sleep(10)
-        assertEquals(listOf(rid(1).toHex()), closed)
+        assertEquals(
+            1, service.cachedClientCount(),
+            "five queries to one chain must share one client - before audit F2 each call built its own"
+        )
+    }
+
+    /**
+     * The LRU bound, with real clients for real chains.
+     *
+     * `MAX_CACHED_CLIENTS + 1` distinct mainnet chains are asked for their block
+     * height through one node URL, so each is a distinct cache key. The cache
+     * must stop at the bound: an unbounded map is the leak F2 was about, one
+     * client per key forever.
+     *
+     * WHAT WENT WITH THE DOUBLE, and is now unverified: the eviction's DEFERRED
+     * CLOSE (audit round 4 F4 - the evictee is closed after
+     * EVICTION_CLOSE_GRACE_MS so an in-flight query survives). Observing a close
+     * required handing the service a client whose close() the test could watch,
+     * and observing a close DURING a query required a client that blocks on
+     * command. Neither is a real client, and no real node can be asked to hold a
+     * response open at a chosen moment, so `evictionDoesNotCloseClientMidQuery`
+     * is deleted rather than faked: the grace window and the close-on-eviction
+     * are exercised in production and asserted nowhere.
+     */
+    @Test
+    fun theClientCacheStopsAtItsBound() = runBlocking {
+        LiveChromia.requireLive("opens a client per real mainnet chain until the LRU bound is reached")
+        val rids = liveMainnetChainRids(PostchainClientService.MAX_CACHED_CLIENTS + 1)
+        val service = PostchainClientService(ChromiaConfig())
+        var created = 0
+        for (rid in rids) {
+            if (created > PostchainClientService.MAX_CACHED_CLIENTS) break
+            val before = service.cachedClientCount()
+            service.currentBlockHeight(mainnetNodeUrl, BlockchainRid.buildFromHex(rid))
+            if (service.cachedClientCount() != before || before == PostchainClientService.MAX_CACHED_CLIENTS) {
+                created++
+            }
+        }
+        assertTrue(
+            created > PostchainClientService.MAX_CACHED_CLIENTS,
+            "only $created distinct clients could be built against $mainnetNodeUrl, so the bound was " +
+                "never crossed and this test proved nothing"
+        )
+        assertEquals(
+            PostchainClientService.MAX_CACHED_CLIENTS, service.cachedClientCount(),
+            "the cache must be bounded - it held ${service.cachedClientCount()} clients after $created " +
+                "distinct chains"
+        )
     }
 
     // ---------------------------------------------------------------- F3
@@ -256,45 +308,72 @@ class AuditConcurrencyRegressionTest {
 
     // ---------------------------------------------------------------- F5
 
+    /**
+     * Audit F5: a failed index load must NOT be cached forever - the store
+     * retries after a cooldown instead of staying dead until a redeploy.
+     *
+     * The failure used to be a `registryLoader` lambda that threw
+     * "simulated GitLab outage" and then stopped throwing. That lambda replaced
+     * the entire download path, so nothing it proved involved HTTP at all.
+     *
+     * Here the store is pointed at a REAL local HTTP server (the same
+     * `remoteUrls` list an operator fills with `CHROMIA_EMBEDDINGS_URL`), which
+     * answers 503 and then serves a real index file written by the production
+     * writer. The client, the streaming parse and the fallback order are the
+     * production ones; only the peer is local.
+     */
     @Test
-    fun ragStoreRetriesFailedLoadAfterCooldown(@TempDir tempDir: Path) {
-        val loaderCalls = AtomicInteger()
-        val registryUp = AtomicBoolean(false)
-        val store = RagStore(
-            loadFromRegistry = true,
-            localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
-            registryLoader = {
-                loaderCalls.incrementAndGet()
-                if (registryUp.get()) {
-                    dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore<dev.langchain4j.data.segment.TextSegment>().also {
-                        it.add(
-                            dev.langchain4j.data.embedding.Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)),
-                            dev.langchain4j.data.segment.TextSegment.from("RETRY_MARKER")
+    fun ragStoreRetriesAFailedIndexDownloadAfterTheCooldown(@TempDir tempDir: Path) {
+        val indexFile = TestDocsIndex.persist(
+            tempDir.resolve("published-embeddings.json"),
+            dev.langchain4j.data.segment.TextSegment.from(
+                "RETRY_MARKER: the index served on the retry.",
+                dev.langchain4j.data.document.Metadata.from("file_name", "retry.md")
+            )
+        )
+        val serving = AtomicBoolean(false)
+        val requests = AtomicInteger()
+        val server = io.ktor.server.engine.embeddedServer(io.ktor.server.cio.CIO, port = 0) {
+            io.ktor.server.routing.routing {
+                io.ktor.server.routing.get("/embeddings.json") {
+                    requests.incrementAndGet()
+                    if (serving.get()) {
+                        call.respondBytes(
+                            java.nio.file.Files.readAllBytes(indexFile),
+                            io.ktor.http.ContentType.Application.Json
                         )
+                    } else {
+                        call.respond(io.ktor.http.HttpStatusCode.ServiceUnavailable, "index is being rebuilt")
                     }
-                } else {
-                    throw RuntimeException("simulated GitLab outage")
                 }
             }
-        )
-        // Startup load failed; the failure must NOT be cached forever (audit F5).
-        assertNull(store.embeddingStore)
-        assertEquals(1, loaderCalls.get())
+        }.start(wait = false)
+        try {
+            val port = runBlocking { server.engine.resolvedConnectors() }.first().port
+            val store = RagStore(
+                loadFromRegistry = true,
+                localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
+                remoteUrls = listOf("http://127.0.0.1:$port/embeddings.json"),
+                cacheEmbeddingsPath = null
+            )
+            // The startup download really failed; the failure must not be permanent.
+            assertNull(store.embeddingStore)
+            assertEquals(1, requests.get(), "the store must have tried the URL once at construction")
 
-        // Within the cooldown the loader is not hammered.
-        assertNull(store.query("anything"))
-        assertEquals(1, loaderCalls.get())
+            // Inside the cooldown the server is not hammered.
+            assertNull(store.query("anything"))
+            assertEquals(1, requests.get())
 
-        // After the cooldown the next use retries and recovers. The retry is what
-        // this test is about; the search itself cannot succeed here because the
-        // fixture embeds 3 dimensions against the real model's 384, which the
-        // store now reports as a retrieval failure instead of swallowing into an
-        // empty result (audit F5's sibling fix). Either outcome proves the retry.
-        registryUp.set(true)
-        store.clock = { System.currentTimeMillis() + 2 * RagStore.LOAD_RETRY_COOLDOWN_MS }
-        runCatching { store.query("anything") }
-        assertEquals(2, loaderCalls.get(), "query must retry the load after the cooldown")
-        assertNotNull(store.embeddingStore, "the retry must have loaded the store")
+            // Past the cooldown, with the server serving, the next use recovers.
+            serving.set(true)
+            store.clock = { System.currentTimeMillis() + 2 * RagStore.LOAD_RETRY_COOLDOWN_MS }
+            val hits = store.query("RETRY_MARKER")
+            assertEquals(2, requests.get(), "query must retry the download after the cooldown")
+            assertNotNull(store.embeddingStore, "the retry must have loaded the store")
+            assertNotNull(hits, "a loaded store answers")
+        } finally {
+            server.stop(0, 0)
+        }
     }
 
     // ---------------------------------------------------------------- minors

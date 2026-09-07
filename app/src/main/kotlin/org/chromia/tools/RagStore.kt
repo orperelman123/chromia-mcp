@@ -68,9 +68,27 @@ open class RagStore(
      */
     val localEmbeddingsPath: Path =
         if (loadFromRegistry) resolveRuntimeEmbeddingsPath() else resolveLocalEmbeddingsPath(),
-    private val registryLoader: (() -> InMemoryEmbeddingStore<TextSegment>?)? = null,
+    /**
+     * Remote index candidates, in order, and a REAL configuration point rather
+     * than a test seam: it is exactly the list [remoteEmbeddingsUrls] builds -
+     * `CHROMIA_EMBEDDINGS_URL`, then the GitHub release asset, then the GitLab
+     * package - reachable without setting a process-wide environment variable.
+     * An operator who mirrors the index inside their network sets the variable;
+     * an embedder of this class passes the same thing here.
+     *
+     * It replaced a `() -> InMemoryEmbeddingStore?` loader parameter that existed
+     * only so tests could hand the store over without a download. That made the
+     * whole download path - the HTTP client, the redirect handling, the streaming
+     * parse, the cache sidecar, the fallback order - unreachable from the tests
+     * that claimed to cover it. With a URL list the tests point at a real local
+     * HTTP server serving a real index file, and every one of those steps runs.
+     *
+     * An EMPTY list means "no remote index is configured", which is a real
+     * deployment: an air-gapped install shipping its own embeddings.json.
+     */
+    private val remoteUrls: List<String> = remoteEmbeddingsUrls(),
     val embeddingModel: EmbeddingModel? = null,
-    /** Where a downloaded index is kept between runs; null = download every boot, keep nothing. Unused with [registryLoader]. */
+    /** Where a downloaded index is kept between runs; null = download every boot, keep nothing. */
     val cacheEmbeddingsPath: Path? = resolveCacheEmbeddingsPath()
 ) {
     val ktorClient by lazy { HttpClient() }
@@ -595,13 +613,12 @@ open class RagStore(
             Duration.between(localGeneratedAt, Instant.now()) <= STALE_AFTER
         if (localIsFresh) loadLocal()?.let { return it }
 
-        val loader = registryLoader
-        val remote = if (loader != null) {
-            loader()?.let {
-                LoadedEmbeddings(it, Provenance(describeRemote("injected loader"), null, embeddingStoreSegments(it).size))
-            }
+        val remote = if (remoteUrls.isEmpty()) {
+            null
         } else {
-            loadCachedOrRemote(cacheEmbeddingsPath) { downloadRemoteEmbeddings(keepFile = cacheEmbeddingsPath != null) }
+            loadCachedOrRemote(cacheEmbeddingsPath) {
+                downloadRemoteEmbeddings(urls = remoteUrls, keepFile = cacheEmbeddingsPath != null)
+            }
         }
         if (remote != null) {
             val remoteAt = remote.provenance.generatedAt
@@ -682,9 +699,9 @@ open class RagStore(
         // measured 2026-09-05) are independent; on the real load path start the
         // model on its own thread so the first query pays for the longer of the
         // two, not the sum. `by lazy` is synchronized, so a query arriving first
-        // simply waits for this thread. Fixture stores and injected loaders (tests)
-        // keep the old order: nothing loads that the test did not ask for.
-        if (initialStore == null && storeLoader != null && registryLoader == null && embeddingModel == null) {
+        // simply waits for this thread. A fixture store, or a store with no
+        // remote configured, keeps the old order: nothing loads unasked.
+        if (initialStore == null && storeLoader != null && remoteUrls.isNotEmpty() && embeddingModel == null) {
             modelWarmupStarted = true
             Thread({ runCatching { resolvedEmbeddingModel } }, "rag-embedding-model-warmup").apply { isDaemon = true }.start()
         }

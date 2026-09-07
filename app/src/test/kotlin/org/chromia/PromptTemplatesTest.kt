@@ -35,9 +35,14 @@ class PromptTemplatesTest {
         assertTrue(referenced.contains("fetch"))
         assertTrue(referenced.contains("filter_blockchains"))
         assertTrue(referenced.contains("chromia_dapp_query"))
-        assertTrue(referenced.contains("get_blockchains_transactions"))
-        assertTrue(referenced.contains("get_transactions_by_cluster"))
         assertTrue(referenced.contains("get_all_assets"))
+        assertTrue(referenced.contains("get_total_rewards_paid"))
+        // Retired 2026-09-07: the explorer will not serve what these advertised, so
+        // the prompts that told an agent to call them went with the tools.
+        assertFalse(referenced.contains("get_network_stats"))
+        assertFalse(referenced.contains("get_transactions_by_cluster"))
+        assertFalse(referenced.contains("get_blockchains_transactions"))
+        assertFalse(referenced.contains("get_node_unavailability"))
         assertFalse(referenced.contains("list_documentation"))
         assertFalse(referenced.contains("read_documentation"))
         assertFalse(referenced.contains("get_dashboard_data"))
@@ -116,11 +121,9 @@ class PromptTemplatesTest {
                     "search",
                     "fetch",
                     "chromia_dapp_query",
-                    "get_network_stats",
                     "filter_blockchains",
-                    "get_blockchains_transactions",
-                    "get_transactions_by_cluster",
                     "get_all_assets",
+                    "get_total_rewards_paid",
                     "filter_assets",
                     "get_blockchain_analytics",
                     "scaffold_dapp",
@@ -164,6 +167,13 @@ class PromptTemplatesTest {
             )
         )
         assertFalse(registeredTools.contains("list_documentation"))
+        // Retired 2026-09-07 - see McpTools; the explorer answers INTERNAL_ERROR
+        // for dashboardData and groupedTransactionsByBlockchain, and gates
+        // getNodeUnavailability behind a reCAPTCHA header.
+        assertFalse(registeredTools.contains("get_network_stats"))
+        assertFalse(registeredTools.contains("get_transactions_by_cluster"))
+        assertFalse(registeredTools.contains("get_blockchains_transactions"))
+        assertFalse(registeredTools.contains("get_node_unavailability"))
         assertFalse(registeredTools.contains("get_providers_rewards"))
         assertFalse(registeredTools.contains("execute_transaction"))
     }

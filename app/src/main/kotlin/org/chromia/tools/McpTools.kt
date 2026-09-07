@@ -509,7 +509,7 @@ object McpTools {
                     "state" to JsonObject(
                         mapOf(
                             "type" to JsonPrimitive("string"),
-                            "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED')")
+                            "description" to JsonPrimitive("Optional state to filter by (e.g., 'RUNNING', 'REMOVED', 'PAUSED'). UPSTREAM LIMITATION (verified live 2026-09-07): the explorer answers INTERNAL_ERROR whenever this argument is supplied, with or without the others - it is not your call that is wrong (docs/UPSTREAM.md #3b). Filter by cluster/container/name instead and read `state` off the rows.")
                         )
                     ),
 

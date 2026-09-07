@@ -4,7 +4,6 @@ import org.chromia.tools.propertiesOrEmpty
 
 import dev.langchain4j.data.document.Metadata
 import dev.langchain4j.data.segment.TextSegment
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import org.chromia.tools.callToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
@@ -27,14 +26,11 @@ import org.chromia.tools.segmentId
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore
-import org.chromia.tools.embeddingStoreSegments
-import org.chromia.tools.persistLocalEmbeddings
 import java.nio.file.Path
 
 class SearchFetchToolsTest {
@@ -50,11 +46,18 @@ class SearchFetchToolsTest {
 
     // A REAL RagStore over a two-segment index (see TestDocsIndex): real query()
     // - lexical boost, semantic retrieval, docs-first merge - real fetchById,
-    // real segment-id index. This used to override query(), so the
-    // search/fetch/fetch_docs contract was asserted without once running the
-    // retrieval it is a contract over. Empty = no match; null is still reserved
-    // for "index unavailable" (audit F5), which a store WITH an index never
-    // returns.
+    // real segment-id index, and since 2026-09-07 the real embedding model the
+    // server ships. This used to override query(), so the search/fetch/fetch_docs
+    // contract was asserted without once running the retrieval it is a contract
+    // over. Empty = no match; null is still reserved for "index unavailable"
+    // (audit F5), which a store WITH an index never returns.
+    //
+    // BGE-small puts any two short English sentences within RagStore's minScore
+    // of each other, so a two-segment index answers EVERY query with both
+    // segments (see TestDocsIndex). The assertions below are therefore about
+    // WHICH segment leads, not how many came back - the counts the toy embedder
+    // used to produce were an artifact of its orthogonal vectors, not a property
+    // of the tools.
     private val fixtureStore = TestDocsIndex.store(authSegment, rellSegment)
 
     @Test
@@ -65,18 +68,18 @@ class SearchFetchToolsTest {
             arguments = buildJsonObject { put("query", "FT4 authentication") }
         )
         val result = strategy.execute(request, ChromiaRepositoryImpl())
-        val payload = Json.parseToJsonElement((result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!)
+        val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!)
         val results = payload.jsonObject["results"]!!.jsonArray
-        assertEquals(1, results.size)
+        assertEquals(2, results.size, "the whole two-segment index is within minScore of any query")
         val hit = results.first().jsonObject
-        assertEquals(segmentId(authSegment), hit["id"]!!.jsonPrimitive.content)
+        assertEquals(segmentId(authSegment), hit["id"]!!.jsonPrimitive.content, "the FT4 page leads an FT4 query")
         assertEquals("ft4-auth.md", hit["title"]!!.jsonPrimitive.content)
         assertTrue(hit["url"]!!.jsonPrimitive.content.contains("ft4-auth.md"))
         assertTrue(result.isError != true)
         val structured = result.structuredContent
         assertNotNull(structured)
         val structuredHits = structured!!["results"]!!.jsonArray
-        assertEquals(1, structuredHits.size)
+        assertEquals(results.size, structuredHits.size)
         assertEquals(segmentId(authSegment), structuredHits.first().jsonObject["id"]!!.jsonPrimitive.content)
         assertEquals("ft4-auth.md", structuredHits.first().jsonObject["title"]!!.jsonPrimitive.content)
         assertTrue("metadata" !in structured)
@@ -98,7 +101,7 @@ class SearchFetchToolsTest {
             arguments = buildJsonObject { put("id", id) }
         )
         val result = FetchDocumentStrategy(CompletableDeferred(store)).execute(request, ChromiaRepositoryImpl())
-        val payload = Json.parseToJsonElement((result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!).jsonObject
+        val payload = Json.parseToJsonElement((result.content.first() as TextContent).text!!).jsonObject
         assertEquals(id, payload["id"]!!.jsonPrimitive.content)
         assertTrue(payload["text"]!!.jsonPrimitive.content.contains("Rell compiler pipeline"))
         assertEquals("rell-compiler.md", payload["title"]!!.jsonPrimitive.content)
@@ -116,7 +119,7 @@ class SearchFetchToolsTest {
             arguments = buildJsonObject { put("id", "missing-doc") }
         )
         val result = strategy.execute(request, ChromiaRepositoryImpl())
-        val text = (result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!
+        val text = (result.content.first() as TextContent).text!!
         val payload = Json.parseToJsonElement(text).jsonObject
         assertEquals("missing-doc", payload["id"]!!.jsonPrimitive.content)
         assertTrue(payload["error"]!!.jsonPrimitive.content.contains("Documentation not found"))
@@ -281,10 +284,10 @@ class SearchFetchToolsTest {
             ChromiaRepositoryImpl()
         )
         val text = (result.content.first() as TextContent).text!!
-        val expected = formatFetchDocsText(listOf(authSegment))
+        val expected = formatFetchDocsText(listOf(authSegment, rellSegment))
         assertEquals(expected, text)
-        assertEquals("id: ${segmentId(authSegment)} | ${authSegment.text()}", text)
-        assertEquals(1, text.lines().size)
+        assertEquals(2, text.lines().size, "one line per hit")
+        assertEquals("id: ${segmentId(authSegment)} | ${authSegment.text()}", text.lines().first())
         assertTrue(text.startsWith("id: ${segmentId(authSegment)} | "))
         assertTrue(text.contains(authSegment.text()))
         assertFalse(text.contains("TextSegment {"))
@@ -301,13 +304,13 @@ class SearchFetchToolsTest {
             arguments = buildJsonObject { put("query", "FT4 authentication") }
         )
         val result = strategy.execute(request, ChromiaRepositoryImpl())
-        val text = (result.content.first() as io.modelcontextprotocol.kotlin.sdk.types.TextContent).text!!
+        val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("FT4 authentication"))
         val structured = result.structuredContent
         assertNotNull(structured)
         assertEquals(text, structured!!["text"]!!.jsonPrimitive.content)
         val hits = structured["hits"]!!.jsonArray
-        assertEquals(1, hits.size)
+        assertEquals(2, hits.size)
         val hit = hits.first().jsonObject
         assertEquals(segmentId(authSegment), hit["id"]!!.jsonPrimitive.content)
         assertEquals(authSegment.text(), hit["text"]!!.jsonPrimitive.content)
@@ -355,7 +358,7 @@ class SearchFetchToolsTest {
         )
         val id = Json.parseToJsonElement((search.content.first() as TextContent).text!!)
             .jsonObject["results"]!!.jsonArray.first().jsonObject["id"]!!.jsonPrimitive.content
-        assertEquals(segmentId(rellSegment), id)
+        assertEquals(segmentId(rellSegment), id, "the Rell page leads a Rell query")
 
         val fetch = FetchDocumentStrategy(CompletableDeferred(store)).execute(
             callToolRequest(
@@ -435,23 +438,19 @@ class SearchFetchToolsTest {
         assertEquals(true, result.isError)
     }
 
-    @Test
-    fun fetchDocsNotFoundSetsIsError() = runBlocking {
-        val strategy = FetchDocsStrategy(CompletableDeferred(fixtureStore))
-        val result = strategy.execute(
-            callToolRequest(
-                name = "fetch_docs",
-                arguments = buildJsonObject { put("query", "no-such-documentation") }
-            ),
-            McpTestSupport.offlineRepository()
-        )
-        val text = (result.content.first() as TextContent).text!!
-        assertTrue(text.contains("Documentation not found"))
-        assertEquals(true, result.isError)
-        val hits = result.structuredContent!!["hits"]!!.jsonArray
-        assertEquals(0, hits.size)
-    }
-
+    // REMOVED 2026-09-07: `fetchDocsNotFoundSetsIsError`.
+    //
+    // It asked a POPULATED fixture index for "no-such-documentation" and claimed
+    // the answer was `isError` with zero hits. That only ever held because the
+    // toy bag-of-words embedder scored a query sharing no vocabulary at cosine 0
+    // (relevance 0.5, under RagStore's minScore of 0.6). The model the server
+    // actually ships has no such cliff: BGE-small puts unrelated English text at
+    // cosine ~0.6-0.8, so a real index of two segments answers "no-such-
+    // documentation" with both of them, and there is no query text that makes a
+    // populated index return nothing. The claim it carried - "zero hits is an
+    // explicit error, not a silent empty success" - is now covered by
+    // `fetchDocsEmptyHitsSetsIsError` below, over a real EMPTY index, which is
+    // the only way an available index really produces zero hits.
 
     @Test
     fun fetchDocsEmptyHitsSetsIsError() = runBlocking {
@@ -480,11 +479,7 @@ class SearchFetchToolsTest {
         // override query() and filter by substring).
         val path = TestDocsIndex.persist(tempDir.resolve("embeddings.json"), authSegment, rellSegment)
         val storeA = TestDocsIndex.storeLoadedFrom(path)
-        val storeB = RagStore(
-            loadFromRegistry = true,
-            localEmbeddingsPath = path,
-            registryLoader = { null }
-        )
+        val storeB = TestDocsIndex.storeLoadedFrom(path)
         val search = SearchDocsStrategy(CompletableDeferred(storeA)).execute(
             callToolRequest(
                 name = "search",
@@ -493,7 +488,7 @@ class SearchFetchToolsTest {
             ChromiaRepositoryImpl()
         )
         val results = Json.parseToJsonElement((search.content.first() as TextContent).text!!).jsonObject["results"]!!.jsonArray
-        assertEquals(1, results.size)
+        assertEquals(2, results.size)
         val id = results.first().jsonObject["id"]!!.jsonPrimitive.content
         assertEquals(segmentId(authSegment), id)
 
@@ -615,14 +610,17 @@ class SearchFetchToolsTest {
             "First paragraph.\nSecond paragraph with more detail.\n\nTrailing block.",
             Metadata.from("file_name", "multiline.md")
         )
-        // Real store, real retrieval. The query names words from BOTH fixture
-        // segments so the real query() returns both (multiline first - it shares
-        // the most) and the formatting assertion below is over genuine hits.
+        // Real store, real retrieval, real embedder. The query is the multiline
+        // segment's own wording, so BGE-small ranks it first and the second hit is
+        // the other fixture segment - the ORDER is what the formatting assertion
+        // below needs, and it is the order the real model produces.
         val store = TestDocsIndex.store(multiline, rellSegment)
         val result = FetchDocsStrategy(CompletableDeferred(store)).execute(
             callToolRequest(
                 name = "fetch_docs",
-                arguments = buildJsonObject { put("query", "paragraph detail compiler pipeline") }
+                arguments = buildJsonObject {
+                    put("query", "First paragraph. Second paragraph with more detail. Trailing block.")
+                }
             ),
             ChromiaRepositoryImpl()
         )
@@ -660,85 +658,57 @@ class SearchFetchToolsTest {
         assertTrue(fetch.isError != true)
     }
 
-    @Test
-    fun defaultConstructWithoutEmbeddingsReportsIndexUnavailable(@TempDir tempDir: Path) = runBlocking {
-        val store = RagStore(
-            loadFromRegistry = true,
-            localEmbeddingsPath = tempDir.resolve("missing-embeddings.json"),
-            registryLoader = { null }
-        )
-        assertNull(store.embeddingStore)
-        assertNull(store.query("https://docs.chromia.com/intro"))
-
-        val deferred = CompletableDeferred(store)
-
-        val search = SearchDocsStrategy(deferred).execute(
-            callToolRequest(
-                name = "search",
-                arguments = buildJsonObject { put("query", "https://docs.chromia.com/intro") }
-            ),
-            ChromiaRepositoryImpl()
-        )
-        // Index unavailable is now an explicit error, not silent emptiness (audit F5).
-        assertEquals(true, search.isError)
-        val searchText = (search.content.first() as TextContent).text!!
-        assertTrue(searchText.contains("index is unavailable"), searchText)
-        assertEquals(0, search.structuredContent!!["results"]!!.jsonArray.size)
-        assertFalse(searchText.contains("docs.chromia.com"))
-        assertFalse(searchText.contains("https://docs.chromia.com"))
-
-        val fetch = FetchDocumentStrategy(deferred).execute(
-            callToolRequest(
-                name = "fetch",
-                arguments = buildJsonObject { put("id", "https://docs.chromia.com/intro") }
-            ),
-            ChromiaRepositoryImpl()
-        )
-        assertEquals(true, fetch.isError)
-        val fetchText = (fetch.content.first() as TextContent).text!!
-        val fetchPayload = Json.parseToJsonElement(fetchText).jsonObject
-        assertEquals("https://docs.chromia.com/intro", fetchPayload["id"]!!.jsonPrimitive.content)
-        // An unloaded index must not masquerade as "not found" (audit round 4 F3).
-        assertTrue(fetchPayload["error"]!!.jsonPrimitive.content.contains("index is unavailable"))
-        assertFalse(fetchPayload["error"]!!.jsonPrimitive.content.contains("Documentation not found"))
-        assertTrue("title" !in fetchPayload)
-        assertTrue("text" !in fetchPayload)
-        assertTrue("url" !in fetchPayload)
-        assertFalse(fetchText.contains("chromia docs", ignoreCase = true))
-
-        val fetchDocs = FetchDocsStrategy(deferred).execute(
-            callToolRequest(
-                name = "fetch_docs",
-                arguments = buildJsonObject { put("query", "https://docs.chromia.com/intro") }
-            ),
-            ChromiaRepositoryImpl()
-        )
-        assertEquals(true, fetchDocs.isError)
-        val docsText = (fetchDocs.content.first() as TextContent).text!!
-        assertTrue(docsText.contains("index is unavailable"), docsText)
-        assertEquals(0, fetchDocs.structuredContent!!["hits"]!!.jsonArray.size)
-        assertFalse(docsText.contains("https://docs.chromia.com/intro"))
-    }
+    // REMOVED 2026-09-07: `defaultConstructWithoutEmbeddingsReportsIndexUnavailable`.
+    //
+    // The claim it carried is a real and audited one - a RagStore whose index
+    // never loaded must answer search/fetch/fetch_docs with "index is
+    // unavailable" (audit F5) and must NOT let `fetch` degrade into
+    // "Documentation not found" (audit round 4 F3). It is removed here only
+    // because the ONLY way this suite could reach that state was
+    // `registryLoader = { null }`: a lambda double standing in for the published
+    // index download, which the no-doubles rule forbids.
+    //
+    // There is no real way in today. With `loadFromRegistry = true` and a missing
+    // local file, `loadFreshestStore()` goes straight to
+    // `downloadRemoteEmbeddings()`, whose URL list is `remoteEmbeddingsUrls()` -
+    // read inside the call, not passed in - so a unit test cannot point it at a
+    // closed loopback port or a local embedded server, and letting it run would
+    // pull the real ~150 MB release asset over the network on every build.
+    //
+    // WHAT NOW COVERS IT: only the `fetch` half, in
+    // AuditRound4RegressionTest.fetchWithFailedIndexLoaderReportsUnavailableNotNotFound
+    // - which reaches the state the same forbidden way and needs the same fix.
+    // The search and fetch_docs halves are uncovered until then.
+    //
+    // TO RESTORE IT FOR REAL: give RagStore the same URL list its env override
+    // already implies - e.g. `remoteUrls: List<String> = remoteEmbeddingsUrls()`
+    // on the constructor, passed through to `downloadRemoteEmbeddings`. A store
+    // built with `remoteUrls = listOf("http://127.0.0.1:1/embeddings.json")` then
+    // fails to load for real, against a genuinely closed port, with no double
+    // anywhere - and `registryLoader` can be deleted from production along with
+    // every `registryLoader = { ... }` in this suite.
 
     @Test
-    fun loadedStoreWithNoSimilarDocsReturnsEmptyHitsNotError() = runBlocking {
-        // Deterministic no-match: the injected model embeds every query to the
-        // OPPOSITE of the stored vector (cosine -1, far below minScore), so the
-        // retriever succeeds with zero hits. (The previous version of this test
-        // left embeddingModel null and relied on the SPI model's dimension
-        // mismatch being swallowed into emptyList() - reality audit D6 made
-        // that swallow an explicit retrieval error, tested separately below.)
-        val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
-            store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
-        }
-        val store = RagStore(
-            loadFromRegistry = false,
-            initialStore = fixture,
-            embeddingModel = fixedVectorModel(floatArrayOf(-0.1f, -0.2f, -0.3f))
-        )
+    fun anAvailableButEmptyIndexAnswersNoMatchNotIndexUnavailable() = runBlocking {
+        // Replaces `loadedStoreWithNoSimilarDocsReturnsEmptyHitsNotError`, which
+        // manufactured "no similar docs" with an `object : EmbeddingModel` that
+        // embedded every query to the exact opposite of the stored vector. The
+        // real model cannot be made to miss a segment that is in the index, so the
+        // honest version of "the retriever succeeded and found nothing" is a real
+        // index with nothing in it. What survives unchanged is the distinction the
+        // test exists for: zero hits from an AVAILABLE index is a no-match, never
+        // the "index is unavailable" error (audit F5 / round 4 F3).
+        //
+        // WEAKENED: the deleted version also proved that fetch-by-id keeps working
+        // while search finds nothing. That pairing cannot exist over an empty
+        // index; `RagStoreFetchByIdTest.fetchByIdWorksOnFreshStoreWithoutPriorQuery`
+        // covers fetch-by-id without a prior query.
+        val store = TestDocsIndex.store()
+        assertNotNull(store.embeddingStore)
+        assertFalse(store.isIndexUnavailable(), "a store with an index is available, empty or not")
         val hits = store.query("FT4 authentication")
         assertNotNull(hits)
-        assertTrue(hits!!.isEmpty(), "a dissimilar query must yield no hits, not invented ones")
+        assertTrue(hits!!.isEmpty(), "an empty index must yield no hits, not invented ones")
 
         val deferred = CompletableDeferred(store)
         val search = SearchDocsStrategy(deferred).execute(
@@ -748,20 +718,11 @@ class SearchFetchToolsTest {
             ),
             ChromiaRepositoryImpl()
         )
-        assertTrue(search.isError != true)
+        assertTrue(search.isError != true, "no match is a successful search with no results")
         val searchText = (search.content.first() as TextContent).text!!
         assertEquals(0, Json.parseToJsonElement(searchText).jsonObject["results"]!!.jsonArray.size)
         assertFalse(searchText.contains("docs.chromia.com"))
-
-        val knownId = segmentId(authSegment)
-        val fetchKnown = FetchDocumentStrategy(deferred).execute(
-            callToolRequest(name = "fetch", arguments = buildJsonObject { put("id", knownId) }),
-            ChromiaRepositoryImpl()
-        )
-        assertTrue(fetchKnown.isError != true)
-        val knownPayload = Json.parseToJsonElement((fetchKnown.content.first() as TextContent).text!!).jsonObject
-        assertEquals(knownId, knownPayload["id"]!!.jsonPrimitive.content)
-        assertTrue(knownPayload["text"]!!.jsonPrimitive.content.contains("FT4 authentication"))
+        assertFalse(searchText.contains("index is unavailable"))
 
         val fetchUnknown = FetchDocumentStrategy(deferred).execute(
             callToolRequest(
@@ -772,8 +733,8 @@ class SearchFetchToolsTest {
         )
         assertEquals(true, fetchUnknown.isError)
         val unknownText = (fetchUnknown.content.first() as TextContent).text!!
-        assertTrue(unknownText.contains("Documentation not found"))
-        assertFalse(unknownText.contains("FT4 authentication"))
+        assertTrue(unknownText.contains("Documentation not found"), unknownText)
+        assertFalse(unknownText.contains("index is unavailable"), unknownText)
 
         val fetchDocs = FetchDocsStrategy(deferred).execute(
             callToolRequest(
@@ -783,7 +744,9 @@ class SearchFetchToolsTest {
             ChromiaRepositoryImpl()
         )
         assertEquals(true, fetchDocs.isError)
-        assertTrue((fetchDocs.content.first() as TextContent).text!!.contains("Documentation not found"))
+        val docsText = (fetchDocs.content.first() as TextContent).text!!
+        assertTrue(docsText.contains("Documentation not found"), docsText)
+        assertFalse(docsText.contains("index is unavailable"), docsText)
         assertEquals(0, fetchDocs.structuredContent!!["hits"]!!.jsonArray.size)
     }
 
@@ -794,19 +757,31 @@ class SearchFetchToolsTest {
 
     @Test
     fun throwingRetrieverSurfacesRetrievalErrorNotDocumentationNotFound() = runBlocking {
+        // The failure is REAL now, not injected. The index below holds a
+        // three-component vector - the shape a store built by some other embedder
+        // has - and the store queries with the model the server actually ships
+        // (384 components). langchain4j's CosineSimilarity refuses to compare
+        // vectors of different lengths, so the retriever throws exactly the way it
+        // throws in production against a foreign index. This used to be an
+        // `object : EmbeddingModel` whose embedAll() threw a message the test wrote
+        // for itself; the message below is written by langchain4j and RagStore.
         val fixture = InMemoryEmbeddingStore<TextSegment>().also { store ->
             store.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), authSegment)
         }
         val store = RagStore(
             loadFromRegistry = false,
             initialStore = fixture,
-            embeddingModel = throwingModel("embedding dimension mismatch: 384 vs 3")
+            embeddingModel = TestDocsIndex.model
         )
         val thrown = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
             store.query("FT4 authentication")
         }
         assertTrue(thrown.message!!.contains("NOT a no-match"), thrown.message)
         assertTrue(thrown.message!!.contains("dimension mismatch"), thrown.message)
+        assertTrue(
+            thrown.message!!.contains("${TestDocsIndex.DIMENSION}"),
+            "the real model's width is what the stored vector was compared against: ${thrown.message}"
+        )
 
         val deferred = CompletableDeferred(store)
         val search = SearchDocsStrategy(deferred).execute(
@@ -842,22 +817,4 @@ class SearchFetchToolsTest {
         )
         assertTrue(fetchKnown.isError != true)
     }
-
-    /** Embeds every text to the same [vector] - deterministic similarity. */
-    private fun fixedVectorModel(vector: FloatArray): dev.langchain4j.model.embedding.EmbeddingModel =
-        object : dev.langchain4j.model.embedding.EmbeddingModel {
-            override fun embedAll(
-                segments: List<TextSegment>
-            ): dev.langchain4j.model.output.Response<List<Embedding>> =
-                dev.langchain4j.model.output.Response.from(segments.map { Embedding.from(vector) })
-        }
-
-    /** Every embed attempt throws - deterministic retrieval failure. */
-    private fun throwingModel(message: String): dev.langchain4j.model.embedding.EmbeddingModel =
-        object : dev.langchain4j.model.embedding.EmbeddingModel {
-            override fun embedAll(
-                segments: List<TextSegment>
-            ): dev.langchain4j.model.output.Response<List<Embedding>> =
-                throw RuntimeException(message)
-        }
 }

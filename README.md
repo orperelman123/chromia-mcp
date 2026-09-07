@@ -14,12 +14,11 @@ A Model Context Protocol (MCP) server that provides access to Chromia blockchain
 
 The Chromia MCP Server enables AI assistants to query and analyze Chromia blockchain data, including:
 
-- Network statistics and analytics
+- Blockchain, asset and transaction analytics
 - Blockchain information and metadata
 - Transaction data and analysis
 - Asset information and distribution
 - Account activity and analytics
-- Node performance monitoring
 - dApp deployment information
 - **Documentation retrieval and search**
 - **In-process Rell compilation (`rell_check`)** — the agent feedback loop
@@ -29,6 +28,16 @@ The Chromia MCP Server enables AI assistants to query and analyze Chromia blockc
 - **Deployment verification (`verify_deployment`)** — prove a deployed dapp is live with no keys: is the BRID known on the network (name or custom node URL), is the block height progressing (bounded wait), and does an optional read-only smoke query answer
 - **Deployment preflight (`deployment_preflight`)** — catch every deployment problem before a human burns a lease step or signs anything: validates the `deployments.<target>` block (brid/url/container/chains), flags wrong-network BRIDs or URLs as HIGH blockers, probes the target node read-only, runs the compile + security source gate when `rell` is supplied (CRITICAL/HIGH block mainnet), and checks the production pins. `ready:true` only with zero blockers — a mainnet target without sources stays blocked until the source gate runs, other targets note the skipped gate; when ready it emits the exact `chr deployment create|update` command
 - **Testnet provisioning (`provision_testnet_container`, `claim_testnet_tchr`, `deploy_testnet_chain`)** — agent-headless container leasing and dapp deployment on the Chromia TESTNET, funded by a server-held key that never appears in any output. See [Testnet Provisioning](#testnet-provisioning-agent-headless) below
+
+**Retired tools.** `get_network_stats`, `get_transactions_by_cluster`,
+`get_blockchains_transactions` and `get_node_unavailability` were removed on 2026-09-07:
+the live explorer answers `INTERNAL_ERROR` for `dashboardData` and for top-level
+`groupedTransactionsByBlockchain` on every selection set, and gates `getNodeUnavailability`
+behind an `X-reCAPTCHA-Token` header, with nowhere else in the schema serving the same data
+(probed live; see [docs/UPSTREAM.md](docs/UPSTREAM.md) #3a and #7a). All four had a green
+unit test, because a recorded fixture was answering on the explorer's behalf - which is why
+this repository no longer has any. `filter_blockchains` keeps working, but its `state`
+filter is refused upstream the same way (#3b).
 
 ## Documentation Tools
 
@@ -281,10 +290,10 @@ commit this work started from and on this one (bytes of the `tools/list`, `promp
 
 | | before (b982fbb) | now |
 |---|---|---|
-| tools advertised, full / compact | 74 / 43 | 75 / 44 |
+| tools advertised, full / compact | 74 / 43 | 71 / 40 |
 | `tools/list`, full | 126,463 B | **111,270 B** |
 | `tools/list`, compact | 101,208 B | **24,044 B** |
-| `prompts/list` | JSON-RPC error −32601 | 90 prompts, 24,920 B (19,575 B compact) |
+| `prompts/list` | JSON-RPC error −32601 | 82 prompts (19,575 B compact) |
 | `resources/list` | 579 B | 579 B |
 | **first contact, compact** | **101,787 B (~25.4k tok)** | **44,198 B (~11.0k tok)** |
 
