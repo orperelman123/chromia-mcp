@@ -3120,7 +3120,7 @@ class DappScaffoldSecureTemplatesTest {
             ),
             "REFUND_OUTCOME" to listOf(
                 "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
-                "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers"
+                "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_number"
             )
         ).forEach { (outcome, cases) ->
             cases.forEach { fn ->
@@ -3349,10 +3349,10 @@ class DappScaffoldSecureTemplatesTest {
 
     /**
      * THE EXIT RACE ON THE WAY OUT - A REFUND IS PRO RATA TOO. Pay each leaver her whole
-     * entitlement while the reserve lasts and bob, leaving first, takes 100 where 50 is
-     * his share; eve is left with nothing. Reachable in any pool that has ever paid a
-     * claim larger than the claimant's own premium, which is what an insurance pool is
-     * for.
+     * entitlement while the reserve lasts and bob, leaving first, takes the whole 100
+     * where 50 is his share - and the 50 that was eve's leaves with him. Reachable in
+     * any pool that has ever paid a claim larger than the claimant's own premium, which
+     * is what an insurance pool is for.
      */
     @Test
     fun insuranceR17ReplayGoesRedWhenARefundIsPaidFirstCome() = assertGuardMutationRedensExploitTest(
@@ -3361,7 +3361,7 @@ class DappScaffoldSecureTemplatesTest {
         "    val refund = min(entitled, pool.reserve);",
         "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
         "the pool cannot refund this premium",
-        "bob=1000 eve=900"
+        "bob=1000 reserve=0"
     )
 
     /**
