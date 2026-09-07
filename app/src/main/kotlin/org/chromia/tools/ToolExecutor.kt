@@ -3150,7 +3150,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
          * that.
          */
         fun flatten(module: String, text: String, depth: Int, seen: MutableSet<String>): String {
-            if (depth > 4) return text
+            if (depth > MAX_HELPER_DEPTH) return text
             val sb = StringBuilder(text)
             helperCallsIn(module, text).keys.forEach { node ->
                 if (seen.add(node)) {
@@ -3161,14 +3161,36 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             }
             return sb.toString()
         }
-        /** How many times the statement invokes the declaration, helpers expanded. */
-        fun sites(module: String, text: String, depth: Int): Int {
-            if (depth > 4) return 99
+        /**
+         * How many times the statement invokes the declaration, helpers
+         * expanded - or [DEPTH_EXCEEDED], which is NOT a count.
+         *
+         * Round 16 returned 99 past a depth of four, and 99 then travelled into
+         * the evidence as "the statement invokes the declaration 99 times" for
+         * a test that invokes it exactly ONCE at the end of a six-deep helper
+         * chain (p17g). A number that pretends to be a count is worse than no
+         * answer: the author is sent to look for 98 invocations that do not
+         * exist. The cap is now [MAX_HELPER_DEPTH], deep enough for any chain
+         * a person writes by hand, a helper that is already on the stack ends
+         * the walk the same way, and the refusal SAYS the cap.
+         */
+        fun sites(module: String, text: String, depth: Int, stack: MutableSet<String>): Int {
+            if (depth > MAX_HELPER_DEPTH) return DEPTH_EXCEEDED
             var n = invocationsIn(module, text)
-            helperCallsIn(module, text).forEach { (node, here) ->
-                if (node in reaching) {
-                    n += here * helperBodies.getValue(node).sumOf { sites(node.substringBeforeLast(':'), it, depth + 1) }
+            for ((node, here) in helperCallsIn(module, text)) {
+                if (node !in reaching) continue
+                if (!stack.add(node)) return DEPTH_EXCEEDED
+                var inner = 0
+                for (body in helperBodies.getValue(node)) {
+                    val deeper = sites(node.substringBeforeLast(':'), body, depth + 1, stack)
+                    if (deeper == DEPTH_EXCEEDED) {
+                        stack.remove(node)
+                        return DEPTH_EXCEEDED
+                    }
+                    inner += deeper
                 }
+                stack.remove(node)
+                n += here * inner
             }
             return n
         }
@@ -3190,8 +3212,8 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             var i = brace + 1
             fun record(endAt: Int) {
                 val statement = masked.substring(from, endAt)
-                val siteCount = sites(module, statement, 0)
-                if (siteCount > 0) {
+                val siteCount = sites(module, statement, 0, mutableSetOf())
+                if (siteCount != 0) {
                     val flat = flatten(module, statement, 0, mutableSetOf())
                     val ops = opRx.findAll(flat).count()
                     val opName = opRx.find(flat)
@@ -3207,6 +3229,11 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                                 "the statement that invokes it is a LOOP (or a table driven from one), so it invokes " +
                                     "the declaration an unknown number of times and no single transaction can be " +
                                     "named as the attack."
+                            siteCount == DEPTH_EXCEEDED ->
+                                "the helper chain it reaches the declaration through is deeper than " +
+                                    "$MAX_HELPER_DEPTH calls, or a helper in it calls itself, so how many times " +
+                                    "this statement invokes the declaration is not something this scan can " +
+                                    "count. Inline the invocation into the test, or shorten the chain."
                             siteCount != 1 ->
                                 "the statement invokes the declaration $siteCount times (directly, or through a " +
                                     "test-module helper this scan cannot reduce to one call site)."
@@ -3235,6 +3262,19 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
         return null
     }
+
+    /**
+     * How deep a chain of test-module helpers may be before the scan stops
+     * counting call sites. Round 16 capped it at four and scored anything
+     * deeper as 99 SITES - a fake count that made one honest invocation at the
+     * end of a six-deep chain `ambiguous_refusal` with the evidence "invokes
+     * the declaration 99 times" (p17g). Sixteen is past any chain written by
+     * hand, and past the cap the tool says so instead of naming a number.
+     */
+    private val MAX_HELPER_DEPTH = 16
+
+    /** [testStatementsInvoking]'s "the chain is too deep to count" - never a number of call sites. */
+    private val DEPTH_EXCEEDED = -1
 
     /** `import a: b.c;` / `import b.c;` / `import b.c.*;` - one import of a (masked) module. */
     private val IMPORT_REGEX = Regex("""\bimport\s+(?:([A-Za-z_]\w*)\s*:\s*)?([A-Za-z_][\w.]*?)\s*(\.\s*\*)?\s*;""")
