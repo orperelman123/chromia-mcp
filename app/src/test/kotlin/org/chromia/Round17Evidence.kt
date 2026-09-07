@@ -6,30 +6,34 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import java.io.File
 
 /**
- * Round 17's recorders and their FROZEN evidence - the pattern commit b640e6c
- * established for round 16 ([Round16Evidence]), applied to the round-17
- * directory.
+ * Round 17's recorders and their FROZEN evidence - the b640e6c pattern, applied
+ * to the round-17 tree.
  *
- * [Round17SecurityRuleProbeTest] used to write its raw verdicts straight back
- * into the committed evidence at
- * `src/test/resources/exploit-corpus/realworld/adversary-round17/seccheck/raw.json`
- * on every run, so a gate left that tracked file modified and the evidence the
- * round README cites paragraph by paragraph was whatever the LAST build
- * happened to say. Now:
+ * `Round17VerifyGuardsProbeTest` and `Round17SurfaceProbeTest` wrote their raw
+ * verdicts straight back into the committed evidence under
+ * `src/test/resources/exploit-corpus/realworld/adversary-round17/` on every run
+ * - the same defect b640e6c fixed for round 16 one commit before round 17's
+ * files were written. Twenty-one tracked files were rewritten by every gate,
+ * and the evidence the round README cites line by line was whatever the last
+ * build happened to say. Now:
  *
  * 1. the committed files under [committedRoot] are frozen evidence - nothing in
  *    the suite writes there;
  * 2. every run writes its fresh recording to the same relative path under
  *    [freshRoot] (`app/build/adversary-round17/`, gitignored) BEFORE anything is
  *    asserted, so a red run still leaves the evidence behind;
- * 3. [assertFrozen] compares the fresh recording with the committed one value by
- *    value (the diff is [Round16Evidence.diff], the same one), and a difference
- *    is a REGRESSION reported with both values and both paths. Re-freezing is a
- *    deliberate act: copy the fresh file over the committed one and commit it
- *    with the reason.
+ * 3. [assertFrozen] compares the fresh recording with the committed one, value
+ *    by value, and a difference is a REGRESSION reported with both values and
+ *    both paths. Re-freezing is a deliberate act: copy the fresh file over the
+ *    committed one and commit it with the reason.
  *
- * The round-17 seccheck evidence exists in TWO frozen files, because the round
- * changed the analyzer it was measuring:
+ * The leaf-by-leaf diff is [Round16Evidence.diff] - one implementation, used by
+ * both rounds, so a change to how a drift is reported cannot describe two
+ * rounds differently.
+ *
+ * [Round17SecurityRuleProbeTest] is the third recorder under this object, and
+ * its evidence exists in TWO frozen files, because the round changed the
+ * analyzer it was measuring:
  *  - `seccheck/raw.before-fix.json` is the ADVERSARY'S OWN recording, the
  *    analyzer as round 17 found it, and nothing runs against it - it is the only
  *    record of what was wrong and a recorder that overwrites it destroys the

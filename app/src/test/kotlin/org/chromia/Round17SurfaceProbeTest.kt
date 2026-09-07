@@ -1,7 +1,5 @@
 package org.chromia
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -10,6 +8,7 @@ import kotlinx.serialization.json.put
 import org.chromia.tools.DappScaffold
 import org.chromia.tools.McpTools
 import org.chromia.tools.ToolDocs
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.io.File
 
@@ -26,8 +25,6 @@ import java.io.File
  * guards do not cover it is a finding whatever the note says.
  */
 class Round17SurfaceProbeTest {
-
-    private val out = File("src/test/resources/exploit-corpus/realworld/adversary-round17")
 
     /**
      * Thirty-four asks. The first block is the classes `docs/TEMPLATE-GAPS.md`
@@ -79,8 +76,6 @@ class Round17SurfaceProbeTest {
 
     @Test
     fun `record where the redirect sends thirty-four asks`() {
-        out.mkdirs()
-        File(out, "redirect").mkdirs()
         val lines = mutableListOf<String>()
         val rows = buildJsonArray {
             for (ask in asks) {
@@ -101,10 +96,9 @@ class Round17SurfaceProbeTest {
                 )
             }
         }
-        File(out, "redirect/raw.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        Round17Evidence.record("redirect/raw.json", rows)
         println("ROUND17-REDIRECT\n" + lines.joinToString("\n"))
+        Round17Evidence.assertFrozen("redirect/raw.json", rows)
     }
 
     /**
@@ -116,8 +110,6 @@ class Round17SurfaceProbeTest {
      */
     @Test
     fun `record every tool's short description beside its describe_tool long form`() {
-        out.mkdirs()
-        File(out, "describe").mkdirs()
         val names = McpTools.allTools().map { it.name }.sorted()
         val rows = buildJsonArray {
             for (name in names) {
@@ -136,58 +128,107 @@ class Round17SurfaceProbeTest {
                 )
             }
         }
-        File(out, "describe/raw.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        Round17Evidence.record("describe/raw.json", rows)
         val summary = names.joinToString("\n") { n ->
             val short = McpTools.advertisedDescription(n).orEmpty().toByteArray().size
             val long = McpTools.fullDescription(n).orEmpty().toByteArray().size
             "%-34s short=%5d long=%6d moved=%s".format(n, short, long, n in ToolDocs.LONG)
         }
         println("ROUND17-DESCRIBE\n$summary")
+        Round17Evidence.assertFrozen("describe/raw.json", rows)
     }
 
     /**
-     * The one claim in a long form that round 17 tests against the code rather
-     * than by reading: `describe_tool{tool:"verify_guards"}` ends with
+     * EVERY SENTENCE ROUND 17 PUT INTO THE AGENT-FACING TEXT, MEASURED.
      *
-     *     "A replacement's own require() messages count as refusals exactly
-     *      like the guard's."
+     * Round 17 found one long-form sentence that was not true of the code -
+     * `describe_tool{tool:"verify_guards"}` ended with "A replacement's own
+     * require() messages count as refusals exactly like the guard's", the
+     * round-12/13 rule the round-16 rewrite deleted - and three that were true
+     * only in a narrower case than they stated: "directly or through one
+     * test-module helper" did not say the helper must be in the test's OWN file
+     * (p17a), and neither the description nor the long form mentioned that a
+     * call through an import ALIAS was not recognised (p17f) or that a helper
+     * chain deeper than four was scored as ninety-nine call sites (p17g).
      *
-     * That was the round-12/13 rule - a LIST of message sources, the guard's
-     * then the replacement's - and the round-16 rewrite deleted it. `p17m` in
-     * `vg/` measures the consequence on a running chain: a replacement whose own
-     * require REFUSES the attack, in a query whose refusal carries no frame,
-     * is answered `ambiguous_refusal` because the only two literal-attribution
-     * helpers left read the ORIGINAL `files` map and the replacement's message
-     * is in neither. This test pins the sentence's presence so the finding is
-     * attached to the text it is about.
+     * The fix made the first sentence true (literal attribution reads the
+     * MUTANT sources) and rewrote the other three. This test is the measurement
+     * that keeps them attached to the code: every sentence the round added, in
+     * all three places an agent can read it - the `describe_tool` long form, the
+     * 1200-byte advertised description, and the repository README - is recorded
+     * with whether it is present AND asserted. A sentence that is edited away
+     * is a red here, not a quiet drift into prose that no longer describes the
+     * tool.
      */
     @Test
-    fun `record the verify_guards long form sentences round 17 tested`() {
+    fun `every verify_guards sentence round 17 added is present where an agent reads it`() {
         val long = McpTools.fullDescription("verify_guards").orEmpty()
-        val claims = mapOf(
-            "replacement-messages-count-as-refusals" to
-                "A replacement's own require() messages count as refusals exactly like the guard's.",
-            "one-test-module-helper" to "directly or through one\n        test-module helper",
-            "shape-a" to "SHAPE A, the must-fail test",
-            "shape-b" to "SHAPE B, the must-hold test"
+        val advertised = McpTools.advertisedDescription("verify_guards").orEmpty()
+        val readme = File("../README.md").readText()
+        fun flat(text: String) = text.replace(Regex("\\s+"), " ").trim()
+        val sources = mapOf("long" to flat(long), "advertised" to flat(advertised), "readme" to flat(readme))
+
+        // id to (which text, the sentence verbatim). Every one of these is a
+        // claim about behaviour a round-17 probe measured.
+        val claims = listOf(
+            // the sentence p17m proved false, now true again
+            Triple(
+                "replacement-messages-count-as-refusals", "long",
+                "A replacement's own require() messages count as refusals exactly like the guard's."
+            ),
+            Triple("replacement-literals-read-off-the-mutant", "long", "read off the MUTANT SOURCES THAT RAN"),
+            Triple("replacement-still-refused-not-ambiguous", "long", "is still_refused rather than ambiguous_refusal"),
+            // where a helper may live, and how a call to it resolves (p17a, p17f)
+            Triple("helper-in-any-test-module", "long", "A HELPER MAY LIVE IN ANY TEST MODULE of the submission"),
+            Triple("helper-through-an-import-alias", "long", "alias.h(...) through `import alias: a.b.mod;`"),
+            Triple("helper-through-a-wildcard-import", "long", "h(...) in its own module or through `import mod.*;`"),
+            // the depth rule, said as a cap rather than as a count (p17g)
+            Triple("helper-chain-depth", "long", "followed up to 16 calls deep"),
+            Triple("depth-refusal-names-the-cap", "long", "the chain is deeper than 16 calls and counts no call sites at all"),
+            // operations counted over the whole closure (p17d)
+            Triple("operations-over-the-whole-closure", "long", "read over the statement's WHOLE call closure"),
+            Triple("helper-adding-an-operation-is-ambiguous", "long", "quietly adds a second operation makes the"),
+            // the two arguments' scope
+            Triple("pins-are-shape-b-only", "long", "stillRefused and attackLanded are read in SHAPE B ONLY"),
+            // the shapes themselves, unchanged
+            Triple("shape-a", "long", "SHAPE A, the must-fail test"),
+            Triple("shape-b", "long", "SHAPE B, the must-hold test"),
+            // the same four facts in the 1200-byte description an agent sees first
+            Triple("advertised-helper-scope", "advertised", "helpers in ANY test module, via imports and aliases, up to"),
+            Triple("advertised-helper-depth", "advertised", "16 calls deep"),
+            Triple("advertised-replacement", "advertised", "A replacement's own messages are attributed like the guard's"),
+            Triple("advertised-pins", "advertised", "stillRefused/attackLanded are read in the must-hold shape only"),
+            // and in the README's own account of the two shapes
+            Triple("readme-helper-in-any-test-module", "readme", "A helper may live in **any test module** of the submission"),
+            Triple("readme-helper-alias", "readme", "`alias.h(...)` through `import alias: a.b.mod;`"),
+            Triple("readme-helper-depth", "readme", "The chain is followed **16 calls deep**"),
+            Triple("readme-depth-names-no-number", "readme", "it never names a number it cannot stand behind"),
+            Triple("readme-operations-closure", "readme", "read over the statement's **whole call closure**"),
+            Triple("readme-replacement", "readme", "read off the **mutant sources that ran**"),
+            Triple("readme-pins", "readme", "are read in **shape B only**")
         )
         val rows = buildJsonArray {
-            for ((id, text) in claims) {
+            for ((id, where, text) in claims) {
                 add(
                     buildJsonObject {
                         put("claim", id)
-                        put("present", long.contains(text.replace("\n        ", " ")) || long.contains(text))
-                        put("text", text.replace("\n        ", " "))
+                        put("where", where)
+                        put("present", sources.getValue(where).contains(flat(text)))
+                        put("text", text)
                     }
                 )
             }
         }
-        File(out, "describe").mkdirs()
-        File(out, "describe/verify_guards_claims.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        Round17Evidence.record("describe/verify_guards_claims.json", rows)
         println("ROUND17-VG-CLAIMS\n" + rows.joinToString("\n") { (it as JsonObject).toString() })
+        val missing = claims.filterNot { (_, where, text) -> sources.getValue(where).contains(flat(text)) }
+            .map { (id, where, text) -> "$id ($where): $text" }
+        assertEquals(
+            emptyList<String>(),
+            missing,
+            "verify_guards sentence(s) round 17 added are no longer in the text an agent reads:\n" +
+                missing.joinToString("\n")
+        )
+        Round17Evidence.assertFrozen("describe/verify_guards_claims.json", rows)
     }
 }

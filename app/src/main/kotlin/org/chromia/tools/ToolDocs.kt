@@ -403,8 +403,18 @@ object ToolDocs {
         WRITE THE TEST IN ONE OF TWO SHAPES - these are what the tool can prove, and both
         require the test to invoke the guard's declaration (the declaration it sits in, or,
         for a guard in a function, any operation or query that reaches it through your call
-        graph including @extend) in EXACTLY ONE top-level statement, directly or through one
-        test-module helper. SHAPE A, the must-fail test: that statement is a single-operation
+        graph including @extend) in EXACTLY ONE top-level statement, directly or through
+        test-module helpers. A HELPER MAY LIVE IN ANY TEST MODULE of the submission, not only
+        in the test's own file, and a call is resolved through the CALLING module's own
+        imports: h(...) in its own module or through `import mod.*;`, mod.h(...) through
+        `import a.b.mod;`, and alias.h(...) through `import alias: a.b.mod;`. The chain is
+        followed up to 16 calls deep; past that, or through a helper that calls itself, the
+        tool says the chain is deeper than 16 calls and counts no call sites at all rather
+        than reporting a number. The operations of the transaction and the run_must_fail are
+        read over the statement's WHOLE call closure - every helper it calls, not only the
+        ones that reach the guard - so a helper that quietly adds a second operation makes the
+        statement ambiguous_refusal instead of a single-operation SHAPE A.
+        SHAPE A, the must-fail test: that statement is a single-operation
         rell.test.tx().op(<that declaration>(...)).run_must_fail(...), and the guard is proven
         only when removing it makes the transaction SUCCEED ("did not fail") - any other red
         is the attack still being refused. SHAPE B, the must-hold test: that statement expects
@@ -415,6 +425,17 @@ object ToolDocs {
         invoking statements, a transaction carrying more than that one operation, a helper
         with several call sites - is ambiguous_refusal, because "which invocation refused"
         is then a question nothing in the run answers.
+        stillRefused and attackLanded are read in SHAPE B ONLY. That is the shape where the
+        tool must decide whether a red is a refusal or the damage being noticed: a red
+        containing stillRefused is still_refused, and a red missing a CUSTOM attackLanded is
+        red_for_another_reason. They change no SHAPE A verdict and cannot. A shape A statement
+        runs ONE operation, that operation is a declaration this guard runs in, and an
+        operation refusal always carries its own [module:declaration(file:line)] frame - so a
+        must-fail red either says "did not fail" (the transaction went through: the attack
+        landed, whatever you pinned) or names the guard's own declaration as having refused it,
+        and there is no third red for a fragment to decide. A caller-supplied substring must
+        never be able to read the guard's OWN refusal as the attack succeeding; round 11 got
+        four false ok:true exactly that way.
           environmental          - the mutant is not a running dapp (compile error, missing
                                    module_args). A failure for that reason proves nothing.
           red_for_another_reason - red, but not the attack; read the error before counting it.
@@ -426,7 +447,11 @@ object ToolDocs {
           also_remove_overlaps_guard - an alsoRemove entry contains (or is contained by) the
                                    guard; the two must be disjoint or the control run strips
                                    the guard itself.
-        A replacement's own require() messages count as refusals exactly like the guard's.
+        A replacement's own require() messages count as refusals exactly like the guard's. The
+        string literals a frame-less error is attributed to are read off the MUTANT SOURCES
+        THAT RAN, so a message the replacement introduced belongs to the declaration the guard
+        sits in, and a replacement that refuses the attack in a query is still_refused rather
+        than ambiguous_refusal.
         ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass
         to run_rell_tests. Nothing is deployed; sources run in a temp directory and are
         deleted afterwards. This does not replace an audit and says nothing about guards you

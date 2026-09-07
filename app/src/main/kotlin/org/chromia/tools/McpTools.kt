@@ -2033,20 +2033,20 @@ object McpTools {
     fun verifyGuardsTool() = Tool(
         name = "verify_guards",
         description = """
-            Prove that a guard in YOUR dapp is load-bearing - the discipline every shipped template is
-            held to, run on your own code. A must-fail test is only evidence if it goes red when the
-            guard it depends on is removed, and goes red BECAUSE THE ATTACK LANDED. A test that passes
-            with the guard and still passes without it is a fake green with a security label on it.
-            For each {guard, test} you name: (1) the test must PASS on your files as submitted; (2) the
-            guard line is replaced (default: deleted) and ONLY that test is run; (3) the verdict is read
-            from WHY it failed. Verdicts: load_bearing, vacuous, still_refused, ambiguous_refusal,
-            environmental, red_for_another_reason, baseline_red, guard_not_found, guard_ambiguous,
-            test_not_found, replacement_rejected, also_remove_overlaps_guard.
+            Prove that a guard in YOUR dapp is load-bearing. A must-fail test is only evidence if it
+            goes red when the guard it depends on is removed, and goes red BECAUSE THE ATTACK LANDED.
+            For each {guard, test}: (1) the test must PASS on your files as submitted; (2) the guard line
+            is replaced (default: deleted) and ONLY that test is run; (3) the verdict is read from WHY it
+            failed. Verdicts: load_bearing, vacuous, still_refused, ambiguous_refusal,
+            red_for_another_reason, environmental, and six that name an input the tool cannot verify.
+            TWO test shapes are proved - one must-fail statement on the guard's declaration, or one
+            must-hold statement plus an assertion; any other shape is ambiguous_refusal. That statement
+            may reach the declaration through helpers in ANY test module, via imports and aliases, up to
+            16 calls deep. A replacement's own messages are attributed like the guard's;
+            stillRefused/attackLanded are read in the must-hold shape only.
             ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass to
-            run_rell_tests. Nothing is deployed and it says nothing about guards you did not name.
-            It proves TWO test shapes only (one must-fail statement on the guard's declaration;
-            one must-hold statement plus an assertion); any other shape is ambiguous_refusal.
-            Verdicts and shapes in full: describe_tool{tool:"verify_guards"}.
+            run_rell_tests. Nothing is deployed; it says nothing about guards you did not name.
+            Verdicts, shapes and arguments in full: describe_tool{tool:"verify_guards"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
@@ -2070,8 +2070,8 @@ object McpTools {
                                             "test" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("The must-fail test function that depends on this guard, e.g. test_overdraft_must_fail. Only this test is run against the mutant."))),
                                             "replacement" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional text to put in the guard's place. Default deletes the line. Use it to WEAKEN a guard (e.g. turn an equality into a 2% band) rather than remove it."))),
                                             "alsoRemove" to JsonObject(mapOf("type" to JsonPrimitive("array"), "items" to JsonObject(mapOf("type" to JsonPrimitive("string"))), "description" to JsonPrimitive("Optional further guard lines (verbatim) to strip in the same mutant - defence in depth that would otherwise still refuse the attack."))),
-                                            "stillRefused" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional error fragment that means the attack was STILL refused (e.g. the message of another require). Its presence yields still_refused instead of load_bearing."))),
-                                            "attackLanded" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional error fragment that proves the attack SUCCEEDED. Default \"did not fail\" - what run_must_fail reports when the transaction it expected to fail went through. Use e.g. \"expected\" when the test's own assert_equals is what should trip.")))
+                                            "stillRefused" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional error fragment that means the attack was STILL refused (e.g. the message of another require). SHAPE B ONLY, the must-hold test: its presence there yields still_refused instead of load_bearing. It changes no SHAPE A verdict and cannot - a must-fail red either says \"did not fail\" (the transaction went through) or carries the frame of the one operation it ran, which is a declaration this guard runs in, so the runner has already answered which it is."))),
+                                            "attackLanded" to JsonObject(mapOf("type" to JsonPrimitive("string"), "description" to JsonPrimitive("Optional error fragment that proves the attack SUCCEEDED. The default \"did not fail\" - what run_must_fail reports when the transaction it expected to fail went through - always counts as the attack landing, in both shapes, whatever you pass. A CUSTOM fragment is read in SHAPE B ONLY, the must-hold test (e.g. \"expected\" when the test's own assert_equals is what should trip); there its absence yields red_for_another_reason. It changes no SHAPE A verdict.")))
                                         )
                                     ),
                                     "required" to JsonArray(listOf(JsonPrimitive("guard"), JsonPrimitive("test")))
