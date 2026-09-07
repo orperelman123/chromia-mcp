@@ -337,8 +337,8 @@ Register the jar directly — this is the exact working registration:
 ```bash
 claude mcp add chromia --scope user \
   --env "CHROMIA_TEST_DATABASE_URL=jdbc:postgresql://localhost:5432/rell_mcp_tests?user=postchain&password=postchain" \
-  -- java -XX:+AutoCreateSharedArchive "-XX:SharedArchiveFile=C:\Users\Orpe7\.chromia-mcp\chromia-mcp-server.jsa" \
-     -jar "C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar" --stdio
+  -- java -XX:+AutoCreateSharedArchive "-XX:SharedArchiveFile=C:\Users\<you>\.chromia-mcp\chromia-mcp-server.jsa" \
+     -jar "C:\Users\<you>\chromia-mcp\app\build\libs\chromia-mcp-server.jar" --stdio
 ```
 
 No working directory is needed or honoured: the docs index is resolved from the jar's own
@@ -355,8 +355,8 @@ Or as MCP JSON for other stdio clients (Cursor, Claude Desktop, JetBrains):
       "command": "java",
       "args": [
         "-XX:+AutoCreateSharedArchive",
-        "-XX:SharedArchiveFile=C:\\Users\\Orpe7\\.chromia-mcp\\chromia-mcp-server.jsa",
-        "-jar", "C:\\Users\\Orpe7\\chromia-mcp\\app\\build\\libs\\chromia-mcp-server.jar", "--stdio"
+        "-XX:SharedArchiveFile=C:\\Users\\<you>\\.chromia-mcp\\chromia-mcp-server.jsa",
+        "-jar", "C:\\Users\\<you>\\chromia-mcp\\app\\build\\libs\\chromia-mcp-server.jar", "--stdio"
       ],
       "env": {
         "CHROMIA_TEST_DATABASE_URL": "jdbc:postgresql://localhost:5432/rell_mcp_tests?user=postchain&password=postchain"
@@ -382,8 +382,8 @@ directly from PowerShell with the `-XX` arguments single-quoted:
 ```powershell
 $claude = Join-Path (Split-Path (Get-Command claude).Source) 'node_modules\@anthropic-ai\claude-code\bin\claude.exe'
 & $claude mcp add chromia --scope user -- java '-XX:+AutoCreateSharedArchive' `
-  '-XX:SharedArchiveFile=C:\Users\Orpe7\.chromia-mcp\chromia-mcp-server.jsa' `
-  -jar C:\Users\Orpe7\chromia-mcp\app\build\libs\chromia-mcp-server.jar --stdio
+  '-XX:SharedArchiveFile=C:\Users\<you>\.chromia-mcp\chromia-mcp-server.jsa' `
+  -jar C:\Users\<you>\chromia-mcp\app\build\libs\chromia-mcp-server.jar --stdio
 ```
 
 ### Shape 2: local HTTP server (clients that want a URL)

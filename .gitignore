@@ -66,3 +66,7 @@ scratch-qa/
 # Local, machine-specific test environment (endpoints, dev passwords).
 local-test-env.properties
 .cursor/
+
+# Compiled Python caches from the adversary harnesses embed absolute local paths.
+__pycache__/
+*.pyc

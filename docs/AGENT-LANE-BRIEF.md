@@ -24,7 +24,7 @@ Four principles, in priority order:
 - **The scoreboard:** `app/src/test/resources/exploit-corpus/CORPUS.md` + `samples/`. `ExploitCorpusScoreboardTest` runs the real analyzer over every sample and fails in *both* directions — a regression, or a gap closed without being credited. It is the acceptance test for rule work. Never weaken it to make something pass; if a sample stays uncaught, it stays `GAP` and you say why.
 - Template and guidance: `app/src/main/kotlin/org/chromia/tools/DappScaffold.kt`, `ChromiaRellPracticesHelp.kt`, `app/src/main/resources/prompt_templates.json`.
 - Test runner: `RunRellTests.kt`. It **can** execute FT4 operations, but FT4 tests need the test-only admin module args (`DappScaffold.ft4TestModuleArgs()`), or every case fails with an opaque "Unable to create GTX module".
-- Ground truth for FT4 semantics: `docs/knowledge/raw-ft4-src/v1.1.0r/`; wider Chromia sources at `C:\Users\Orpe7\Downloads\chromia123`.
+- Ground truth for FT4 semantics: `docs/knowledge/raw-ft4-src/v1.1.0r/`.
 
 ## How to work here (each of these cost real time today)
 

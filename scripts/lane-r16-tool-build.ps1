@@ -1,7 +1,7 @@
 # Wait for the shared build slot, then run the round-16 verify_guards probes.
-param([string]$Tasks = "probes")
+param([string]$Tasks = "probes", [string]$Dir = (Split-Path -Parent $PSScriptRoot))
 
-$dir = "C:\Users\Orpe7\chromia-mcp-wt-fix_round16_tool"
+$dir = $Dir
 $log = "$dir\lane-r16-tool-build.log"
 
 while ($true) {

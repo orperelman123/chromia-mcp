@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * The measured finding, same jar, same `--stdio`, same env, only `cwd` differs:
  *
- *   cwd = C:\Users\Orpe7\chromia-mcp-audit
+ *   cwd = <home>\chromia-mcp-audit
  *     fetch_docs{query:"module_args"}.index =
  *       {"origin":"cached GitLab registry package ... (fetched 2026-09-05)",
  *        "generated_at":"2025-10-21T09:13:14Z","age_days":320,"segments":3208,"stale":true}
  *
- *   cwd = C:\Users\Orpe7\chromia-mcp
+ *   cwd = <home>\chromia-mcp
  *     fetch_docs{query:"module_args"}.index =
  *       {"origin":"local file app\build\embeddings.json",
  *        "generated_at":"2026-09-04T14:29:18Z","age_days":1,"segments":25823,"stale":false}

@@ -95,7 +95,7 @@ create a Scheduled Task once (regular user, no admin needed):
 
 ```powershell
 schtasks /Create /TN "chromia-mcp-sse" /SC ONLOGON /RL LIMITED `
-  /TR "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Users\Orpe7\chromia-mcp\serve-local.ps1 -Port 3001"
+  /TR "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <path-to-your-clone>\serve-local.ps1 -Port 3001"
 ```
 
 - Pin the port (`-Port 3001`) so clients get a stable URL across logins.
