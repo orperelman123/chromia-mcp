@@ -891,9 +891,15 @@ class ToolExecutorStrategiesTest {
      * of these is upstream's refusal; anything else is ours.
      */
     private val upstreamMarkers = listOf(
-        "INTERNAL_ERROR", "reCAPTCHA", "HTTP 4", "HTTP 5", "Bad Request",
-        "Service Unavailable", "Gateway", "Timeout", "timed out", "Connection reset",
-        "Connection refused"
+        "internal_error", "recaptcha", "http 4", "http 5", "bad request",
+        "service unavailable", "gateway", "timeout", "timed out", "connection reset",
+        "connection refused", "connection closed", "no route to host", "unknownhost",
+        // Live, 2026-09-07: blockchainAnalytics exceeded the 60s request timeout on
+        // mainnet. ChromiaConfig already carries the note that the heavy explorer
+        // analytics were observed past 30s under load; this is that, and it is the
+        // explorer's load, not ours. The list is matched case-insensitively because
+        // the first version of it missed "Request timeout has expired" by a capital T.
+        "request timeout"
     )
 
     /**
@@ -922,8 +928,9 @@ class ToolExecutorStrategiesTest {
                     "changed and the query did not follow - this is ours to fix, and it is precisely " +
                     "what the recorded fixture could not see: $text"
             )
+            val lower = text.lowercase()
             assertTrue(
-                upstreamMarkers.any { text.contains(it) },
+                upstreamMarkers.any { lower.contains(it) },
                 "$tool failed and nothing in the message is an upstream signature, so the failure " +
                     "is ours: $text"
             )
@@ -1378,7 +1385,7 @@ class ToolExecutorStrategiesTest {
         )
         val text = (result.content.first() as TextContent).text!!
         assertTrue(
-            upstreamMarkers.any { text.contains(it) },
+            upstreamMarkers.any { text.lowercase().contains(it) },
             "the refusal must carry the explorer's own words, not a message of ours: $text"
         )
         assertEquals(
