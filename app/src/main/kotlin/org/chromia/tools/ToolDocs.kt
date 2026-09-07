@@ -415,6 +415,17 @@ object ToolDocs {
         invoking statements, a transaction carrying more than that one operation, a helper
         with several call sites - is ambiguous_refusal, because "which invocation refused"
         is then a question nothing in the run answers.
+        stillRefused and attackLanded are read in SHAPE B ONLY. That is the shape where the
+        tool must decide whether a red is a refusal or the damage being noticed: a red
+        containing stillRefused is still_refused, and a red missing a CUSTOM attackLanded is
+        red_for_another_reason. They change no SHAPE A verdict and cannot. A shape A statement
+        runs ONE operation, that operation is a declaration this guard runs in, and an
+        operation refusal always carries its own [module:declaration(file:line)] frame - so a
+        must-fail red either says "did not fail" (the transaction went through: the attack
+        landed, whatever you pinned) or names the guard's own declaration as having refused it,
+        and there is no third red for a fragment to decide. A caller-supplied substring must
+        never be able to read the guard's OWN refusal as the attack succeeding; round 11 got
+        four false ok:true exactly that way.
           environmental          - the mutant is not a running dapp (compile error, missing
                                    module_args). A failure for that reason proves nothing.
           red_for_another_reason - red, but not the attack; read the error before counting it.
