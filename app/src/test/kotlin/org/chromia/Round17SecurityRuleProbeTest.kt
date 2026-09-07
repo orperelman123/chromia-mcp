@@ -16,10 +16,13 @@ import java.io.File
  * `unbacked-conversion-credit`.
  *
  * Each of those four is a resolution step, and each has an input that does not
- * reach it. This class is the RECORDER for the round's twelve samples - five
+ * reach it. This class is the RECORDER for the round's samples - five
  * attack/control pairs, the correct DAO whose floor arrives at deployment, and
  * the insurance build - so the round's claims about the rules are measurements
- * rather than readings of the source.
+ * rather than readings of the source. A thirteenth was added when the fix
+ * landed: the round's own `p17s2` control never removed the operation it names,
+ * so it is a second copy of the attack, and the control it MEANT to write is
+ * recorded beside it.
  *
  * THE EVIDENCE IS FROZEN (the b640e6c pattern, [Round17Evidence]). This class
  * used to write straight into the committed
@@ -38,9 +41,10 @@ import java.io.File
  *    `r17-quorum-floor-behind-a-function-call` and
  *    `r17-quorum-floor-set-by-a-second-operation` were closed, and it is what
  *    this run is asserted against. The two evasions now draw MEDIUM
- *    `majority-without-quorum`; every other verdict in the file - including the
+ *    `majority-without-quorum`, and so does the broken `p17s2` control, which
+ *    still holds the attack; every other verdict in the file - including the
  *    correct DAO at `p17s5` and both insurance drains, which stay clean - is
- *    unchanged from the before-fix recording.
+ *    unchanged from the before-fix recording, and the added control is silent.
  */
 class Round17SecurityRuleProbeTest {
 
@@ -143,7 +147,26 @@ class Round17SecurityRuleProbeTest {
         }
     """.trimIndent()
 
-    /** The same DAO with the floor a constant the operator cannot move. */
+    /**
+     * The same DAO with the floor a constant the operator cannot move - AS THE
+     * ROUND WROTE IT, AND IT IS NOT A CONTROL.
+     *
+     * Kept byte for byte so the after-fix recording is comparable with the
+     * before-fix one probe by probe, and kept with this note because the round
+     * cited it as a control that the analyzer was silent on. The second
+     * `.replace` never matches: `.trimIndent()` strips the raw string's common
+     * twelve-space indent, `.prependIndent("        ")` puts eight back on
+     * every line, and `.trim()` then removes them from the FIRST line only - so
+     * the anchor's body lines carry twelve spaces where the target carries
+     * four. `set_floor` is therefore still in this file, writing `book.floor`
+     * from its own caller's argument, and the only difference from the attack
+     * sample is the `mutable` keyword on a field the operation still assigns.
+     *
+     * So the `majority-without-quorum` this now draws is CORRECT: the attack is
+     * still here. [floorControlNoWriterAtAll] is what the round meant to write,
+     * and Round17SecurityRuleFixTest carries the two positive controls (a floor
+     * only a module-args admin can set, and one only a stored owner key can).
+     */
     private val floorControlImmutableConstant = floorWrittenByAnotherOperation
         .replace(
             "mutable floor: integer = 3; }",
@@ -159,6 +182,15 @@ class Round17SecurityRuleProbeTest {
             """.trimIndent().prependIndent("        ").trim(),
             ""
         )
+
+    /**
+     * THE CONTROL THE ROUND MEANT: the same DAO with the writing operation
+     * REMOVED, so the floor is a constant nobody can move. The removal is
+     * checked in the test rather than hoped for.
+     */
+    private val floorControlNoWriterAtAll = floorWrittenByAnotherOperation
+        .replace(Regex("""(?s)\n *// ROUND 16 REJECTED.*?\n *operation set_floor\(n: integer\) \{.*?\n *}\n"""), "\n")
+        .replace("mutable floor: integer = 3; }", "floor: integer = 3; }")
 
     /** Every secret in the table, returned inside a STRUCT rather than as a list of text. */
     private val secretThroughAStruct = """
@@ -337,7 +369,11 @@ class Round17SecurityRuleProbeTest {
             Triple("p17s2_floor_written_by_another_operation", floorWrittenByAnotherOperation,
                 "the floor is a stored field, set by a second permissionless operation the proposer also signs"),
             Triple("p17s2_control_the_floor_is_an_immutable_constant", floorControlImmutableConstant,
-                "the identical DAO with the floor immutable"),
+                "the round's own control, which is NOT one - the set_floor removal never matched, so the " +
+                    "writing operation is still in the file and the finding on it is correct"),
+            Triple("p17s2_control_the_writer_is_removed_outright", floorControlNoWriterAtAll,
+                "MUST STAY CLEAN of majority-without-quorum: the control the round meant - the same DAO " +
+                    "with the writing operation actually gone, so nobody can move the floor"),
             Triple("p17s3_secret_through_a_struct", secretThroughAStruct,
                 "every token in the table, one level deep inside a struct in a list"),
             Triple("p17s3_secret_through_a_map", secretThroughAMap,
@@ -360,6 +396,16 @@ class Round17SecurityRuleProbeTest {
 
     @Test
     fun `record what rell_security_check says about the round 17 rule probes`() {
+        // The round's own p17s2 control still contains the operation it meant to
+        // remove; the added one must really be without it, and hoping is not a
+        // check.
+        require(floorControlImmutableConstant.contains("operation set_floor")) {
+            "p17s2's shipped control is recorded BECAUSE it still writes the floor - if that changed, " +
+                "the probe's note and the README row have to change with it"
+        }
+        require(!floorControlNoWriterAtAll.contains("set_floor")) {
+            "p17s2's added control must not contain the writing operation; it still does"
+        }
         val lines = mutableListOf<String>()
         val rows = buildJsonArray {
             for ((name, source, why) in probes) {
