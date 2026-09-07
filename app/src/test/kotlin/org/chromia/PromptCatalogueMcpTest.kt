@@ -130,7 +130,12 @@ class PromptCatalogueMcpTest {
                 checked++
             }
         }
-        assertEquals(90, checked, "the catalogue changed size - update the pin deliberately")
+        // 90 until 2026-09-07, when get_network_stats, get_transactions_by_cluster,
+        // get_blockchains_transactions and get_node_unavailability were retired: the
+        // live explorer will not serve what they advertised, and eight prompts told
+        // agents to call them. The `analytics` and `monitoring` categories held
+        // nothing else and went with them.
+        assertEquals(82, checked, "the catalogue changed size - update the pin deliberately")
     }
 
     /** Compact mode trims prompt descriptions but never the prompt itself. */

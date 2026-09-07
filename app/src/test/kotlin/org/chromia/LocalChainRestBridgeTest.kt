@@ -77,7 +77,7 @@ class LocalChainRestBridgeTest {
             query answer() = 42;
             query echo_text(name: text) = name;
             query echo_flag(flag: boolean) = flag;
-            query echo_pair(name: text, limit: integer) = (name, limit);
+            query echo_pair(name: text, count: integer) = (name, count);
         """.trimIndent()
     )
 
@@ -197,7 +197,7 @@ class LocalChainRestBridgeTest {
     fun postQueryPassesArgumentsWithoutTypeKey() = runBlocking {
         val response = http.post("$base/query/$brid") {
             contentType(ContentType.Application.Json)
-            setBody("""{"type":"echo_pair","name":"neo","limit":3}""")
+            setBody("""{"type":"echo_pair","name":"neo","count":3}""")
         }
         assertEquals(HttpStatusCode.OK, response.status, response.bodyAsText())
         val body = response.bodyAsText()

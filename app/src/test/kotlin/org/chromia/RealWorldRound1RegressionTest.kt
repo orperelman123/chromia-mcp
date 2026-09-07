@@ -334,7 +334,16 @@ class RealWorldRound1RegressionTest {
         assertTrue(diagnostics.isNotBlank(), "the diagnostics block must never be empty: $message")
         assertFalse(message.contains("no compiler diagnostics captured"), message)
         assertTrue(message.contains("price_oracle"), "the failing module must be named: $message")
-        assertTrue(message.contains("admin_pubkeys"), "the offending key must be named: $message")
+        // The compiler names the attribute it could not FILL, not the stray key it
+        // was given: "Missing struct attribute value:
+        // 'price_oracle:module_args.admin_pubkey'" (real output, 2026-09-07). That is
+        // the one an agent has to go and set, so that is what is pinned. Asserting
+        // "admin_pubkeys" here was the shape the removed runner double used to echo
+        // back, and the real runner never says it.
+        assertTrue(
+            message.contains("module_args.admin_pubkey"),
+            "the attribute that could not be bound must be named: $message"
+        )
     }
 
     // ------------------------------------------------------ security check --
