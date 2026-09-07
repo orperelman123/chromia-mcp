@@ -217,8 +217,8 @@ class AuditConcurrencyRegressionTest {
         )
         assertEquals(
             PostchainClientService.MAX_CACHED_CLIENTS, service.cachedClientCount(),
-            "the cache must be bounded - it held ${service.cachedClientCount()} clients after $created " +
-                "distinct chains"
+            "the cache must be bounded - it held ${service.cachedClientCount()} clients after " +
+                "$answered distinct chains answered"
         )
     }
 
