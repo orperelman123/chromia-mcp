@@ -3012,8 +3012,8 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
     /**
      * Every top-level statement of the test function [test] that invokes one of
      * [declarations] (module-qualified, `module:name`) - directly, or through a
-     * function of the same test module that does - IN SOURCE ORDER, each
-     * classified against the two canonical shapes.
+     * TEST-MODULE HELPER in ANY test module of the submission - IN SOURCE
+     * ORDER, each classified against the two canonical shapes.
      *
      * A "top-level statement" ends at a `;` at brace depth zero OR at the `}`
      * that closes a depth-zero block, so a `for`/`while`/`if` block is ONE
@@ -3021,14 +3021,28 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      * transactions from a table, the splitter saw no statement at all, and the
      * whole shape analysis was skipped.
      *
-     * A call site counts only when its QUALIFIER can be the declaration's own
-     * module: `x.take(...)` is not `main.take(...)` (round 15's p15b, from the
-     * other side - the call graph is keyed on bare names, so without this a
-     * same-named operation in another module would add a second "invoking"
-     * statement and cost an `ambiguous_refusal`). An unqualified call is
-     * accepted (`import main.*`); a call through an import ALIAS is not
-     * recognised and leaves the test outside both shapes, which is the safe
-     * direction.
+     * ROUND 17 WIDENED WHERE A HELPER MAY LIVE AND HOW A NAME RESOLVES.
+     * `helperBodies` used to be built from `functionDefinitions` of the ONE
+     * FILE being scanned, so a helper imported from another test module
+     * invoked nothing the scan could see. An honest single invocation written
+     * there read as no invocation at all - `ambiguous_refusal` where the same
+     * helper in the same file is `load_bearing` (p17a) - and a SECOND
+     * invocation hidden there left shape B's "this declaration ran exactly
+     * once" false, so a later transaction NOTICING the damage was reported as
+     * the attack being refused (p17b, the dangerous direction). Helpers now
+     * come from EVERY test module of the submission, and a call is resolved
+     * through the CALLING module's own imports: `h(...)` in its own module or
+     * through `import mod.*;`, `mod.h(...)` through `import a.b.mod;`, and
+     * `alias.h(...)` through `import alias: a.b.mod;`.
+     *
+     * A call site counts only when its QUALIFIER can name the declaration's own
+     * module: `x.take(...)` is not `main.take(...)` (round 15's p15b - the call
+     * graph is keyed on bare names, so without this a same-named operation in
+     * another module would add a second "invoking" statement and cost an
+     * `ambiguous_refusal`). The qualifier may be the module's own name, its
+     * last segment, or a name the CALLING module binds to it with an import -
+     * an ALIAS included: `import m: main;` then `m.take(...)`, which round 16
+     * did not recognise at all and left outside both shapes (p17f).
      */
     private fun testStatementsInvoking(
         files: Map<String, String>,
@@ -3044,12 +3058,107 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                 .addAll(listOf(module, module.substringAfterLast('.')))
         }
         val bare = modulesByName.keys
+
+        // EVERY test module of the submission: the functions it declares (a
+        // module can span several files - a header-less sibling belongs to the
+        // module the RUNNER puts it in) and the names its own imports bind.
+        val moduleOfFile = mutableMapOf<String, String>()
+        val functionsByModule = mutableMapOf<String, MutableMap<String, MutableList<String>>>()
+        val importBindings = mutableMapOf<String, MutableMap<String, String>>()
+        val wildcardImports = mutableMapOf<String, MutableSet<String>>()
+        files.forEach { (p, content) ->
+            if (!isTest.getValue(p)) return@forEach
+            val maskedFile = maskRellSource(content, maskStrings = true)
+            val module = RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(p), content)
+            moduleOfFile[p] = module
+            val fns = functionsByModule.getOrPut(module) { mutableMapOf() }
+            RellSecurityCheck.functionDefinitions(maskedFile).forEach { d ->
+                fns.getOrPut(d.name) { mutableListOf() }.add(d.body)
+            }
+            val binds = importBindings.getOrPut(module) { mutableMapOf() }
+            val wild = wildcardImports.getOrPut(module) { mutableSetOf() }
+            IMPORT_REGEX.findAll(maskedFile).forEach { m ->
+                val alias = m.groupValues[1]
+                val target = m.groupValues[2]
+                when {
+                    alias.isNotEmpty() -> binds[alias] = target
+                    m.groupValues[3].isNotEmpty() -> wild += target
+                    else -> binds[target.substringAfterLast('.')] = target
+                }
+            }
+        }
+
+        /** The test-module function a call `q.n(...)` (q may be empty) in [module] names, as `module:n`. */
+        fun resolveHelper(module: String, qualifier: String, name: String): String? {
+            val candidates = if (qualifier.isEmpty()) {
+                listOf(module) + wildcardImports[module].orEmpty()
+            } else {
+                listOfNotNull(importBindings[module]?.get(qualifier))
+            }
+            return candidates.firstOrNull { functionsByModule[it]?.containsKey(name) == true }?.let { "$it:$name" }
+        }
+        val helperBodies = mutableMapOf<String, List<String>>()
+        functionsByModule.forEach { (m, fns) -> fns.forEach { (n, bodies) -> helperBodies["$m:$n"] = bodies } }
+
         val callSite = Regex(
             """(?:([A-Za-z_]\w*)\s*\.\s*)?\b(${bare.joinToString("|") { Regex.escape(it) }})\s*\("""
         )
-        fun invocationsIn(text: String) = callSite.findAll(text).count { m ->
+        /** How many times [text], read from inside [module], invokes the guard's declaration. */
+        fun invocationsIn(module: String, text: String) = callSite.findAll(text).count { m ->
             val qualifier = m.groupValues[1]
-            qualifier.isEmpty() || qualifier in modulesByName.getValue(m.groupValues[2])
+            val mods = modulesByName.getValue(m.groupValues[2])
+            val bound = importBindings[module]?.get(qualifier)
+            qualifier.isEmpty() || qualifier in mods ||
+                (bound != null && (bound in mods || bound.substringAfterLast('.') in mods))
+        }
+        val anyCallSite = Regex("""(?:([A-Za-z_]\w*)\s*\.\s*)?\b([A-Za-z_]\w*)\s*\(""")
+        /** Every test-module helper [text] calls from inside [module], and how many times. */
+        fun helperCallsIn(module: String, text: String): Map<String, Int> {
+            val out = mutableMapOf<String, Int>()
+            anyCallSite.findAll(text).forEach { m ->
+                val node = resolveHelper(module, m.groupValues[1], m.groupValues[2]) ?: return@forEach
+                out[node] = (out[node] ?: 0) + 1
+            }
+            return out
+        }
+        // A test-module helper "reaches" the declaration when its own body
+        // invokes it, or when it calls another helper that does.
+        val reaching = mutableSetOf<String>()
+        var grew = true
+        while (grew) {
+            grew = false
+            helperBodies.forEach { (node, bodies) ->
+                if (node in reaching) return@forEach
+                val owner = node.substringBeforeLast(':')
+                val hit = bodies.any { b ->
+                    invocationsIn(owner, b) > 0 || helperCallsIn(owner, b).keys.any { it in reaching }
+                }
+                if (hit) { reaching += node; grew = true }
+            }
+        }
+        /** The text a statement really executes: itself plus every reaching helper it calls. */
+        fun flatten(module: String, text: String, depth: Int, seen: MutableSet<String>): String {
+            if (depth > 4) return text
+            val sb = StringBuilder(text)
+            helperCallsIn(module, text).keys.filter { it in reaching }.forEach { node ->
+                if (seen.add(node)) {
+                    helperBodies.getValue(node).forEach {
+                        sb.append('\n').append(flatten(node.substringBeforeLast(':'), it, depth + 1, seen))
+                    }
+                }
+            }
+            return sb.toString()
+        }
+        /** How many times the statement invokes the declaration, helpers expanded. */
+        fun sites(module: String, text: String, depth: Int): Int {
+            if (depth > 4) return 99
+            var n = invocationsIn(module, text)
+            helperCallsIn(module, text).forEach { (node, here) ->
+                if (node in reaching) {
+                    n += here * helperBodies.getValue(node).sumOf { sites(node.substringBeforeLast(':'), it, depth + 1) }
+                }
+            }
+            return n
         }
         val loopRx = Regex("""\b(?:for|while)\b""")
         val opRx = Regex("""\.\s*op\s*\(""")
@@ -3058,58 +3167,20 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         files.forEach { (p, content) ->
             if (!isTest.getValue(p)) return@forEach
             val masked = maskRellSource(content, maskStrings = true)
+            val module = moduleOfFile.getValue(p)
             val head = Regex("\\bfunction\\s+${Regex.escape(test)}\\s*\\(").find(masked) ?: return@forEach
             val brace = masked.indexOf('{', head.range.last)
             if (brace < 0) return@forEach
             val close = matchBrace(masked, brace, '{', '}') ?: return@forEach
-            val helperBodies = mutableMapOf<String, MutableList<String>>()
-            RellSecurityCheck.functionDefinitions(masked).forEach { d ->
-                helperBodies.getOrPut(d.name) { mutableListOf() }.add(d.body)
-            }
-            // A test-module helper "reaches" the declaration when its own body
-            // invokes it, or when it calls another helper that does.
-            val reaching = mutableSetOf<String>()
-            var grew = true
-            while (grew) {
-                grew = false
-                helperBodies.forEach { (h, bodies) ->
-                    if (h in reaching) return@forEach
-                    val hit = bodies.any { b ->
-                        invocationsIn(b) > 0 || RellSecurityCheck.calledNames(b).any { it in reaching }
-                    }
-                    if (hit) { reaching += h; grew = true }
-                }
-            }
-            /** The text a statement really executes: itself plus every reaching helper it calls. */
-            fun flatten(text: String, depth: Int, seen: MutableSet<String>): String {
-                if (depth > 4) return text
-                val sb = StringBuilder(text)
-                RellSecurityCheck.calledNames(text).filter { it in reaching }.forEach { h ->
-                    if (seen.add(h)) {
-                        helperBodies.getValue(h).forEach { sb.append('\n').append(flatten(it, depth + 1, seen)) }
-                    }
-                }
-                return sb.toString()
-            }
-            /** How many times the statement invokes the declaration, helpers expanded. */
-            fun sites(text: String, depth: Int): Int {
-                if (depth > 4) return 99
-                var n = invocationsIn(text)
-                RellSecurityCheck.calledNames(text).filter { it in reaching }.forEach { h ->
-                    val here = Regex("\\b${Regex.escape(h)}\\s*\\(").findAll(text).count()
-                    if (here > 0) n += here * helperBodies.getValue(h).sumOf { sites(it, depth + 1) }
-                }
-                return n
-            }
             val spans = mutableListOf<TestStatement>()
             var from = brace + 1
             var depth = 0
             var i = brace + 1
             fun record(endAt: Int) {
                 val statement = masked.substring(from, endAt)
-                val siteCount = sites(statement, 0)
+                val siteCount = sites(module, statement, 0)
                 if (siteCount > 0) {
-                    val flat = flatten(statement, 0, mutableSetOf())
+                    val flat = flatten(module, statement, 0, mutableSetOf())
                     val ops = opRx.findAll(flat).count()
                     val opName = opRx.find(flat)
                         ?.let { callee.find(flat, it.range.last + 1) }
@@ -3152,6 +3223,9 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
         return null
     }
+
+    /** `import a: b.c;` / `import b.c;` / `import b.c.*;` - one import of a (masked) module. */
+    private val IMPORT_REGEX = Regex("""\bimport\s+(?:([A-Za-z_]\w*)\s*:\s*)?([A-Za-z_][\w.]*?)\s*(\.\s*\*)?\s*;""")
 }
 
 class LocalChainStrategy : BaseToolStrategy() {
