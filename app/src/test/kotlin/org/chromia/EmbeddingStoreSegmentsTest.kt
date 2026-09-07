@@ -11,7 +11,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.chromia.tools.RagStore
 import org.chromia.tools.embeddingStoreSegments
-import org.chromia.tools.persistLocalEmbeddings
 import org.chromia.tools.segmentId
 import org.chromia.tools.segmentMetadataValue
 import org.chromia.tools.textSegmentsFromStoreJson
@@ -28,7 +27,7 @@ import java.nio.file.Path
 class EmbeddingStoreSegmentsTest {
 
     @Test
-    fun listsSegmentsViaPublicSerializeToJsonAndPreservesIds() {
+    fun listsSegmentsFromTheRealModelsIndexAndPreservesIds() {
         val segment = TextSegment.from(
             "Rell compiles through S_ then thirteen C_ passes.",
             Metadata.from(
@@ -38,9 +37,9 @@ class EmbeddingStoreSegmentsTest {
                 )
             )
         )
-        val store = InMemoryEmbeddingStore<TextSegment>().also {
-            it.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), segment)
-        }
+        // Embedded by the model the server ships, at its real width - a
+        // hand-written three-float vector used to stand here.
+        val store = TestDocsIndex.index(listOf(segment))
 
         val serialized = store.serializeToJson()
         val root = Json.parseToJsonElement(serialized)
@@ -130,19 +129,43 @@ class EmbeddingStoreSegmentsTest {
     }
 
     @Test
-    fun listsSegmentsViaPublicSearchWhenDimensionIs64() {
-        val segment = TextSegment.from(
+    fun listsSegmentsOfAStoreBuiltByAForeignEmbedderAtEitherKindOfWidth() {
+        // These vectors are NOT a substitute for the shipped embedder - they are
+        // an index built by a DIFFERENT one, which is the entire reason
+        // `embeddingStoreSegments` looks past the model's own 384: it tries the
+        // fallback widths (64, 768) with `search`, and for a width it does not
+        // know it parses `serializeToJson()` instead. Neither branch has an input
+        // the real model can produce, so this is the one place in the file that
+        // writes a vector by hand, and it covers both:
+        //
+        //   - 64 wide: a known fallback width, listed through public search;
+        //   - 3 wide: an unknown width, where every search() throws on the
+        //     dimension mismatch and the serializeToJson() parse takes over.
+        val searched = TextSegment.from(
             "search lists every same-width entry",
             Metadata.from("file_name", "search.md")
         )
-        val store = InMemoryEmbeddingStore<TextSegment>().also {
-            it.add(Embedding.from(FloatArray(64) { 0.01f }), segment)
+        val viaSearch = InMemoryEmbeddingStore<TextSegment>().also {
+            it.add(Embedding.from(FloatArray(64) { 0.01f }), searched)
         }
-        val segments = embeddingStoreSegments(store)
-        assertEquals(1, segments.size)
-        assertEquals(segment.text(), segments.single().text())
-        assertEquals("search.md", segmentMetadataValue(segments.single(), "file_name"))
-        assertEquals(segmentId(segment), segmentId(segments.single()))
+        val searchSegments = embeddingStoreSegments(viaSearch)
+        assertEquals(1, searchSegments.size)
+        assertEquals(searched.text(), searchSegments.single().text())
+        assertEquals("search.md", segmentMetadataValue(searchSegments.single(), "file_name"))
+        assertEquals(segmentId(searched), segmentId(searchSegments.single()))
+
+        val parsed = TextSegment.from(
+            "an unknown width falls back to the public JSON",
+            Metadata.from("file_name", "fallback.md")
+        )
+        val viaJson = InMemoryEmbeddingStore<TextSegment>().also {
+            it.add(Embedding.from(floatArrayOf(0.1f, 0.2f, 0.3f)), parsed)
+        }
+        val jsonSegments = embeddingStoreSegments(viaJson)
+        assertEquals(1, jsonSegments.size)
+        assertEquals(parsed.text(), jsonSegments.single().text())
+        assertEquals("fallback.md", segmentMetadataValue(jsonSegments.single(), "file_name"))
+        assertEquals(segmentId(parsed), segmentId(jsonSegments.single()))
     }
 
     @Test
@@ -157,15 +180,17 @@ class EmbeddingStoreSegmentsTest {
             "Directory Chain api_version is 110.",
             Metadata.from("file_name", "directory.md")
         )
-        val path = tempDir.resolve("fixture-embeddings.json")
-        InMemoryEmbeddingStore<TextSegment>().also { store ->
-            store.add(Embedding.from(floatArrayOf(0.4f, 0.5f, 0.6f)), segment)
-            persistLocalEmbeddings(store, path)
-        }
+        // Written by the production writer, embedded by the production model.
+        val path = TestDocsIndex.persist(tempDir.resolve("fixture-embeddings.json"), segment)
+        // `remoteUrls = emptyList()` is an air-gapped install with no remote
+        // configured - a real deployment, and the same code path. It replaced
+        // `registryLoader = { null }`, a constructor lambda no production caller
+        // ever passed, which skipped the entire download path.
         val rag = RagStore(
             loadFromRegistry = true,
             localEmbeddingsPath = path,
-            registryLoader = { null }
+            remoteUrls = emptyList(),
+            cacheEmbeddingsPath = tempDir.resolve("cache").resolve(RagStore.FILE_NAME)
         )
         assertEquals(segment.text(), rag.fetchById(segmentId(segment))?.text())
         assertEquals(segment.text(), rag.fetchById(segmentId(segment).uppercase())?.text())

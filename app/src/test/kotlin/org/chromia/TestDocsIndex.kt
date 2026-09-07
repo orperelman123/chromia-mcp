@@ -106,6 +106,13 @@ object TestDocsIndex {
     fun storeLoadedFrom(path: Path): RagStore = RagStore(
         loadFromRegistry = true,
         localEmbeddingsPath = path,
+        // No remote is CONFIGURED, which is a real deployment (an air-gapped
+        // install shipping its own embeddings.json) - and the reason it matters
+        // here is that the default list is the real GitHub release asset: a
+        // fixture file that ever failed to parse would otherwise pull ~150 MB
+        // over the network on somebody's build.
+        remoteUrls = emptyList(),
+        cacheEmbeddingsPath = null,
         embeddingModel = model
     )
 }

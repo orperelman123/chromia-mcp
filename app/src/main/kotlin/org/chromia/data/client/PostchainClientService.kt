@@ -15,23 +15,19 @@ import org.chromia.domain.NetworkResult
 import org.chromia.domain.exceptions.NetworkConfigurationException
 import org.chromia.domain.exceptions.PostchainClientException
 
-fun interface BlockchainQueryClient {
-    fun query(blockchainRid: BlockchainRid, queryName: String, arguments: Gtv): Gtv
-}
-
-/** Test seam for verify_deployment's height probe (no keys, read-only). */
-fun interface BlockchainHeightClient {
-    fun currentBlockHeight(urls: List<String>, blockchainRid: BlockchainRid): Long
-}
-
+/**
+ * There were three test seams here until 2026-09-07 - `clientFactory`,
+ * `heightClient` and a trailing-lambda `queryClient`, plus the two
+ * `fun interface`s they were built on. Every one of them let a test replace the
+ * chain client with a lambda that answered on the chain's behalf, which is what
+ * made this file's own caching claims a restatement: the test counted its own
+ * lambda's invocations. They are gone. The tests that used them query the live
+ * testnet Economy Chain and real mainnet chains through the client below, and
+ * `cachedClientCount()` - the thing the claims are actually about - is read off
+ * the real cache.
+ */
 class PostchainClientService(
-    private val config: ChromiaConfig,
-    /** Test seam for the client cache; production uses [createRealClient]. */
-    private val clientFactory: ((List<String>, BlockchainRid) -> CachedQueryClient)? = null,
-    /** Test seam for [currentBlockHeight]; production reads via the cached client. */
-    private val heightClient: BlockchainHeightClient? = null,
-    // Last so existing trailing-lambda test callers keep SAM-converting to it.
-    private val queryClient: BlockchainQueryClient? = null
+    private val config: ChromiaConfig
 ) {
 
     /** A per-chain query client plus how to release it when evicted. */
@@ -58,9 +54,6 @@ class PostchainClientService(
             }
     }
 
-    /** Test seam; production keeps [EVICTION_CLOSE_GRACE_MS]. */
-    internal var evictionCloseGraceMs: Long = EVICTION_CLOSE_GRACE_MS
-
     // Every chromia_dapp_query used to build a fresh StandardChromiaClient (whose
     // constructor eagerly creates a directory-chain PostchainClientImpl with its
     // own Apache HC5 connection pool) plus a second per-chain PostchainClientImpl
@@ -84,7 +77,7 @@ class PostchainClientService(
                 val evicted = eldest.value
                 evictionCloser.schedule(
                     { runCatching { evicted.close() } },
-                    evictionCloseGraceMs,
+                    EVICTION_CLOSE_GRACE_MS,
                     java.util.concurrent.TimeUnit.MILLISECONDS
                 )
                 return true
@@ -101,7 +94,7 @@ class PostchainClientService(
         synchronized(cachedClients) { cachedClients[key] }?.let { return it.client }
         // Creation performs signer-node discovery over the network - keep it
         // outside the lock so a slow node does not stall unrelated cached calls.
-        val created = (clientFactory ?: ::createRealClient)(urls, blockchainRid)
+        val created = createRealClient(urls, blockchainRid)
         synchronized(cachedClients) {
             cachedClients[key]?.let { raced ->
                 runCatching { created.close() }
@@ -149,14 +142,9 @@ class PostchainClientService(
         runCatching {
             val networkName = network ?: config.defaultNetwork
             val urls = resolveUrls(networkName)
-            heightClient?.currentBlockHeight(urls, blockchainRid)
-                ?: run {
-                    val client = queryClientFor(urls, blockchainRid)
-                    (client as? net.postchain.client.core.PostchainReadClient)?.currentBlockHeight()
-                        ?: throw IllegalStateException(
-                            "postchain client does not expose block height"
-                        )
-                }
+            val client = queryClientFor(urls, blockchainRid)
+            (client as? net.postchain.client.core.PostchainReadClient)?.currentBlockHeight()
+                ?: throw IllegalStateException("postchain client does not expose block height")
         }.fold(
             onSuccess = { NetworkResult.Success(it) },
             onFailure = { e ->
@@ -181,8 +169,7 @@ class PostchainClientService(
         val urls = resolveUrls(networkName)
 
         val gtvArgs = listMapAndPrimitivesToGtv(arguments)
-        val queryResult = queryClient?.query(blockchainRid, query, gtvArgs)
-            ?: queryClientFor(urls, blockchainRid).query(query, gtvArgs)
+        val queryResult = queryClientFor(urls, blockchainRid).query(query, gtvArgs)
 
         // makeStrictGtvGson, not make_gtv_gson: the plain variant's BIGINTEGER
         // serialize branch throws "big_integer cannot be serialized as JSON", so

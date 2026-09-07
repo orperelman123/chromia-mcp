@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeEach
 import net.postchain.common.toHex
 import org.junit.jupiter.api.Test
 import java.net.ServerSocket
@@ -55,26 +54,9 @@ class LocalChainToolTest {
     private fun errorText(result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult): String =
         (result.content.first() as TextContent).text!!
 
-    /**
-     * Other test classes still install node-starter overrides on this global
-     * object. Clearing them BEFORE each test is what makes the real-node
-     * lifecycle test below honest: a leaked override from another class would
-     * otherwise turn a "real" start into someone else's fabrication without
-     * anything failing.
-     */
-    @BeforeEach
-    fun requireARealStarter() {
-        LocalChain.starterOverrideForTests = null
-        LocalChain.nodeStarterOverrideForTests = null
-        LocalChain.startTimeoutSecondsOverrideForTests = null
-    }
-
     @AfterEach
     fun tearDown() {
         LocalChain.stopAll()
-        LocalChain.starterOverrideForTests = null
-        LocalChain.nodeStarterOverrideForTests = null
-        LocalChain.startTimeoutSecondsOverrideForTests = null
     }
 
     // ------------------------------------------------------------------
@@ -370,6 +352,10 @@ class LocalChainToolTest {
         assertTrue(first.notes.contains("rell.get_app_structure"), first.notes)
         val startedChain = LocalChain.running
         assertNotNull(startedChain, "a started chain must be registered")
+        // Self-verifying: a registered chain with no PostchainNode behind it
+        // could only come from a substitute starter, and this test's whole point
+        // is that the registry is exercised with real ones.
+        assertNotNull(startedChain?.node, "the started chain must be a REAL Postchain node")
 
         val json = with(LocalChain) { first.toJson() }
         for (key in listOf("ok", "status", "brid", "apiUrl", "chainId", "nodePubkey", "expiresInSeconds", "notes")) {

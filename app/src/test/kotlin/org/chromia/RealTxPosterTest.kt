@@ -61,15 +61,14 @@ class RealTxPosterTest {
         val databaseUrl = LiveEnv.requireDatabaseUrl(
             "RealTxPoster is driven against a real embedded Postchain node instead of a scripted HttpHandler"
         )
-        // Other classes install node-starter overrides on this global object; a
-        // leaked one would hand us a chain with no node and nothing would say so.
-        LocalChain.starterOverrideForTests = null
-        LocalChain.nodeStarterOverrideForTests = null
         val up = LocalChain.up(files, databaseUrl = databaseUrl, ttlSeconds = 900)
         assertTrue(up.ok, "local chain failed to start: ${up.notes}")
+        // Self-verifying: a registered chain with no PostchainNode behind it
+        // could only come from a substitute starter, and the point of this class
+        // is that the poster is driven against a real one.
         assertNotNull(
             LocalChain.running?.node,
-            "the chain under test must be a REAL Postchain node, not a test starter's stand-in"
+            "the chain under test must be a REAL Postchain node"
         )
         brid = up.brid!!
         apiUrl = up.apiUrl!!

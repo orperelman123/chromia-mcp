@@ -376,18 +376,23 @@ object RealTxPoster : TxPoster {
             endpointPool = EndpointPool.default(urls),
             signers = listOf(KeyPair(pubKey, privKey))
         )
-        return postWith(config, defaultHttpHandler(config), ops)
+        return postTo(config, ops)
     }
 
     /**
-     * The post proper, over an explicit transport, so unit tests can drive the
-     * exact wire exchanges (post accepted; status rejected / waiting / 404)
-     * without a network and prove what the outcome carries in each. Production
-     * goes through [post] with the client's own default handler (Apache client,
-     * timeouts, gzip) - the recorder wraps it, it does not replace it.
+     * The post proper.
+     *
+     * This used to take the http4k transport as a parameter, so a unit test could
+     * script the exact wire exchanges (post accepted; status rejected / waiting /
+     * 404) without a network. That made every outcome the test asserted an
+     * outcome the test had written. The parameter went on 2026-09-07: the poster
+     * is driven against a REAL local Postchain node and, for the signing pipeline
+     * end to end, against the live testnet Economy Chain with a throwaway key.
+     * The recorder still wraps the client's own default handler - it observes the
+     * status polls, it does not replace them.
      */
-    internal fun postWith(config: PostchainClientConfig, transport: HttpHandler, ops: List<TxOp>): TxOutcome {
-        val recorder = StatusPollRecorder(transport)
+    private fun postTo(config: PostchainClientConfig, ops: List<TxOp>): TxOutcome {
+        val recorder = StatusPollRecorder(defaultHttpHandler(config))
         PostchainClientImpl(config, recorder).use { client ->
             var builder = client.transactionBuilder()
             for (op in ops) builder = builder.addOperation(op.name, *op.args.toTypedArray())

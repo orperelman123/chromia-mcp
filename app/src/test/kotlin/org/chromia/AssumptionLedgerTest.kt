@@ -87,8 +87,9 @@ class AssumptionLedgerTest {
         Row(
             "LocalChainIntegrationTest.kt", "chainStartsAnswersQueriesAndStops", "requireDatabaseUrl",
             Resource.POSTGRES,
-            "starts a REAL Postchain node and drives its REST surface; the in-process ChainGateway double " +
-                "in LocalChainRestBridgeTest is the thing this exists to be the counterpart of."
+            "starts a REAL Postchain node and drives its REST surface end to end - compile, boot, query, " +
+                "sign, post, await a block, shut down. Nothing in the JVM can stand in for the database it " +
+                "writes those blocks to."
         ),
         Row(
             "RunRellTestsToolTest.kt", "concurrentDatabaseBackedRunsDoNotCollide", "requireDatabaseUrl",
@@ -101,6 +102,24 @@ class AssumptionLedgerTest {
             Resource.POSTGRES,
             "runs every scaffold template's own test suite as real transactions on a real chain - the " +
                 "'an agent's first honest pass is green' claim is exactly the claim a simulation cannot make."
+        ),
+        Row(
+            "LocalChainRestBridgeTest.kt", "startTheRealChainOnce", "requireDatabaseUrl", Resource.POSTGRES,
+            "the REST facade is answered by the production EngineGateway over a REAL running node's " +
+                "BlockchainEngine; with no database there is no engine to answer, and the anonymous " +
+                "ChainGateway that used to answer instead is exactly what this file stopped doing."
+        ),
+        Row(
+            "LocalChainToolTest.kt", "upIsIdempotentForIdenticalSourcesAndRestartsOnChange",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "reuse-versus-restart is a claim about the IDENTITY of a real Running registration across two " +
+                "real node starts; a starter override could report either and the test could not tell."
+        ),
+        Row(
+            "RealTxPosterTest.kt", "startTheRealChainOnce", "requireDatabaseUrl", Resource.POSTGRES,
+            "the poster's whole pipeline - GTX build, merkle digest, secp256k1 signature, REST post, status " +
+                "polling, confirmation in a block - is exercised against a real node; the scripted http4k " +
+                "handler it replaced could only replay what the test had written."
         ),
         Row(
             "AuditRound4RegressionTest.kt", "interruptedDbRunDefersPermitReleaseUntilTheRealRunnerFinishes",

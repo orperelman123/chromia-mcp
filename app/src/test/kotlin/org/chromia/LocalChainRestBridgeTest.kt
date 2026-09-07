@@ -105,15 +105,14 @@ class LocalChainRestBridgeTest {
         val databaseUrl = LiveEnv.requireDatabaseUrl(
             "the REST bridge is exercised against a real embedded Postchain node, not a substitute gateway"
         )
-        // Other classes install node-starter overrides on this global object; a
-        // leaked one would hand us a chain with no node and nothing would say so.
-        LocalChain.starterOverrideForTests = null
-        LocalChain.nodeStarterOverrideForTests = null
         val up = LocalChain.up(files, databaseUrl = databaseUrl, ttlSeconds = 900)
         assertTrue(up.ok, "local chain failed to start: ${up.notes}")
+        // Self-verifying: a registered chain with no PostchainNode behind it
+        // could only come from a substitute starter, and this class's whole
+        // claim is that everything below is answered by a real one.
         assertNotNull(
             LocalChain.running?.node,
-            "the chain under test must be a REAL Postchain node, not a test starter's stand-in"
+            "the chain under test must be a REAL Postchain node"
         )
         brid = up.brid!!
         base = up.apiUrl!!
