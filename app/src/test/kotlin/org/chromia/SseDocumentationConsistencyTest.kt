@@ -32,8 +32,9 @@ import java.nio.file.Files
 class SseDocumentationConsistencyTest {
 
     /**
-     * The prose and the launchers a user actually reads. `docs/knowledge/**` is
-     * vendored third-party documentation and is deliberately not included -
+     * The prose and the launchers a user actually reads. Everything under
+     * `docs/knowledge/` is vendored third-party documentation and is
+     * deliberately not included -
      * we do not get to rewrite Chromia's own docs to agree with us.
      */
     private fun documentationFiles(): List<java.nio.file.Path> {

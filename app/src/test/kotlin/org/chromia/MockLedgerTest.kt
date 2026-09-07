@@ -239,6 +239,12 @@ class MockLedgerTest {
                 samLambda.findAll(line).forEach { sites += Triple(name, "SAM_LAMBDA", it.groupValues[1]) }
                 clientSeam.findAll(line).forEach { sites += Triple(name, "CLIENT_SEAM", it.groupValues[1]) }
                 if (trailingQueryClient.containsMatchIn(line)) sites += Triple(name, "CLIENT_SEAM", "queryClient")
+                implementsSeamInline.findAll(line).forEach {
+                    sites += Triple(name, "IMPLEMENTS", it.groupValues[1])
+                }
+                implementsSeamContinued.findAll(line).forEach {
+                    sites += Triple(name, "IMPLEMENTS", it.groupValues[1])
+                }
             }
         }
         return sites
