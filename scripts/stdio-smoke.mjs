@@ -79,7 +79,7 @@ const check = (label, ok, detail) => { results.push([label, ok]); console.log(`$
 // answering INTERNAL_ERROR, a node pool stalling) is a warning, not a verdict
 // on the transport this smoke exists to test: the round-trip itself worked.
 // Anything else is ours. CI 33864861449 (2026-09-04): the explorer was down and
-// this smoke went red on `get_network_stats` while every transport check passed.
+// this smoke went red on a live explorer check while every transport check passed.
 const liveCheck = async (label, ok, t) => {
   if (ok) return check(label, true, t.slice(0, 60));
   let sig = upstreamSignature(t);
@@ -198,8 +198,8 @@ async function domainChecks() {
   t = text(await call('chromia_help', { topic: 'chr_build' }));
   check('chromia_help topic', t.length > 100, null);
 
-  t = text(await call('get_network_stats', {}));
-  await liveCheck('live analytics over stdio', t.includes('countAllAccounts'), t);
+  t = text(await call('get_total_rewards_paid', {}));
+  await liveCheck('live analytics over stdio', t.includes('totalRewardsPaid'), t);
 
   t = text(await call('no_such_tool', {}));
   check('unknown tool errors cleanly', /unknown tool|not found/i.test(t), t.slice(0, 60));

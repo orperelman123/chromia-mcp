@@ -98,8 +98,6 @@ class ToolExecutor(
             runCatching { org.chromia.App.effectiveDisabledTools() }.getOrElse { McpTools.disabledTools() }
         },
         "get_prompts" to PromptsToolStrategy(promptManager),
-        "get_blockchains_transactions" to BlockchainsTransactionsStrategy(),
-        "get_transactions_by_cluster" to TransactionsByClusterStrategy(),
         "get_all_assets" to AllAssetsStrategy(),
         "get_total_rewards_paid" to TotalRewardsPaidStrategy(),
         "get_asset_distribution" to AssetDistributionStrategy(),
@@ -115,8 +113,6 @@ class ToolExecutor(
         "get_asset_blockchains" to AssetBlockchainsStrategy(),
         "get_signer_blockchains" to SignerBlockchainsStrategy(),
         "get_account_blockchains" to AccountBlockchainsStrategy(),
-        "get_node_unavailability" to NodeUnavailabilityStrategy(),
-        "get_network_stats" to NetworkStatsStrategy(),
         "fetch_docs" to FetchDocsStrategy(ragStoreDeferred),
         "search" to SearchDocsStrategy(ragStoreDeferred),
         "fetch" to FetchDocumentStrategy(ragStoreDeferred),
@@ -899,30 +895,6 @@ class PromptsToolStrategy(private val promptManager: PromptManager) : BaseToolSt
     }
 }
 
-class BlockchainsTransactionsStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getBlockchainsTransactions(network)
-        return handleResult(result, "Failed to get blockchains transactions")
-    }
-}
-
-class TransactionsByClusterStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getTransactionsByCluster(network)
-        return handleResult(result, "Failed to get transactions by cluster")
-    }
-}
-
 class AllAssetsStrategy : BaseToolStrategy() {
     override val touchesLocalMachine: Boolean = false
 
@@ -1200,32 +1172,6 @@ class AccountBlockchainsStrategy : BaseToolStrategy() {
 
         val result = repository.getAccountBlockchains(accountId, network)
         return handleResult(result, "Failed to get account blockchains")
-    }
-}
-
-class NodeUnavailabilityStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val pubkey = requireParameter(args, "pubkey")
-        val startTimestamp = requireParameter(args, "startTimestamp")
-        val network = extractString(args, "network")
-
-        val result = repository.getNodeUnavailability(pubkey, startTimestamp, network)
-        return handleResult(result, "Failed to get node unavailability")
-    }
-}
-
-class NetworkStatsStrategy : BaseToolStrategy() {
-    override val touchesLocalMachine: Boolean = false
-
-    override suspend fun execute(request: CallToolRequest, repository: ChromiaRepository): CallToolResult {
-        val args = request.argumentsOrEmpty as Map<String, Any>
-        val network = extractString(args, "network")
-
-        val result = repository.getNetworkStats(network)
-        return handleResult(result, "Failed to get network stats")
     }
 }
 

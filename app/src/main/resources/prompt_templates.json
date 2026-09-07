@@ -10,15 +10,6 @@
       }
     },
     {
-      "title": "Get Network Stats",
-      "description": "Get comprehensive network statistics and metrics",
-      "tool": "get_network_stats",
-      "prompt": "Show me an overview of the {network} network",
-      "parameters": {
-        "network": "{network}"
-      }
-    },
-    {
       "title": "Get Blockchain Analytics",
       "description": "Get detailed analytics for a blockchain including transactions and active accounts",
       "tool": "get_blockchain_analytics",
@@ -82,24 +73,6 @@
           "{accountId}"
         ],
         "limit": 50
-      }
-    },
-    {
-      "title": "Transactions By Blockchain",
-      "description": "Get transactions grouped by blockchains, including names, RIDs, cluster, state, height, and transaction count",
-      "tool": "get_blockchains_transactions",
-      "prompt": "Show me transactions grouped by blockchain on {network}",
-      "parameters": {
-        "network": "{network}"
-      }
-    },
-    {
-      "title": "Transactions By Cluster",
-      "description": "Get transaction counts grouped by cluster on a specific network",
-      "tool": "get_transactions_by_cluster",
-      "prompt": "Show me transaction counts by cluster on {network}",
-      "parameters": {
-        "network": "{network}"
       }
     }
   ],
@@ -171,48 +144,6 @@
       "parameters": {
         "assetId": "{assetId}",
         "limit": 10
-      }
-    }
-  ],
-  "analytics": [
-    {
-      "title": "Network Overview",
-      "description": "Get comprehensive network statistics and metrics",
-      "tool": "get_network_stats",
-      "prompt": "Show me an overview of the {network} network",
-      "parameters": {
-        "network": "{network}"
-      }
-    },
-    {
-      "title": "Account Statistics",
-      "description": "Get account-related statistics for a network",
-      "tool": "get_network_stats",
-      "prompt": "How many accounts are there on {network}?",
-      "parameters": {
-        "network": "{network}"
-      }
-    },
-    {
-      "title": "Transfer Statistics",
-      "description": "Get transfer-related statistics for a network",
-      "tool": "get_network_stats",
-      "prompt": "How many transfers have occurred on {network}?",
-      "parameters": {
-        "network": "{network}"
-      }
-    }
-  ],
-  "monitoring": [
-    {
-      "title": "Node Availability",
-      "description": "Check node downtime periods",
-      "tool": "get_node_unavailability",
-      "prompt": "Show me downtime periods for node {pubkey} on {network} since {startTime}",
-      "parameters": {
-        "network": "{network}",
-        "pubkey": "{pubkey}",
-        "startTimestamp": "{startTime}"
       }
     }
   ],
@@ -300,15 +231,6 @@
       "parameters": {
         "network": "{network}",
         "name": "{dappName}"
-      }
-    },
-    {
-      "title": "Top Active DApps",
-      "description": "Get a list of most active dApps by transaction volume",
-      "tool": "get_network_stats",
-      "prompt": "What are the most active dApps on {network}?",
-      "parameters": {
-        "network": "{network}"
       }
     },
     {
