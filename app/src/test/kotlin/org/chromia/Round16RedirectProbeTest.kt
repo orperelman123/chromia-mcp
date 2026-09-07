@@ -1,14 +1,11 @@
 package org.chromia
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.chromia.tools.DappScaffold
 import org.junit.jupiter.api.Test
-import java.io.File
 
 /**
  * ROUND 16, audit fix F2 - "unknown-template routing to the CLOSEST template".
@@ -18,11 +15,12 @@ import java.io.File
  * where each one lands, so the round's claim about the redirect is a measurement
  * rather than a reading of the source.
  *
- * Output: `realworld/adversary-round16/redirect/raw.json`.
+ * Output: `build/adversary-round16/redirect/raw.json`, asserted equal to the
+ * FROZEN `realworld/adversary-round16/redirect/raw.json` value by value (see
+ * [Round16Evidence]) - an ask that lands somewhere else, or scaffolds a
+ * different file set, is a regression reported with both values.
  */
 class Round16RedirectProbeTest {
-
-    private val out = File("src/test/resources/exploit-corpus/realworld/adversary-round16/redirect")
 
     private val asks = listOf(
         "an investment DAO",
@@ -41,7 +39,6 @@ class Round16RedirectProbeTest {
 
     @Test
     fun `record where the redirect sends twelve ordinary asks`() {
-        out.mkdirs()
         val lines = mutableListOf<String>()
         val rows = buildJsonArray {
             for (ask in asks) {
@@ -63,9 +60,9 @@ class Round16RedirectProbeTest {
                 )
             }
         }
-        File(out, "raw.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        val relative = "redirect/raw.json"
+        Round16Evidence.record(relative, rows)
         println("ROUND16-REDIRECT\n" + lines.joinToString("\n"))
+        Round16Evidence.assertFrozen(relative, rows)
     }
 }

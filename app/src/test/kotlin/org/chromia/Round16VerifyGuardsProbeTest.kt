@@ -15,10 +15,12 @@ import kotlinx.serialization.json.put
 import org.chromia.tools.RunRellTests
 import org.chromia.tools.VerifyGuardsStrategy
 import org.chromia.tools.callToolRequest
+import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.function.Executable
 import java.io.File
 
 /**
@@ -31,15 +33,18 @@ import java.io.File
  * baseline green and mutant red for every one of them) through the real tool,
  * and pins each to the TRUE verdict.
  *
- * It is a recorder as well as a scoreboard: every raw verdict is written back
- * to `vg/<probe>.tool.json` before anything is asserted, so a red run still
- * leaves the evidence behind.
+ * It is a recorder as well as a scoreboard: every raw verdict is written to
+ * `build/adversary-round16/vg/<probe>.tool.json` before anything is asserted,
+ * so a red run still leaves the evidence behind. The committed
+ * `vg/<probe>.tool.json` files are FROZEN evidence (see [Round16Evidence]):
+ * the run asserts its fresh recording equals the committed one value by value,
+ * so a verdict that drifts is a regression reported with both values.
  */
 class Round16VerifyGuardsProbeTest {
 
     private val repo = RecordingRepository()
 
-    private val dir = File("src/test/resources/exploit-corpus/realworld/adversary-round16/vg")
+    private val dir = File(Round16Evidence.committedRoot, "vg")
 
     private fun probes(): JsonArray =
         Json.parseToJsonElement(File(dir, "probes.json").readText()).jsonArray
@@ -85,6 +90,7 @@ class Round16VerifyGuardsProbeTest {
         )
         assertTrue(dir.isDirectory, "probe fixtures missing at ${dir.absolutePath}")
         val wrong = mutableListOf<String>()
+        val recordings = mutableListOf<Pair<String, JsonObject>>()
         for (element in probes()) {
             val spec = element.jsonObject
             val name = spec["probe"]!!.jsonPrimitive.content
@@ -92,31 +98,37 @@ class Round16VerifyGuardsProbeTest {
             val out = runProbe(spec)
             val one = out["result"]!!.jsonObject
             val verdict = one["verdict"]!!.jsonPrimitive.content
-            File(dir, "$name.tool.json").writeText(
-                Json { prettyPrint = true }.encodeToString(
-                    JsonObject.serializer(),
-                    buildJsonObject {
-                        put("probe", name)
-                        put("true_verdict", truth)
-                        put("tool_verdict", verdict)
-                        put("tool_ok", out["ok"]!!)
-                        put("loadBearing", one["loadBearing"]!!)
-                        put("evidence", one["evidence"]!!)
-                        put("why", spec["why"]!!)
-                        put("false_verdict", verdict != truth)
-                    }
-                )
-            )
+            val record = buildJsonObject {
+                put("probe", name)
+                put("true_verdict", truth)
+                put("tool_verdict", verdict)
+                put("tool_ok", out["ok"]!!)
+                put("loadBearing", one["loadBearing"]!!)
+                put("evidence", one["evidence"]!!)
+                put("why", spec["why"]!!)
+                put("false_verdict", verdict != truth)
+            }
+            val relative = "vg/$name.tool.json"
+            Round16Evidence.record(relative, record)
+            recordings += relative to record
             if (verdict != truth) {
                 wrong += "$name: verify_guards said `$verdict` (loadBearing=" +
                     "${one["loadBearing"]!!.jsonPrimitive.content}), the truth is `$truth` - " +
                     "${spec["why"]!!.jsonPrimitive.content}. Evidence: ${one["evidence"]!!.jsonPrimitive.content}"
             }
         }
-        assertEquals(
-            emptyList<String>(),
-            wrong,
-            "verify_guards gave ${wrong.size} verdict(s) that are not the truth:\n" + wrong.joinToString("\n\n")
+        assertAll(
+            listOf(
+                Executable {
+                    assertEquals(
+                        emptyList<String>(),
+                        wrong,
+                        "verify_guards gave ${wrong.size} verdict(s) that are not the truth:\n" + wrong.joinToString("\n\n")
+                    )
+                }
+            ) + recordings.map { (relative, record) ->
+                Executable { Round16Evidence.assertFrozen(relative, record) }
+            }
         )
     }
 }

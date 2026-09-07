@@ -1,14 +1,14 @@
 package org.chromia
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.chromia.tools.RellSecurityCheck
+import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.function.Executable
 import java.io.File
 
 /**
@@ -26,16 +26,18 @@ import java.io.File
  * round 16's measurement of the analyzer as the round found it, cited line by
  * line in the round README, and a recorder that overwrites its own evidence on
  * every build destroys the only record of what was wrong. So the run writes
- * `raw-after-fix.json` beside it and ASSERTS the true verdict for every sample -
- * all eight caught, each by the rule its CORPUS row names. The fixes themselves
- * are pinned structurally in [Round16SecurityRuleFixTest] and against renames in
- * [RuleRenameInvarianceTest]; this class is the round's own eight files,
- * asserted as a set.
+ * `raw-after-fix.json` under `build/adversary-round16/seccheck/` and ASSERTS
+ * the true verdict for every sample - all eight caught, each by the rule its
+ * CORPUS row names. The committed `seccheck/raw-after-fix.json` is frozen too
+ * (see [Round16Evidence]): the fresh recording must equal it value by value,
+ * so a finding that drifts is a regression reported with both values. The
+ * fixes themselves are pinned structurally in [Round16SecurityRuleFixTest] and
+ * against renames in [RuleRenameInvarianceTest]; this class is the round's own
+ * eight files, asserted as a set.
  */
 class Round16SecurityRuleProbeTest {
 
     private val samples = File("src/test/resources/exploit-corpus/samples")
-    private val out = File("src/test/resources/exploit-corpus/realworld/adversary-round16/seccheck")
 
     /** Every round-16 seccheck sample with the rule that must catch it now. */
     private val expected = listOf(
@@ -51,7 +53,6 @@ class Round16SecurityRuleProbeTest {
 
     @Test
     fun `every round 16 sample and its control is caught by the rule that should catch it`() {
-        out.mkdirs()
         val lines = mutableListOf<String>()
         val misses = mutableListOf<String>()
         val rows = buildJsonArray {
@@ -93,15 +94,19 @@ class Round16SecurityRuleProbeTest {
                 )
             }
         }
-        File(out, "raw-after-fix.json").writeText(
-            Json { prettyPrint = true }.encodeToString(JsonArray.serializer(), rows)
-        )
+        val relative = "seccheck/raw-after-fix.json"
+        Round16Evidence.record(relative, rows)
         println("ROUND16-SECCHECK\n" + lines.joinToString("\n"))
-        assertTrue(
-            misses.isEmpty(),
-            "round 16 evaded three of the four rebuilt rules with one token each and missed a fourth " +
-                "shape outright. Each sample must now draw the rule its CORPUS row names:\n" +
-                misses.joinToString("\n")
+        assertAll(
+            Executable {
+                assertTrue(
+                    misses.isEmpty(),
+                    "round 16 evaded three of the four rebuilt rules with one token each and missed a fourth " +
+                        "shape outright. Each sample must now draw the rule its CORPUS row names:\n" +
+                        misses.joinToString("\n")
+                )
+            },
+            Executable { Round16Evidence.assertFrozen(relative, rows) }
         )
     }
 }
