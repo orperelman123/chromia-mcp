@@ -2924,7 +2924,20 @@ class DappScaffoldSecureTemplatesTest {
             "test_an_exhausted_policy_closes_through_the_same_helper_must_fail",
             "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
             "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_two_numbers",
-            "test_conservation_holds_across_premiums_claims_and_refunds"
+            "test_conservation_holds_across_premiums_claims_and_refunds",
+            // The four CANONICAL-SHAPE cases. Six of the eleven guards redden their
+            // replay with "Transaction did not fail", which verify_guards answers
+            // load_bearing before any shape is read; the other five measure the damage
+            // with an assertion, and their replays invoke the guard's declaration in
+            // more than one statement - which the tool answers `ambiguous_refusal`,
+            // correctly, because "which invocation refused" is then unanswerable. Each
+            // of these states the SAME property in SHAPE B: ONE invocation of the
+            // guard's declaration, expected to succeed, damage measured after it. The
+            // replays are untouched - this is a second proof, not a weakened one.
+            "test_vg1_a_cancel_refunds_only_what_the_claims_did_not_spend",
+            "test_vg2_a_refund_is_a_share_of_what_the_reserve_holds",
+            "test_vg3_a_settlement_pays_every_claimant_the_same_share",
+            "test_vg4_a_late_claim_does_not_move_the_settlement_window"
         )
     )
 
@@ -3076,6 +3089,32 @@ class DappScaffoldSecureTemplatesTest {
         )
         // ...and the two orders are pinned to ONE string rather than to a comparison a
         // reader has to make.
+        // THE SHAPE `verify_guards` CAN READ, pinned rather than hoped for. The tool
+        // proves two shapes and both require the guard's declaration to be invoked in
+        // EXACTLY ONE statement of the test; anything else is `ambiguous_refusal`, and
+        // that verdict is CORRECT - with two invocations, "which one refused" is not in
+        // the run. Six guards are answered before any shape is read (their replay
+        // reddens with "Transaction did not fail"); these four cases are shape B for
+        // the other five, and a second invocation slipped into one of them would take
+        // its verdict away silently.
+        mapOf(
+            "test_vg1_a_cancel_refunds_only_what_the_claims_did_not_spend" to
+                listOf("cancel_policy", "close_exhausted_policy"),
+            "test_vg2_a_refund_is_a_share_of_what_the_reserve_holds" to
+                listOf("cancel_policy", "close_exhausted_policy"),
+            "test_vg3_a_settlement_pays_every_claimant_the_same_share" to listOf("settle_claim_round"),
+            "test_vg4_a_late_claim_does_not_move_the_settlement_window" to listOf("file_claim")
+        ).forEach { (case, declarations) ->
+            val body = test.substringAfter("function $case(").substringBefore("\n}")
+            assertTrue(body.isNotEmpty() && body.length < test.length, "$case must exist")
+            val invocations = declarations.sumOf { d -> Regex("\\bmain\\.$d\\s*\\(").findAll(body).count() }
+            assertEquals(
+                1,
+                invocations,
+                "$case must invoke ${declarations.joinToString(" or ")} EXACTLY once - that is the whole of the " +
+                    "shape verify_guards proves, and a second invocation makes the verdict ambiguous_refusal"
+            )
+        }
         assertTrue(test.contains("val PRO_RATA_OUTCOME ="), "the claim outcome must be one value both orders assert")
         assertTrue(test.contains("val REFUND_OUTCOME ="), "and so must the refund outcome")
         mapOf(

@@ -10054,6 +10054,114 @@ object DappScaffold {
             assert_conserved();
         }
 
+        // ---------------------------------------------------------------------------
+        // THE FOUR CANONICAL-SHAPE CASES. Every guard above is proven twice: once by the
+        // replay that names the drain, and once here in the shape `verify_guards` can
+        // read - the guard's declaration invoked in EXACTLY ONE statement, expected to
+        // succeed, with the damage measured after it. The replays are the story; these
+        // are the shape. Neither is weaker than the other and both run on every build.
+        //
+        // The six guards whose replay reddens with "Transaction did not fail" need no
+        // case here: that IS the shape, and the tool reads it before any other rule.
+        // ---------------------------------------------------------------------------
+
+        // SHAPE B for ONE REFUND, ONE PLACE IT IS COMPUTED, and for A PAYOUT IS RECORDED
+        // ON THE POLICY IT PAID. One cancel, expected to succeed, and what it paid is
+        // read afterwards: alice's claim spent her whole premium, so her cancel returns
+        // nothing and she keeps the 1200 she had.
+        function test_vg1_a_cancel_refunds_only_what_the_claims_did_not_spend() {
+            val k = join_three();
+            signed(k.bob, main.buy_policy("b1", 1000, 500));
+            signed(k.eve, main.buy_policy("e1", 1000, 500));
+            signed(k.alice, main.buy_policy("a1", 1000, 100));
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 300));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+            assert_equals(main.balance_of(k.alice_id), 1200);
+
+            signed(k.alice, main.cancel_policy("a1"));
+
+            assert_equals(
+                "alice=" + main.balance_of(k.alice_id)
+                    + " reserve=" + main.pool_reserve()
+                    + " book=" + main.cover_written(),
+                "alice=1200 reserve=800 book=2000"
+            );
+            assert_conserved();
+        }
+
+        // SHAPE B for A REFUND IS PRO RATA, NOT FIRST COME. One cancel, expected to
+        // succeed. Alice's claim took 200 out of a pool that only ever held 100 of hers,
+        // so 200 of unspent premium stands on 100 of reserve: bob's half of it is 50,
+        // and it is 50 whether he is the first to leave or the second.
+        function test_vg2_a_refund_is_a_share_of_what_the_reserve_holds() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 300, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 100));
+            signed(k.eve, main.buy_policy("e1", 200, 100));
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 200));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+            assert_equals(main.pool_reserve(), 100);
+            assert_equals(main.refundable(), 200);
+
+            signed(k.bob, main.cancel_policy("b1"));
+
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id) + " reserve=" + main.pool_reserve(),
+                "bob=950 reserve=50"
+            );
+            assert_conserved();
+        }
+
+        // SHAPE B for CLAIMS SETTLE PRO RATA, NOT FIRST COME. One settlement, expected to
+        // succeed, and the two payouts are read afterwards. Bob filed first and it bought
+        // him nothing.
+        function test_vg3_a_settlement_pays_every_claimant_the_same_share() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            signed(k.eve, main.buy_policy("e1", 200, 20));
+            signed(k.alice, main.open_claim_round());
+            signed(k.bob, main.file_claim("b1", 200));
+            signed(k.eve, main.file_claim("e1", 200));
+            after(DAY + 60 * 1000);
+
+            signed(k.bob, main.settle_claim_round());
+
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve(),
+                PRO_RATA_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // SHAPE B for NO OPERATION WRITES A TIMESTAMP OF ITS OWN. One claim, filed an
+        // hour before the window closes and expected to succeed; the damage is measured
+        // by the LATER transaction that has to settle it. If filing moved the round's
+        // clock, that settlement is refused and nobody is paid at all.
+        function test_vg4_a_late_claim_does_not_move_the_settlement_window() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 10, 100));
+            signed(k.bob, main.buy_policy("b1", 200, 20));
+            signed(k.alice, main.open_claim_round());
+            after(23 * 60 * 60 * 1000);
+
+            signed(k.bob, main.file_claim("b1", 100));
+
+            after(2 * 60 * 60 * 1000);
+            signed(k.bob, main.settle_claim_round());
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id) + " reserve=" + main.pool_reserve(),
+                "bob=1080 reserve=20"
+            );
+            assert_conserved();
+        }
+
         // CONSERVATION, after every step of an ordinary year: premiums in, claims out,
         // refunds out and the reserve are one identity, and the book is the cover the
         // live policies still stand for.
