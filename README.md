@@ -611,6 +611,53 @@ account.
 
 Every push runs the full pyramid — none of these can be skipped:
 
+### There are no test doubles
+
+Not a mock, not a fake, not a stub, not a recorded response, not an `object :`
+substitute for one of our own types, and no mocking framework on the classpath.
+`NoTestDoublesTest` scans every `.kt` file under `app/src/test/kotlin` for
+declarations of substitute behaviour — doubles by name, anonymous objects over
+production types, `MockEngine`, SAM lambdas for our own `fun interface`s, client
+and loader seams, any `*OverrideForTests`, classes implementing a production seam
+type — and asserts the list is **empty**, printing every offender it finds. A
+companion test drives each detector against a literal example of the shape it
+looks for, so its silence means "found nothing", not "stopped matching".
+
+This replaced a ledger of 41 doubles, each with a live check said to cover the
+same path. The conversion is what proved the ledger wrong: pointed at the real
+explorer, **four** of the sixteen explorer tools turned out not to work at all,
+and every one had a green unit test. They are retired (see *Retired tools*
+above). What a double is replaced by is one of three things, decided per site:
+the real thing in process (the `chr` on PATH, the embedded Postchain node the
+suite starts, the production embedding model, a real HTTP server on a real port,
+a real *closed* port when a connection error is the honest outcome), the real
+thing live, or **deletion** — and a deleted test takes its claim with it, in a
+comment saying what now covers it, or that nothing does.
+
+The production seams the doubles came through went with them: an interface with
+one implementation and a defaulted constructor parameter is not an abstraction
+once nothing is left to inject.
+
+### The live third-party tests are part of the gate, and an outage is a red
+
+The tests that call the public explorer, the testnet Economy Chain and the real
+`chr` are not a separate optional tier: the gate refuses to start unless
+`CHROMIA_TEST_DATABASE_URL`, `CHROMIA_LIVE_PROVISIONING_TESTS=true` and
+`CHROMIA_REQUIRE_CHR=true` are set, and `LiveEnv` turns an
+enabled-but-broken resource into a **failure** rather than a skip.
+
+So when an upstream service is down, this suite goes red. That is deliberate.
+The remedy is to fix or wait for the upstream and **re-run** — never to skip the
+test, never to add an allowlist entry, never to swap in a recorded answer for the
+duration. A green tally that was reached by not asking is the failure mode this
+whole section exists to prevent.
+
+(The e2e sweep, layer 2 below, is the one place with a softer rule, and it is
+bounded: demonstrably third-party failures become `WARN-UPSTREAM` through an
+allowlisted classifier, but all-live-warn is a FAIL, more than
+`SWEEP_MAX_UPSTREAM_WARNS` warnings is a FAIL, and non-network checks always fail
+hard.)
+
 ### The merge gate, and the two modes it has
 
 `node scripts/loop-gate.mjs --dir <repo> --expect-min <previously verified count>`
@@ -655,7 +702,7 @@ process could have noticed. The mode derives the list instead:
    that matches nothing narrows a run silently — and print the derivation in the
    gate line, so a reader can recompute it.
 
-1. **Unit + regression suite** (`./gradlew test`, 557 tests) — includes `RellToolsFuzzTest`,
+1. **Unit + regression suite** (`./gradlew test`, 1536 tests, zero skips) — includes `RellToolsFuzzTest`,
    a seeded property-based fuzzer that throws generated/mutated Rell at the compiler tools and
    asserts they always return structured results, never crash or hang (found a real crash on
    its first run: unterminated `operation x() {` at EOF).
