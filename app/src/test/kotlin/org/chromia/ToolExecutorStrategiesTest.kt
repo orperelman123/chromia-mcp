@@ -8,7 +8,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -32,7 +31,6 @@ import org.chromia.tools.SignerBlockchainsStrategy
 import org.chromia.tools.PromptManager
 import org.chromia.tools.PromptsToolStrategy
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import kotlinx.serialization.json.JsonElement
