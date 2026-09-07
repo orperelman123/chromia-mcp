@@ -103,6 +103,13 @@ class LocalChainRestBridgeTest {
      * exactly the client a real agent writes from the docs, and the transaction
      * tests below only pass if the bridge tells it the truth about the chain
      * (see [featuresRouteReportsTheVersionTheChainActuallyRuns]).
+     *
+     * The gate run of 2026-09-07 18:42Z is what found this: with
+     * `merkleHashVersion = 2` pinned here and the chain actually running version
+     * 1, three tests failed - two on `{"error":"Transaction is invalid"}` (400
+     * where 200 was expected) and one on a status that stayed `unknown`. Those
+     * three are the regression detector for the two fixes; if either the
+     * `features` nesting or the features route goes away, they come back.
      */
     private lateinit var builderClient: PostchainClient
 
