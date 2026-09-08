@@ -352,6 +352,21 @@ object ToolDocs {
         the unearned remainder, and `cancellable` is fixed at creation so a vesting grant
         cannot be clawed back. Its tests replay the round-7 grind and require the payee to be
         paid what the clock says anyway.
+        AND WHERE THE ANSWER IS NO. Some value classes have NO template here, and for those
+        this tool scaffolds NOTHING (ok:false, no `files`) and names the class and the guard
+        that is missing instead: an UNPREDICTABLE OUTCOME (a raffle, a lottery, a prize draw,
+        a prediction market, betting), a PAYMENT or STATE CHANNEL, a THRESHOLD-CONTROLLED
+        ACCOUNT (a multisig wallet, a signer set), and a CROWDFUNDING CAMPAIGN. Attaching a
+        compilable, guard-free skeleton for a different problem to that answer is how an agent
+        builds the wrong thing and passes every gate - adversary rounds 8 and 14 are both that
+        mistake, and round 18 drained a raffle built from the nearest template's guards with
+        rell_security_check at ok:true and zero findings. These classes are recognised BY
+        CONCEPT, not by spelling: raffle, tombola, sweepstake, giveaway, jackpot, loterie,
+        sorteo, rifa, Verlosung, sorteio, lotteria, estrazione and the rest are one class,
+        accents included, so renaming what you are building does not route it somewhere that
+        has files. An ask that names an uncovered class ALONGSIDE a covered one is answered by
+        the uncovered one FIRST and still scaffolds nothing; ask for the covered half on its
+        own by name when you want it. docs/TEMPLATE-GAPS.md is the queue.
         NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
         Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
     """.trimIndent()

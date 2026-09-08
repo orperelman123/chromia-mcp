@@ -247,9 +247,154 @@ were, and this lane's budget went to the fifteenth template's third drain and to
 laundering that put the raffle in front of an agent in the first place. The row stays,
 at the top, with the numbers.
 
+**ROUND 19: A SYNONYM WALKED AROUND THE WHOLE LIST, AND TWO REFUSALS WERE SAFE BY
+ACCIDENT.** Round 18's fix - the uncovered classes read out of a list BEFORE the routing
+`when` - was right, and round 19 measured what it is worth when the list is A LIST OF
+WORDS. `a tombola for token holders that pays out weekly` was answered **ok:true,
+`template=ft4`, FOUR FILES** and not one word about the draw: `tombola` is a raffle and
+was not one of the six spellings, so `declined` came back empty, `token holders` sent the
+ask to the token skeleton, and the agent got a guard-free skeleton for the class this
+table has at its top with a MEASURED drain against it. That is round 18's laundering with
+the uncovered half spelled by a synonym instead of hidden behind a second clause. And the
+same ask in French and Spanish - `une loterie hebdomadaire pour les deposants`, `un sorteo
+semanal de premios para los depositantes` - declined, but declined as "unknown template"
+rather than "this class has no template": nothing matched at all, so the answer never
+named the class or the missing guard, and an agent that reads it learns only that we have
+no template by that name.
+
+Both are fixed at the root and the rule generalises past this file: **an uncovered class
+is recognised by CONCEPT, not by spelling.** Each class's vocabulary is built from what
+the class IS - every ordinary English name for it plus French, Spanish, German,
+Portuguese, Italian, Dutch and Polish - and an ask is FOLDED before it is tokenised
+(`DappScaffold.foldAsk`), because the tokeniser is `[a-z0-9]+` and every accent used to be
+a word boundary: `lotería` tokenised to `loter` + `a` and matched nothing at all. The
+answer to a class that names nothing covered now carries the class and its missing guard
+(`declinedOnlyTail`), which is what the two "safe by accident" refusals were missing.
+
+**AND THE RULE THAT GOES WITH IT, because a vocabulary is a place to be careless:** every
+stem was chosen against round 19's own clean pass, `a lending market for ABETTING
+collateral positions`, which routes to `lending` because `abetting` does not START with
+`betting`. There is no `bet*` (it takes `better`, `between`), no `pari*` (it takes
+`parity`, a stablecoin word), no bare `signer*` (it takes a bridge's relayer signers), no
+`pledge*` (it takes a lending pool's pledged collateral), and no `donation*` or `gaming*`
+(those are two OTHER rows of this table, and answering them with the raffle's guard would
+be this finding pointed the other way). `Round19TemplateSurfaceProbeTest` pins a
+twenty-five-ask clean-pass corpus across the whole covered roster beside the multilingual
+corpus, so a stem that starts firing inside a covered word reddens the class it steals
+from.
+
+**STILL OPEN AFTER ROUND 19, and written down rather than implied:**
+
+- **A SCRIPT WITH NO LATIN TRANSLITERATION IS INVISIBLE TO EVERY KEY LIST, covered and
+  uncovered alike.** `TOKEN` is `[a-z0-9]+`; folding reaches the Latin scripts and
+  nothing else. Round 18 measured a Chinese insurance ask (`带索赔的保险池`) tokenising to
+  NOTHING, and it falls to the roster - which is the honest answer for an unknown name and
+  the WRONG answer for an uncovered class, because the roster does not name the missing
+  guard. The fix is not more keys: it is a transliteration or an embedding step in front
+  of the tokeniser, and it is a lane of its own.
+- **TWO ROWS OF THE TABLE BELOW HAVE NO NAMED REFUSAL.** The loyalty/points/gaming-item
+  row and the fee-splitter/charity/yield-aggregator row reach the generic roster, not a
+  class paragraph with a missing guard, and `untemplatedClasses` has four entries where
+  this table has six uncovered classes. They were deliberately NOT added in this lane -
+  each one changes what three frozen redirect recordings say, and a wrong named class is
+  worse than the roster - but they are the same defect as the two "safe by accident"
+  refusals round 19 measured, one row down.
+- **THE `describe_tool` LONG FORMS ARE NOT AUDITED SENTENCE BY SENTENCE.** Round 19's
+  review measured what is derivable across all 71 tools - every tool has a full
+  description, every tool is named by at least one test source, every
+  `describe_tool{tool:"X"}` / `chromia_help{topic:"X"}` cross-reference resolves, every
+  parameter a tool's own example names is declared by its schema, and every "Rell pin X"
+  equals `DappScaffold.RELL_SOURCE_TAG` - and found one class of defect: **seven
+  descriptions state "Rell pin 0.16.7" while `chromia.yml`'s `compile.rellVersion` is
+  0.16.1, and nothing tied either number to a constant.** Both are right in their own
+  place (0.16.7 is the source tag the help tools quote; CLI 0.33.x's SUPPORTED_VERSIONS
+  stops at 0.16.1, so a project pinned to the tag fails `chr build`), and an agent that
+  copies the pin it read into a chromia.yml gets the error. The measurement is added; the
+  clarifying half-sentence in those seven descriptions is not, and neither is a
+  claim-by-claim audit of the other sentences. That is the next item after the template.
+
+## The commit-reveal raffle, designed - what a future template lane builds
+
+This is the design note the top row has been owed since round 18 drained the class on a
+chain. It is a DESIGN, measured against the drain it has to make unwritable; it is not a
+template, and this lane did not build it, because a template here is a main module, a
+shipped suite, a guard-by-guard mutant for every guard, a redirect, module args and corpus
+rows, all built and measured on a real chain the way the other fifteen were.
+
+**THE DRAIN IT HAS TO MAKE UNWRITABLE, in one sentence:** the entropy was
+`op_context.last_block_time`, the timestamp of the block ALREADY COMMITTED, so the
+attacker predicted nothing - she watched blocks land and answered the one whose ticket was
+hers, winning 5 of 5 weekly draws on a 90-of-1890 stake and turning 100 into 400 while two
+honest depositors went 1500 -> 1350. Every drained draw was LEGAL: in the block she chose,
+the other two were each refused "you are not this week's winner", so no rule keyed on the
+operation can tell that block from any other. **That is why this is a template's job and
+not a checker's.**
+
+**THE SHAPE.**
+
+1. **COMMIT.** An entry is `commit(h: byte_array)` where `h = hash(secret ++ signer)`.
+   The row is `(round, account, commitment)` with `key (round, account)` - one commitment
+   per account per round, refused by the DATABASE rather than by a check somebody has to
+   remember - and `commitment` is IMMUTABLE, so nothing can be swapped after the phase
+   closes. The stake or ticket price moves INTO the module's own escrow in the same
+   operation, the way `marketplace`'s escrow does; nothing is paid out of a pot that was
+   never funded.
+2. **THE PHASE BOUNDARY IS THE BLOCK CLOCK, WRITTEN ONCE.** `round.opened_at` is written
+   by the operation that opens the round and by NOTHING else - the `streaming` template's
+   "NO OPERATION IN IT WRITES A TIMESTAMP" guard, which exists because round 7's grief was
+   an anchor a caller could advance. `COMMIT_MS` and `REVEAL_MS` are module args with
+   positive defaults. Commit is refused at or after `opened_at + COMMIT_MS`; reveal is
+   refused before it and at or after `opened_at + COMMIT_MS + REVEAL_MS`. The two
+   comparisons must PARTITION the timeline exactly - that is `escrow`'s deadline pair, and
+   the airdrop row of this table is here because a window whose comparisons overlap or
+   leave a gap is its own exploit class.
+3. **REVEAL, WITH A DEPOSIT THE REVEALER FORFEITS.** `reveal(secret: byte_array)` requires
+   `hash(secret ++ signer) == commitment` and folds the secret into the round's
+   accumulator - `round.mixed = hash(round.mixed ++ secret)`, a monotone write, one per
+   commitment, refused twice by the same `key`. **THE GUARD THAT MAKES THE DRAW
+   UNPREDICTABLE IS THE FORFEIT, NOT THE HASH:** the last revealer can always see the
+   accumulator and compute whether her secret wins, so her choice is between REVEALING and
+   FORFEITING her deposit, and the deposit is sized against the prize (`deposit >= prize /
+   participants`, a module arg with a positive default) so that withholding costs more
+   than the swing it buys. A design that hashes secrets and skips the deposit has moved the
+   attack from choosing a BLOCK to choosing whether to SPEAK, which is the same attack.
+4. **THE DRAW USES ONLY REVEALED SECRETS, AND NO BLOCK DATA AT ALL.** `settle_round()` is
+   permissionless, refuses before the reveal window closes, refuses twice (`round.settled`
+   leaves false exactly once), and picks the winner from `round.mixed` against the
+   REVEALED entries in proportion to stake. It reads no timestamp, no block rid and no
+   transaction hash: **on this chain a block's own data is visible to whoever chooses when
+   to submit, so it is not entropy**, and a template that ships that sentence in its header
+   and then reads the clock in its draw is the round-7 shape (our own prose being the
+   vulnerability) all over again.
+5. **THE TIMEOUT THAT REFUNDS.** If nobody reveals - or fewer than `MIN_REVEALS` do - the
+   round has no entropy and MUST NOT fall back to anything. `refund_round()` is
+   permissionless after the reveal window, returns every commit's stake and every
+   forfeitable deposit that was revealed, and keeps the deposits of those who did not.
+   There is no path that pays a prize out of a round with too few reveals, and no operation
+   that extends a window: an extension is an option for whoever may take it, which is the
+   `escrow` template's own admission and the shape of the round-7 grief.
+
+**WHAT IT SHIPS WITH, or it is not a template here.** The round-18 drain as a must-fail
+test with a mutant that reddens it BECAUSE THE ATTACK LANDED - drained-then-refused, the
+standard every other guard in this repository meets - plus: an economic invariant
+(`stakes_in == prizes_out + refunds_out + forfeits_retained`, true of a redistribution the
+way `insurance`'s is), the block-clock draw as a mutant (delete the accumulator, read
+`op_context.last_block_time`, and the round-18 five-of-five must come back), a
+last-revealer test that measures the forfeit against the swing, an EXTENDING THIS TEMPLATE
+section naming the seam (a second prize, a rollover, a referral - each is a second path
+out of the pot and belongs INSIDE `settle_round()`, which is `insurance`'s exit queue one
+class along), the redirect moved in the same commit, and this row deleted in that commit.
+
+**AND THE HALF NO TEMPLATE CLOSES, stated in the header rather than discovered later:** a
+commit-reveal raffle with ONE participant is decided by that participant, and one with two
+colluding participants is decided by whichever of them reveals last. The forfeit bounds
+what that is worth; it does not remove it. A template that does not say so is the round-8
+disclaimer ("an AMM's own invariant is yours to prove") that a build then proved nothing
+about.
+
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| **a lottery, a raffle, a prize draw, a prediction market** - DRAINED ON A CHAIN, round 18 | `(none)` - it reached `staking` on the word `rewards` until 2026-09-07, and it reached `lending` inside a two-class ask until 2026-09-08 | an UNPREDICTABLE OUTCOME. Staking's guards are about a reward being funded before it is paid; nothing in it makes a draw unpredictable, and a draw the signer can predict is a withdrawal | outcome manipulation: block data (timestamp, rid, any hash of the transaction) is chosen by whoever picks the submission block, so it is not entropy. MEASURED: trudy 100 -> 400 on 5 of 5 prizes with a 90-of-1890 stake, alice and bob 1500 -> 1350, `rell_security_check` ok:true. Commit-reveal with a forfeitable deposit is the shape; nothing ships it |
+| **a lottery, a raffle, a prize draw, a prediction market** - DRAINED ON A CHAIN, round 18 | `(none)` - it reached `staking` on the word `rewards` until 2026-09-07, it reached `lending` inside a two-class ask until 2026-09-08, and it reached `ft4` with FOUR FILES under the name `tombola` (and said nothing at all in French or Spanish) until 2026-09-09 | an UNPREDICTABLE OUTCOME. Staking's guards are about a reward being funded before it is paid; nothing in it makes a draw unpredictable, and a draw the signer can predict is a withdrawal | outcome manipulation: block data (timestamp, rid, any hash of the transaction) is chosen by whoever picks the submission block, so it is not entropy. MEASURED: trudy 100 -> 400 on 5 of 5 prizes with a 90-of-1890 stake, alice and bob 1500 -> 1350, `rell_security_check` ok:true. Commit-reveal with a forfeitable deposit is the shape; nothing ships it |
 | a token airdrop with a claim window | `staking` | a CLAIM WINDOW. Its guards cover the mint - a reward paid out of a pool nobody funded is round 4 - but not an allocation that expires, and not where the unclaimed remainder goes | a deadline whose two comparisons do not partition the timeline, and a remainder that stays claimable for ever. `escrow`'s deadline pair is the shape to copy |
 | a payment channel, a state channel | `(none)` - it reached `ft4` on the word `payment` until 2026-09-07 | a CHANNEL. A token ledger has no sequence number, no off-chain state and no dispute window | the CLOSE: a stale state posted by whoever profits from it, and a dispute window somebody has to be online to watch. `escrow` covers value locked between two named parties; nothing covers the close |
 | a multisig wallet, a threshold account | `(none)` - it reached `ft4` on the word `wallet` until 2026-09-07 | a SIGNER SET. The ft4 skeleton has one auth descriptor | who may add or remove a key, whether a signature counts once, and whether the set can be closed. FT4's account model has multi-signature auth descriptors and `bridge` ships M-of-N over one ACTION; neither is a template for an account |
