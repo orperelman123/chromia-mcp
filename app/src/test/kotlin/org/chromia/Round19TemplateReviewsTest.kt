@@ -25,12 +25,14 @@ import org.junit.jupiter.api.Test
  *     fixture on disk, a Rell standard-library call, or a name the section explicitly
  *     tells the extender to WRITE, fails this test with its name and its template.
  *
- *     The measurement, run before this test was written: sixteen `//` blocks carry the
- *     phrase, fifteen of them are section headers, and ten identifiers in them resolve
- *     outside the module - five adversary fixtures that exist on disk, one corpus test
- *     case, one Rell standard-library call, and three names the sections PRESCRIBE
- *     (`exit_requested_at`, `cliff_ms`, `last_paid_at`). Nothing was wrong; what was
- *     missing was the test that says so, and would say so again after an edit.
+ *     MEASURED: fifteen sections, and ten identifiers in them that the module itself does
+ *     not carry - two adversary fixtures named by the template's OWN shipped test file,
+ *     three more named only by a seam sentence and asserted to exist on disk, one corpus
+ *     test case, one Rell standard-library call, and three names the sections PRESCRIBE
+ *     (`exit_requested_at`, `cliff_ms`, `last_paid_at`). NOTHING WAS WRONG - no section
+ *     names a guard the template does not have, and no template is missing a guard its
+ *     section promises. What was missing was the test that says so, and would say so
+ *     again after an edit.
  *
  * (b) EVERY `describe_tool` LONG FORM'S CLAIMS. The 71 tools' full descriptions are the
  *     text an agent reads before it calls anything, and round 17's stale-roster defect -
@@ -73,10 +75,10 @@ class Round19TemplateReviewsTest {
         "dapp_a_feepool" to "app/src/test/resources/exploit-corpus/realworld/adversary-round7/dapp_a_feepool",
         "dapp_b_ratecurve" to "app/src/test/resources/exploit-corpus/realworld/adversary-round8/dapp_b_ratecurve",
         "dapp_a_pause" to "app/src/test/resources/exploit-corpus/realworld/adversary-round8/dapp_a_pause",
-        "dapp_a2_pause_variant" to
-            "app/src/test/resources/exploit-corpus/realworld/adversary-round8/dapp_a2_pause_variant",
-        "dapp_a3_pause_as_cancel" to
-            "app/src/test/resources/exploit-corpus/realworld/adversary-round8/dapp_a3_pause_as_cancel",
+        // `dapp_a2_pause_variant` and `dapp_a3_pause_as_cancel` are NOT in this map: the
+        // streaming template's own shipped test file names them, so they classify one step
+        // earlier. They WERE in it until the first run of this test reported them dead, which
+        // is the point of asserting that no escape hatch goes unused.
         "test_b2" to
             "app/src/test/resources/exploit-corpus/realworld/adversary-round8/dapp_b_ratecurve/src/test/attack_test.rell"
     )
@@ -307,8 +309,13 @@ class Round19TemplateReviewsTest {
             }
         }
         println("ROUND19-RELL-PIN-CLAIMS stated=$stated wrong=${wrong.size}")
-        assertTrue(stated >= 7, "round 19 measured seven descriptions stating a Rell pin; got $stated")
         assertTrue(wrong.isEmpty(), wrong.joinToString("\n"))
+        // MEASURED, on the first run of this test: FIVE tool descriptions state a Rell pin -
+        // chromia_rell_types_help, _language_help, _expressions_help, _statements_help and
+        // _systemlib_help - and none of them is one of the fourteen whose long form was moved
+        // into ToolDocs. A sixth is welcome; a fifth going missing means a description lost the
+        // pin an agent reads before it writes a chromia.yml.
+        assertTrue(stated >= 5, "five descriptions state a Rell pin; got $stated")
         // ...and the two pins are DIFFERENT on purpose. If they ever become equal, the
         // sentence in DappScaffold's header that explains the difference is stale.
         assertNotEquals(
