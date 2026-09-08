@@ -78,8 +78,8 @@ class Round18VerifyGuardsProbeTest {
 
     private val dir = File(Round18Evidence.committedRoot, "vg")
 
-    private fun probes(): JsonArray =
-        Json.parseToJsonElement(File(dir, "probes.json").readText()).jsonArray
+    private fun probes(file: String): JsonArray =
+        Json.parseToJsonElement(File(dir, file).readText()).jsonArray
 
     private fun runProbe(spec: JsonObject): JsonObject {
         val files = spec["files"]!!.jsonObject
@@ -116,6 +116,36 @@ class Round18VerifyGuardsProbeTest {
 
     @Test
     fun `round 18 import and transaction probes get the true verdict out of verify_guards`() {
+        driveEveryProbe("probes.json")
+    }
+
+    /**
+     * THE FIX LANE'S OWN PROBES. The three inputs round 18 found are measured by
+     * `probes.json` above, which is the adversary's evidence and does not move.
+     * The FIX, though, says more than those three probes measure: it parses
+     * every import form the compiler accepts and counts the operations of a
+     * transaction STRUCTURALLY, and a sentence in the long form, the advertised
+     * description or the README that no probe measures is a claim, not a
+     * measurement. `probes-fix.json` is one probe per form the fixed tool's
+     * sentences name - `.op(a, b)`, a list literal, `.ops([...])`, an operation
+     * built in one statement and run in another, a block of two transactions, a
+     * RELATIVE exact import - plus the control that proves the structural count
+     * still reads `rell.test.tx(take(...))` as ONE operation.
+     *
+     * Every one was written to disk and run on a REAL chain first
+     * (`harness/vg_r18_fix.py`, this worktree's own database, one schema per
+     * probe): baseline green, mutant red, recorded in
+     * `vg/<probe>.chain.json`. Six of the seven were DANGEROUS before the fix -
+     * the same attack as p18b, a second operation refusing ON THE DAMAGE
+     * reported as the attack being refused, written in a form the `.op(`-count
+     * could not see.
+     */
+    @Test
+    fun `the import and transaction forms the fixed tool claims are each measured`() {
+        driveEveryProbe("probes-fix.json")
+    }
+
+    private fun driveEveryProbe(probesFile: String) {
         assertNotNull(
             System.getenv(RunRellTests.DATABASE_URL_ENV),
             "verify_guards runs real tests and needs ${RunRellTests.DATABASE_URL_ENV}"
@@ -123,7 +153,7 @@ class Round18VerifyGuardsProbeTest {
         assertTrue(dir.isDirectory, "probe fixtures missing at ${dir.absolutePath}")
         val wrong = mutableListOf<String>()
         val recordings = mutableListOf<Pair<String, JsonObject>>()
-        for (element in probes()) {
+        for (element in probes(probesFile)) {
             val spec = element.jsonObject
             val name = spec["probe"]!!.jsonPrimitive.content
             val truth = spec["true_verdict"]!!.jsonPrimitive.content

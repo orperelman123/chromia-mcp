@@ -1898,20 +1898,21 @@ object McpTools {
     fun verifyGuardsTool() = Tool(
         name = "verify_guards",
         description = """
-            Prove that a guard in YOUR dapp is load-bearing. A must-fail test is only evidence if it
-            goes red when the guard it depends on is removed, and goes red BECAUSE THE ATTACK LANDED.
-            For each {guard, test}: (1) the test must PASS on your files as submitted; (2) the guard line
-            is replaced (default: deleted) and ONLY that test is run; (3) the verdict is read from WHY it
-            failed. Verdicts: load_bearing, vacuous, still_refused, ambiguous_refusal,
-            red_for_another_reason, environmental, and six that name an input the tool cannot verify.
-            TWO test shapes are proved - one must-fail statement on the guard's declaration, or one
-            must-hold statement plus an assertion; any other shape is ambiguous_refusal. That statement
-            may reach the declaration through helpers in ANY test module, via imports and aliases, up to
-            16 calls deep. A replacement's own messages are attributed like the guard's;
+            Prove a guard in YOUR dapp is load-bearing: a must-fail test is evidence only if it goes red
+            when the guard is removed, BECAUSE THE ATTACK LANDED. Per {guard, test}: the test must PASS as
+            given, the guard is replaced (default: deleted), that test alone re-runs, and the verdict is
+            read from WHY it failed.
+            TWO shapes: one must-fail statement on the guard's declaration, or one must-hold statement
+            plus an assertion; anything else is ambiguous_refusal. That statement may reach the
+            declaration through helpers in ANY test module, via imports and aliases, up to 16 calls deep
+            - every import form the compiler takes, exact `.{ }` and relative too - and a qualifier the
+            CALLING module binds to a test module is a HELPER, whatever its name. Its operations are
+            counted structurally (ctor args, .op(), lists): any count but one, or one it cannot read,
+            is ambiguous_refusal. A replacement's own messages are attributed like the guard's;
             stillRefused/attackLanded are read in the must-hold shape only.
-            ok=true only when EVERY named guard is load_bearing. Pass the same moduleArgs you pass to
-            run_rell_tests. Nothing is deployed; it says nothing about guards you did not name.
-            Verdicts, shapes and arguments in full: describe_tool{tool:"verify_guards"}.
+            ok=true only when EVERY guard named is load_bearing; pass moduleArgs as for run_rell_tests.
+            Nothing is deployed; it says nothing about guards you did not name.
+            In full: describe_tool{tool:"verify_guards"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(

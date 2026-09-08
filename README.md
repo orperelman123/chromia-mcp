@@ -142,15 +142,33 @@ question every beaten heuristic was guessing at, and a test with one invocation 
 A helper may live in **any test module** of the submission, not only in the test's own file, and a
 call is resolved through the calling module's own imports: `h(...)` in its own module or through
 `import mod.*;`, `mod.h(...)` through `import a.b.mod;`, and `alias.h(...)` through
-`import alias: a.b.mod;`. The chain is followed **16 calls deep**; past that, or through a helper
+`import alias: a.b.mod;`. **Every import form the compiler takes** is parsed, not a subset — the
+exact import `import a.b.{ x, y };`, which puts `x` and `y` in the calling module's own namespace,
+and the relative spellings `import .sub;` and `import ^.sibling;` (`^^.` for two segments up),
+exact forms included. There is no `as` inside `{ }`: rell 0.15.0 answers "Syntax error", so
+nothing renames a definition on import. **A qualifier is resolved in the calling module first** —
+`import main: tests.helpers;` makes `main.take(...)` a call to the *test helper*, not to the
+production module it is spelled like, and a qualifier bound to a test module is never the guard's
+declaration. The chain is followed **16 calls deep**; past that, or through a helper
 that calls itself, the tool says the chain is deeper than 16 calls and counts no call sites — it
 never names a number it cannot stand behind. The operations of the transaction and the
 `run_must_fail` are read over the statement's **whole call closure** — every helper it calls, not
 only the ones that reach the guard — so a helper that quietly adds a second operation makes the
 statement `ambiguous_refusal` instead of a single-operation shape A.
 
+The operations themselves are counted **structurally**, not by counting `.op(`: every argument of
+every `rell.test.tx(...)` and `.op(...)` in that closure is one operation, a list literal is
+counted element by element, and a `rell.test.block()` of more than one transaction is not one
+transaction. An argument that is not a call — an operation held in a variable — is **not zero
+operations**, it is an unknown number of them, and unknown is `ambiguous_refusal`. So
+`rell.test.tx(take(...), audit(...))` carries **two** operations though it contains no `.op(` at
+all. And a statement that invokes the guard's operation without running a transaction —
+`val attack = take("a", 11);` — executes nothing: an operation call in test scope only builds a
+`rell.test.op`, so the red belongs to the statement that ran it.
+
 - **Shape A, the must-fail test.** That one statement is a single-operation
-  `rell.test.tx().op(<the declaration>(...)).run_must_fail(...)`. The guard is proven only when
+  `rell.test.tx().op(<the declaration>(...)).run_must_fail(...)` — or the same one operation
+  written `rell.test.tx(<the declaration>(...))`. The guard is proven only when
   removing it makes the transaction **succeed** — the runner says "did not fail". Any other red
   is the attack still being refused, whoever refused it.
 - **Shape B, the must-hold test.** That one statement expects the call to **succeed** (a

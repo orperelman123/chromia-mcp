@@ -411,15 +411,34 @@ object ToolDocs {
         test-module helpers. A HELPER MAY LIVE IN ANY TEST MODULE of the submission, not only
         in the test's own file, and a call is resolved through the CALLING module's own
         imports: h(...) in its own module or through `import mod.*;`, mod.h(...) through
-        `import a.b.mod;`, and alias.h(...) through `import alias: a.b.mod;`. The chain is
-        followed up to 16 calls deep; past that, or through a helper that calls itself, the
-        tool says the chain is deeper than 16 calls and counts no call sites at all rather
-        than reporting a number. The operations of the transaction and the run_must_fail are
-        read over the statement's WHOLE call closure - every helper it calls, not only the
+        `import a.b.mod;`, and alias.h(...) through `import alias: a.b.mod;`. EVERY IMPORT FORM
+        THE COMPILER TAKES is parsed, not a subset: plain, aliased and wildcard as above, the
+        EXACT import `import a.b.{ x, y };` - which puts x and y in the calling module's own
+        namespace, so an unqualified x(...) there is a.b's - and the RELATIVE spellings
+        `import .sub;` (a submodule of the importing module) and `import ^.sibling;` (one
+        segment up, `^^.` two), including `import ^.b.{ x };`. There is no `as` inside `{ }`:
+        rell 0.15.0 answers "Syntax error", so nothing renames a definition on import. AND A
+        QUALIFIER IS RESOLVED IN THE CALLING MODULE FIRST: `import main: tests.helpers;` makes
+        main.take(...) a call to the TEST HELPER, not to the production module it is spelled
+        like, and a qualifier bound to a test module is never the guard's declaration. The
+        chain is followed up to 16 calls deep; past that, or through a helper that calls
+        itself, the tool says the chain is deeper than 16 calls and counts no call sites at all
+        rather than reporting a number. The operations of the transaction and the run_must_fail
+        are read over the statement's WHOLE call closure - every helper it calls, not only the
         ones that reach the guard - so a helper that quietly adds a second operation makes the
         statement ambiguous_refusal instead of a single-operation SHAPE A.
+        HOW THE OPERATIONS ARE COUNTED: structurally, not by counting `.op(`. Every argument of
+        every rell.test.tx(...) and .op(...) in that closure is one operation, a list literal
+        is counted element by element, and a rell.test BLOCK of more than one transaction is
+        not one transaction. An argument that is not a call - an op held in a variable - is NOT
+        zero operations, it is an unknown number of them, and unknown is ambiguous_refusal. So
+        rell.test.tx(take(...), audit(...)) carries TWO operations even though it contains no
+        `.op(` at all. And a statement that invokes the guard's OPERATION without running a
+        transaction (`val attack = take("a", 11);`) executes nothing: an operation call in test
+        scope only builds a rell.test.op, so the red belongs to the statement that ran it.
         SHAPE A, the must-fail test: that statement is a single-operation
-        rell.test.tx().op(<that declaration>(...)).run_must_fail(...), and the guard is proven
+        rell.test.tx().op(<that declaration>(...)).run_must_fail(...) - or the same one
+        operation written rell.test.tx(<that declaration>(...)) - and the guard is proven
         only when removing it makes the transaction SUCCEED ("did not fail") - any other red
         is the attack still being refused. SHAPE B, the must-hold test: that statement expects
         the call to SUCCEED (a single-operation .run(), or a direct call to the query) and the
