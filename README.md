@@ -146,7 +146,13 @@ call is resolved through the calling module's own imports: `h(...)` in its own m
 exact import `import a.b.{ x, y };`, which puts `x` and `y` in the calling module's own namespace,
 and the relative spellings `import .sub;` and `import ^.sibling;` (`^^.` for two segments up),
 exact forms included. There is no `as` inside `{ }`: rell 0.15.0 answers "Syntax error", so
-nothing renames a definition on import. **A qualifier is resolved in the calling module first** —
+nothing renames a definition on import. **A qualifier may also be a namespace**, and it may be a
+whole dotted path: `h.f(...)` reaches `namespace h { function f }` in the calling module,
+`a.b.f(...)` a nested one (declared either way), and a namespace of an imported test module is
+reached through every import form — `helpers.h.f(...)` after `import tests.helpers;`,
+`x.h.f(...)` after `import x: tests.helpers;`, and `h.f(...)` after `import tests.helpers.*;` or
+`import tests.helpers.{ h };`. A namespace is not an import, and a scan that knew only imports
+could not see such a helper at all. **A qualifier is resolved in the calling module first** —
 `import main: tests.helpers;` makes `main.take(...)` a call to the *test helper*, not to the
 production module it is spelled like, and a qualifier bound to a test module is never the guard's
 declaration. The chain is followed **16 calls deep**; past that, or through a helper
@@ -154,13 +160,22 @@ that calls itself, the tool says the chain is deeper than 16 calls and counts no
 never names a number it cannot stand behind. The operations of the transaction and the
 `run_must_fail` are read over the statement's **whole call closure** — every helper it calls, not
 only the ones that reach the guard — so a helper that quietly adds a second operation makes the
-statement `ambiguous_refusal` instead of a single-operation shape A.
+statement `ambiguous_refusal` instead of a single-operation shape A. **A helper's parameters are
+bound to the caller's arguments** when that closure is flattened, positionally or by name, so
+`run_it(take("a", 11))` with `function run_it(o: rell.test.op)` runs one operation rather than an
+unreadable one; an argument that is not a plain call, or that builds a transaction of its own, is
+left as it stands and stays unknown.
 
 The operations themselves are counted **structurally**, not by counting `.op(`: every argument of
 every `rell.test.tx(...)` and `.op(...)` in that closure is one operation, a list literal is
 counted element by element, and a `rell.test.block()` of more than one transaction is not one
-transaction. An argument that is not a call — an operation held in a variable — is **not zero
-operations**, it is an unknown number of them, and unknown is `ambiguous_refusal`. So
+transaction. **A block carries operations too** — the arguments of `rell.test.block(...)` and of
+its `.tx(...)` — so `rell.test.block().tx(take(...), audit(...))` is **one transaction of two
+operations**, and an argument of either that builds a transaction of its own is counted by that
+transaction's own carriers, never twice. There is no `.ops(` and no `.txs(`: rell 0.15.0 answers
+"Type rell.test.tx has no member 'ops'" and "Type rell.test.block has no member 'txs'", so
+neither is modelled. An argument that is not a call — an operation held in a variable — is **not
+zero operations**, it is an unknown number of them, and unknown is `ambiguous_refusal`. So
 `rell.test.tx(take(...), audit(...))` carries **two** operations though it contains no `.op(` at
 all. And a statement that invokes the guard's operation without running a transaction —
 `val attack = take("a", 11);` — executes nothing: an operation call in test scope only builds a
