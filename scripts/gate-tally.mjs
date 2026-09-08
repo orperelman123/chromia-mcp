@@ -191,12 +191,19 @@ export function tally({ resultsDir, warningsDir, startedAt = null }) {
 
     for (const tc of xml.split('<testcase').slice(1)) {
       const name = tc.match(/name="([^"]+)"/)?.[1] ?? '?';
-      if (/<skipped\b/.test(tc)) { skippedNames.push(`${cls}::${name}`); continue; }
+      // The TESTCASE's own classname, not the suite's. Gradle names the suite
+      // after the class, but JUnit's LegacyXmlReportGeneratingListener names it
+      // after the ENGINE ("JUnit Jupiter") when the plan is a single selected
+      // method - so a key built from the suite came out as
+      // `JUnit Jupiter.liveFooBar` and matched no evidence file. Both writers
+      // put the real class on the testcase. Measured 2026-09-08 on both.
+      const owner = (tc.match(/classname="([^"]+)"/)?.[1] ?? cls).replace(/^org\.chromia\./, '');
+      if (/<skipped\b/.test(tc)) { skippedNames.push(`${owner}::${name}`); continue; }
       const problem = tc.match(/<(failure|error)\b[^>]*\bmessage="([^"]*)"/);
       if (!problem) continue;
       const [, kind, rawMessage] = problem;
       const message = decode(rawMessage);
-      const key = `${cls.replace(/\$.*$/, '')}.${methodKey(name)}`;
+      const key = `${owner.replace(/\$.*$/, '')}.${methodKey(name)}`;
       if (!claimsUpstreamWarning(message)) {
         red.push({ key, kind, message, why: null });
         continue;

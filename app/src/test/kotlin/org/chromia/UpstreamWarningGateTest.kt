@@ -95,10 +95,44 @@ class UpstreamWarningGateTest {
         return reports
     }
 
+    /**
+     * A node that actually RUNS, found by trying every one on PATH until one
+     * answers `--version`.
+     *
+     * Not paranoia: a bare `ProcessBuilder("node")` in the Gradle test JVM
+     * started something that printed nothing on either stream and exited
+     * without an exception, so the test reported "the tally printed no JSON"
+     * for a tally that was never executed. Windows keeps an App-Execution-Alias
+     * stub called `node.exe` in WindowsApps for machines with no Node
+     * installed, and it behaves exactly like that. Proving the interpreter
+     * before blaming the script is the difference between a diagnosis and a
+     * guess.
+     */
+    private val node: String by lazy {
+        val tried = mutableListOf<String>()
+        val candidates = System.getenv("PATH").orEmpty().split(java.io.File.pathSeparator)
+            .flatMap { dir -> listOf("node.exe", "node").map { java.io.File(dir, it) } }
+            .filter { it.isFile }
+            .map { it.absolutePath }
+            .distinct()
+        for (candidate in candidates) {
+            val probe = ProcessBuilder(candidate, "--version").redirectErrorStream(true).start()
+            val said = probe.inputStream.bufferedReader().readText().trim()
+            probe.waitFor(60, TimeUnit.SECONDS)
+            if (probe.exitValue() == 0 && said.startsWith("v")) return@lazy candidate
+            tried += "$candidate -> exit ${probe.exitValue()}, said ${said.ifBlank { "<nothing>" }}"
+        }
+        throw AssertionError(
+            "no working node on PATH, and the merge gate's tally runs on node - so this box cannot " +
+                "verify the classification that decides its own pushes. Tried " +
+                "${candidates.size} candidate(s):\n  " + tried.joinToString("\n  ")
+        )
+    }
+
     /** `node scripts/gate-tally.mjs ... --json`, as the gate and CI run it. */
     private fun classify(results: Path, warnings: Path, startedAt: Long?): Pair<Int, JsonObject> {
         val command = mutableListOf(
-            "node", repo.resolve("scripts/gate-tally.mjs").toString(),
+            node, repo.resolve("scripts/gate-tally.mjs").toString(),
             "--results", results.toString(),
             "--warnings", warnings.toString(),
             "--json"
@@ -117,7 +151,9 @@ class UpstreamWarningGateTest {
         )
         assertTrue(
             stdout.trimStart().startsWith("{"),
-            "gate-tally.mjs --json must print the tally as JSON. stdout: $stdout stderr: $stderr"
+            "gate-tally.mjs --json must print the tally as JSON.\n  command: ${command.joinToString(" ")}\n" +
+                "  cwd: $repo\n  exit: ${process.exitValue()}\n  stdout: ${stdout.ifBlank { "<nothing>" }}\n" +
+                "  stderr: ${stderr.ifBlank { "<nothing>" }}"
         )
         return process.exitValue() to Json.parseToJsonElement(stdout).jsonObject
     }
