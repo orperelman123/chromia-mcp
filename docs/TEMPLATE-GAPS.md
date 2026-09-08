@@ -1,8 +1,21 @@
 # Which classes have no template, and why that is the queue
 
-Seventeen adversary rounds. **Every un-templated class attacked has drained.** That
+Eighteen adversary rounds. **Every un-templated class attacked has drained.** That
 is the whole basis for this file: the next drain is predictable from the
 redirect map, not from the last report.
+
+Round 18 added a second way to reach an un-templated class, and it did not need a
+missing row: **an ask that names an uncovered class ALONGSIDE a covered one used to
+be answered by the covered one alone.** "a lending pool that also runs a weekly
+raffle for depositors" was scaffolded onto `lending` - three files, `ok:true`, and
+1517 bytes about lazy interest accrual with NOT ONE WORD about the raffle, the class
+this server declines by name when it is asked for on its own. The row below existed,
+the refusal existed, and the ordered `when` reached `lend*` four branches before it
+looked at `raffle*`. That is fixed (the uncovered classes are now a LIST read BEFORE
+the routing, so the uncovered half is named first, the covered half is named by
+template, and nothing is scaffolded) - but the lesson belongs at the top of this
+file: **a row here is only worth what the routing does with an ask that mentions two
+things.**
 
 Do not round that up to "the templates are safe". The corpus records the
 SHIPPED lending template being drained twice - `r7-lending-bad-debt-exit-race`
@@ -121,8 +134,28 @@ reachable in any pool that has ever paid a claim larger than the claimant's own
 premium. Cover is bounded by the reserve times a configured multiplier with a
 positive default, the premium is a fraction of the cover, and the invariant it ships
 is the one that is actually true for a pool: `premiums_in - claims_out - refunds_out
-== reserve`. Both drains ship as must-fail tests, and all ELEVEN guards carry a
+== reserve`. Both drains ship as must-fail tests, and all TWELVE guards carry a
 mutant that reddens a shipped case because the attack landed.
+
+Round 18 then attacked that template and found the race NEITHER promise names - a
+cancel against the SETTLEMENT. Both pro-rata promises were true of what they said:
+cancel-against-cancel and claim-against-claim. But a claim is public the moment it is
+filed, settlement is REFUSED until `CLAIM_WINDOW_MS` (24 hours) has passed, and a
+policy with no claim in the round could still walk out of it - so a loss-free member
+had a protocol-guaranteed day, with somebody else's loss already on chain, to take
+her premium out of the reserve that loss was about to be paid from. Measured on a
+chain with three members, three policies of 400 cover for 100 premium (every purchase
+exactly on the reserve bound) and a covered loss of 400: `alice=1000 bob=1000
+eve=1000` against the honest `alice=1200 bob=900 eve=900` - **two hundred points on
+transaction order alone**, `rell_security_check` ok:true with zero findings. Closed
+the way the other two were, unwritable rather than checked: `retire_policy()` refuses
+outright while a round is open, `leave_policy()` is the one place a policy leaves and
+an in-round exit JOINS the round instead of racing it, and `settle_claim_round` pays
+the claims, closes the round and only then drains the exit queue through the same
+refund helper. `file_claim` refuses a policy that is leaving, which is the symmetric
+half of the refusal that already existed. The drain and its control ship as cases
+asserting ONE string from both transaction orders, and the mutant reddens with the
+numbers above.
 
 `amm` / `dex` / `swap`, which used to land on `vault`. The
 `amm` template ships the sandwich and JIT liquidity as unwritable rather than
@@ -160,13 +193,56 @@ them honest refusals that NAME the missing guard - which is worth more than a
 confident redirect to guards that do not cover the class (rounds 8 and 14) but is
 still a gap, and is still where the next drain lands.
 
+**THE TOP ROW IS THE RANDOMNESS CLASS, AND ROUND 18 DRAINED IT ON A CHAIN.** It is
+first not because the refusal is dishonest - it names the missing guard - but because
+it is the only row in this table with a MEASURED drain against it, and because it is
+the row the laundering reached. `fixtures/raffle/` is the raffle half of "a lending
+pool that also runs a weekly raffle for depositors", built from the answer that ask
+received, carrying every guard that answer's own discipline implies: the depositor is
+the SIGNER and never an argument, the prize is FUNDED before it is paid (a tenth of
+every deposit), the draw is PERMISSIONLESS so no operator can withhold it, the week is
+enforced against the BLOCK CLOCK and never against a caller's argument, a round settles
+once, the winner is drawn in PROPORTION TO STAKE, every amount is bounded, and nothing
+is minted anywhere. `rell_security_check`: **ok:true, ZERO findings.** `chr test`: 3 of
+3 green. The draw's entropy is `op_context.last_block_time`, the timestamp of the block
+ALREADY COMMITTED, so the attacker predicts nothing - she watches blocks land and
+answers the one whose ticket is hers. Over five weeks with three depositors, trudy
+staking 90 of 1890 (about one week in twenty-one at honest odds): **trudy wins 5 of 5
+prizes and turns 100 into 400, while alice and bob each put in 1500 and end at 1350** -
+300 points moved, and she never waits more than two minutes of blocks. The control, the
+same five weeks drawn at the first second the operation allows, gives trudy ONE of the
+five, which is what her stake is for. AND EVERY DRAINED DRAW IS LEGAL: in the block she
+chose, alice and bob are EACH refused "you are not this week's winner", so no rule keyed
+on the operation can tell that block from any other - which is why this is a template's
+job and not a checker's.
+
+**AND NO RULE CATCHES THE LAUNDERED FORM, WHICH IS THE SECOND HALF OF WHY IT IS FIRST.**
+`rell_security_check` is silent on the fixture and correct to be: nothing in it is
+unauthenticated, unbounded, unowned or minted. The redirect used to hand the ask to
+`lending` and say nothing about the raffle, and the fix for THAT (an uncovered class is
+named first, the covered half is named by template, nothing is scaffolded) is a fix to
+the ANSWER, not to the class. An agent that reads the refusal, builds the raffle anyway
+and asks this server to check it still gets ok:true. Until a sixteenth template ships,
+the honest position is that this server can tell an agent the guard is missing and
+cannot tell it that the guard is absent from the code in front of it.
+
+**WHY NOT IN THIS ROUND.** A commit-reveal raffle whose draw no caller can choose the
+block for is the shape (an entry commits `hash(secret)`, the reveal is bounded by a
+deadline with a forfeitable deposit, and the draw mixes only revealed secrets, so the
+last revealer's choice is between revealing and forfeiting rather than between blocks).
+It is a full template - main module, shipped suite, guard-by-guard mutants, redirect,
+module args, corpus rows - built and measured on a real chain the way the other fifteen
+were, and this lane's budget went to the fifteenth template's third drain and to the
+laundering that put the raffle in front of an agent in the first place. The row stays,
+at the top, with the numbers.
+
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| a lottery, a raffle, a prize draw, a prediction market | `(none)` - it reached `staking` on the word `rewards` until 2026-09-07 | an UNPREDICTABLE OUTCOME. Staking's guards are about a reward being funded before it is paid; nothing in it makes a draw unpredictable, and a draw the signer can predict is a withdrawal | outcome manipulation: block data (timestamp, rid, any hash of the transaction) is chosen by whoever picks the submission block, so it is not entropy. Commit-reveal with a forfeitable deposit is the shape; nothing ships it |
+| **a lottery, a raffle, a prize draw, a prediction market** - DRAINED ON A CHAIN, round 18 | `(none)` - it reached `staking` on the word `rewards` until 2026-09-07, and it reached `lending` inside a two-class ask until 2026-09-08 | an UNPREDICTABLE OUTCOME. Staking's guards are about a reward being funded before it is paid; nothing in it makes a draw unpredictable, and a draw the signer can predict is a withdrawal | outcome manipulation: block data (timestamp, rid, any hash of the transaction) is chosen by whoever picks the submission block, so it is not entropy. MEASURED: trudy 100 -> 400 on 5 of 5 prizes with a 90-of-1890 stake, alice and bob 1500 -> 1350, `rell_security_check` ok:true. Commit-reveal with a forfeitable deposit is the shape; nothing ships it |
 | a token airdrop with a claim window | `staking` | a CLAIM WINDOW. Its guards cover the mint - a reward paid out of a pool nobody funded is round 4 - but not an allocation that expires, and not where the unclaimed remainder goes | a deadline whose two comparisons do not partition the timeline, and a remainder that stays claimable for ever. `escrow`'s deadline pair is the shape to copy |
 | a payment channel, a state channel | `(none)` - it reached `ft4` on the word `payment` until 2026-09-07 | a CHANNEL. A token ledger has no sequence number, no off-chain state and no dispute window | the CLOSE: a stale state posted by whoever profits from it, and a dispute window somebody has to be online to watch. `escrow` covers value locked between two named parties; nothing covers the close |
 | a multisig wallet, a threshold account | `(none)` - it reached `ft4` on the word `wallet` until 2026-09-07 | a SIGNER SET. The ft4 skeleton has one auth descriptor | who may add or remove a key, whether a signature counts once, and whether the set can be closed. FT4's account model has multi-signature auth descriptors and `bridge` ships M-of-N over one ACTION; neither is a template for an account |
-| a crowdfunding campaign with refunds | `(none)` | a goal, a deadline and an all-or-nothing refund | the refund race a `subscription`-style escrow does not have: many backers against one pot, so a partial refund is `insurance`'s pro-rata problem with a deadline attached |
+| a crowdfunding campaign with refunds | `(none)` - a NAMED refusal since 2026-09-08, where it used to fall to the roster | a goal, a deadline and an all-or-nothing refund | the refund race a `subscription`-style escrow does not have: many backers against one pot, so a partial refund is `insurance`'s pro-rata problem with a deadline attached |
 | a loyalty programme, points, a gaming item shop | `(none)` | an issuer who can mint the points at will | the round-4 unbacked mint in a class where minting is the POINT, so `staking`'s "every credit is a pool debit" cannot simply be carried over |
 | a fee splitter, a charity or donation pool, a yield aggregator | `(none)` | a share of an incoming stream, split by weights that can move | a weight changed between the accrual and the withdrawal - the lending template's stale-share-price drain in a class with no share price |
 
@@ -194,3 +270,12 @@ leaves the guards to the reader has now produced a drain twice.
 
 **When a template lands, delete its row and fix its redirect in the same
 commit.** A stale row here is the same defect as a stale sentence in a header.
+
+**And a redirect is not fixed until a TWO-CLASS ask is fixed.** Round 18's laundering
+is the general form: an ask that names the new template's class alongside an uncovered
+one must still answer the uncovered one FIRST. That is a list read before the routing
+(`untemplatedClasses` in `DappScaffold.kt`), the covered roster is derived from the
+routing's own key lists (`templateKeys`, one copy, no second list to keep in step), and
+`Round18TemplateRedirectProbeTest` crosses every uncovered class token with every
+covered one and freezes the answers. A new template adds its keys to that map and the
+matrix grows in the same commit.
