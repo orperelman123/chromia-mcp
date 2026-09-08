@@ -60,7 +60,10 @@ class StreamableHttpSessionLifetimeTest {
                     compact = false,
                     disabled = emptySet(),
                     sessions = sessions,
-                    idleMillis = 250,
+                    // Generous against a slow host: a single initialize took longer than
+                    // 250 ms on a starved laptop and the FIRST session was reaped as idle
+                    // before the cap was ever reached, so the test measured the host.
+                    idleMillis = 3_000,
                     maxSessions = 2
                 )
             }
@@ -91,7 +94,7 @@ class StreamableHttpSessionLifetimeTest {
             assertEquals(2, sessions.size, "a refused mint must not grow the table")
 
             // Let both go idle; the next mint reclaims them first, then succeeds.
-            kotlinx.coroutines.delay(400)
+            kotlinx.coroutines.delay(4_000)
             val fourth = http.initialize(url)
             assertEquals(HttpStatusCode.OK, fourth.status)
             val fourthId = fourth.headers[App.MCP_SESSION_ID_HEADER]
@@ -123,7 +126,7 @@ class StreamableHttpSessionLifetimeTest {
                     compact = false,
                     disabled = emptySet(),
                     sessions = sessions,
-                    idleMillis = 400,
+                    idleMillis = 3_000,
                     maxSessions = 8
                 )
             }
@@ -140,9 +143,10 @@ class StreamableHttpSessionLifetimeTest {
             val init = http.initialize(url)
             val id = init.headers[App.MCP_SESSION_ID_HEADER]!!
 
-            // Keep talking to it across more than one idle window.
+            // Keep talking to it across more than one idle window (4 x 1 s against a
+            // 3 s window: every request resets the clock, so it never goes idle).
             repeat(4) {
-                kotlinx.coroutines.delay(150)
+                kotlinx.coroutines.delay(1_000)
                 val listed = http.post(url) {
                     contentType(ContentType.Application.Json)
                     header(HttpHeaders.Accept, "application/json, text/event-stream")
