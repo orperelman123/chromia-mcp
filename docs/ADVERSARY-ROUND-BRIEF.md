@@ -136,6 +136,34 @@ Not "fewer than last round". Coverage moving is not a pass.
    that retired four of them; confirm nothing still advertises the retired
    four. Evidence recorders write under `app/build/` and assert against frozen
    files; no absolute path of the machine may be committed.
+   **Round 19 attacks the eighth design at its edges, and the suite's new
+   proofs.** Round 18 replaced two models with the language itself - imports are
+   PARSED (plain, aliased, wildcard, exact, relative) and operations are counted
+   STRUCTURALLY over the call closure - and replaced shape recognition in the
+   rules with a constant evaluator plus a who-writes-this-field trace through
+   functions and queries. So attack the parser where a parser can be wrong: a
+   relative import two levels up combined with an exact list; an exact import of
+   a name that is BOTH a helper and a production declaration in different
+   modules; a list of ops held in a `val` in another helper; a helper that
+   RETURNS a tx the caller then `.op()`-extends; a `rell.test.block()` holding one
+   tx of two ops; a helper that takes an op as a parameter; and the conservative
+   direction, an honest single invocation the parser now refuses. Attack the
+   evaluator where evaluation can be wrong: a `when` whose arms differ by a value
+   still <= 0, overflow or division by zero inside the constant, a bound read from
+   a list literal by a computed index, a query returning a struct whose field is
+   the floor, a clock reaching the selector through two parameters or a struct;
+   and write ten CORRECT dapps whose legitimate bounds the evaluator might now
+   reject. Attack the insurance exit queue (two exits and two claims in one round;
+   exit then claim by the same policy; open and settle in one block; re-entry
+   before settlement; dust) and build the extension every EXTENDING section warns
+   about. Attack the suite's own proofs: a double the bytecode scan does not catch
+   (a companion `object`, a `by lazy` supertype, an inline class, a Java test
+   source, a runtime-defined class, a lambda over a Java functional interface); a
+   FAKE upstream warning (our own failure wearing an allowlisted signature; a
+   warnings file for a different test; a stale one; a ledger number that does not
+   exist) - every attempt must be a RED, never a warning. Then the commit-reveal
+   raffle at the top of `docs/TEMPLATE-GAPS.md`, built with ONLY this server's
+   guidance now that the redirect names the missing guard.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
