@@ -65,7 +65,10 @@ scratch-qa/
 
 # Local, machine-specific test environment (endpoints, dev passwords).
 local-test-env.properties
-.cursor/
+.cursor/*
+# ...except the working agreement every agent (Cursor, Claude Code, a human) must read
+# (a directory excluded outright cannot be re-included, hence the glob).
+!.cursor/rules/
 
 # Compiled Python caches from the adversary harnesses embed absolute local paths.
 __pycache__/

@@ -1,0 +1,71 @@
+---
+description: Working agreement for any agent (Cursor, Claude Code, or a human) continuing work on this repository
+alwaysApply: true
+---
+
+# Chromia MCP - the working agreement
+
+This repository is the Chromia MCP server. The standard is the owner's, in his words:
+**the best possible MCP for an agent - everything real, battle tested, not fake.**
+
+Read, in this order, before changing anything:
+
+1. `GOAL.md` - the principles and the round-by-round record. Every claim in it is
+   testable or deleted; six test classes read it.
+2. `docs/AGENT-LANE-BRIEF.md` - how a lane works: its own worktree, its own
+   database, the shared build slot, the gate.
+3. `docs/ADVERSARY-ROUND-BRIEF.md` - how a round attacks the server and pins what it finds.
+4. `app/src/test/resources/exploit-corpus/CORPUS.md` - the scoreboard; read it rather
+   than any prose about coverage.
+5. `README.md` "Testing Layers" - what the suite proves and how.
+
+Rules that are not negotiable:
+
+- **No test doubles.** No mocks, fakes, stubs, recording repositories, mock HTTP
+  engines, anonymous implementations of production types, delegation or proxies
+  in tests. `NoTestDoublesTest` scans for them. A third-party path is tested
+  LIVE (explorer, docs site, chain, `chr`, embedder); an upstream outage makes the
+  suite red and the remedy is retry, never a skip. A test that cannot be made
+  real is deleted together with the claim it carried.
+- **No skips.** The gate is zero-skip and has no allowlist. Environment-gated
+  live tests go through `LiveEnv` and FAIL when the environment is enabled but the
+  resource is broken. `local-test-env.properties` (gitignored) must enable the
+  live environment or the gate refuses to run.
+- **Never push unbuilt or ungated.** The merge gate is
+  `node scripts/loop-gate.mjs --dir <repo> --expect-min <last verified count>`
+  (the count is the last verified tally, never an estimate). A docs-only change
+  uses `--docs-only --base <commit>`, which DERIVES the test classes from the
+  diff - never a hand-picked list. On a host that cannot finish the suite inside
+  the test task's cap, run it as partitions and tally the union against the class
+  list on disk; say so in the record.
+- **One build at a time on this machine.** Before any Gradle run, check that no
+  `java.exe` with `gradle-wrapper.jar|GradleWorkerMain|Gradle Test Executor` in its
+  command line is running, and that free memory is sufficient. Never
+  `gradlew --stop` (it kills someone else's build). Never edit `app/` or
+  `GOAL.md` while your own build runs.
+- **A verification tool proves canonical shapes and refuses the rest.** A
+  heuristic over runner output loses one token away every round (rounds 11-18).
+  `verify_guards` answers `ambiguous_refusal`, never `ok:true`, for what it cannot
+  prove.
+- **Every guard has a mutant** that reddens a shipped must-fail test BECAUSE the
+  attack landed, in both the `src/` and flat layouts. A mutant that goes red for
+  another reason proves nothing.
+- **Evidence is frozen.** Adversary recorders write to `app/build/` and assert
+  equality with the committed recording; re-freezing is a deliberate commit with
+  the reason. Never overwrite committed evidence from a test run.
+- **Nothing tracked points at a machine.** No absolute local paths, user names,
+  session ids, temp directories or compiled caches (`NoLocalMachinePathsTest`).
+  The repository is public.
+- **No credentials anywhere.** Never commit, paste, or type a key, token or
+  password; never accept terms or create accounts on the owner's behalf.
+- **Tool descriptions stay under 1,200 bytes**; the long form lives in
+  `describe_tool`. Retire a superseded sentence in `ToolDescriptionBudgetTest`
+  with the reason - never delete it silently.
+- **Templates make bugs unwritable** (principle 4): when no precise rule exists,
+  ship the shape that cannot express the bug, with the drain as a must-fail test.
+  A redirect to a template that does not cover the ask's exploit class is a hazard;
+  name the declined class and the missing guard instead.
+
+Running the server from Cursor: the `chromia-local` MCP entry in `~/.cursor/mcp.json`
+starts the local jar over stdio (no port, no token). Rebuild it with
+`gradlew shadowJar` after a merge; the jar is `app/build/libs/chromia-mcp-server.jar`.
