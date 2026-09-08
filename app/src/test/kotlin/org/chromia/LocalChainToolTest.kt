@@ -161,7 +161,11 @@ class LocalChainToolTest {
             "net.postchain.gtx.GTXBlockchainConfigurationFactory",
             dict.getValue("configurationfactory").asString()
         )
-        assertEquals(2L, dict.getValue("merkle_hash_version").asInteger())
+        // Postchain reads merkle_hash_version ONLY from the `features` dict; a
+        // top-level key is ignored and the chain silently runs the deprecated
+        // version 1 (that is what every local chain did until 3c5d1ed).
+        assertTrue("merkle_hash_version" !in dict, "merkle_hash_version at the top level is ignored by postchain")
+        assertEquals(2L, dict.getValue("features").asDict().getValue("merkle_hash_version").asInteger())
         assertEquals(
             "net.postchain.base.BaseBlockBuildingStrategy",
             dict.getValue("blockstrategy").asDict().getValue("name").asString()
