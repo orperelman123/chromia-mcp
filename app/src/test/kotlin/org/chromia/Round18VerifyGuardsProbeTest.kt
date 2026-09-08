@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.chromia.tools.McpTools
 import org.chromia.tools.RunRellTests
 import org.chromia.tools.VerifyGuardsStrategy
 import org.chromia.tools.callToolRequest
@@ -78,8 +79,8 @@ class Round18VerifyGuardsProbeTest {
 
     private val dir = File(Round18Evidence.committedRoot, "vg")
 
-    private fun probes(): JsonArray =
-        Json.parseToJsonElement(File(dir, "probes.json").readText()).jsonArray
+    private fun probes(file: String): JsonArray =
+        Json.parseToJsonElement(File(dir, file).readText()).jsonArray
 
     private fun runProbe(spec: JsonObject): JsonObject {
         val files = spec["files"]!!.jsonObject
@@ -116,6 +117,123 @@ class Round18VerifyGuardsProbeTest {
 
     @Test
     fun `round 18 import and transaction probes get the true verdict out of verify_guards`() {
+        driveEveryProbe("probes.json")
+    }
+
+    /**
+     * THE FIX LANE'S OWN PROBES. The three inputs round 18 found are measured by
+     * `probes.json` above, which is the adversary's evidence and does not move.
+     * The FIX, though, says more than those three probes measure: it parses
+     * every import form the compiler accepts and counts the operations of a
+     * transaction STRUCTURALLY, and a sentence in the long form, the advertised
+     * description or the README that no probe measures is a claim, not a
+     * measurement. `probes-fix.json` is one probe per form the fixed tool's
+     * sentences name - `.op(a, b)`, a list literal, `.ops([...])`, an operation
+     * built in one statement and run in another, a block of two transactions, a
+     * RELATIVE exact import - plus the control that proves the structural count
+     * still reads `rell.test.tx(take(...))` as ONE operation.
+     *
+     * Every one was written to disk and run on a REAL chain first
+     * (`harness/vg_r18_fix.py`, this worktree's own database, one schema per
+     * probe): baseline green, mutant red, recorded in
+     * `vg/<probe>.chain.json`. Six of the seven were DANGEROUS before the fix -
+     * the same attack as p18b, a second operation refusing ON THE DAMAGE
+     * reported as the attack being refused, written in a form the `.op(`-count
+     * could not see.
+     */
+    @Test
+    fun `the import and transaction forms the fixed tool claims are each measured`() {
+        driveEveryProbe("probes-fix.json")
+    }
+
+    /**
+     * EVERY SENTENCE ROUND 18 ADDED, WHERE AN AGENT READS IT, ATTACHED TO A
+     * PROBE THAT MEASURED IT.
+     *
+     * Round 18 found the round-17 description saying something false - "That
+     * statement may reach the declaration through helpers in ANY test module,
+     * via imports and aliases, up to 16 calls deep", while
+     * `import tests.helpers.{ audited };` was an import it could not read
+     * (p18a, p18k). The fix made that sentence true and added three more
+     * claims. This test is what keeps them attached to the code: each is
+     * recorded with whether it is present AND asserted, in all three places an
+     * agent can read it - the `describe_tool` long form, the 1200-byte
+     * advertised description, and the repository README - and each names the
+     * probe that measured it. A sentence edited away is a red here, not a quiet
+     * drift into prose that no longer describes the tool. It is the round-17
+     * pattern ([Round17SurfaceProbeTest]) applied to round 18's own sentences.
+     */
+    @Test
+    fun `every verify_guards sentence round 18 added is present where an agent reads it`() {
+        val long = McpTools.fullDescription("verify_guards").orEmpty()
+        val advertised = McpTools.advertisedDescription("verify_guards").orEmpty()
+        val readme = File("../README.md").readText()
+        fun flat(text: String) = text.replace(Regex("\\s+"), " ").trim()
+        val sources = mapOf("long" to flat(long), "advertised" to flat(advertised), "readme" to flat(readme))
+
+        // (id, which text, the sentence verbatim, the probe that measured it)
+        val claims = listOf(
+            // EVERY import form, not a subset (p18a/p18a2/p18k/p18k2 exact, f18f relative)
+            listOf("long-every-import-form", "long", "EVERY IMPORT FORM", "p18a"),
+            listOf("long-exact-import", "long", "the EXACT import `import a.b.{ x, y };`", "p18a"),
+            listOf("long-relative-import", "long", "`import .sub;` (a submodule of the importing module)", "f18f"),
+            listOf("long-no-as-in-exact", "long", "There is no `as` inside `{ }`", "compiler"),
+            // the alias rule (p18c)
+            listOf("long-qualifier-calling-module-first", "long", "A QUALIFIER IS RESOLVED IN THE CALLING MODULE FIRST", "p18c"),
+            listOf("long-alias-bound-to-a-test-module", "long", "a qualifier bound to a test module is never the guard's declaration", "p18c"),
+            // the structural operation count (p18b, f18a, f18b, f18d, f18e, f18g)
+            listOf("long-structural-count", "long", "HOW THE OPERATIONS ARE COUNTED: structurally, not by counting `.op(`", "p18b"),
+            listOf("long-list-literal", "long", "a list literal is counted element by element", "f18b"),
+            listOf("long-block-is-not-one-transaction", "long", "a rell.test BLOCK of more than one transaction is not one transaction", "f18e"),
+            listOf("long-unknown-is-not-zero", "long", "is NOT zero operations, it is an unknown number of them", "f18d"),
+            listOf("long-two-ops-without-dot-op", "long", "carries TWO operations even though it contains no `.op(` at all", "p18b"),
+            listOf("long-op-without-a-run", "long", "an operation call in test scope only builds a rell.test.op", "f18d"),
+            listOf("long-shape-a-constructor", "long", "the same one operation written rell.test.tx(<that declaration>(...))", "f18g"),
+            // the same facts in the 1200-byte description an agent sees first
+            listOf("advertised-every-import-form", "advertised", "every import form the compiler takes, exact `.{ }` and relative too", "p18a"),
+            listOf("advertised-alias-rule", "advertised", "a qualifier the CALLING module binds to a test module is a HELPER", "p18c"),
+            listOf("advertised-structural-count", "advertised", "Its operations are counted structurally", "p18b"),
+            listOf("advertised-unreadable-count", "advertised", "any count but one, or one it cannot read, is ambiguous_refusal", "f18d"),
+            // and in the README's own account of the two shapes
+            listOf("readme-every-import-form", "readme", "**Every import form the compiler takes** is parsed, not a subset", "p18a"),
+            listOf("readme-relative-import", "readme", "the relative spellings `import .sub;` and `import ^.sibling;`", "f18f"),
+            listOf("readme-alias-rule", "readme", "**A qualifier is resolved in the calling module first**", "p18c"),
+            listOf("readme-structural-count", "readme", "The operations themselves are counted **structurally**", "p18b"),
+            listOf("readme-unknown-is-not-zero", "readme", "it is an unknown number of them, and unknown is `ambiguous_refusal`", "f18d"),
+            listOf("readme-block", "readme", "a `rell.test.block()` of more than one transaction is not one transaction", "f18e"),
+            listOf("readme-shape-a-constructor", "readme", "written `rell.test.tx(<the declaration>(...))`", "f18g")
+        )
+        val rows = buildJsonArray {
+            for (claim in claims) {
+                val (id, where, text, probe) = claim
+                add(
+                    buildJsonObject {
+                        put("claim", id)
+                        put("where", where)
+                        put("present", sources.getValue(where).contains(flat(text)))
+                        put("measured_by", probe)
+                        put("text", flat(text))
+                    }
+                )
+            }
+        }
+        Round18Evidence.record("describe/verify_guards_claims.json", rows)
+        val missing = claims.filterNot { sources.getValue(it[1]).contains(flat(it[2])) }
+            .map { "${it[0]} (${it[1]}, measured by ${it[3]}): ${it[2]}" }
+        assertAll(
+            Executable {
+                assertEquals(
+                    emptyList<String>(),
+                    missing,
+                    "verify_guards sentence(s) round 18 added are no longer in the text an agent reads:\n" +
+                        missing.joinToString("\n")
+                )
+            },
+            Executable { Round18Evidence.assertFrozen("describe/verify_guards_claims.json", rows) }
+        )
+    }
+
+    private fun driveEveryProbe(probesFile: String) {
         assertNotNull(
             System.getenv(RunRellTests.DATABASE_URL_ENV),
             "verify_guards runs real tests and needs ${RunRellTests.DATABASE_URL_ENV}"
@@ -123,7 +241,7 @@ class Round18VerifyGuardsProbeTest {
         assertTrue(dir.isDirectory, "probe fixtures missing at ${dir.absolutePath}")
         val wrong = mutableListOf<String>()
         val recordings = mutableListOf<Pair<String, JsonObject>>()
-        for (element in probes()) {
+        for (element in probes(probesFile)) {
             val spec = element.jsonObject
             val name = spec["probe"]!!.jsonPrimitive.content
             val truth = spec["true_verdict"]!!.jsonPrimitive.content

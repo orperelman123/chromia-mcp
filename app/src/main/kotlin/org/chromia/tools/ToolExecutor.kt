@@ -2638,6 +2638,18 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                 ownDeclarations += declarationsReaching(files, isTest, guardDecl.second)
             }
         }
+        // Are ALL of them OPERATIONS? Only then does "the statement runs no
+        // transaction" mean the statement executed nothing - a query, or a
+        // production function the test calls directly, executes on the call.
+        val productionOperations = mutableSetOf<String>()
+        files.forEach { (p, content) ->
+            if (isTest.getValue(p)) return@forEach
+            val m = runnerModule(p, content)
+            RellSecurityCheck.scanOperations(p, maskRellSource(content, maskStrings = true))
+                .forEach { productionOperations += "$m:${it.name}" }
+        }
+        val allDeclarationsAreOperations =
+            ownDeclarations.isNotEmpty() && ownDeclarations.all { it in productionOperations }
 
 
         // 4b. THE CANONICAL SHAPES. Five rounds of heuristics over the runner's
@@ -2651,7 +2663,9 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }.toList()
         val productionFrames = frames.filter { it.module !in testModuleNames }
         val ownFrame = productionFrames.lastOrNull { "${it.module}:${it.declaration}" in ownDeclarations }
-        val statements = testStatementsInvoking(files, isTest, test, ownDeclarations)?.statements ?: emptyList()
+        val statements =
+            testStatementsInvoking(files, isTest, test, ownDeclarations, allDeclarationsAreOperations)
+                ?.statements ?: emptyList()
         val decls = ownDeclarations.joinToString()
 
         val shapeHelp = "The two shapes verify_guards proves, both of which invoke the guard's declaration in " +
@@ -3159,7 +3173,14 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         files: Map<String, String>,
         isTest: Map<String, Boolean>,
         test: String,
-        declarations: Set<String>
+        declarations: Set<String>,
+        /**
+         * True when EVERY declaration in [declarations] is a production
+         * OPERATION. Only then does "the statement runs no transaction" mean
+         * the statement executed nothing: a query (or a plain function) the
+         * test calls directly executes on the call itself.
+         */
+        allDeclarationsAreOperations: Boolean = false
     ): TestInvocations? {
         if (declarations.isEmpty()) return null
         val modulesByName = mutableMapOf<String, MutableSet<String>>()
@@ -3177,6 +3198,11 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         val functionsByModule = mutableMapOf<String, MutableMap<String, MutableList<String>>>()
         val importBindings = mutableMapOf<String, MutableMap<String, String>>()
         val wildcardImports = mutableMapOf<String, MutableSet<String>>()
+        // ROUND 18: `import a.b.{ x };` puts `x` in the importing module's OWN
+        // namespace, so an unqualified `x(...)` there names `a.b:x`. Nothing in
+        // the old IMPORT_REGEX saw that form, and a helper reached through it
+        // was invisible (p18a, p18k).
+        val exactImports = mutableMapOf<String, MutableMap<String, String>>()
         files.forEach { (p, content) ->
             if (!isTest.getValue(p)) return@forEach
             val maskedFile = maskRellSource(content, maskStrings = true)
@@ -3188,24 +3214,42 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             }
             val binds = importBindings.getOrPut(module) { mutableMapOf() }
             val wild = wildcardImports.getOrPut(module) { mutableSetOf() }
-            IMPORT_REGEX.findAll(maskedFile).forEach { m ->
-                val alias = m.groupValues[1]
-                val target = m.groupValues[2]
-                when {
-                    alias.isNotEmpty() -> binds[alias] = target
-                    m.groupValues[3].isNotEmpty() -> wild += target
-                    else -> binds[target.substringAfterLast('.')] = target
+            val exact = exactImports.getOrPut(module) { mutableMapOf() }
+            parseImports(maskedFile, module).forEach { imp ->
+                if (imp.alias != null) binds[imp.alias] = imp.module
+                if (imp.wildcard) wild += imp.module
+                // An exact import puts the names in the importing module's own
+                // namespace ONLY when it has no alias: MEASURED, `import a:
+                // tests.helpers.{ audited };` then `audited(...)` is "Unknown
+                // name: 'audited'" and `a.audited(...)` compiles, so an alias
+                // takes the exact names with it.
+                if (imp.alias == null) {
+                    imp.exact.forEach { name ->
+                        exact[name] = imp.module
+                        // `import a.{ b };` where a.b is a MODULE binds `b` as
+                        // a qualifier too; putIfAbsent so an alias always wins.
+                        binds.putIfAbsent(name, "${imp.module}.$name")
+                    }
+                }
+                if (imp.alias == null && !imp.wildcard && imp.exact.isEmpty()) {
+                    binds[imp.module.substringAfterLast('.')] = imp.module
                 }
             }
         }
+        // Every module a test file of the submission declares. A qualifier bound
+        // to one of these is a TEST module, whatever it is called - the round-18
+        // alias rule.
+        val submissionTestModules = functionsByModule.keys
 
         /** The test-module function a call `q.n(...)` (q may be empty) in [module] names, as `module:n`. */
         fun resolveHelper(module: String, qualifier: String, name: String): String? {
-            val candidates = if (qualifier.isEmpty()) {
-                listOf(module) + wildcardImports[module].orEmpty()
-            } else {
-                listOfNotNull(importBindings[module]?.get(qualifier))
+            if (qualifier.isNotEmpty()) {
+                val target = importBindings[module]?.get(qualifier) ?: return null
+                return if (functionsByModule[target]?.containsKey(name) == true) "$target:$name" else null
             }
+            val candidates = listOf(module) +
+                listOfNotNull(exactImports[module]?.get(name)) +
+                wildcardImports[module].orEmpty()
             return candidates.firstOrNull { functionsByModule[it]?.containsKey(name) == true }?.let { "$it:$name" }
         }
         val helperBodies = mutableMapOf<String, List<String>>()
@@ -3214,13 +3258,42 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         val callSite = Regex(
             """(?:([A-Za-z_]\w*)\s*\.\s*)?\b(${bare.joinToString("|") { Regex.escape(it) }})\s*\("""
         )
+        /**
+         * Does the call site `q.n(...)` (q may be empty), read from inside
+         * [module], name one of the guard's own declarations?
+         *
+         * ROUND 18, THE ALIAS RULE. This used to be
+         * `qualifier.isEmpty() || qualifier in mods || (bound != null && ...)`,
+         * which tests the qualifier against the GUARD's module names BEFORE the
+         * calling module's own bindings. A test that writes
+         * `import main: tests.helpers;` and calls `main.take("a", 11)` is
+         * calling a TEST HELPER; the qualifier just happens to be spelled like
+         * the guard's module. The one honest invocation was counted twice - once
+         * here and once as the helper it really is - so an honest SHAPE B was
+         * refused with "the statement invokes the declaration 2 times" (p18c).
+         * The CALLING module's binding now decides, and a qualifier bound to a
+         * test module is never the production declaration, whatever it is called.
+         */
+        fun invokesGuardDeclaration(module: String, qualifier: String, name: String): Boolean {
+            val mods = modulesByName[name] ?: return false
+            if (qualifier.isEmpty()) {
+                // A name that resolves to a TEST-module function is a helper
+                // call - the helper scan counts it, and counting it here too
+                // would double it. `import tests.helpers.{ take };` is the form
+                // that makes this reachable.
+                if (resolveHelper(module, "", name) != null) return false
+                val exact = exactImports[module]?.get(name)
+                    ?: return true
+                return exact in mods || exact.substringAfterLast('.') in mods
+            }
+            val bound = importBindings[module]?.get(qualifier)
+                ?: return qualifier in mods
+            if (bound in submissionTestModules) return false
+            return bound in mods || bound.substringAfterLast('.') in mods
+        }
         /** How many times [text], read from inside [module], invokes the guard's declaration. */
         fun invocationsIn(module: String, text: String) = callSite.findAll(text).count { m ->
-            val qualifier = m.groupValues[1]
-            val mods = modulesByName.getValue(m.groupValues[2])
-            val bound = importBindings[module]?.get(qualifier)
-            qualifier.isEmpty() || qualifier in mods ||
-                (bound != null && (bound in mods || bound.substringAfterLast('.') in mods))
+            invokesGuardDeclaration(module, m.groupValues[1], m.groupValues[2])
         }
         val anyCallSite = Regex("""(?:([A-Za-z_]\w*)\s*\.\s*)?\b([A-Za-z_]\w*)\s*\(""")
         /** Every test-module helper [text] calls from inside [module], and how many times. */
@@ -3306,9 +3379,14 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             return n
         }
         val loopRx = Regex("""\b(?:for|while)\b""")
-        val opRx = Regex("""\.\s*op\s*\(""")
         val mustFailRx = Regex("""\brun_must_fail\s*\(""")
-        val callee = Regex("""([A-Za-z_]\w*)\s*\(""")
+        // An operation call in test scope only BUILDS a `rell.test.op`; nothing
+        // executes until a `.run()` or `.run_must_fail()`. A statement that
+        // invokes the guard's OPERATION without running one - `val o =
+        // take("a", 11);` - therefore executes nothing, and the red that follows
+        // belongs to the statement that ran the transaction, which is a
+        // different one.
+        val runRx = Regex("""\.\s*run(?:_must_fail)?\s*\(""")
         files.forEach { (p, content) ->
             if (!isTest.getValue(p)) return@forEach
             val masked = maskRellSource(content, maskStrings = true)
@@ -3326,10 +3404,8 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                 val siteCount = sites(module, statement, 0, mutableSetOf())
                 if (siteCount != 0) {
                     val flat = flatten(module, statement, 0, mutableSetOf())
-                    val ops = opRx.findAll(flat).count()
-                    val opName = opRx.find(flat)
-                        ?.let { callee.find(flat, it.range.last + 1) }
-                        ?.groupValues?.get(1)
+                    val tx = transactionOperations(flat)
+                    val runs = runRx.containsMatchIn(flat)
                     val mustFail = mustFailRx.containsMatchIn(flat)
                     spans += TestStatement(
                         masked.substring(0, from).count { c -> c == '\n' } + 1,
@@ -3348,12 +3424,32 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                             siteCount != 1 ->
                                 "the statement invokes the declaration $siteCount times (directly, or through a " +
                                     "test-module helper this scan cannot reduce to one call site)."
-                            ops > 1 ->
-                                "the transaction it runs carries $ops operations, so a refusal from it need not be " +
-                                    "the guard's own operation being refused."
-                            ops == 1 && opName != null && opName !in bare ->
-                                "the one operation in that transaction is `$opName`, which is not a declaration this " +
-                                    "guard runs in - the declaration is reached some other way inside the statement."
+                            allDeclarationsAreOperations && !runs ->
+                                "it invokes the OPERATION but runs no transaction - an operation call in test scope " +
+                                    "only builds a `rell.test.op`, and nothing executes until a `.run()` or a " +
+                                    "`.run_must_fail()`. Whatever the mutant's red is, it belongs to the statement " +
+                                    "that RAN the transaction, and that is a different statement from this one. " +
+                                    "Build and run the transaction in the same statement."
+                            tx.blockTransactions > 1 ->
+                                "it runs a rell.test BLOCK of ${tx.blockTransactions} transactions, and a block is " +
+                                    "not one transaction - which of them the refusal belongs to is not something " +
+                                    "the run answers. Drive the attack with a single transaction."
+                            tx.builds && tx.unresolved != null ->
+                                "the transaction it runs is built from `${tx.unresolved!!.trim().take(60)}`, which " +
+                                    "this scan cannot reduce to a known number of operations - and a value it cannot " +
+                                    "read is not ZERO operations, it is an unknown number of them. Pass the " +
+                                    "operation call itself to rell.test.tx(...) or .op(...)."
+                            tx.builds && tx.count > 1 ->
+                                "the transaction it runs carries ${tx.count} operations " +
+                                    "(${tx.names.joinToString()}), so a refusal from it need not be the guard's own " +
+                                    "operation being refused."
+                            tx.builds && tx.count == 0 ->
+                                "the transaction it runs carries no operation at all, so whatever invokes the " +
+                                    "declaration in this statement is not that transaction."
+                            tx.builds && tx.names.singleOrNull()?.let { it !in bare } == true ->
+                                "the one operation in that transaction is `${tx.names.single()}`, which is not a " +
+                                    "declaration this guard runs in - the declaration is reached some other way " +
+                                    "inside the statement."
                             else -> ""
                         }
                     )
@@ -3387,8 +3483,249 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
     /** [testStatementsInvoking]'s "the chain is too deep to count" - never a number of call sites. */
     private val DEPTH_EXCEEDED = -1
 
-    /** `import a: b.c;` / `import b.c;` / `import b.c.*;` - one import of a (masked) module. */
-    private val IMPORT_REGEX = Regex("""\bimport\s+(?:([A-Za-z_]\w*)\s*:\s*)?([A-Za-z_][\w.]*?)\s*(\.\s*\*)?\s*;""")
+    /**
+     * One `import` clause of a test module, as the COMPILER reads it.
+     *
+     * ROUND 18 REPLACED A REGEX WITH THIS. `IMPORT_REGEX` was
+     * `\bimport\s+(?:(\w+)\s*:\s*)?([A-Za-z_][\w.]*?)\s*(\.\s*\*)?\s*;` - plain,
+     * aliased and wildcard only. `import tests.helpers.{ audited };` is a Rell
+     * import that `chr test` compiles and runs, and it matched none of it: the
+     * calling module bound nothing, [testStatementsInvoking]'s `resolveHelper`
+     * returned null, and the helper was invisible. p18a hid a second OPERATION
+     * behind that door (round 17's p17d reopened) and p18k a second INVOCATION
+     * (p17b reopened), and both came back `still_refused` - an instruction to
+     * weaken a test that measures exactly what it says.
+     *
+     * MEASURED, not guessed, on chr 0.29.10 / rell 0.15.0 against a fixture
+     * (`exploit-corpus/realworld/adversary-round18/README.md` section 1):
+     *   import a.b;                  plain          compiles
+     *   import x: a.b;               aliased        compiles
+     *   import a.b.*;                wildcard       compiles
+     *   import a.b.{ x };            exact          compiles (also `{x}`, `{ x, y }`, multi-line)
+     *                                               and `x(...)` is then a.b's x
+     *   import x: a.b.{ y };         alias + exact  compiles, but `y(...)` is "Unknown name:
+     *                                               'y'" and `x.y(...)` compiles - an alias
+     *                                               takes the exact names with it
+     *   import ^.b;                  parent         EACH `^` strips ONE segment of the
+     *                                               IMPORTING module's name. Measured from
+     *                                               module tests.deep.sub, where the three
+     *                                               readings differ: `^.helpers` is
+     *                                               "Module 'tests.deep.helpers' not found",
+     *                                               `^^.helpers` compiles as tests.helpers,
+     *                                               `^^^.helpers` is "Module 'helpers' not
+     *                                               found" - the root
+     *   import .sub;                 submodule      `.` prefixes the importing module's own
+     *                                               name: `import .helpers;` in tests.main is
+     *                                               "Module 'tests.main.helpers' not found"
+     *   import ^.b.{ x };            relative+exact compiles
+     *   import a.b.{ x as y };       SYNTAX ERROR   - rell 0.15.0 has no `as` in an exact
+     *                                               import, so nothing renames a definition
+     *                                               and no local name can shadow one that way
+     */
+    private data class RellImport(
+        val alias: String?,
+        /** Absolute module name: `^`/`.` prefixes are resolved against the importing module. */
+        val module: String,
+        val wildcard: Boolean,
+        /** Names an exact import brings into the importing module's own namespace. */
+        val exact: List<String>
+    )
+
+    /** `import` at a word boundary; the clause runs to the `;` outside any `{ }`. */
+    private val IMPORT_HEAD_REGEX = Regex("""\bimport\s""")
+
+    private val IMPORT_ALIAS_REGEX = Regex("""^([A-Za-z_]\w*)\s*:\s*""")
+
+    private val PLAIN_NAME_REGEX = Regex("""^[A-Za-z_]\w*$""")
+
+    /** Every import clause of one MASKED test file, read from inside [importingModule]. */
+    private fun parseImports(masked: String, importingModule: String): List<RellImport> {
+        val out = mutableListOf<RellImport>()
+        IMPORT_HEAD_REGEX.findAll(masked).forEach { head ->
+            var depth = 0
+            var end = -1
+            var i = head.range.last
+            while (i < masked.length) {
+                when (masked[i]) {
+                    '{' -> depth++
+                    '}' -> depth--
+                    ';' -> if (depth == 0) end = i
+                }
+                if (end >= 0) break
+                i++
+            }
+            if (end < 0) return@forEach
+            parseImportClause(masked.substring(head.range.last, end), importingModule)?.let { out += it }
+        }
+        return out
+    }
+
+    /** `x: ^.a.b.{ c, d }` -> one [RellImport], or null when nothing names a module. */
+    private fun parseImportClause(clause: String, importingModule: String): RellImport? {
+        var s = clause.trim()
+        var alias: String? = null
+        IMPORT_ALIAS_REGEX.find(s)?.let {
+            alias = it.groupValues[1]
+            s = s.substring(it.range.last + 1).trim()
+        }
+        var exact = emptyList<String>()
+        val brace = s.indexOf('{')
+        if (brace >= 0) {
+            val closing = s.indexOf('}', brace)
+            if (closing < 0) return null
+            exact = s.substring(brace + 1, closing).split(',')
+                .map { it.trim() }.filter { PLAIN_NAME_REGEX.matches(it) }
+            s = s.substring(0, brace).trim().removeSuffix(".").trim()
+        }
+        var wildcard = false
+        if (s.endsWith("*")) {
+            wildcard = true
+            s = s.dropLast(1).trim().removeSuffix(".").trim()
+        }
+        var carets = 0
+        while (s.startsWith("^")) {
+            carets++
+            s = s.substring(1).trim()
+        }
+        val relative = carets > 0 || s.startsWith(".")
+        if (s.startsWith(".")) s = s.substring(1).trim()
+        val path = s.replace(Regex("""\s+"""), "")
+        if (path.isEmpty() && !relative) return null
+        var module = path
+        if (relative) {
+            var base = importingModule
+            repeat(carets) { base = base.substringBeforeLast('.', "") }
+            module = listOf(base, path).filter { it.isNotEmpty() }.joinToString(".")
+        }
+        if (module.isEmpty()) return null
+        return RellImport(alias, module, wildcard, exact)
+    }
+
+    /**
+     * The `rell.test.op` values one statement's transaction is built from.
+     *
+     * ROUND 18 REPLACED A COUNT OF `.op(` WITH THIS. `opRx` was `\.\s*op\s*\(`,
+     * and `rell.test.tx(take("a", 11), audit("a"))` - a two-operation
+     * transaction the compiler accepts and the chain runs - contains no `.op(`
+     * at all. `ops` came out 0, and 0 passed every branch of the shape check
+     * (`ops > 1` false, `ops == 1 && opName !in bare` false), so the statement
+     * read as a canonical single-operation SHAPE A and the SECOND operation
+     * refusing on the DAMAGE was reported as the attack being refused (p18b,
+     * p18b2). The count is now structural: every argument of every
+     * `rell.test.tx(...)` and `.op(...)` in the statement's whole call closure,
+     * with a list literal counted element by element - and an argument this
+     * scan cannot reduce to a call ([unresolved], e.g. an op held in a `val`)
+     * is NOT zero, it is "cannot be determined", which is `ambiguous_refusal`.
+     *
+     * MEASURED on chr 0.29.10 / rell 0.15.0, each on a real chain with a green
+     * baseline and a red mutant (`harness/vg_r18_fix.py`): `rell.test.tx(op)`
+     * (f18g), `rell.test.tx(op, op)` (p18b), `rell.test.tx([op, op])` (f18b),
+     * `rell.test.tx().op(op, op)` (f18a), an operation built in one statement
+     * and run in another (f18d) and `rell.test.block().tx(op).tx(op)` (f18e).
+     */
+    private data class TxOperations(
+        /** True when the statement builds a rell.test transaction at all. */
+        val builds: Boolean,
+        val count: Int,
+        /** The callee name of each operation argument, in source order. */
+        val names: List<String>,
+        /** The first argument that is not a call, when there is one. */
+        val unresolved: String?,
+        /**
+         * How many transactions a `rell.test.block()` in the statement carries.
+         * A block is not one transaction, and `rell.test.block().tx(take(...))
+         * .tx(audit(...))` carries two operations with neither `rell.test.tx(`
+         * nor `.op(` anywhere in it - the same hole p18b came through, one
+         * builder along.
+         */
+        val blockTransactions: Int
+    )
+
+    /** `rell.test.tx(` - the constructor form, which carries its operations as arguments. */
+    private val TX_CTOR_REGEX = Regex("""\brell\s*\.\s*test\s*\.\s*tx\s*\(""")
+
+    /**
+     * `.op(` - the builder form, which takes one operation, several, or a list
+     * of them. There is no `.ops(`: `rell.test.tx().ops([...])` is
+     * "Type rell.test.tx has no member 'ops'" on rell 0.15.0, measured, so the
+     * round-18 fix lane deleted the probe it had written for it rather than
+     * pin a form the language does not have.
+     */
+    private val TX_OP_REGEX = Regex("""\.\s*op\s*\(""")
+
+    /** `rell.test.block()` and the `.tx(` calls that give it its transactions. */
+    private val TX_BLOCK_REGEX = Regex("""\brell\s*\.\s*test\s*\.\s*block\s*\(""")
+
+    private val TX_BLOCK_TX_REGEX = Regex("""\.\s*tx\s*\(""")
+
+    /** `f(...)` or `m.f(...)` - an argument that is a call, and the name it calls. */
+    private val OP_ARGUMENT_REGEX =
+        Regex("""^(?:[A-Za-z_]\w*\s*\.\s*)*([A-Za-z_]\w*)\s*\(.*\)$""", RegexOption.DOT_MATCHES_ALL)
+
+    /** Splits an argument list on the commas at nesting depth zero. */
+    private fun splitArguments(text: String): List<String> {
+        val out = mutableListOf<String>()
+        var depth = 0
+        var from = 0
+        text.forEachIndexed { i, c ->
+            when (c) {
+                '(', '[', '{' -> depth++
+                ')', ']', '}' -> depth--
+                ',' -> if (depth == 0) {
+                    out += text.substring(from, i)
+                    from = i + 1
+                }
+            }
+        }
+        out += text.substring(from)
+        return out
+    }
+
+    private fun transactionOperations(flat: String): TxOperations {
+        val blockTransactions =
+            if (TX_BLOCK_REGEX.containsMatchIn(flat)) TX_BLOCK_TX_REGEX.findAll(flat).count() else 0
+        val carriers = (TX_CTOR_REGEX.findAll(flat) + TX_OP_REGEX.findAll(flat))
+            .map { it.range.last }.sorted().toList()
+        if (carriers.isEmpty()) {
+            return TxOperations(
+                builds = false, count = 0, names = emptyList(), unresolved = null,
+                blockTransactions = blockTransactions
+            )
+        }
+        var count = 0
+        val names = mutableListOf<String>()
+        var unresolved: String? = null
+        fun takeArgument(argument: String) {
+            val t = argument.trim()
+            if (t.isEmpty()) return
+            val match = OP_ARGUMENT_REGEX.find(t)
+            if (match == null) {
+                if (unresolved == null) unresolved = t
+            } else {
+                count++
+                names += match.groupValues[1]
+            }
+        }
+        for (open in carriers) {
+            val close = matchBrace(flat, open, '(', ')')
+            if (close == null) {
+                if (unresolved == null) unresolved = flat.substring(open)
+                continue
+            }
+            for (argument in splitArguments(flat.substring(open + 1, close))) {
+                val t = argument.trim()
+                if (t.startsWith("[") && t.endsWith("]")) {
+                    splitArguments(t.substring(1, t.length - 1)).forEach { takeArgument(it) }
+                } else {
+                    takeArgument(t)
+                }
+            }
+        }
+        return TxOperations(
+            builds = true, count = count, names = names, unresolved = unresolved,
+            blockTransactions = blockTransactions
+        )
+    }
 }
 
 class LocalChainStrategy : BaseToolStrategy() {
