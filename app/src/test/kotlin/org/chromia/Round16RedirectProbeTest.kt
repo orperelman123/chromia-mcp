@@ -19,6 +19,28 @@ import org.junit.jupiter.api.Test
  * FROZEN `realworld/adversary-round16/redirect/raw.json` value by value (see
  * [Round16Evidence]) - an ask that lands somewhere else, or scaffolds a
  * different file set, is a regression reported with both values.
+ *
+ * RE-FROZEN 2026-09-07, by the round-17 template lane, and this is the record of
+ * why - re-freezing is a deliberate act and a silent one is the drift this
+ * mechanism exists to catch. FOUR of the twelve rows moved, all four on purpose:
+ *
+ *  - `an insurance pool with claims` (none) -> **insurance**. Round 17 built that
+ *    class from this server's own answer and drained it twice, so it is the
+ *    FIFTEENTH template and `docs/TEMPLATE-GAPS.md`'s rule is that the redirect
+ *    moves in the same commit.
+ *  - `a bidirectional payment channel` **ft4** -> (none). Round 17 recorded that
+ *    as a misroute: `ft4` claims `payment*`, and a token ledger has no channel,
+ *    no sequence number and no dispute window, so it covers none of the class's
+ *    exploit. The answer now says NO and names the missing guard.
+ *  - `a raffle with on-chain randomness` and `a prediction market` stay (none)
+ *    and keep scaffolding nothing; only their first sentence changed, because the
+ *    honest answer is a branch that names the class rather than the roster's
+ *    catch-all.
+ *
+ * Nothing else in the twelve moved, which is the assurance this re-freeze is
+ * meant to give: the round-16 fixes it pins - `an investment DAO` reaching
+ * governance rather than streaming, `a loyalty programme` not reaching amm
+ * through "progr-amm-e" - are all still exactly where round 16 left them.
  */
 class Round16RedirectProbeTest {
 

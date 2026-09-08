@@ -1,6 +1,6 @@
 # Which classes have no template, and why that is the queue
 
-Fourteen adversary rounds. **Every un-templated class attacked has drained.** That
+Seventeen adversary rounds. **Every un-templated class attacked has drained.** That
 is the whole basis for this file: the next drain is predictable from the
 redirect map, not from the last report.
 
@@ -92,6 +92,38 @@ counterparty; and whose crossing orders are filled at the resting price in the
 block they are signed. Both branches of the recreate are pinned drains, and the
 grind ships as a must-fail test with a mutant.
 
+**Closed so far:** `insurance` / premiums and cover / a claims pool. That row was
+the top of this table - it was the row that made the table stop being empty, added
+on 2026-09-07 - and its answer was the drain, in the same sentence as the bridge's:
+`closestTemplateNote("an insurance pool funded by premium payments")` matched the
+`payment*` key, answered `template=ft4`, and said only that it "ships the
+conservation, no-negative-balance and non-owner-must-fail invariant tests to copy
+for your own economics". Round 17 built exactly that, carried every guard the answer
+names - the holder is the SIGNER and never an argument, every amount bounded, the
+premium at least 10% of the cover - drew `ok:true` with ZERO findings on all three
+samples, kept the copied invariant EXACT at every step, and drained twice. A CANCEL
+REFUNDED A SPENT PREMIUM: alice paid 100, took 300 of the other members' premiums on
+a claim and got her 100 back, leaving the reserve at MINUS 100 with 2000 of cover
+still written against it, and repeating the cycle took her to 2100 from 1000. AND
+THE CLAIMS RACED: two holders covered for 1000 each against a reserve of 200 both
+suffered a covered loss, and whoever landed first took the whole 200 while the other
+was refused down to a single unit - 100 points on transaction order alone, where pro
+rata is 100 each. The copied invariant could not see either one, because a drain in
+an insurance pool is a REDISTRIBUTION: total value never moves. The `insurance`
+template makes both unwritable: there is ONE HELPER THAT RETURNS A PREMIUM and every
+exit path calls it, and what it returns is the premium LESS WHAT THE POLICY HAS
+ALREADY BEEN PAID, so "refund the whole premium" has nowhere to be written; and
+NOTHING IS PAID INSIDE A CLAIM - a CLAIM ROUND snapshots the reserve and the total
+claimed and pays every claimant `reserve * claim / total_claimed`, the stablecoin's
+shared-settlement shape, so transaction order moves nothing. A REFUND IS PRO RATA
+for the same reason, because the exit race is one operation further along and is
+reachable in any pool that has ever paid a claim larger than the claimant's own
+premium. Cover is bounded by the reserve times a configured multiplier with a
+positive default, the premium is a fraction of the cover, and the invariant it ships
+is the one that is actually true for a pool: `premiums_in - claims_out - refunds_out
+== reserve`. Both drains ship as must-fail tests, and all ELEVEN guards carry a
+mutant that reddens a shipped case because the attack landed.
+
 `amm` / `dex` / `swap`, which used to land on `vault`. The
 `amm` template ships the sandwich and JIT liquidity as unwritable rather than
 detected, and the redirect now names it. `stablecoin` / `cdp` / `peg`, which
@@ -110,26 +142,46 @@ paid 104 tokens for liquidating-then-settling where settling first paid 89, and
 at all. The round-9 and round-11 numbers ship as must-fail tests in both orders,
 and the redirect now names it ahead of `lending` (which claims "debt").
 
-**THE TABLE IS EMPTY.** For the first time since it was written, there is no ask
-in it that no template covers.
+**THE TABLE IS NOT EMPTY, and the sentence that said it was cost a round.** It read
+"THE TABLE IS EMPTY. For the first time since it was written, there is no ask in it
+that no template covers", and the paragraph under it admitted the real limit -
+*"naming is the part that has always lagged"*. Round 17 then measured thirty-four
+ordinary asks through the shipped redirect
+(`realworld/adversary-round17/redirect/raw.json`) and got seven classes it does not
+cover, took the first of them - an insurance pool - built it from this server's own
+answer, and drained it twice. An empty table was never a claim about the world; it
+was a claim about what this file had got round to writing down. So the rows below
+are the measurement, not a brainstorm, and the rule at the bottom of this file
+applies to every one of them.
+
+Ordered by what an agent is most likely to ask for next times how far the answer is
+from the ask. Three of the seven now answer `(none)` because round 17's fix made
+them honest refusals that NAME the missing guard - which is worth more than a
+confident redirect to guards that do not cover the class (rounds 8 and 14) but is
+still a gap, and is still where the next drain lands.
 
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| _(none open)_ | - | - | - |
+| a lottery, a raffle, a prize draw, a prediction market | `(none)` - it reached `staking` on the word `rewards` until 2026-09-07 | an UNPREDICTABLE OUTCOME. Staking's guards are about a reward being funded before it is paid; nothing in it makes a draw unpredictable, and a draw the signer can predict is a withdrawal | outcome manipulation: block data (timestamp, rid, any hash of the transaction) is chosen by whoever picks the submission block, so it is not entropy. Commit-reveal with a forfeitable deposit is the shape; nothing ships it |
+| a token airdrop with a claim window | `staking` | a CLAIM WINDOW. Its guards cover the mint - a reward paid out of a pool nobody funded is round 4 - but not an allocation that expires, and not where the unclaimed remainder goes | a deadline whose two comparisons do not partition the timeline, and a remainder that stays claimable for ever. `escrow`'s deadline pair is the shape to copy |
+| a payment channel, a state channel | `(none)` - it reached `ft4` on the word `payment` until 2026-09-07 | a CHANNEL. A token ledger has no sequence number, no off-chain state and no dispute window | the CLOSE: a stale state posted by whoever profits from it, and a dispute window somebody has to be online to watch. `escrow` covers value locked between two named parties; nothing covers the close |
+| a multisig wallet, a threshold account | `(none)` - it reached `ft4` on the word `wallet` until 2026-09-07 | a SIGNER SET. The ft4 skeleton has one auth descriptor | who may add or remove a key, whether a signature counts once, and whether the set can be closed. FT4's account model has multi-signature auth descriptors and `bridge` ships M-of-N over one ACTION; neither is a template for an account |
+| a crowdfunding campaign with refunds | `(none)` | a goal, a deadline and an all-or-nothing refund | the refund race a `subscription`-style escrow does not have: many backers against one pot, so a partial refund is `insurance`'s pro-rata problem with a deadline attached |
+| a loyalty programme, points, a gaming item shop | `(none)` | an issuer who can mint the points at will | the round-4 unbacked mint in a class where minting is the POINT, so `staking`'s "every credit is a pool debit" cannot simply be carried over |
+| a fee splitter, a charity or donation pool, a yield aggregator | `(none)` | a share of an incoming stream, split by weights that can move | a weight changed between the accrual and the withdrawal - the lending template's stale-share-price drain in a class with no share price |
 
-That is not a claim that no class is missing. It is a claim that no class we have
-NAMED is missing, and naming is the part that has always lagged: every drain in
-this project landed in a class this file had either not thought of or had ranked
-below the one that got built - and the bridge row is the sharpest case, because it
-carried a reason for its own deprioritisation that was not true until round 14
-tested the claim and drained the build. So the next drain is still predictable
-from the redirect map rather than from this table. When you find a class with no template, put it here FIRST,
-before you build anything.
+That is not a claim that no other class is missing. Every drain in this project
+landed in a class this file had either not thought of or had ranked below the one
+that got built - and the bridge row is the sharpest case, because it carried a
+reason for its own deprioritisation that was not true until round 14 tested the
+claim and drained the build. So the next drain is still predictable from the
+redirect map rather than from this table. When you find a class with no template,
+put it here FIRST, before you build anything.
 
 ## How to use this
 
 Take the top row that is not in flight. Build the template the way the other
-thirteen are built - the exploit made **unwritable**, not merely detected
+fourteen are built - the exploit made **unwritable**, not merely detected
 (GOAL.md principle 4), every guard carrying a mutant that reddens a shipped
 must-fail test *because the attack landed*, and the shape SHIPPED rather than
 described.

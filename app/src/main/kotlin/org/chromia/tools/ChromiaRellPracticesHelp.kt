@@ -394,6 +394,8 @@ object ChromiaRellPracticesHelp {
                 "a threshold replaces the single key, and the mint is capped; a TRANSFER-conservation test " +
                 "is blind to a mint, and adversary round 14 minted 10x with that invariant exact; " +
                 "stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
+                "insurance pool / premiums and cover / claims pool / mutual or risk pool / parametric or underwriting: template=insurance, never ft4 - " +
+                "ONE helper returns every premium and it returns the premium less what the policy was already paid, nothing is paid inside a claim (a claim round snapshots the reserve and pays every claimant reserve * claim / total_claimed), a refund is pro rata for the same reason, and cover is bounded by the reserve that backs it; adversary round 17 was answered template=ft4 for this ask and drained twice, with the copied conservation invariant exact throughout; " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail. " +
                 "Then PROVE your own guards the same way the templates are proven: verify_guards removes a guard " +
                 "you name, reruns only its must-fail test, and reports load_bearing only if that test failed " +
