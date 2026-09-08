@@ -1,9 +1,21 @@
 package org.chromia
 
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import org.chromia.data.client.HttpClientService
+import org.chromia.data.config.ChromiaConfig
+import org.chromia.data.queries.NetworkQueries
+import org.chromia.domain.NetworkResult
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
 
 /**
  * THE ONLY PLACE IN THIS SUITE THAT MAY SKIP A TEST.
@@ -124,5 +136,191 @@ object LiveEnv {
             return
         }
         assumeTrue(ok, "no working chr on this machine: $detail")
+    }
+
+    // =====================================================================
+    // THE CANARY: is the explorer up AT ALL, measured in this JVM?
+    // =====================================================================
+    //
+    // A live test that fails with an upstream-looking message has said nothing
+    // about WHOSE failure it is. "INTERNAL_ERROR", "Request timeout has
+    // expired" and an HTTP 503 are all things the explorer says - and all three
+    // are also what a broken query, a wrong endpoint or a hung box would look
+    // like from in here. Round 18 section 4 is the proof that guessing costs
+    // more than measuring: `get_asset_top_holders` answered eight consecutive
+    // live INTERNAL_ERRORs and the suite reported eight passes, because a
+    // marker in the text was treated as evidence of an outage.
+    //
+    // So nothing in this file believes a marker on its own. The canary is a
+    // SECOND, INDEPENDENT observation, made through the production HTTP client
+    // against the same explorer, of a query that is known to be cheap and known
+    // to work: `{ totalRewardsPaid }` - the one field that kept answering
+    // through the 2026-09-04 and 2026-09-07 explorer incidents (docs/UPSTREAM.md
+    // #3a records it answering 200 while every dashboard field was
+    // INTERNAL_ERROR), and it costs about a second.
+    //
+    //   canary ANSWERS  -> the explorer is up, and an upstream marker in a live
+    //                      test is a PLAIN RED until a dated ledger entry says
+    //                      that specific query is broken;
+    //   canary FAILS    -> the explorer is down for everything, and a live test
+    //                      that hit it proved nothing about our code.
+    //
+    // It runs AT MOST ONCE PER JVM (`by lazy`): the point is one measurement of
+    // the third party per run, not one per test, and a canary that hammered the
+    // explorer once per failing assertion would be part of the outage.
+
+    /**
+     * THINGS ONLY THE THIRD PARTY CAN SAY, and the ONLY texts that may take part
+     * in a downgrade. This is deliberately NARROWER than the `upstreamMarkers`
+     * lists the live helpers use to word a failure: those lists exist to write a
+     * better red, this one decides whether a red may be reported as an upstream
+     * warning instead, so every entry has to be a string our own code cannot
+     * produce by being wrong.
+     *
+     * It mirrors `scripts/upstream-classifier.mjs` (the e2e sweep's allowlist),
+     * minus everything that could be ours:
+     *
+     *  - `INTERNAL_ERROR for <uuid>` carries the EXPLORER'S OWN request id. A
+     *    malformed query of ours is a `Validation error`, never this.
+     *  - `Request timeout has expired` is ktor's text for OUR outbound hop
+     *    exceeding `ChromiaConfig.httpTimeouts.requestTimeout` - the third party
+     *    not answering in 60 s.
+     *  - `reCAPTCHA` is a bot gate no API client can pass (docs/UPSTREAM.md #7a).
+     *  - a 5xx is the third party's own server-side failure.
+     *
+     * DELIBERATELY ABSENT, though the sweep and the helpers both mention them:
+     * HTTP 4xx (a 400 is normally OUR malformed query - docs/UPSTREAM.md #9 is
+     * an explorer-side 400 and it is handled by a dated ledger entry, not by a
+     * blanket signature), `Connection refused` / `Connection reset` (a closed
+     * local port is how several tests assert offline behaviour on purpose), and
+     * the bare word `timeout` (ours hangs look like that too).
+     *
+     * Scoping to the explorer is STRUCTURAL rather than textual: the only
+     * callers of [upstreamOutage] are the explorer live helpers, which
+     * [AssumptionLedgerTest] pins, and both guardrails below are explorer
+     * measurements.
+     */
+    val UPSTREAM_SIGNATURES: List<Pair<String, Regex>> = listOf(
+        "explorer-graphql-internal-error" to
+            Regex("""\bINTERNAL_ERROR\b\s+for\s+[0-9A-Fa-f][0-9A-Fa-f-]{7,}"""),
+        "explorer-request-timeout" to
+            Regex("""Request timeout has expired""", RegexOption.IGNORE_CASE),
+        "explorer-recaptcha" to
+            Regex("""reCAPTCHA""", RegexOption.IGNORE_CASE),
+        "explorer-http-5xx" to
+            Regex("""\bHTTP 5\d\d\b|\bBad Gateway\b|\bService Unavailable\b|\bGateway Time-?out\b""",
+                RegexOption.IGNORE_CASE)
+    )
+
+    /** The matched signature name for an error text, or null - which means OURS. */
+    fun upstreamSignature(text: String?): String? {
+        val t = text ?: return null
+        return UPSTREAM_SIGNATURES.firstOrNull { (_, re) -> re.containsMatchIn(t) }?.first
+    }
+
+    enum class CanaryState {
+        /** The explorer served the known-good query. */
+        ANSWERED,
+
+        /** It refused, with something only the third party can say. */
+        FAILED_SIGNATURE,
+
+        /** It refused with something else - which may well be ours. */
+        FAILED_OTHER
+    }
+
+    data class Canary(
+        val state: CanaryState,
+        /** The allowlisted signature the refusal matched, or null. */
+        val signature: String?,
+        /** The explorer's OWN text - never our paraphrase of it. */
+        val explorerSaid: String,
+        val at: String,
+        val elapsedMs: Long,
+        val explorerUrl: String
+    ) {
+        val answered: Boolean get() = state == CanaryState.ANSWERED
+
+        /** One line, for a failure message that has to fit in a JUnit XML attribute. */
+        fun summary(): String =
+            "canary($explorerUrl { totalRewardsPaid }) = $state" +
+                (signature?.let { " [$it]" } ?: "") +
+                " in ${elapsedMs}ms at $at: ${explorerSaid.take(160)}"
+    }
+
+    /** Everything this file writes for the gate to read. */
+    val upstreamDir: Path get() = RepoFiles.root.resolve("app/build/upstream")
+
+    private val canary: Canary by lazy { probeExplorer() }
+
+    /**
+     * The one explorer measurement of this JVM. Records itself to
+     * `app/build/upstream/canary.json` so the gate - and a person reading a red
+     * run an hour later - can see the third party's state at the moment the
+     * suite ran, rather than re-probing an explorer that has since recovered.
+     */
+    fun explorerCanary(): Canary = canary
+
+    private fun probeExplorer(): Canary {
+        val config = ChromiaConfig()
+        val started = System.currentTimeMillis()
+        // The PRODUCTION client, the production query, the production endpoint.
+        // A canary that used a different HTTP stack from the tools would be
+        // measuring a different network path than the one that just failed.
+        val result = runBlocking {
+            HttpClientService(config).executeGraphQLQuery(
+                NetworkQueries.getTotalRewardsPaid(),
+                "mainnet"
+            )
+        }
+        val elapsed = System.currentTimeMillis() - started
+        val at = Instant.now().toString()
+        val canary = when (result) {
+            is NetworkResult.Success -> {
+                val paid = result.data["data"]?.jsonObject?.get("totalRewardsPaid")
+                if (paid == null) {
+                    // A 200 with no field is the explorer answering nothing, and
+                    // it is exactly the shape a swallowed failure wears.
+                    Canary(
+                        CanaryState.FAILED_OTHER, null,
+                        "200 with no data.totalRewardsPaid: ${result.data}", at, elapsed, config.explorerUrl
+                    )
+                } else {
+                    Canary(CanaryState.ANSWERED, null, "totalRewardsPaid = $paid", at, elapsed, config.explorerUrl)
+                }
+            }
+
+            is NetworkResult.Error -> {
+                val signature = upstreamSignature(result.message)
+                Canary(
+                    if (signature != null) CanaryState.FAILED_SIGNATURE else CanaryState.FAILED_OTHER,
+                    signature, result.message, at, elapsed, config.explorerUrl
+                )
+            }
+        }
+        record(canary)
+        return canary
+    }
+
+    private fun record(canary: Canary) {
+        runCatching {
+            Files.createDirectories(upstreamDir)
+            Files.writeString(upstreamDir.resolve("canary.json"), canaryJson(canary).toString())
+        }
+        // A canary that cannot write its file is not a reason to fail a test:
+        // the measurement still happened and is still returned. The gate says
+        // so loudly when the file is missing, which is where it matters.
+    }
+
+    internal fun canaryJson(canary: Canary): JsonObject = buildJsonObject {
+        put("query", "totalRewardsPaid")
+        put("explorerUrl", canary.explorerUrl)
+        put("network", "mainnet")
+        put("outcome", canary.state.name)
+        put("signature", canary.signature)
+        put("explorerSaid", canary.explorerSaid.take(1000))
+        put("elapsedMs", canary.elapsedMs)
+        put("at", canary.at)
+        put("pid", ProcessHandle.current().pid())
     }
 }
