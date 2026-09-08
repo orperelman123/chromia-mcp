@@ -98,11 +98,26 @@ jobs:
       # THE VERDICT, and the third status. One implementation, shared with
       # scripts/loop-gate.mjs: a failure whose message begins
       # `UPSTREAM WARNING (proven): ` AND which is backed by an evidence file in
-      # app/build/upstream/warnings/ carrying an allowlisted signature plus a
-      # failed canary or a dated docs/UPSTREAM.md entry is counted as upstream=N
-      # and printed by name. Everything else - including a message that claims
-      # the status with no evidence, and every skip - is red. There is NO
-      # allowlist of test names here or anywhere else.
+      # app/build/upstream/warnings/ carrying an allowlisted signature is counted
+      # as upstream=N and printed by name - but only when the three round-19
+      # checks hold as well:
+      #
+      #   - the failure message BINDS that file, `[evidence sha256:<hex>]` over
+      #     its bytes. The message comes out of the test process's own throwable
+      #     and the evidence file is an ordinary file anyone can write, so the
+      #     digest is what says the two belong to each other;
+      #   - the proof is an INDEPENDENT canary that failed with the SAME
+      #     signature (FAILED_OTHER is "may well be ours" and proves nothing), or
+      #     a docs/UPSTREAM.md entry the tally READS OUT OF THE FILE - the entry
+      #     must exist, its heading must match, its section must be dated and
+      #     must name the query. `--dir "$PWD"` is what says which checkout holds
+      #     that ledger;
+      #   - the timestamp is inside this run.
+      #
+      # Everything else - including a message that claims the status with no
+      # evidence, and every skip - is red. There is NO allowlist of test names
+      # here or anywhere else. docs/UPSTREAM.md, "The upstream-warning
+      # contract", is the long form.
       - name: Classify the tally (ours, theirs, and skips)
         run: node scripts/gate-tally.mjs --dir "$PWD"
 

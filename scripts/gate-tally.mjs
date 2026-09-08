@@ -18,9 +18,11 @@
 //             (proven): ` AND which is backed by an evidence file in
 //             app/build/upstream/warnings/<Class>.<method>.json carrying:
 //               - an allowlisted signature only the third party can produce,
-//               - a canary that FAILED, or a DATED docs/UPSTREAM.md entry
-//                 naming the query (a partial outage - the explorer answers,
-//                 one query does not - is excused by the ledger or not at all),
+//               - a digest of that file INSIDE the failure message, so the file
+//                 belongs to the run that failed (see BINDING below),
+//               - an INDEPENDENT canary that failed with the SAME signature, or
+//                 a DATED docs/UPSTREAM.md entry naming the query - and the
+//                 entry is read out of docs/UPSTREAM.md HERE, not believed,
 //               - a timestamp inside this run.
 //             It is counted and printed BY NAME with its evidence, and it does
 //             NOT set the exit code.
@@ -32,6 +34,37 @@
 // (LiveEnv writes it, from a measurement) and why this script re-checks it
 // rather than trusting the sentence.
 //
+// ADVERSARY ROUND 19, section 4, closed three holes in exactly that claim:
+//
+//   BINDING. Nothing in the repository says only LiveEnv may write into
+//   app/build/upstream/warnings, so a hand-written file bought the status. What
+//   an attacker cannot hand-write is the JUnit XML: the message attribute is
+//   written by the TEST PROCESS, from the throwable the test threw. So
+//   LiveEnv now hashes the evidence bytes it just wrote and puts
+//   `[evidence sha256:<hex>]` in that message, and this script RECOMPUTES the
+//   digest from the file on disk and matches it. A file the failing test did
+//   not write cannot match a message it did not produce.
+//
+//   THE LEDGER. `warningProof` used to accept any non-empty ledgerEntry +
+//   ledgerHeading; only LiveEnv.datedLedgerEntry checked the number, on the
+//   PRODUCING side, and LiveEnv wrote what it was handed. An entry of `999`
+//   with a heading of "999. A heading no document has" was proof. The gate now
+//   OPENS docs/UPSTREAM.md itself (see `ledgerProof`): the entry must exist,
+//   its heading must match the file's heading for that number exactly, its
+//   section must carry a date and must name the query. Independently of the
+//   producer, which is the only way a second check is worth anything.
+//
+//   THE CANARY. `FAILED_OTHER` - the outcome LiveEnv itself documents as "may
+//   well be ours" - counted as a failed canary on both sides. It does not any
+//   more: only FAILED_SIGNATURE, carrying the SAME allowlisted signature as the
+//   tool failure, measured on the canary's INDEPENDENT path (a plain
+//   java.net.http client with its own bounds - LiveEnv.probeExplorer), is proof
+//   that the third party is down. Two of the four allowlisted signatures
+//   (`explorer-request-timeout`, `explorer-http-5xx`) are reachable from our own
+//   code; the independent path is what stops one fault of ours from satisfying
+//   the signature and the canary at once. docs/UPSTREAM.md, "The
+//   upstream-warning contract", is the long form.
+//
 // The failure mode this whole shape is designed against is adversary round 18
 // section 4: `get_asset_top_holders` answered eight consecutive live
 // INTERNAL_ERRORs and the suite reported eight PASSES, because an upstream
@@ -41,6 +74,7 @@
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 
 /** The prefix LiveEnv.UPSTREAM_WARNING_PREFIX writes. Kept identical on purpose. */
 export const UPSTREAM_WARNING_PREFIX = 'UPSTREAM WARNING (proven): ';
@@ -102,7 +136,22 @@ const decode = (s) => String(s ?? '')
   .replace(/&#10;/g, '\n').replace(/&#13;/g, '\r').replace(/&#9;/g, '\t')
   .replace(/&amp;/g, '&');
 
-/** Every evidence file in [dir], keyed `Class.method`. */
+/**
+ * The digest a failing test writes into its OWN assertion message to bind the
+ * evidence file to this run - `[evidence sha256:<64 hex>]`, written by
+ * LiveEnv.upstreamOutage over the exact bytes it wrote to disk.
+ *
+ * The XML message attribute is produced by the test process from the throwable
+ * the test threw; the evidence file is an ordinary file anyone can write. This
+ * is the join between them, and it is the round-19 a2 fix: a hand-written file
+ * cannot match a message it did not produce.
+ */
+export const EVIDENCE_DIGEST = /\[evidence sha256:([0-9a-f]{64})\]/;
+
+/** The evidence file's content digest, in the spelling the message carries. */
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+/** Every evidence file in [dir], keyed `Class.method`, with its content digest. */
 export function readWarnings(dir) {
   const found = new Map();
   if (!dir || !existsSync(dir)) return found;
@@ -110,18 +159,83 @@ export function readWarnings(dir) {
     const path = join(dir, file);
     let parsed = null;
     let error = null;
-    try { parsed = JSON.parse(readFileSync(path, 'utf8')); }
-    catch (e) { error = `unreadable: ${e.message}`; }
-    found.set(basename(file, '.json'), { file: path, warning: parsed, error });
+    let digest = null;
+    try {
+      // Bytes, not a decoded string: the digest has to be of what is ON DISK,
+      // because that is what the producing test hashed.
+      const bytes = readFileSync(path);
+      digest = sha256(bytes);
+      parsed = JSON.parse(bytes.toString('utf8'));
+    } catch (e) { error = `unreadable: ${e.message}`; }
+    found.set(basename(file, '.json'), { file: path, warning: parsed, error, sha256: digest });
   }
   return found;
+}
+
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * THE LEDGER, READ OUT OF docs/UPSTREAM.md BY THE GATE.
+ *
+ * A partial outage - the explorer answers, one query does not - is excused by a
+ * DATED entry naming that query, or not at all. Round 19 (a1) showed the gate
+ * taking the producer's word for all of it: any non-empty `ledgerEntry` and
+ * `ledgerHeading` passed, and `999` / "999. A heading no document has" bought
+ * the status. So this opens the file, in [repoDir], and requires four things:
+ *
+ *  1. the entry EXISTS as `## <entry>. <heading>`;
+ *  2. the heading in the file matches the heading in the evidence EXACTLY, so
+ *     evidence cannot cite a real number under a story of its own;
+ *  3. the entry's section carries a DATE - an undated entry cannot be aged out
+ *     and would excuse a query forever;
+ *  4. the section NAMES the query being excused - an entry about something else
+ *     is evidence about something else.
+ *
+ * 3 and 4 are the rule LiveEnv.datedLedgerEntry applies on the producing side,
+ * re-derived here from the same file. Two checks of the same fact are only
+ * worth one unless they are independent, which is why this is a second reader
+ * of docs/UPSTREAM.md rather than a second look at the evidence JSON.
+ */
+export function ledgerProof(repoDir, entry, heading, query) {
+  const path = join(repoDir ?? process.cwd(), 'docs', 'UPSTREAM.md');
+  if (!existsSync(path)) {
+    return { ok: false, why: `there is no docs/UPSTREAM.md at ${path} to check entry #${entry} against` };
+  }
+  const text = readFileSync(path, 'utf8');
+  const found = new RegExp(`^##\\s+${escapeRe(entry)}\\.\\s+(.*)$`, 'm').exec(text);
+  if (!found) {
+    return { ok: false, why: `docs/UPSTREAM.md has no entry \`## ${entry}.\` - a ledger entry that is not written down excuses nothing` };
+  }
+  const fileHeading = found[1].trim();
+  const claimedHeading = String(heading ?? '').trim();
+  if (fileHeading !== claimedHeading) {
+    return {
+      ok: false,
+      why: `evidence calls docs/UPSTREAM.md #${entry} ${JSON.stringify(claimedHeading)}, the file calls it ` +
+        `${JSON.stringify(fileHeading)}`,
+    };
+  }
+  const rest = text.slice(found.index + found[0].length);
+  const end = rest.search(/^##\s/m);
+  const section = found[1] + (end < 0 ? rest : rest.slice(0, end));
+  if (!/\b20\d\d-\d\d-\d\d\b/.test(section)) {
+    return { ok: false, why: `docs/UPSTREAM.md #${entry} carries no date - an undated entry would excuse this query forever` };
+  }
+  if (!query || !section.includes(query)) {
+    return { ok: false, why: `docs/UPSTREAM.md #${entry} does not name \`${query}\` - an entry only excuses the query it names` };
+  }
+  return { ok: true, why: `docs/UPSTREAM.md #${entry}: ${fileHeading}` };
 }
 
 /**
  * Is this evidence file actually proof, for a run that started at [startedAt]?
  * Returns { ok, why } - `why` explains a refusal in the operator's terms.
+ *
+ * [message] is the failing test's own assertion message, out of the JUnit XML;
+ * [repoDir] is the checkout whose docs/UPSTREAM.md is the ledger. Both are
+ * required for the round-19 checks and both fail CLOSED when absent.
  */
-export function warningProof(entry, key, startedAt) {
+export function warningProof(entry, key, startedAt, { message = '', repoDir = process.cwd() } = {}) {
   if (!entry) return { ok: false, why: `no evidence file app/build/upstream/warnings/${key}.json` };
   if (entry.error) return { ok: false, why: `evidence file ${entry.error}` };
   const w = entry.warning;
@@ -133,16 +247,60 @@ export function warningProof(entry, key, startedAt) {
   if (typeof w.errorText !== 'string' || w.errorText.trim() === '') {
     return { ok: false, why: "the third party's own words are missing" };
   }
-  // The guardrail: the explorer is down for everything, or this one query is
-  // written down as broken, with a date. Nothing else excuses a live failure.
-  const canaryDown = typeof w.canaryOutcome === 'string' && w.canaryOutcome !== 'ANSWERED';
-  const ledgered = typeof w.ledgerEntry === 'string' && w.ledgerEntry !== '' &&
-    typeof w.ledgerHeading === 'string' && w.ledgerHeading !== '';
-  if (!canaryDown && !ledgered) {
+
+  // BINDING (round 19, a2). The failing test hashed the bytes it wrote and put
+  // the digest in the message the reporter copied into the XML. Recompute it.
+  const bound = EVIDENCE_DIGEST.exec(String(message ?? ''));
+  if (!bound) {
     return {
       ok: false,
-      why: `the canary ANSWERED and no dated docs/UPSTREAM.md entry names \`${w.query}\` - ` +
-        'a partial outage is excused by a dated ledger entry or not at all',
+      why: 'the failure message carries no `[evidence sha256:<hex>]`, so nothing ties this file to ' +
+        'the test that failed - only LiveEnv.upstreamOutage writes that digest, and it writes it ' +
+        'over the bytes it just wrote',
+    };
+  }
+  if (bound[1] !== entry.sha256) {
+    return {
+      ok: false,
+      why: `the failure message binds evidence sha256:${bound[1]} but ${basename(entry.file)} hashes to ` +
+        `sha256:${entry.sha256} - this file is not the one the failing test wrote`,
+    };
+  }
+
+  // The guardrail: the explorer is down for everything, PROVEN on the canary's
+  // independent path with the same signature, or this one query is written down
+  // as broken, with a date, in docs/UPSTREAM.md. Nothing else excuses a live
+  // failure.
+  //
+  // FAILED_OTHER is deliberately NOT a failed canary (round 19, a2): LiveEnv
+  // documents that state as "it refused with something else - which may well be
+  // ours", and an outcome that may well be ours proves nothing about the third
+  // party. Neither is a FAILED_SIGNATURE carrying a DIFFERENT signature from the
+  // tool failure: two unrelated faults are not one outage.
+  const canary = w.canary && typeof w.canary === 'object' ? w.canary : null;
+  const canaryProves = w.canaryOutcome === 'FAILED_SIGNATURE' &&
+    canary !== null && canary.independent === true &&
+    UPSTREAM_SIGNATURE_NAMES.includes(canary.signature) &&
+    canary.signature === w.signature;
+  const canaryWhy = w.canaryOutcome === 'ANSWERED'
+    ? 'the canary ANSWERED, so the explorer is up'
+    : w.canaryOutcome === 'FAILED_OTHER'
+      ? 'the canary failed with FAILED_OTHER, which LiveEnv itself documents as "may well be ours"'
+      : canary === null || canary.independent !== true
+        ? 'the canary in this evidence was not measured on the independent path'
+        : canary.signature !== w.signature
+          ? `the canary failed with [${canary.signature}] and the tool failed with [${w.signature}] - ` +
+            'two different faults are not one outage'
+          : `the canary outcome ${JSON.stringify(w.canaryOutcome)} is not proof of an outage`;
+  const named = typeof w.ledgerEntry === 'string' && w.ledgerEntry.trim() !== '';
+  const ledger = named
+    ? ledgerProof(repoDir, w.ledgerEntry.trim(), w.ledgerHeading, w.query)
+    : { ok: false, why: `no docs/UPSTREAM.md entry is named for \`${w.query}\`` };
+  if (!canaryProves && !ledger.ok) {
+    return {
+      ok: false,
+      why: `${canaryWhy}, and ${ledger.why} - a partial outage is excused by a dated ledger entry ` +
+        'that names the query, or not at all',
     };
   }
   const at = Date.parse(w.at ?? '');
@@ -154,14 +312,17 @@ export function warningProof(entry, key, startedAt) {
         'a warning from an earlier run cannot excuse this one',
     };
   }
-  return { ok: true, why: canaryDown ? `canary ${w.canaryOutcome}` : `docs/UPSTREAM.md #${w.ledgerEntry}` };
+  return {
+    ok: true,
+    why: canaryProves ? `independent canary FAILED_SIGNATURE [${canary.signature}]` : ledger.why,
+  };
 }
 
 /**
  * Reads the JUnit XMLs in [resultsDir] and the evidence in [warningsDir] and
  * classifies every non-passing test into RED or UPSTREAM.
  */
-export function tally({ resultsDir, warningsDir, startedAt = null }) {
+export function tally({ resultsDir, warningsDir, startedAt = null, repoDir = process.cwd() }) {
   if (!existsSync(resultsDir)) {
     return { error: `no test-results directory at ${resultsDir} - the suite did not run` };
   }
@@ -208,7 +369,7 @@ export function tally({ resultsDir, warningsDir, startedAt = null }) {
         red.push({ key, kind, message, why: null });
         continue;
       }
-      const proof = warningProof(warnings.get(key), key, runStart);
+      const proof = warningProof(warnings.get(key), key, runStart, { message, repoDir });
       if (proof.ok) {
         upstream.push({ key, kind, message, ...warnings.get(key).warning, proofBy: proof.why });
       } else {
@@ -223,7 +384,7 @@ export function tally({ resultsDir, warningsDir, startedAt = null }) {
   const orphanWarnings = [...warnings.keys()].filter((k) => !usedKeys.has(k));
 
   return {
-    resultsDir, warningsDir, files: files.length, runStart,
+    resultsDir, warningsDir, repoDir, files: files.length, runStart,
     tests, failures, errors, skipped,
     skippedNames, upstream, red, stale, orphanWarnings,
     ranClasses: [...ranClasses].sort(),
@@ -245,7 +406,9 @@ export function report(t, { log = console.log, err = console.error, expectMin = 
     log(`  upstream: ${u.key}`);
     log(`      tool: ${u.tool}   query: ${u.query}   signature: ${u.signature}`);
     log(`     proof: ${u.proof ?? u.proofBy}`);
-    log(`    canary: ${u.canary?.outcome ?? u.canaryOutcome} at ${u.canary?.at ?? '?'}` +
+    log(`    canary: ${u.canary?.outcome ?? u.canaryOutcome}` +
+      (u.canary?.independent ? ' (independent path)' : '') +
+      ` at ${u.canary?.at ?? '?'}` +
       (u.canary?.explorerSaid ? ` - ${String(u.canary.explorerSaid).slice(0, 120)}` : ''));
     log(`  upstream said: ${String(u.errorText).replace(/\s+/g, ' ').slice(0, 200)}`);
     log(`  evidence: app/build/upstream/warnings/${u.key}.json`);
@@ -307,7 +470,7 @@ if (isMain) {
   const warningsDir = resolve(opt('--warnings', join(repo, 'app', 'build', 'upstream', 'warnings')));
   const startedAtArg = opt('--started-at', null);
   const t = tally({
-    resultsDir, warningsDir,
+    resultsDir, warningsDir, repoDir: repo,
     startedAt: startedAtArg === null ? null : Number(startedAtArg),
   });
   if (t.error) { console.error(`GATE FAILED: ${t.error}`); process.exit(1); }

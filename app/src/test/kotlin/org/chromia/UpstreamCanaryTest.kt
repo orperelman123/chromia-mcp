@@ -32,12 +32,21 @@ import java.nio.file.Files
  * this file: the positive signature comes from a live `allBlockchains(state:)`
  * refusal, and the negative comes from a real closed port refusing a real
  * socket.
+ *
+ * Since adversary round 19 the canary is also INDEPENDENT, and that is asserted
+ * here too. It used to run through `HttpClientService(ChromiaConfig())` - the
+ * same client, config and bounds as the tools - so a fault of ours satisfied the
+ * signature guard and the canary guard at the same moment. It is now a plain
+ * `java.net.http` client with its own bounds; only the endpoint is shared,
+ * because the endpoint is the question.
  */
 class UpstreamCanaryTest {
 
     @Test
     fun theCanaryMeasuresTheExplorerOnceAndRecordsWhatItSaw() {
-        LiveChromia.requireLive("asks the live explorer whether it is up at all, through the production HTTP client")
+        LiveChromia.requireLive(
+            "asks the live explorer whether it is up at all, on the canary's own independent path"
+        )
 
         val canary = LiveEnv.explorerCanary()
         assertSame(
@@ -50,7 +59,26 @@ class UpstreamCanaryTest {
         assertEquals(
             ChromiaConfig().explorerUrl, canary.explorerUrl,
             "the canary must measure the SAME endpoint the tools call, or it is evidence about a " +
-                "different network path than the one that failed"
+                "different service than the one that failed"
+        )
+        // ...and NOTHING ELSE may be shared. Round 19 section 4: the canary used
+        // to build ChromiaConfig() and HttpClientService(config), so our own
+        // HttpTimeouts.requestTimeout expiring produced ktor's `Request timeout
+        // has expired` - an allowlisted signature - for the tool AND for the
+        // canary, and one fault of ours satisfied both guardrails at once. The
+        // endpoint is the question; everything that carries the question is the
+        // canary's own.
+        assertEquals(
+            "true", LiveEnv.canaryJson(canary)["independent"].toString(),
+            "the canary's evidence must record that it was measured on the independent path - the " +
+                "gate refuses a warning whose canary does not say so"
+        )
+        assertTrue(
+            LiveEnv.CANARY_REQUEST_TIMEOUT.toMillis() !=
+                ChromiaConfig().httpTimeouts.requestTimeout.inWholeMilliseconds,
+            "the canary's request bound must not be ChromiaConfig.httpTimeouts.requestTimeout. " +
+                "Sharing that field is how tightening OUR timeout made the canary fail too, which " +
+                "is what turned our own bug into a proven ChromaWay outage."
         )
         assertTrue(canary.elapsedMs > 0, "an unmeasured canary: ${canary.summary()}")
         assertTrue(canary.explorerSaid.isNotBlank(), "the canary must carry the explorer's own words")

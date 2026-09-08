@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.function.Executable
@@ -61,8 +62,34 @@ import java.util.concurrent.TimeUnit
  *  a4  CONTROL, A STALE FILE. Evidence dated before the run. Refused by the
  *      `runStart` check - round 18's second negative, held.
  *
- * WHAT IT FOUND: a1 and a2 are accepted. `upstream=1`, exit 0, and an operator
- * reading the gate line is told ChromaWay was down.
+ * WHAT IT FOUND: a1 and a2 were accepted. `upstream=1`, exit 0, and an operator
+ * reading the gate line was told ChromaWay was down.
+ *
+ * WHAT BECAME OF IT (2026-09-09). All four are RED and this test is green:
+ *
+ *  - **a1 is refused by a second, independent reader of the ledger.**
+ *    `gate-tally.mjs` now OPENS `docs/UPSTREAM.md` itself (`ledgerProof`): the
+ *    entry must exist, its heading must match the file's heading for that
+ *    number EXACTLY, its section must carry a date, and it must name the query.
+ *    `999` is not in the document, so citing it buys nothing - and the gate
+ *    derives all of that from the file rather than from the evidence JSON,
+ *    which is the only way a second check is worth anything.
+ *  - **a2 is refused twice over.** `FAILED_OTHER` is no longer a failed canary
+ *    on either side: only `FAILED_SIGNATURE` carrying the SAME allowlisted
+ *    signature as the tool failure, measured on the canary's INDEPENDENT path,
+ *    proves the third party is down. And the evidence is now BOUND to the run -
+ *    `LiveEnv.upstreamOutage` hashes the bytes it writes and carries
+ *    `[evidence sha256:<hex>]` in the assertion message, which the reporter
+ *    copies into the XML from the throwable THIS process threw; the gate
+ *    recomputes the digest from the file and matches it. [Marker] throws a
+ *    message with no digest, as any hand-written attack must, so the file is
+ *    not the one the failing test wrote whatever it contains.
+ *  - **a3 and a4 are still red**, by the same two checks as before.
+ *
+ * The deep finding of the same section - a canary sharing `ChromiaConfig`,
+ * `HttpClientService` and the endpoint with the code under test - is fixed in
+ * [LiveEnv] and measured end to end by
+ * `AssumptionLedgerTest.ourOwnRequestTimeoutThroughTheRealSeamStaysARed`.
  */
 class Round19FakeUpstreamWarningTest {
 
@@ -80,14 +107,31 @@ class Round19FakeUpstreamWarningTest {
          * failed would be a permanent red in every other run. The flag is set
          * only by [noHandWrittenEvidenceBuysTheUpstreamStatus], immediately
          * around the launcher call.
+         *
+         * There is deliberately no early `return` here.
+         * [AssumptionLedgerTest.anEarlyReturnFromATestMustFollowAnAssertion]
+         * refuses one that has asserted nothing, and it is right to: a body that
+         * leaves before it claims anything reports a pass for work it did not
+         * do. So the inert path ASSERTS what makes it inert - the flag is off -
+         * which is the only thing this method has to say when it is not being
+         * used as the attack's marker.
          */
         @Test
         fun theExplorerRefusedTheQuery() {
-            if (System.getProperty(MARKER_FLAG) != "on") return
-            throw AssertionError(
-                LiveEnv.UPSTREAM_WARNING_PREFIX +
-                    "get_blockchain_analytics: Request failed: Request timeout has expired " +
-                    "[url=https://explorer.chromia.com/graphql, request_timeout=1 ms]"
+            val armed = System.getProperty(MARKER_FLAG)
+            if (armed == "on") {
+                throw AssertionError(
+                    LiveEnv.UPSTREAM_WARNING_PREFIX +
+                        "get_blockchain_analytics: Request failed: Request timeout has expired " +
+                        "[url=https://explorer.chromia.com/graphql, request_timeout=1 ms]"
+                )
+            }
+            assertNull(
+                armed,
+                "$MARKER_FLAG is set outside the launcher call in " +
+                    "noHandWrittenEvidenceBuysTheUpstreamStatus, which is the only place that may " +
+                    "arm this marker. Left set, it turns a probe into a permanent red in every " +
+                    "other run of the suite."
             )
         }
     }

@@ -1,20 +1,29 @@
 package org.chromia
 
-import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.chromia.data.client.HttpClientService
 import org.chromia.data.config.ChromiaConfig
-import org.chromia.data.queries.NetworkQueries
-import org.chromia.domain.NetworkResult
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.File
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpConnectTimeoutException
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.net.http.HttpTimeoutException
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -152,22 +161,75 @@ object LiveEnv {
     // marker in the text was treated as evidence of an outage.
     //
     // So nothing in this file believes a marker on its own. The canary is a
-    // SECOND, INDEPENDENT observation, made through the production HTTP client
-    // against the same explorer, of a query that is known to be cheap and known
-    // to work: `{ totalRewardsPaid }` - the one field that kept answering
-    // through the 2026-09-04 and 2026-09-07 explorer incidents (docs/UPSTREAM.md
-    // #3a records it answering 200 while every dashboard field was
-    // INTERNAL_ERROR), and it costs about a second.
+    // SECOND observation, of a query that is known to be cheap and known to
+    // work: `{ totalRewardsPaid }` - the one field that kept answering through
+    // the 2026-09-04 and 2026-09-07 explorer incidents (docs/UPSTREAM.md #3a
+    // records it answering 200 while every dashboard field was INTERNAL_ERROR),
+    // and it costs about a second.
     //
-    //   canary ANSWERS  -> the explorer is up, and an upstream marker in a live
-    //                      test is a PLAIN RED until a dated ledger entry says
-    //                      that specific query is broken;
-    //   canary FAILS    -> the explorer is down for everything, and a live test
-    //                      that hit it proved nothing about our code.
+    //   canary ANSWERS            -> the explorer is up, and an upstream marker
+    //                                in a live test is a PLAIN RED until a dated
+    //                                ledger entry says that specific query is
+    //                                broken;
+    //   canary FAILED_SIGNATURE   -> the third party said something only it can
+    //                                say, on a path that shares nothing with the
+    //                                failing tool - the outage is measured;
+    //   canary FAILED_OTHER       -> it refused with something else, which MAY
+    //                                WELL BE OURS, and proves nothing.
     //
     // It runs AT MOST ONCE PER JVM (`by lazy`): the point is one measurement of
     // the third party per run, not one per test, and a canary that hammered the
     // explorer once per failing assertion would be part of the outage.
+    //
+    // WHY THE PATH IS ITS OWN (adversary round 19, section 4, the deep finding).
+    // Until 2026-09-09 this probe built `ChromiaConfig()` and
+    // `HttpClientService(config)` and called `config.explorerUrl` - the SAME
+    // config, the SAME client and the SAME bounds as the tool that had just
+    // failed. A fault on OUR side of the wire therefore satisfied the signature
+    // guard and the canary guard at once: set `HttpTimeouts.requestTimeout`
+    // small enough and ktor says `Request timeout has expired` - an allowlisted
+    // signature, described in the allowlist itself as "OUR outbound hop" - for
+    // the tool AND for the canary, and our own bug is reported as ChromaWay
+    // being down. Of the four allowlisted signatures, `explorer-request-timeout`
+    // and `explorer-http-5xx` are both reachable from our own code, so this was
+    // not theoretical.
+    //
+    // The canary therefore shares NOTHING with the code under test except the
+    // endpoint it is asking about:
+    //
+    //   - a plain `java.net.http.HttpClient` built here, not `HttpClientService`
+    //     and not ktor, so nothing in our client stack is on both sides;
+    //   - its OWN bounds ([CANARY_REQUEST_TIMEOUT], [CANARY_CONNECT_TIMEOUT]),
+    //     not `ChromiaConfig.httpTimeouts`, so tightening the production timeout
+    //     cannot make the canary fail;
+    //   - its own request body and its own reading of the answer, so a bug in
+    //     our query building or response parsing cannot fail both;
+    //   - the URL from the same constant production reads
+    //     (`ChromiaConfig().explorerUrl`), because a canary against a different
+    //     endpoint would be evidence about a different service.
+    //
+    // AssumptionLedgerTest.ourOwnRequestTimeoutThroughTheRealSeamStaysARed measures
+    // exactly that end to end: it tightens the production `requestTimeout` to
+    // 1 ms through the real `ChromiaConfig`/`HttpTimeouts` seam, makes a real
+    // live tool call, and proves the result is a RED and not a warning.
+
+    /**
+     * The canary's OWN request bound, deliberately NOT
+     * `ChromiaConfig.httpTimeouts.requestTimeout`. Sharing that field is exactly
+     * how one fault of ours satisfied both guards; 20 s is far above the ~1 s
+     * this query has taken through every measured incident and far below the
+     * production 60 s, so the two cannot be confused for one another.
+     */
+    val CANARY_REQUEST_TIMEOUT: Duration = Duration.ofSeconds(20)
+
+    /** The canary's own connect bound, for the same reason. */
+    val CANARY_CONNECT_TIMEOUT: Duration = Duration.ofSeconds(10)
+
+    /** The smallest real query the explorer must answer if it is up at all. */
+    const val CANARY_QUERY = "query { totalRewardsPaid }"
+
+    /** The explorer network the public service serves; it answers 4xx for others. */
+    private const val CANARY_NETWORK = "mainnet"
 
     /**
      * THINGS ONLY THE THIRD PARTY CAN SAY, and the ONLY texts that may take part
@@ -185,6 +247,18 @@ object LiveEnv {
      *  - `Request timeout has expired` is ktor's text for OUR outbound hop
      *    exceeding `ChromiaConfig.httpTimeouts.requestTimeout` - the third party
      *    not answering in 60 s.
+     *
+     * TWO OF THESE ARE REACHABLE FROM OUR OWN CODE, and round 19 measured it:
+     * `explorer-request-timeout` is produced by tightening
+     * `HttpTimeouts.requestTimeout`, and `explorer-http-5xx` by any 5xx our own
+     * handling lets through. They stay on the list because they are also what a
+     * real outage looks like - what makes them safe is the INDEPENDENT canary
+     * (see [probeExplorer]): our own bound expiring cannot make a client that
+     * does not use that bound fail too, so the two guards can no longer be
+     * satisfied by one fault of ours. The other two are not reachable from here
+     * at all: `INTERNAL_ERROR for <hex>` needs the explorer's own request id,
+     * and `reCAPTCHA`'s rule id is not in `UPSTREAM_RULE_IDS`, so its prose is
+     * never appended to a tool error.
      *  - `reCAPTCHA` is a bot gate no API client can pass (docs/UPSTREAM.md #7a).
      *  - a 5xx is the third party's own server-side failure.
      *
@@ -243,7 +317,8 @@ object LiveEnv {
 
         /** One line, for a failure message that has to fit in a JUnit XML attribute. */
         fun summary(): String =
-            "canary($explorerUrl { totalRewardsPaid }) = $state" +
+            "independent canary($explorerUrl { totalRewardsPaid }, java.net.http, own " +
+                "${CANARY_REQUEST_TIMEOUT.toSeconds()}s bound) = $state" +
                 (signature?.let { " [$it]" } ?: "") +
                 " in ${elapsedMs}ms at $at: ${explorerSaid.take(160)}"
     }
@@ -261,46 +336,98 @@ object LiveEnv {
      */
     fun explorerCanary(): Canary = canary
 
+    /**
+     * The independent measurement. The URL is the production constant; every
+     * other thing that carries the request belongs to this function.
+     */
     private fun probeExplorer(): Canary {
-        val config = ChromiaConfig()
+        // The endpoint - and ONLY the endpoint - comes from the production
+        // config, because the question is about that service.
+        val explorerUrl = ChromiaConfig().explorerUrl
+        val target = "$explorerUrl?network=$CANARY_NETWORK"
+        val body = buildJsonObject { put("query", CANARY_QUERY) }.toString()
         val started = System.currentTimeMillis()
-        // The PRODUCTION client, the production query, the production endpoint.
-        // A canary that used a different HTTP stack from the tools would be
-        // measuring a different network path than the one that just failed.
-        val result = runBlocking {
-            HttpClientService(config).executeGraphQLQuery(
-                NetworkQueries.getTotalRewardsPaid(),
-                "mainnet"
-            )
-        }
+        val (state, said) = runCatching {
+            val client = HttpClient.newBuilder()
+                .connectTimeout(CANARY_CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build()
+            val request = HttpRequest.newBuilder(URI.create(target))
+                .timeout(CANARY_REQUEST_TIMEOUT)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build()
+            val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+            readCanaryAnswer(response.statusCode(), response.body().orEmpty())
+        }.getOrElse { e -> readCanaryFailure(e, target) }
         val elapsed = System.currentTimeMillis() - started
-        val at = Instant.now().toString()
-        val canary = when (result) {
-            is NetworkResult.Success -> {
-                val paid = result.data["data"]?.jsonObject?.get("totalRewardsPaid")
-                if (paid == null) {
-                    // A 200 with no field is the explorer answering nothing, and
-                    // it is exactly the shape a swallowed failure wears.
-                    Canary(
-                        CanaryState.FAILED_OTHER, null,
-                        "200 with no data.totalRewardsPaid: ${result.data}", at, elapsed, config.explorerUrl
-                    )
-                } else {
-                    Canary(CanaryState.ANSWERED, null, "totalRewardsPaid = $paid", at, elapsed, config.explorerUrl)
-                }
-            }
-
-            is NetworkResult.Error -> {
-                val signature = upstreamSignature(result.message)
-                Canary(
-                    if (signature != null) CanaryState.FAILED_SIGNATURE else CanaryState.FAILED_OTHER,
-                    signature, result.message, at, elapsed, config.explorerUrl
-                )
-            }
-        }
+        val canary = Canary(
+            state = state,
+            signature = if (state == CanaryState.FAILED_SIGNATURE) upstreamSignature(said) else null,
+            explorerSaid = said,
+            at = Instant.now().toString(),
+            elapsedMs = elapsed,
+            explorerUrl = explorerUrl
+        )
         record(canary)
         return canary
     }
+
+    /**
+     * The canary's own reading of an HTTP answer - deliberately not
+     * `GraphQLResponseParser`, so a bug in our parsing cannot fail the tool and
+     * the canary together.
+     */
+    private fun readCanaryAnswer(status: Int, text: String): Pair<CanaryState, String> {
+        if (status !in 200..299) return classify("HTTP $status from the explorer: ${text.take(400)}")
+        val parsed = runCatching { Json.parseToJsonElement(text).jsonObject }.getOrNull()
+            ?: return CanaryState.FAILED_OTHER to "a non-JSON answer with HTTP $status: ${text.take(400)}"
+        val errors = parsed["errors"]
+        // "errors": null and "errors": [] mean no error, per the GraphQL spec.
+        val listed = runCatching { errors?.jsonArray }.getOrNull().orEmpty()
+        if (listed.isNotEmpty()) {
+            val words = listed.mapNotNull { one ->
+                runCatching { one.jsonObject["message"]?.jsonPrimitive?.content }.getOrNull()
+            }.ifEmpty { listOf(errors.toString()) }
+            return classify(words.joinToString("; ").take(600))
+        }
+        val paid = runCatching { parsed["data"]?.jsonObject?.get("totalRewardsPaid") }.getOrNull()
+        // A 200 with no field is the explorer answering nothing, and it is
+        // exactly the shape a swallowed failure wears.
+        if (paid == null || paid is JsonNull) {
+            return CanaryState.FAILED_OTHER to "200 with no data.totalRewardsPaid: ${text.take(400)}"
+        }
+        return CanaryState.ANSWERED to "totalRewardsPaid = $paid"
+    }
+
+    /** A transport failure of the canary's own client, classified honestly. */
+    private fun readCanaryFailure(e: Throwable, target: String): Pair<CanaryState, String> {
+        val chain = generateSequence(e) { it.cause }.toList()
+        return when {
+            // A CONNECT timeout is the network between us and them, and that
+            // half is as likely to be ours as theirs.
+            chain.any { it is HttpConnectTimeoutException } -> CanaryState.FAILED_OTHER to
+                "the canary could not connect to $target within ${CANARY_CONNECT_TIMEOUT.toSeconds()} s " +
+                    "(may well be ours): $e"
+
+            // The canary's OWN request bound expiring is the third party not
+            // answering the cheapest query it has in 20 s, measured on a client
+            // that shares nothing with production. That is an outage, and the
+            // words say whose bound expired so no reader confuses it with
+            // ChromiaConfig.httpTimeouts.
+            chain.any { it is HttpTimeoutException } -> CanaryState.FAILED_SIGNATURE to
+                "Request timeout has expired - the canary's OWN " +
+                    "${CANARY_REQUEST_TIMEOUT.toSeconds()} s java.net.http bound (NOT " +
+                    "ChromiaConfig.httpTimeouts) expired against $target: $e"
+
+            else -> CanaryState.FAILED_OTHER to
+                "the canary's request to $target failed before any answer (may well be ours): $e"
+        }
+    }
+
+    /** Third party's words -> a state. The allowlist decides; nothing else does. */
+    private fun classify(said: String): Pair<CanaryState, String> =
+        (if (upstreamSignature(said) != null) CanaryState.FAILED_SIGNATURE else CanaryState.FAILED_OTHER) to said
 
     private fun record(canary: Canary) {
         runCatching {
@@ -315,8 +442,17 @@ object LiveEnv {
     internal fun canaryJson(canary: Canary): JsonObject = buildJsonObject {
         put("query", "totalRewardsPaid")
         put("explorerUrl", canary.explorerUrl)
-        put("network", "mainnet")
+        put("network", CANARY_NETWORK)
         put("outcome", canary.state.name)
+        // The three fields the GATE reads to know this measurement did not
+        // share a path with the tool that failed. `independent` is a claim the
+        // gate requires; it is worth something only because the evidence file
+        // is bound to the failing test by digest (see upstreamOutage), so a
+        // file that says it cannot also be a file anyone wrote.
+        put("independent", true)
+        put("client", "java.net.http.HttpClient")
+        put("requestTimeoutMs", CANARY_REQUEST_TIMEOUT.toMillis())
+        put("connectTimeoutMs", CANARY_CONNECT_TIMEOUT.toMillis())
         put("signature", canary.signature)
         put("explorerSaid", canary.explorerSaid.take(1000))
         put("elapsedMs", canary.elapsedMs)
@@ -339,15 +475,24 @@ object LiveEnv {
     //     caller may continue, and the test's claim is NOT reported as verified.
     //     A warning that reported a pass would be round 18 section 4 again with
     //     better manners.
-    //  2. **It must be PROVEN, twice over.** An allowlisted signature says the
-    //     text is something only the third party can say; the canary or a dated
-    //     ledger entry says the third party really is not serving it. A marker
+    //  2. **It must be PROVEN, twice over, ON TWO PATHS.** An allowlisted
+    //     signature says the text is something only the third party can say; the
+    //     INDEPENDENT canary refusing with that SAME signature, or a dated
+    //     ledger entry, says the third party really is not serving it. A marker
     //     alone has never been enough - that belief is what made eight live
-    //     INTERNAL_ERRORs look green.
-    //  3. **It leaves EVIDENCE on disk.** `app/build/upstream/warnings/` holds
-    //     one file per warning, and the gate refuses to count a warning whose
-    //     file is missing or whose file carries no proof. The classification is
-    //     therefore auditable after the fact by someone who was not there.
+    //     INTERNAL_ERRORs look green - and since round 19 a second observation
+    //     down the SAME wire is not enough either: two of the four allowlisted
+    //     signatures are reachable from our own code, so the canary is measured
+    //     on a path that shares nothing with the failing tool but the endpoint.
+    //  3. **It leaves EVIDENCE on disk, BOUND TO THIS FAILURE.**
+    //     `app/build/upstream/warnings/` holds one file per warning, and the
+    //     gate refuses to count a warning whose file is missing or whose file
+    //     carries no proof. The failure message carries `[evidence sha256:<hex>]`
+    //     over that file's bytes and the gate recomputes it: the message is
+    //     written by THIS process from THIS throwable, so a file someone else
+    //     wrote cannot match it. The classification is therefore auditable after
+    //     the fact by someone who was not there, and unforgeable by someone who
+    //     was.
     //
     // The partial outage is the case this shape exists for. On 2026-09-08 the
     // canary answered in about a second while `blockchainAnalytics` took 15-41 s
@@ -398,17 +543,39 @@ object LiveEnv {
             )
 
         // GUARDRAIL 2: the third party really is not serving it. Either the
-        // whole explorer is down in this JVM, or this specific query is written
-        // down as broken, with a date.
+        // INDEPENDENT canary refused with the SAME signature - the whole
+        // explorer is down, measured on a path that shares nothing with the tool
+        // that just failed - or this specific query is written down as broken,
+        // with a date.
+        //
+        // Round 19 (a2) closed two doors here. `!canary.answered` counted
+        // FAILED_OTHER - the state this file itself documents as "may well be
+        // ours" - as proof; it does not any more. And a canary that failed with
+        // a DIFFERENT allowlisted signature from the tool is two faults, not one
+        // outage, so it does not agree either.
         val canary = explorerCanary()
+        val canaryAgrees = canary.state == CanaryState.FAILED_SIGNATURE && canary.signature == signature
         val ledger = evidence.ledgerEntry?.let { datedLedgerEntry(it, evidence.query) }
         val proof = when {
-            !canary.answered -> "canary: ${canary.summary()}"
+            canaryAgrees -> "independent canary agrees on [$signature]: ${canary.summary()}"
             ledger != null -> "docs/UPSTREAM.md #${evidence.ledgerEntry}: $ledger"
             else -> throw AssertionError(
                 "$tool failed with an upstream signature ($signature) but NOTHING PROVES the upstream " +
-                    "is down, so this stays a plain red. The canary answered in this JVM " +
-                    "(${canary.summary()}), which means the explorer is up" +
+                    "is down, so this stays a plain red. " +
+                    when (canary.state) {
+                        CanaryState.ANSWERED ->
+                            "The independent canary answered in this JVM (${canary.summary()}), which " +
+                                "means the explorer is up"
+
+                        CanaryState.FAILED_OTHER ->
+                            "The independent canary failed with FAILED_OTHER (${canary.summary()}) - " +
+                                "a refusal that may well be OURS, and a maybe is not a measurement"
+
+                        CanaryState.FAILED_SIGNATURE ->
+                            "The independent canary failed with [${canary.signature}] while $tool failed " +
+                                "with [$signature] (${canary.summary()}) - two different faults are not " +
+                                "one outage"
+                    } +
                     (if (evidence.ledgerEntry == null) {
                         ", and no docs/UPSTREAM.md entry was named for `${evidence.query}`. A partial " +
                             "outage is excused by a DATED LEDGER ENTRY or not at all - write one, or " +
@@ -438,11 +605,20 @@ object LiveEnv {
             put("proof", proof)
             put("at", at)
         }
-        runCatching {
+        // THE BINDING (adversary round 19, a2). The evidence file is an
+        // ordinary file, and nothing in the repository stops anyone writing one;
+        // what nobody but the failing test can write is the message the JUnit
+        // reporter copies into the XML, because that is the throwable this
+        // process threw. So hash the bytes just written and carry the digest in
+        // that message. The gate recomputes it from the file and matches - a
+        // hand-written file cannot match a message it did not produce.
+        val digest = runCatching {
             val dir = upstreamDir.resolve("warnings")
             Files.createDirectories(dir)
-            Files.writeString(dir.resolve("$testClass.$testMethod.json"), warning.toString())
-        }.onFailure { e ->
+            val bytes = warning.toString().toByteArray(StandardCharsets.UTF_8)
+            Files.write(dir.resolve("$testClass.$testMethod.json"), bytes)
+            sha256Hex(bytes)
+        }.getOrElse { e ->
             // Without the file the gate counts this as an ordinary red, which is
             // the safe direction - but say why rather than letting the operator
             // wonder which of the two statuses they are looking at.
@@ -460,10 +636,20 @@ object LiveEnv {
                 "${evidence.query}`. This is a RED FOR THE UPSTREAM, not for us: nothing about $tool " +
                 "was proven by this run, and the remedy is to fix or wait for the third party and " +
                 "RE-RUN - never to pass, never to skip, never to record an answer. Proof: $proof. " +
-                "Signature: $signature. Evidence: app/build/upstream/warnings/$testClass.$testMethod.json. " +
+                "Signature: $signature. Evidence: app/build/upstream/warnings/$testClass.$testMethod.json " +
+                "[evidence sha256:$digest]. " +
                 "The third party said: ${evidence.errorText.take(600)}"
         )
     }
+
+    /**
+     * The digest the gate recomputes. Lowercase hex of SHA-256 over the exact
+     * bytes on disk; `scripts/gate-tally.mjs` reads the file as bytes for the
+     * same reason.
+     */
+    internal fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { byte -> "%02x".format(byte) }
 
     /**
      * The heading of `docs/UPSTREAM.md` entry [entry] when that entry both NAMES

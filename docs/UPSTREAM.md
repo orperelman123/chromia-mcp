@@ -252,6 +252,83 @@ entry, the `blockchainAnalytics` row in
 `ToolExecutorStrategiesTest.upstreamLedgerEntries` and the staleness note in the
 tool's description, and a timeout there goes back to being an ordinary red.
 
+## The upstream-warning contract (what the gate validates)
+
+Written 2026-09-09, after adversary round 19 produced two fake warnings.
+
+This file is not only a list of upstream defects: the numbered entries above are
+**the ledger the test gate reads**. A live test whose third party is proven down
+is neither a pass nor a red — it is an UPSTREAM WARNING, a failure in the JUnit
+XML that `scripts/gate-tally.mjs` counts and prints separately and that does not
+set the exit code.
+
+**What the gate validates.** `scripts/gate-tally.mjs` re-derives every clause
+from the artifacts and refuses on any one of them:
+
+1. the failure's message begins `UPSTREAM WARNING (proven): ` (one optional
+   `some.Exception: ` prefix allowed, because Gradle and JUnit's own reporter
+   spell it differently);
+2. an evidence file exists at `app/build/upstream/warnings/<Class>.<method>.json`
+   and names that test;
+3. its `signature` is one of the four allowlisted names — things only the third
+   party can say;
+4. **the message binds the file** (below);
+5. **an independent canary agrees, or an entry in this file excuses the query**
+   (below);
+6. the evidence is timestamped inside this run.
+
+**What binds evidence to a run.** Nothing in the repository says only `LiveEnv`
+may write into `app/build/upstream/warnings` — round 19's a2 wrote a file by hand
+and bought the status with it. What an attacker cannot hand-write is the JUnit
+XML: its `message` attribute is produced by the *test process*, from the
+throwable the test threw. So `LiveEnv.upstreamOutage` hashes the exact bytes it
+writes and puts `[evidence sha256:<hex>]` in that message, and the gate
+recomputes the digest from the file on disk and matches it. A file the failing
+test did not write cannot match a message it did not produce.
+
+**What the gate does with an entry above.** It opens this file. (Round 19's a1:
+before that it took the producer's word for both the number and the heading, and
+an entry of `999` with a heading no document has was proof.) The entry must
+**exist** as `## <number>. <heading>`, its heading must match the heading in the
+evidence **exactly**, its section must carry a **date**, and its section must
+**name the query** being excused. That is the rule `LiveEnv.datedLedgerEntry`
+applies on the producing side, re-derived from the same file by a second,
+independent reader — two checks of one fact are worth one unless they are
+independent.
+
+**What an independent canary is.** One measurement per test JVM of the cheapest
+query the explorer has (`{ totalRewardsPaid }` — the field that kept answering
+through the 2026-09-04 and 2026-09-07 incidents, #3a), made on a path that shares
+nothing with the tool that failed: a plain `java.net.http.HttpClient` built in
+`LiveEnv`, its **own** 20 s request bound and 10 s connect bound (never
+`ChromiaConfig.httpTimeouts`), its own request body, its own reading of the
+answer — and only the **URL** taken from the production constant, because the
+question is about that service. Only `FAILED_SIGNATURE` **carrying the same
+allowlisted signature as the tool failure** is proof: `FAILED_OTHER` is the state
+`LiveEnv` itself documents as "may well be ours", and a different signature is a
+second fault rather than one outage.
+
+Why it has to be independent: of the four allowlisted signatures, **two are
+reachable from our own code**. `explorer-request-timeout` is ktor's text for
+*our* `HttpTimeouts.requestTimeout` expiring, and `explorer-http-5xx` is any 5xx
+our own handling lets through. A canary that used the production config, the
+production client and the production bounds — which is what it did until
+2026-09-09 — therefore fell over at the same moment we did, and a single fault of
+ours satisfied the signature guard and the canary guard at once. That is measured
+rather than argued:
+`AssumptionLedgerTest.ourOwnRequestTimeoutThroughTheRealSeamStaysARed` tightens
+`requestTimeout` to 1 ms through the real `ChromiaConfig` / `HttpTimeouts` seam,
+makes a real live `filter_blockchains` call, gets a real `Request timeout has
+expired` carrying a real allowlisted signature — and proves the verdict is
+**RED**, with no evidence file written. The other two signatures are not
+reachable from here at all: `INTERNAL_ERROR for <hex>` needs the explorer's own
+request id, and `reCAPTCHA`'s rule id is not in `UPSTREAM_RULE_IDS`, so its prose
+is never appended to a tool error.
+
+**A warning is not a green.** The XML still records a `<failure>`, nothing about
+the tool was verified, and the remedy is to fix or wait for the third party and
+RE-RUN. The entry above is the debt; deleting it removes the excuse.
+
 ## Status (2026-09-06, amended 2026-09-07)
 
 Findings #3a and #3b were added on 2026-09-07 and are NOT part of the ported

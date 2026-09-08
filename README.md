@@ -763,7 +763,7 @@ noise. So the tally has three outcomes instead of two:
 | **RED** | anything else — every skip, every failure, every unproven claim | 1 |
 | **UPSTREAM WARNING** | a failure that is *proven* the third party's | 0, printed by name |
 
-**What qualifies — all four, not any of them.** A failure is counted as
+**What qualifies — all five, not any of them.** A failure is counted as
 `upstream=N` only when:
 
 1. its message begins `UPSTREAM WARNING (proven): `, which only
@@ -773,18 +773,25 @@ noise. So the tally has three outcomes instead of two:
    `Request timeout has expired`, `reCAPTCHA`, a 5xx. Deliberately *not*
    allowlisted — 4xx, `Connection refused`, the bare word `timeout` — because
    every one of those can be ours;
-3. **the outage is measured, not inferred**: either the run's canary
-   (`{ totalRewardsPaid }`, one cheap call per test JVM through the production
-   HTTP client) failed, so the explorer is down for everything, **or** the
-   specific query has a **dated entry in `docs/UPSTREAM.md`** naming it. A
-   partial outage — the canary answers, one query does not — is excused by a
+3. **the outage is measured on a path that is not ours**: either the run's
+   **independent canary** (`{ totalRewardsPaid }`, one cheap call per test JVM
+   through a plain `java.net.http` client with its *own* bounds — never
+   `ChromiaConfig.httpTimeouts`, never `HttpClientService`, only the URL from the
+   production constant) failed **with the same signature**, so the explorer is
+   down for everything, **or** the specific query has a **dated entry in
+   `docs/UPSTREAM.md`** naming it, which the tally reads out of that file itself.
+   A partial outage — the canary answers, one query does not — is excused by a
    written, dated ledger entry or not at all;
 4. an **evidence file** exists at
    `app/build/upstream/warnings/<Class>.<method>.json` carrying the tool, the
    query, the third party's words, the canary's outcome and the ledger entry,
-   timestamped **inside this run**.
+   timestamped **inside this run**;
+5. the failure message **binds that file**, `[evidence sha256:<hex>]` over its
+   bytes. The message is written by the test process from its own throwable and
+   the gate recomputes the digest from the file, so a file someone else wrote
+   cannot match a message it did not produce.
 
-`scripts/gate-tally.mjs` re-checks all four rather than trusting the sentence,
+`scripts/gate-tally.mjs` re-checks all five rather than trusting the sentence,
 and it is one implementation: `scripts/loop-gate.mjs` imports it and CI runs it
 as a step of its own. The gate line becomes
 `gate: tests=… failures=… errors=… skipped=0 upstream=N (names…)`, with every
@@ -798,6 +805,25 @@ looks. A message that claims the status with no evidence file: red, so a test
 cannot excuse itself by writing a sentence. Evidence from an earlier run: red,
 so last week's outage cannot cover today's failure. A test name: **there is no
 allowlist of tests**, here or in CI.
+
+**Adversary round 19 produced two fake warnings, and all three holes are shut.**
+The gate never opened `docs/UPSTREAM.md`, so an entry of `999` under a heading no
+document has was proof — it opens the file now and requires the entry to exist,
+its heading to match exactly, and its section to be dated and to name the query.
+`canaryOutcome: FAILED_OTHER` — the state `LiveEnv` itself calls "may well be
+ours" — counted as a failed canary on both sides; only `FAILED_SIGNATURE` with
+the *same* signature does now. And a hand-written evidence file bought the status
+outright, which is what clause 5 above ends. The third hole was the deepest: the
+canary shared `ChromiaConfig`, `HttpClientService` and the endpoint with the code
+under test, so *our* `HttpTimeouts.requestTimeout` expiring produced ktor's
+`Request timeout has expired` — an allowlisted signature — for the tool and for
+the canary at once, and our own bug read as ChromaWay being down. Two of the four
+allowlisted signatures are reachable from our own code that way; the independent
+path is what makes them safe, and
+`AssumptionLedgerTest.ourOwnRequestTimeoutThroughTheRealSeamStaysARed` measures
+it end to end — production `requestTimeout` set to 1 ms through the real seam, a
+real live tool call, verdict **RED**. `docs/UPSTREAM.md`, "The upstream-warning
+contract", is the long form.
 
 The bar is that high because of the paragraph above it. `get_asset_top_holders`
 answered eight consecutive live `INTERNAL_ERROR`s and the suite reported eight
