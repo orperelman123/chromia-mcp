@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.platform.engine.discovery.DiscoverySelectors
 import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder
 import org.junit.platform.launcher.core.LauncherFactory
+import org.junit.platform.launcher.listeners.SummaryGeneratingListener
 import org.junit.platform.reporting.legacy.xml.LegacyXmlReportGeneratingListener
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -66,15 +67,30 @@ class UpstreamWarningGateTest {
         val request = LauncherDiscoveryRequestBuilder.request()
             .selectors(DiscoverySelectors.selectMethod(liveClass, liveMethod))
             .build()
+        // The summary listener is here to DIAGNOSE, not to decorate: "the
+        // reporter wrote nothing" has two very different causes - the selector
+        // matched nothing, or it ran and the report went somewhere else - and a
+        // message that cannot tell them apart costs a build cycle to resolve.
+        val summary = SummaryGeneratingListener()
         LauncherFactory.create().execute(
             request,
-            LegacyXmlReportGeneratingListener(reports, PrintWriter(StringWriter()))
+            LegacyXmlReportGeneratingListener(reports, PrintWriter(StringWriter())),
+            summary
         )
-        val xml = reports.resolve("TEST-${liveClass.name}.xml")
+        assertEquals(
+            1L, summary.summary.testsStartedCount,
+            "the nested launcher started ${summary.summary.testsStartedCount} test(s) for " +
+                "${liveClass.simpleName}.$liveMethod (found ${summary.summary.testsFoundCount}). " +
+                "Without a real run there is no real XML, and the classifier would end up asserted " +
+                "against a fixture of the very artifact whose parsing is under test."
+        )
+        // Found by listing, not by guessing the name: the legacy reporter's file
+        // naming is JUnit's business, and a wrong guess here would report a
+        // missing run for a run that happened.
+        val written = Files.newDirectoryStream(reports).use { it.toList() }
         assertTrue(
-            Files.exists(xml),
-            "the real JUnit reporter wrote nothing to $reports - the nested run did not select " +
-                "${liveClass.simpleName}.$liveMethod, so there is no real artifact to classify"
+            written.any { it.fileName.toString().endsWith(".xml") },
+            "the real JUnit reporter ran the test but wrote no .xml to $reports (found $written)"
         )
         return reports
     }

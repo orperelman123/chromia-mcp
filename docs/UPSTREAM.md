@@ -75,6 +75,18 @@ while the rest of the tool works. This repo does not retire the tool (the
 other filters are fine) - it pins the failure live and says so in the tool's
 description, so an agent is not left thinking its own call was malformed.
 
+**Ledger key: `allBlockchains(state:)`.** Amended 2026-09-08. The claim that
+`state` actually FILTERS has no live coverage while this stands, and there was
+no honest way to write it: a test asserting it would be red every run, and a
+permanent red is the gate crying wolf. It is written now, and this entry is what
+makes it legal - `ToolExecutorStrategiesTest.liveFilterBlockchainsFiltersByChainState`
+reports an UPSTREAM WARNING against this entry (`LiveEnv.datedLedgerEntry("3b",
+"allBlockchains(state:)")` requires both the key above and a date on this
+section), which is a failure in the XML that the gate counts separately rather
+than a pass. Deleting this entry when the explorer serves `state` again turns
+that test back into an ordinary red - which is the point of writing the debt
+down.
+
 ## 3c. Explorer: `getAssetTopHolders` is INTERMITTENT, and it hid inside our own test
 
 Adversary round 18 drove all fifteen remaining explorer tools against the live

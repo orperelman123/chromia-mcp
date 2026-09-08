@@ -286,9 +286,28 @@ class AssumptionLedgerTest {
             "the gate must keep refusing --allow-skip explicitly rather than ignoring it - a stale " +
                 "invocation that silently loses its allowlist should say so"
         )
+        // The tally - and with it the skip refusal - moved to
+        // scripts/gate-tally.mjs on 2026-09-08, so that the merge gate and CI
+        // run ONE implementation rather than two that can drift. The pin
+        // follows the implementation to its new home, and pins the import as
+        // well: a move that loses its caller is a deletion with extra steps.
         assertTrue(
-            Regex("""skippedNames\.length\)\s*\{""").containsMatchIn(gate) || gate.contains("there is no allowlist"),
+            gate.contains("from './gate-tally.mjs'"),
+            "scripts/loop-gate.mjs must import the shared tally. Two gates with different " +
+                "definitions of green is one gate and one bypass - which is what --allow-skip was."
+        )
+        val tallyScript = RepoFiles.text("scripts/gate-tally.mjs")
+        assertTrue(
+            Regex("""skippedNames\.length\)\s*\{""").containsMatchIn(tallyScript) ||
+                tallyScript.contains("there is no allowlist"),
             "the gate must fail on ANY skip"
+        )
+        // And the third status must not have become a way to stop counting one:
+        // a skip is red in the same file that decides an upstream warning.
+        assertTrue(
+            tallyScript.contains("every skip") || tallyScript.contains("every skip, every failure"),
+            "gate-tally.mjs must say, where it classifies, that a skip is red - the third status " +
+                "is for a proven THIRD-PARTY outage and never for a test that did not run"
         )
     }
 

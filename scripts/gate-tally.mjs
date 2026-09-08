@@ -40,9 +40,40 @@
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /** The prefix LiveEnv.UPSTREAM_WARNING_PREFIX writes. Kept identical on purpose. */
 export const UPSTREAM_WARNING_PREFIX = 'UPSTREAM WARNING (proven): ';
+
+/**
+ * The marker, as it actually reaches an XML `message` attribute.
+ *
+ * Two writers produce these files and they do NOT agree. JUnit's own
+ * LegacyXmlReportGeneratingListener writes the throwable's message verbatim;
+ * GRADLE writes `java.lang.AssertionError: <message>`, class name and all. A
+ * plain startsWith() therefore matched the nested run and missed every real
+ * suite run - measured 2026-09-08 on both artifacts, which is the reason
+ * UpstreamWarningGateTest runs the real reporter instead of asserting against a
+ * <testsuite> string this file wrote.
+ *
+ * One optional `some.Exception: ` prefix is allowed and nothing else: the marker
+ * still has to be at the START of what the test said, so a message that merely
+ * MENTIONS the phrase further along cannot claim the status.
+ */
+const MARKER = new RegExp(
+  `^(?:[\\w.$]+(?:Error|Exception|Failure)[\\w.$]*:\\s*)?${
+    UPSTREAM_WARNING_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+);
+
+/** Does [message] claim the third status, in either writer's spelling? */
+export const claimsUpstreamWarning = (message) => MARKER.test(String(message ?? ''));
+
+/**
+ * `liveFooBar()` in a Gradle XML, `liveFooBar` from LiveEnv and from the legacy
+ * reporter. The evidence file is keyed by the METHOD, so drop the argument list
+ * (and a parameterized invocation's `[1]` suffix with it).
+ */
+export const methodKey = (testcaseName) => String(testcaseName ?? '').replace(/\(.*$/, '');
 
 /**
  * The signature names LiveEnv.UPSTREAM_SIGNATURES may report. A file naming
@@ -165,8 +196,8 @@ export function tally({ resultsDir, warningsDir, startedAt = null }) {
       if (!problem) continue;
       const [, kind, rawMessage] = problem;
       const message = decode(rawMessage);
-      const key = `${cls.replace(/\$.*$/, '')}.${name}`;
-      if (!message.startsWith(UPSTREAM_WARNING_PREFIX)) {
+      const key = `${cls.replace(/\$.*$/, '')}.${methodKey(name)}`;
+      if (!claimsUpstreamWarning(message)) {
         red.push({ key, kind, message, why: null });
         continue;
       }
@@ -251,7 +282,13 @@ export function report(t, { log = console.log, err = console.error, expectMin = 
 // --------------------------------------------------------------------------
 // CLI
 // --------------------------------------------------------------------------
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+// pathToFileURL, not string surgery. The hand-rolled version of this line
+// produced `file://C:/...` on Windows against an import.meta.url of
+// `file:///C:/...`, so the CLI silently did NOTHING and exited 0 - a gate that
+// certifies every run by not running is the exact failure this file exists to
+// prevent, and it was invisible until UpstreamWarningGateTest spawned it for
+// real and found empty stdout. Caught 2026-09-08.
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const argv = process.argv.slice(2);
   const opt = (name, fallback) => {
