@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.function.Executable
@@ -106,14 +107,31 @@ class Round19FakeUpstreamWarningTest {
          * failed would be a permanent red in every other run. The flag is set
          * only by [noHandWrittenEvidenceBuysTheUpstreamStatus], immediately
          * around the launcher call.
+         *
+         * There is deliberately no early `return` here.
+         * [AssumptionLedgerTest.anEarlyReturnFromATestMustFollowAnAssertion]
+         * refuses one that has asserted nothing, and it is right to: a body that
+         * leaves before it claims anything reports a pass for work it did not
+         * do. So the inert path ASSERTS what makes it inert - the flag is off -
+         * which is the only thing this method has to say when it is not being
+         * used as the attack's marker.
          */
         @Test
         fun theExplorerRefusedTheQuery() {
-            if (System.getProperty(MARKER_FLAG) != "on") return
-            throw AssertionError(
-                LiveEnv.UPSTREAM_WARNING_PREFIX +
-                    "get_blockchain_analytics: Request failed: Request timeout has expired " +
-                    "[url=https://explorer.chromia.com/graphql, request_timeout=1 ms]"
+            val armed = System.getProperty(MARKER_FLAG)
+            if (armed == "on") {
+                throw AssertionError(
+                    LiveEnv.UPSTREAM_WARNING_PREFIX +
+                        "get_blockchain_analytics: Request failed: Request timeout has expired " +
+                        "[url=https://explorer.chromia.com/graphql, request_timeout=1 ms]"
+                )
+            }
+            assertNull(
+                armed,
+                "$MARKER_FLAG is set outside the launcher call in " +
+                    "noHandWrittenEvidenceBuysTheUpstreamStatus, which is the only place that may " +
+                    "arm this marker. Left set, it turns a probe into a permanent red in every " +
+                    "other run of the suite."
             )
         }
     }
