@@ -730,6 +730,65 @@ allowlisted classifier, but all-live-warn is a FAIL, more than
 `SWEEP_MAX_UPSTREAM_WARNS` warnings is a FAIL, and non-network checks always fail
 hard.)
 
+### What the host has to deliver (measured 2026-09-08)
+
+`run_rell_tests` abandons a run at **90 s** (`RunRellTests.EXECUTION_TIMEOUT_SECONDS`).
+That bound is a product decision - a runaway test pins a core until its loop ends -
+and `CHROMIA_MCP_TEST_TIMEOUT_SECONDS` may only *tighten* it. Adversary round 18
+reported that one FT4 registration plus the chain bootstrap measured **86.4 s** on
+this box, so no FT4 test with two accounts could finish through the tool, and it
+raised the question of whether the runner needed a schema cache, a compile cache
+or a warm module.
+
+**It does not. The measurement was of a starved machine, not of FT4.** Phase
+timings, `chr test`, chr 0.29.10 / rell 0.15.0, one C.UTF-8 PostgreSQL schema per
+project:
+
+| what was run | wall | the runner's own total | per case |
+|---|---|---|---|
+| two entities, no FT4 anywhere, 2 cases | 22.2 s | 5.0 s | `assert_equals(1,1)` **2.0 s**; one entity-writing transaction **3.0 s** |
+| the shipped `insurance` template's `main.rell`, 3 cases | 29.8 s | 13.0 s | 0 registrations **2.1 s**; the FIRST registration **8.7 s**; TWO more registrations **2.3 s** |
+
+Read across the two rows:
+
+- **The ~17 s that sits outside the test cases is identical with and without
+  FT4** (17.2 s against 16.8 s). It is `chr`'s JVM start, the Rell compile and the
+  PostgreSQL schema creation. Compiling the whole vendored FT4 + iccf tree adds
+  under a second to it, so a compile cache would buy nothing.
+- **A test case's floor is ~2 s**, FT4 or not - the runner's own per-case chain.
+- **An FT4 account registration costs about 1 s once the JVM is warm.** The first
+  one in a JVM costs ~7 s more, which is JIT, not FT4. Two accounts is ~5 s of
+  work, not 86.
+- `chr install` (a git clone of the two lib registries) is **21.7 s**, once per
+  project, and is network rather than CPU.
+
+And the round's own fixture, re-run byte for byte on an idle host: its two drain
+cases took **11.9 s + 5.8 s = 17.7 s** against the round's **73.5 s + 54.5 s =
+128.0 s** on 2026-09-07 - **7.2x**. The round measured itself while a 24-minute
+Gradle test run held the box with under 2 GB free.
+
+So the host requirement, and it is a requirement rather than a nicety:
+
+- **One JVM build at a time, and at least 2 GB free.** A second build does not
+  slow the suite by a few percent, it multiplies every timing by about seven, and
+  at that multiplier the 90 s bound starts abandoning FT4 tests that need twenty
+  seconds of work. `docs/AGENT-LANE-BRIEF.md` says this for lanes; it is the same
+  fact.
+- **A C.UTF-8 PostgreSQL, one database per worktree**, reachable at
+  `CHROMIA_TEST_DATABASE_URL`. Two suites in one schema collide and it looks
+  intermittent.
+- **`chr` on PATH** (`CHROMIA_REQUIRE_CHR=true` makes an absent or unlaunchable
+  one a failure rather than a skip).
+- **Budget ~20 s of fixed cost per `chr test` invocation** before any test body
+  runs, and ~2 s per case after it. A suite of many small Rell fixtures pays that
+  fixed cost every time; this is why the dapp-template classes are the slowest in
+  the suite.
+
+The bound was not raised and no cache was added: the numbers say there is nothing
+in our runner large enough to be worth caching (the vendored FT4 zip is 165
+entries and 568 KB, unzipped per call in milliseconds), and the thing that was
+actually slow was another JVM on the same box.
+
 ### The merge gate, and the two modes it has
 
 `node scripts/loop-gate.mjs --dir <repo> --expect-min <previously verified count>`

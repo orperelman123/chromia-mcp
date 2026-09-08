@@ -95,6 +95,17 @@ import java.nio.file.Files
  * declares or accepts as a parameter - so a new seam is covered the day it
  * appears instead of the day someone remembers to add it to a list.
  *
+ * The two INJECTION POINTS that are left are named rather than removed, because
+ * both hand back the real thing. `ToolExecutor(ragStore =, ragStoreFactory =)`
+ * is how a caller supplies an already-built store instead of having one lazily
+ * downloaded, and the tests pass [TestDocsIndex]'s REAL `RagStore` over a
+ * two-segment index through it; `RagStore(initialStore =, localEmbeddingsPath =,
+ * remoteUrls =, embeddingModel =)` are the same kind of thing, and the KDoc on
+ * `remoteUrls` argues its case where the parameter is. Neither can be handed a
+ * substitute any more: `RagStore` is final, so the only way to answer in its
+ * place is to implement or extend something - which is what the structural scan
+ * reads.
+ *
  * The source detectors below are kept as they were. They are the second layer:
  * they see a double in a file that has not been compiled yet, and they cost
  * nothing.
