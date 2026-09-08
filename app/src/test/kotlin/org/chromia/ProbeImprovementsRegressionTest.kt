@@ -398,6 +398,19 @@ class ProbeImprovementsRegressionTest {
      */
     private fun assertLiveChrAggregates(payload: JsonObject?, errorText: String?): JsonObject {
         if (errorText != null) {
+            // THE THIRD STATUS (Or, 2026-09-08). Proven upstream - an
+            // allowlisted signature plus a canary saying the explorer is down -
+            // ends this as an UPSTREAM WARNING: still a failure in the XML,
+            // counted and named separately by the gate. There is no ledger entry
+            // for `chrAggregates`, so while the explorer is UP a refusal of it
+            // stays a plain red: a partial outage has to be written down before
+            // it excuses anything.
+            if (LiveEnv.upstreamSignature(errorText) != null) {
+                LiveEnv.upstreamOutage(
+                    "get_chr_aggregates",
+                    LiveEnv.UpstreamEvidence(query = "chrAggregates", errorText = errorText)
+                )
+            }
             fail<Nothing>(
                 if (upstreamMarkers.any { errorText.lowercase().contains(it) }) {
                     "get_chr_aggregates FAILED UPSTREAM, and an upstream failure is a RED here. " +

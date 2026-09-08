@@ -614,6 +614,28 @@ class ToolExecutorStrategiesTest {
     )
 
     /**
+     * THE LEDGER, PER QUERY: which `docs/UPSTREAM.md` entry records this
+     * explorer field as broken, dated, so that a refusal of it may be reported
+     * as an upstream warning while the rest of the explorer is up.
+     *
+     * A partial outage is the normal shape of an explorer incident - on
+     * 2026-09-08 the canary answered in about a second while these two did not -
+     * and the entry is the DEBT: writing one is how an outage stops being
+     * invisible, and deleting one is how a fixed upstream stops being excused.
+     * `LiveEnv.datedLedgerEntry` refuses an entry that carries no date or does
+     * not name the query, so a stale row here cannot quietly keep working.
+     */
+    private val upstreamLedgerEntries = mapOf(
+        // #11: blockchainAnalytics is an unbounded per-transaction-per-account
+        // aggregate over a stale index; measured 15-41 s per chain on 2026-09-08
+        // and dropping the connection at the 60 s request timeout before that.
+        "blockchainAnalytics" to "11",
+        // #3b: allBlockchains answers INTERNAL_ERROR the moment `state` is
+        // supplied, and has since 2026-09-07.
+        "allBlockchains(state:)" to "3b"
+    )
+
+    /**
      * NOT upstream. A GraphQL *validation* error means we asked the schema for
      * a field it does not have - the explorer renamed something and our query
      * did not follow. That is our bug, and it is the single most valuable thing
@@ -631,7 +653,11 @@ class ToolExecutorStrategiesTest {
     private fun assertLiveExplorerTool(
         tool: String,
         result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult,
-        field: String
+        field: String,
+        /** The GraphQL form the ledger names, when it is narrower than [field]. */
+        upstreamQuery: String = field,
+        /** The `docs/UPSTREAM.md` entry recording [upstreamQuery] as broken, if any. */
+        ledgerEntry: String? = upstreamLedgerEntries[upstreamQuery]
     ): JsonElement {
         val text = (result.content.first() as TextContent).text.orEmpty()
         if (result.isError == true) {
@@ -641,6 +667,22 @@ class ToolExecutorStrategiesTest {
                     "changed and the query did not follow - this is ours to fix, and it is precisely " +
                     "what the recorded fixture could not see: $text"
             )
+            // THE THIRD STATUS (Or, 2026-09-08). A failure that is PROVEN the
+            // third party's - an allowlisted signature the explorer alone can
+            // produce, PLUS a canary or a dated docs/UPSTREAM.md entry saying it
+            // really is not serving this query - ends the test as an UPSTREAM
+            // WARNING. That is still a FAILURE in the XML and still verifies
+            // nothing about $tool; what changes is that the gate counts and
+            // names it separately, so the push waits on the upstream rather than
+            // on us. Everything less proven throws a plain red from inside
+            // upstreamOutage, and anything with no signature at all never gets
+            // there and falls through to the two messages below.
+            if (LiveEnv.upstreamSignature(text) != null) {
+                LiveEnv.upstreamOutage(
+                    tool,
+                    LiveEnv.UpstreamEvidence(query = upstreamQuery, errorText = text, ledgerEntry = ledgerEntry)
+                )
+            }
             val lower = text.lowercase()
             fail<Nothing>(
                 if (upstreamMarkers.any { lower.contains(it) }) {
@@ -1195,6 +1237,61 @@ class ToolExecutorStrategiesTest {
         assertTrue(
             structured.getValue("next_action").jsonPrimitive.content.contains("retry"),
             structured.toString()
+        )
+    }
+
+    /**
+     * THE CAPABILITY BEHIND THAT INCIDENT, AND THE DEBT IT LEAVES.
+     *
+     * The test above proves our error message is good. It does NOT prove
+     * `filter_blockchains{state}` works - and `state` is an advertised argument
+     * on an advertised tool, so "the explorer refuses it politely" is not the
+     * same claim as "an agent can filter chains by state". That second claim has
+     * had NO live coverage at all since the field broke, because there was no
+     * honest way to write it: a test asserting it would have been red every run,
+     * and a red that everyone learns to read as "oh, that one" is the gate
+     * crying wolf (lane brief, principle 3).
+     *
+     * The third status is what makes it writable. This asks the real question of
+     * the real explorer through the real tool. Today (docs/UPSTREAM.md #3b,
+     * INTERNAL_ERROR every time since 2026-09-07) that is an UPSTREAM WARNING:
+     * proven the third party's, counted separately by the gate, printed by name
+     * with its evidence, and NOT a pass - nothing about the `state` filter is
+     * verified while it warns. The ledger entry is the debt, and it is what
+     * makes the warning legal.
+     *
+     * When ChromaWay fixes the field this test goes GREEN on the assertion
+     * below, the warning disappears from the gate line on its own, and
+     * docs/UPSTREAM.md #3b plus the note in the tool's schema must come out.
+     */
+    @Test
+    fun liveFilterBlockchainsFiltersByChainState() = runBlocking {
+        LiveChromia.requireLive("asks the live explorer to filter chains by `state`, an advertised argument")
+        val result = FilterBlockchainsStrategy().execute(
+            callToolRequest(
+                name = "filter_blockchains",
+                arguments = buildJsonObject {
+                    put("network", LiveChromia.EXPLORER_NETWORK)
+                    put("state", "RUNNING")
+                    put("limit", 5)
+                }
+            ),
+            liveRepository()
+        )
+        val chains = assertLiveExplorerTool(
+            "filter_blockchains", result, "allBlockchains",
+            upstreamQuery = "allBlockchains(state:)", ledgerEntry = "3b"
+        )
+        assertTrue(
+            chains.jsonArray.isNotEmpty(),
+            "mainnet has RUNNING chains, so a bound `state` filter returns some: $chains"
+        )
+        // The filter has to have BOUND, not merely been accepted: an ignored
+        // argument returns the unfiltered page and would pass the check above.
+        val states = chains.jsonArray.map { it.jsonObject.getValue("state").jsonPrimitive.content }
+        assertEquals(
+            listOf("RUNNING"), states.distinct(),
+            "`state: RUNNING` did not filter - these rows are whatever the explorer had: $chains"
         )
     }
 

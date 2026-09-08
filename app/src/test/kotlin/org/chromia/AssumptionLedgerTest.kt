@@ -286,9 +286,28 @@ class AssumptionLedgerTest {
             "the gate must keep refusing --allow-skip explicitly rather than ignoring it - a stale " +
                 "invocation that silently loses its allowlist should say so"
         )
+        // The tally - and with it the skip refusal - moved to
+        // scripts/gate-tally.mjs on 2026-09-08, so that the merge gate and CI
+        // run ONE implementation rather than two that can drift. The pin
+        // follows the implementation to its new home, and pins the import as
+        // well: a move that loses its caller is a deletion with extra steps.
         assertTrue(
-            Regex("""skippedNames\.length\)\s*\{""").containsMatchIn(gate) || gate.contains("there is no allowlist"),
+            gate.contains("from './gate-tally.mjs'"),
+            "scripts/loop-gate.mjs must import the shared tally. Two gates with different " +
+                "definitions of green is one gate and one bypass - which is what --allow-skip was."
+        )
+        val tallyScript = RepoFiles.text("scripts/gate-tally.mjs")
+        assertTrue(
+            Regex("""skippedNames\.length\)\s*\{""").containsMatchIn(tallyScript) ||
+                tallyScript.contains("there is no allowlist"),
             "the gate must fail on ANY skip"
+        )
+        // And the third status must not have become a way to stop counting one:
+        // a skip is red in the same file that decides an upstream warning.
+        assertTrue(
+            tallyScript.contains("every skip") || tallyScript.contains("every skip, every failure"),
+            "gate-tally.mjs must say, where it classifies, that a skip is red - the third status " +
+                "is for a proven THIRD-PARTY outage and never for a test that did not run"
         )
     }
 
@@ -581,6 +600,133 @@ class AssumptionLedgerTest {
             exits.isNotEmpty(),
             "the scan found no test-exiting return anywhere, which means it stopped parsing test " +
                 "bodies rather than that the tree is clean"
+        )
+    }
+
+    // ---- 6. the third status may only be reached with its proof -------------
+
+    /**
+     * THE UPSTREAM WARNING, AND WHY IT NEEDS PINNING AT ALL.
+     *
+     * Section 5 above closed the door on "the upstream refused, so we are done".
+     * Or's decision of 2026-09-08 opens a NARROWER one: a live test whose third
+     * party is PROVEN down is neither a pass nor a red but an UPSTREAM WARNING -
+     * still a failure in the XML, counted and printed separately by the gate.
+     *
+     * That door has to stay narrow, because it is the same door. What separates
+     * it from the round-18 hole is not the wording, it is the PROOF: an
+     * allowlisted signature only the third party can produce, PLUS a canary or a
+     * DATED docs/UPSTREAM.md entry saying it really is not serving that query.
+     * Take either half away and it is a marker being trusted again.
+     *
+     * Three properties are pinned, none of them a spelling:
+     *
+     *  1. only the explorer live helpers may reach it - a @Test body that called
+     *     it directly could excuse any failure it liked;
+     *  2. an unproven failure comes back a PLAIN red and writes NO evidence file,
+     *     proved by calling the real function and reading the real directory;
+     *  3. a ledger entry that carries no date, or does not name the query it is
+     *     being used to excuse, is not an entry.
+     */
+    private val upstreamOutageCall = Regex("""\bupstreamOutage\s*\(""")
+
+    @Test
+    fun onlyTheLiveExplorerHelpersMayReportAnUpstreamWarning() {
+        val offenders = mutableListOf<String>()
+        for (file in RepoFiles.testSources()) {
+            val name = RepoFiles.className(file)
+            // LiveEnv declares it; this file drives it directly to pin the
+            // refusal branch, which is the one place a non-helper may.
+            if (name == "LiveEnv" || name == "AssumptionLedgerTest") continue
+            var enclosing = "<top level>"
+            stripKotlinComments(file.toFile().readText()).lines().forEachIndexed { index, line ->
+                functionDeclaration.find(line)?.let { enclosing = it.groupValues[1] }
+                if (upstreamOutageCall.containsMatchIn(line) && !enclosing.startsWith("assertLive")) {
+                    offenders += "${file.fileName}:${index + 1} [$enclosing]: ${line.trim()}"
+                }
+            }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "LiveEnv.upstreamOutage was reached from outside a live assertion helper. The third " +
+                "status exists so a PROVEN third-party outage is not read as our red; a test body " +
+                "that calls it directly has decided its own verdict, which is the round-18 shape " +
+                "wearing a new name. Route it through the helper that already classifies the " +
+                "error:\n  " + offenders.joinToString("\n  ")
+        )
+        // And the scan is reading a real corpus: the three helpers wire it.
+        val wired = RepoFiles.testSources().filter { file ->
+            RepoFiles.className(file) !in setOf("LiveEnv", "AssumptionLedgerTest") &&
+                upstreamOutageCall.containsMatchIn(stripKotlinComments(file.toFile().readText()))
+        }.map { RepoFiles.className(it) }.sorted()
+        assertEquals(
+            listOf("ProbeImprovementsRegressionTest", "ToolExecutorRemainingToolsTest", "ToolExecutorStrategiesTest"),
+            wired,
+            "the three live explorer helpers must each classify through LiveEnv.upstreamOutage. A " +
+                "helper left unwired reports a proven outage as our red, and the gate cannot tell " +
+                "the difference - which is the whole point of the third status."
+        )
+    }
+
+    @Test
+    fun anUpstreamFailureWithNoAllowlistedSignatureStaysAPlainRedAndLeavesNoEvidence() {
+        val evidence = LiveEnv.upstreamDir.resolve("warnings").resolve(
+            "AssumptionLedgerTest.anUpstreamFailureWithNoAllowlistedSignatureStaysAPlainRedAndLeavesNoEvidence.json"
+        )
+        java.nio.file.Files.deleteIfExists(evidence)
+
+        // A real failure text with no allowlisted signature. "Connection
+        // refused" is deliberately NOT on the downgrade allowlist even though
+        // the helpers' wording lists mention it: a refused socket says nothing
+        // about whose fault it is, and several tests here produce one on purpose.
+        val thrown = org.junit.jupiter.api.Assertions.assertThrows(AssertionError::class.java) {
+            LiveEnv.upstreamOutage(
+                "filter_blockchains",
+                LiveEnv.UpstreamEvidence(
+                    query = "allBlockchains",
+                    errorText = "Request failed: Connection refused: no further information",
+                    ledgerEntry = "3b"
+                )
+            )
+        }
+        assertTrue(
+            !thrown.message.orEmpty().startsWith(LiveEnv.UPSTREAM_WARNING_PREFIX),
+            "a failure with no allowlisted signature must stay a PLAIN red - the signature is the " +
+                "half of the proof that says the words are the third party's: ${thrown.message}"
+        )
+        assertTrue(
+            thrown.message.orEmpty().contains("allowlisted upstream signature"),
+            "the refusal must name the guardrail that refused: ${thrown.message}"
+        )
+        assertTrue(
+            !java.nio.file.Files.exists(evidence),
+            "an unproven failure wrote an evidence file at $evidence. The gate counts a warning only " +
+                "when a file backs it, so a file written on the refusal path is a warning " +
+                "manufactured out of a red."
+        )
+    }
+
+    @Test
+    fun aLedgerEntryOnlyExcusesTheQueryItNamesAndOnlyWhenItIsDated() {
+        assertTrue(
+            LiveEnv.datedLedgerEntry("3b", "allBlockchains(state:)") != null,
+            "docs/UPSTREAM.md #3b must record `allBlockchains(state:)` with a date - it is the " +
+                "guardrail that lets the live `state` test warn instead of redding while the " +
+                "explorer as a whole is up"
+        )
+        assertTrue(
+            LiveEnv.datedLedgerEntry("11", "blockchainAnalytics") != null,
+            "docs/UPSTREAM.md #11 must record `blockchainAnalytics` with a date - without it a " +
+                "60 s connection drop on that query is a plain red while the canary answers"
+        )
+        assertTrue(
+            LiveEnv.datedLedgerEntry("3b", "blockchainAnalytics") == null,
+            "an entry may only excuse the query it NAMES. #3b is about allBlockchains(state:); " +
+                "letting it cover a different broken field is how one outage would excuse the next."
+        )
+        assertTrue(
+            LiveEnv.datedLedgerEntry("this-entry-does-not-exist", "allBlockchains(state:)") == null,
+            "a ledger entry that is not in docs/UPSTREAM.md excuses nothing"
         )
     }
 }

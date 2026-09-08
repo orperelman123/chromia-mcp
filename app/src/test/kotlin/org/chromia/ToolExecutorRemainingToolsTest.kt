@@ -114,7 +114,11 @@ class ToolExecutorRemainingToolsTest {
     private fun assertLiveExplorerTool(
         tool: String,
         result: CallToolResult,
-        field: String
+        field: String,
+        /** The GraphQL form the ledger names, when it is narrower than [field]. */
+        upstreamQuery: String = field,
+        /** The `docs/UPSTREAM.md` entry recording [upstreamQuery] as broken, if any. */
+        ledgerEntry: String? = null
     ): JsonElement {
         val text = textOf(result)
         if (result.isError == true) {
@@ -123,6 +127,17 @@ class ToolExecutorRemainingToolsTest {
                 "$tool asked the explorer's schema for something it does not have. The explorer " +
                     "changed and the query did not follow - this is ours to fix: $text"
             )
+            // THE THIRD STATUS, on the same terms as in ToolExecutorStrategiesTest:
+            // an allowlisted signature PLUS a canary or a dated docs/UPSTREAM.md
+            // entry ends this as an UPSTREAM WARNING - still a failure in the
+            // XML, counted and named separately by the gate. Anything less
+            // proven throws a plain red from inside upstreamOutage.
+            if (LiveEnv.upstreamSignature(text) != null) {
+                LiveEnv.upstreamOutage(
+                    tool,
+                    LiveEnv.UpstreamEvidence(query = upstreamQuery, errorText = text, ledgerEntry = ledgerEntry)
+                )
+            }
             val lower = text.lowercase()
             fail<Nothing>(
                 if (upstreamMarkers.any { lower.contains(it) }) {

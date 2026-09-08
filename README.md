@@ -748,6 +748,71 @@ allowlisted classifier, but all-live-warn is a FAIL, more than
 `SWEEP_MAX_UPSTREAM_WARNS` warnings is a FAIL, and non-network checks always fail
 hard.)
 
+### Three statuses: pass, red, and UPSTREAM WARNING
+
+**A warning is a red for the upstream, not for us; the ledger entry is the
+debt.** Added 2026-09-08. The rule above — an outage reds the suite, and the
+remedy is to re-run — is right about the test and wrong about the *push*: a run
+whose only failures are a third party refusing to serve us has nothing in it for
+anyone here to fix, and a gate that cannot say so teaches people to read reds as
+noise. So the tally has three outcomes instead of two:
+
+| status | what it means | exit code |
+|---|---|---|
+| **PASS** | the test ran and its claim held | 0 |
+| **RED** | anything else — every skip, every failure, every unproven claim | 1 |
+| **UPSTREAM WARNING** | a failure that is *proven* the third party's | 0, printed by name |
+
+**What qualifies — all four, not any of them.** A failure is counted as
+`upstream=N` only when:
+
+1. its message begins `UPSTREAM WARNING (proven): `, which only
+   `LiveEnv.upstreamOutage` writes;
+2. the third party's own text matches an **allowlisted signature**:
+   `INTERNAL_ERROR for <uuid>` (the explorer's own request id),
+   `Request timeout has expired`, `reCAPTCHA`, a 5xx. Deliberately *not*
+   allowlisted — 4xx, `Connection refused`, the bare word `timeout` — because
+   every one of those can be ours;
+3. **the outage is measured, not inferred**: either the run's canary
+   (`{ totalRewardsPaid }`, one cheap call per test JVM through the production
+   HTTP client) failed, so the explorer is down for everything, **or** the
+   specific query has a **dated entry in `docs/UPSTREAM.md`** naming it. A
+   partial outage — the canary answers, one query does not — is excused by a
+   written, dated ledger entry or not at all;
+4. an **evidence file** exists at
+   `app/build/upstream/warnings/<Class>.<method>.json` carrying the tool, the
+   query, the third party's words, the canary's outcome and the ledger entry,
+   timestamped **inside this run**.
+
+`scripts/gate-tally.mjs` re-checks all four rather than trusting the sentence,
+and it is one implementation: `scripts/loop-gate.mjs` imports it and CI runs it
+as a step of its own. The gate line becomes
+`gate: tests=… failures=… errors=… skipped=0 upstream=N (names…)`, with every
+warning printed alongside its evidence.
+
+**What never qualifies.** A pass — the XML still records a `<failure>`, the
+claim is still unverified, and nothing continues past `upstreamOutage` (it
+returns `Nothing`). A skip — the skip count is red as it always was, and CI's
+allowlist is still `set()`. A failure of our own code, however upstream it
+looks. A message that claims the status with no evidence file: red, so a test
+cannot excuse itself by writing a sentence. Evidence from an earlier run: red,
+so last week's outage cannot cover today's failure. A test name: **there is no
+allowlist of tests**, here or in CI.
+
+The bar is that high because of the paragraph above it. `get_asset_top_holders`
+answered eight consecutive live `INTERNAL_ERROR`s and the suite reported eight
+*passes*, because an upstream marker in the text was read as an outage. The
+third status is that same judgement made honestly: measured, written down,
+dated — and still a failure.
+
+Two entries are open today: `docs/UPSTREAM.md` **#3b**
+(`allBlockchains(state:)` has answered `INTERNAL_ERROR` since 2026-09-07, so
+`filter_blockchains{state}` cannot be verified) and **#11** (the explorer's
+index is stale since 2026-09-04 06:40Z and `blockchainAnalytics` is unbounded in
+chain size — 0.6 s for a 15-transaction chain, 41.5 s for a 1.4 M one, and
+observed dropping the connection at the 60 s bound). Closing an entry removes
+its excuse: delete it and the test is an ordinary red again.
+
 ### What the host has to deliver (measured 2026-09-08)
 
 `run_rell_tests` abandons a run at **90 s** (`RunRellTests.EXECUTION_TIMEOUT_SECONDS`).
