@@ -356,9 +356,17 @@ class Round17SecurityRuleProbeTest {
         }
     """.trimIndent()
 
-    /** The insurance pool this round built from the `template=ft4` redirect, and its fix. */
+    /**
+     * The insurance pool this round built from the `template=ft4` redirect, and its fix.
+     *
+     * Line endings are normalised: this recorder embeds the sample's SOURCE in the
+     * frozen recording, and a Windows checkout (core.autocrlf) hands it CRLF where
+     * CI's Linux checkout hands it LF - the first CI run after the freeze drifted on
+     * exactly the three embedded sources and nothing else. What is recorded is the
+     * program, not the platform's newline.
+     */
     private fun sampleFile(id: String): String =
-        File("src/test/resources/exploit-corpus/samples/$id/main.rell").readText()
+        File("src/test/resources/exploit-corpus/samples/$id/main.rell").readText().replace("\r\n", "\n")
 
     private val probes: List<Triple<String, String, String>> by lazy {
         listOf(
