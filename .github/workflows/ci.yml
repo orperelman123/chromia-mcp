@@ -48,6 +48,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      # Node runs the tally that decides this job's verdict (the classification
+      # step below) as well as the e2e sweep, so it is set up BEFORE the suite
+      # rather than after it - a runner's ambient node version is not something
+      # the merge decision should depend on.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
       # Two tests exercise the real chr CLI (the ChrLocator launch path and a
       # live `chr version` probe) and SKIPPED here because the runner had no
       # chr - the zero-skip guard surfaced that. Official Linux install per
@@ -60,7 +68,7 @@ jobs:
           sudo apt-get install -y -qq chr
           chr --version
 
-      - name: Test and build fat jar
+      - name: Run the unit suite
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
           # All four live provisioning tests need only network, never a key:
@@ -76,7 +84,30 @@ jobs:
           # likely to have an unlaunchable chr (a Windows .cmd shim) was exactly
           # the box that silently opted out of the launch-path coverage.
           CHROMIA_REQUIRE_CHR: "true"
-        run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
+        # Gradle's exit code can no longer be the verdict on its own. A PROVEN
+        # upstream outage is a <failure> in the XML like any other - nothing
+        # pretends to pass - so `:app:test` exits non-zero for something that is
+        # ChromaWay's to fix, not ours. The verdict is the classification step
+        # below, which is the SAME script the merge gate imports. The jar is
+        # built separately so a red suite still cannot ship one.
+        run: |
+          rc=0
+          ./gradlew :app:test --console=plain -Pversion="$(git describe --tags --always)" || rc=$?
+          echo "gradle :app:test exited $rc - the verdict is the tally below (upstream warnings are counted separately)"
+
+      # THE VERDICT, and the third status. One implementation, shared with
+      # scripts/loop-gate.mjs: a failure whose message begins
+      # `UPSTREAM WARNING (proven): ` AND which is backed by an evidence file in
+      # app/build/upstream/warnings/ carrying an allowlisted signature plus a
+      # failed canary or a dated docs/UPSTREAM.md entry is counted as upstream=N
+      # and printed by name. Everything else - including a message that claims
+      # the status with no evidence, and every skip - is red. There is NO
+      # allowlist of test names here or anywhere else.
+      - name: Classify the tally (ours, theirs, and skips)
+        run: node scripts/gate-tally.mjs --dir "$PWD"
+
+      - name: Build the fat jar
+        run: ./gradlew :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
 
       # A skip is a test that silently did not run. Gradle prints the skip count
       # only when something FAILS, so a green run with 8 skips looked identical
@@ -135,10 +166,6 @@ jobs:
       # "probably just the quota" is worse than no signal at all, which is the
       # same argument GOAL.md makes about a gate agents route around. Merging
       # the jobs removes the upload, the download and the storage outright.
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
 
       # Failure policy (what CI treats as fatal vs degraded):
       # - The unit suite above is STRICT: no retries, any failure is fatal.

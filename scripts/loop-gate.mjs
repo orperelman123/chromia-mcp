@@ -29,6 +29,11 @@ import { spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { readdirSync, readFileSync, statSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
+// THE TALLY AND THE THIRD STATUS live in ONE file, imported here and run by CI
+// as a step of its own. Two gates with different definitions of green is one
+// gate and one bypass - that is exactly what `--allow-skip` was - and a second
+// copy of the classification would be the same mistake made by duplication.
+import { tally, report, gateLine } from './gate-tally.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -41,6 +46,11 @@ const expectMin = Number(opt('--expect-min', '0'));
 const docsOnly = flag('--docs-only');
 const docsBase = opt('--base', null);
 const resultsDir = join(repo, 'app', 'build', 'test-results', 'test');
+// Evidence for the third status: one file per PROVEN upstream outage, written
+// by LiveEnv during the run. Cleared with the results below for the same reason
+// - a warning file left over from a previous run would excuse a fresh failure.
+const upstreamDir = join(repo, 'app', 'build', 'upstream');
+const warningsDir = join(upstreamDir, 'warnings');
 
 const fail = (msg) => { console.error(`GATE FAILED: ${msg}`); process.exit(1); };
 
@@ -241,6 +251,14 @@ if (existsSync(resultsDir)) {
   try { rmSync(resultsDir, { recursive: true, force: true }); }
   catch (e) { fail(`could not clear stale results (${e.code}); another build is probably running - wait for it`); }
 }
+// Same argument, for the upstream evidence: a warning file from a run three
+// days ago would let today's identical failure be counted as somebody else's
+// outage. The tally also refuses evidence older than the run, so this is the
+// belt to that brace.
+if (existsSync(upstreamDir)) {
+  try { rmSync(upstreamDir, { recursive: true, force: true }); }
+  catch (e) { fail(`could not clear stale upstream evidence (${e.code}); another build is probably running - wait for it`); }
+}
 
 const startedAt = Date.now();
 console.log(`gate: running ${docsOnly ? 'the derived classes' : 'full suite'} in ${repo} (forced rerun)`);
@@ -276,48 +294,34 @@ if (timedOut) {
   console.error('  raising timeout.set(...): a raised timeout hides a genuine hang perfectly.');
   fail('test task killed by its own timeout');
 }
-if (!existsSync(resultsDir)) fail('no test-results directory - the suite did not run');
-const files = readdirSync(resultsDir).filter((f) => f.endsWith('.xml'));
-if (files.length === 0) fail('no result files - the suite did not run (a fast "BUILD SUCCESSFUL" means a cached task)');
+// THE TALLY - one implementation, shared with CI (scripts/gate-tally.mjs).
+// It also decides the third status: a failure whose message begins
+// `UPSTREAM WARNING (proven): ` AND whose evidence file carries an allowlisted
+// signature, a failed canary or a dated docs/UPSTREAM.md entry, and a timestamp
+// inside this run, is counted as `upstream=N` and printed by name. It is still
+// a failure in the XML - nothing pretends to pass - but it does not set the
+// exit code, because it is a red for the THIRD PARTY, not for us. Everything
+// else, including a message that claims the status without evidence, is red as
+// before.
+const t = tally({ resultsDir, warningsDir, startedAt });
+if (t.error) fail(t.error);
 
-let tests = 0, failures = 0, errors = 0, skipped = 0;
-const skippedNames = [], stale = [], ranClasses = new Set();
-for (const f of files) {
-  const path = join(resultsDir, f);
-  if (statSync(path).mtimeMs < startedAt) stale.push(f);
-  const xml = readFileSync(path, 'utf8');
-  const suite = xml.match(/<testsuite\b[^>]*>/)?.[0] ?? '';
-  const num = (attr) => Number(suite.match(new RegExp(`${attr}="(\\d+)"`))?.[1] ?? 0);
-  tests += num('tests'); failures += num('failures'); errors += num('errors'); skipped += num('skipped');
-  const cls = suite.match(/name="([^"]+)"/)?.[1] ?? f;
-  ranClasses.add(cls.replace(/^org\.chromia\./, '').replace(/\$.*$/, ''));
-  for (const tc of xml.split('<testcase').slice(1)) {
-    if (/<skipped\b/.test(tc)) {
-      const name = tc.match(/name="([^"]+)"/)?.[1] ?? '?';
-      skippedNames.push(`${cls.replace(/^org\.chromia\./, '')}::${name}`);
-    }
-  }
-}
-
-console.log(`gate: tests=${tests} failures=${failures} errors=${errors} skipped=${skipped} files=${files.length}`);
-for (const s of skippedNames) console.log(`  skip: ${s}`);
-
-if (stale.length) fail(`${stale.length} result file(s) predate this run (e.g. ${stale[0]}) - you are reading someone else's evidence`);
-if (tests === 0) fail('zero tests recorded');
 if (docsOnly) {
   // A filter that matches nothing narrows the run in total silence, which is the
   // failure this whole mode exists to prevent. Every derived class must have
   // produced results.
-  const absent = derivation.classes.filter((c) => ![...ranClasses].some((r) => r === c || r.endsWith(`.${c}`)));
-  if (absent.length) fail(`derived class(es) produced no results: ${absent.join(', ')} - the --tests filter did not match them`);
-} else if (tests < expectMin) {
-  fail(`only ${tests} tests ran, expected at least ${expectMin} - a filter or a compile failure silently narrowed the suite`);
+  const absent = derivation.classes.filter((c) => !t.ranClasses.some((r) => r === c || r.endsWith(`.${c}`)));
+  if (absent.length) {
+    console.log(gateLine(t));
+    fail(`derived class(es) produced no results: ${absent.join(', ')} - the --tests filter did not match them`);
+  }
 }
-if (failures || errors) {
-  // Same lesson from the other end: if the cluster dies PART WAY through, the
-  // preflight above passed and the tally is still meaningless. Name it rather
-  // than letting a reader diff a template against 58 unrelated reds.
-  const conn = files.reduce((n, f) => {
+
+if (t.red.length) {
+  // If the cluster dies PART WAY through, the preflight above passed and the
+  // tally is still meaningless. Name it rather than letting a reader diff a
+  // template against 58 unrelated reds.
+  const conn = readdirSync(resultsDir).filter((f) => f.endsWith('.xml')).reduce((n, f) => {
     const xml = readFileSync(join(resultsDir, f), 'utf8');
     return n + (xml.match(/Connection (?:to [^"<]*refused|has been closed)/g) ?? []).length;
   }, 0);
@@ -325,20 +329,32 @@ if (failures || errors) {
     console.error(`  NOTE: ${conn} failure(s) are database connection errors - the cluster went down DURING this run.`);
     console.error('  That is infrastructure, not your change. Restart it and re-run before reading anything into these.');
   }
-  fail(`${failures} failure(s), ${errors} error(s)`);
 }
-if (skippedNames.length) {
-  fail('skipped test(s) - a skip is a test that did not run, and there is no allowlist:\n  ' +
-    skippedNames.join('\n  '));
+
+if (!report(t, { expectMin: docsOnly ? 0 : expectMin })) {
+  process.exit(1);
 }
-if (gradle.status !== 0) fail(`gradle exited ${gradle.status} despite a clean tally - read the output above`);
+// Gradle exits non-zero on ANY failing test, including a proven upstream
+// warning, so its status alone can no longer decide the gate. It still has to
+// agree once the warnings are accounted for: a non-zero exit with a clean tally
+// and no warnings means something failed that produced no test result at all.
+if (gradle.status !== 0 && t.upstream.length === 0) {
+  fail(`gradle exited ${gradle.status} despite a clean tally - read the output above`);
+}
+const tests = t.tests;
+// The verdict says the warnings out loud. "PASSED (1534 tests, 0 skips)" over a
+// run in which two live claims were never verified would be the same kind of
+// sentence this file exists to stop being written.
+const upstreamSuffix = t.upstream.length
+  ? `, ${t.upstream.length} PROVEN upstream warning(s): ${t.upstream.map((u) => u.key).join(', ')}`
+  : '';
 
 if (docsOnly) {
   console.log(
-    `gate: PASSED (docs-only, ${tests} tests, 0 skips) ` +
+    `gate: PASSED (docs-only, ${tests} tests, 0 skips${upstreamSuffix}) ` +
     `base=${derivation.base} docs=[${derivation.changed.join(' ')}] ` +
     `derived=[${derivation.classes.join(' ')}]`
   );
 } else {
-  console.log(`gate: PASSED (${tests} tests, 0 skips)`);
+  console.log(`gate: PASSED (${tests} tests, 0 skips${upstreamSuffix})`);
 }

@@ -151,6 +151,14 @@ dependencies {
 
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    // UpstreamWarningGateTest runs ONE real live test through the REAL JUnit
+    // launcher and lets the REAL report generator write its XML, then feeds that
+    // XML to scripts/gate-tally.mjs. The alternative was a hand-written XML
+    // string - a fixture of the exact artifact whose parsing is under test,
+    // which is how a gate ends up green over a shape the real reporter does not
+    // emit. Same JUnit, same version as the engine above; neither is a double.
+    testImplementation("org.junit.platform:junit-platform-launcher:1.10.1")
+    testImplementation("org.junit.platform:junit-platform-reporting:1.10.1")
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
     testImplementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     testImplementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
