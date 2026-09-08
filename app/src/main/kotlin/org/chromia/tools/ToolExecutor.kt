@@ -3506,9 +3506,14 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      *   import x: a.b.{ y };         alias + exact  compiles, but `y(...)` is "Unknown name:
      *                                               'y'" and `x.y(...)` compiles - an alias
      *                                               takes the exact names with it
-     *   import ^.b;                  parent         compiles - `^` strips one segment of the
-     *                                               IMPORTING module's name; `^^.b` from
-     *                                               tests.deep.sub reaches the root, measured
+     *   import ^.b;                  parent         EACH `^` strips ONE segment of the
+     *                                               IMPORTING module's name. Measured from
+     *                                               module tests.deep.sub, where the three
+     *                                               readings differ: `^.helpers` is
+     *                                               "Module 'tests.deep.helpers' not found",
+     *                                               `^^.helpers` compiles as tests.helpers,
+     *                                               `^^^.helpers` is "Module 'helpers' not
+     *                                               found" - the root
      *   import .sub;                 submodule      `.` prefixes the importing module's own
      *                                               name: `import .helpers;` in tests.main is
      *                                               "Module 'tests.main.helpers' not found"
