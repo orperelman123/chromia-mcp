@@ -24,11 +24,11 @@ import java.io.File
  * them put through `rell_check` as well so a sample that does not compile is
  * not counted as evidence:
  *
- *  - EIGHT that must be caught. Three were not: a floor that is a `when` with
+ *  - SEVEN that must be caught. Three were not: a floor that is a `when` with
  *    no common arm value (`when { book.pot > 0 -> 0; else -> -1 }`, every arm
  *    <= 0), and the same `limits(floor = 0)` read as `limits_of().floor` off a
  *    QUERY and off a FUNCTION. Two of the three were DRAINED on a real chain
- *    (`drain/*.chain.json`: pot 1000000 -> 0, attacker roll 0 -> 1000000, ONE
+ *    (`drain/<probe>.chain.json`: pot 1000000 -> 0, attacker roll 0 -> 1000000, ONE
  *    signature, ONE ballot yes 1 no 0), and each has a CONTROL one token away
  *    that the evaluator already valued and the rule already fired on.
  *  - TEN CORRECT DAOs that must stay clean, whose legitimate floors are every
