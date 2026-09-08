@@ -2,7 +2,9 @@ package org.chromia
 
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.lang.reflect.Modifier
 import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * THERE ARE NO TEST DOUBLES IN THIS SUITE. This is the scan that says so.
@@ -67,19 +69,52 @@ import java.nio.file.Files
  * regexes could see, which is exactly what that claim was worth.
  *
  * Or's rule is ZERO doubles and this scan is the proof, so the proof cannot be
- * lexical. [structuralSites] reads the COMPILED test classes
- * (`app/build/classes/kotlin/test`) and asks what each class IS: `by`
- * delegation, nesting, aliases and multi-line supertypes all compile to the same
- * supertype list, a Proxy has to name `java/lang/reflect/Proxy` in its constant
- * pool to call it, and a SAM lambda - which compiles to an `invokedynamic` and
- * to no class at all - leaves the interface it implements in the call site's own
- * descriptor. Three structural detectors, none of them keyed on a spelling.
+ * lexical. [structuralSites] reads the COMPILED test classes and asks what each
+ * class IS: `by` delegation, nesting, aliases and multi-line supertypes all
+ * compile to the same supertype list, a runtime substitute has to CALL a JDK
+ * factory that manufactures one, and a SAM lambda - which compiles to an
+ * `invokedynamic` and to no class at all - leaves the interface it implements in
+ * the call site's own descriptor. Three structural detectors, none of them keyed
+ * on a spelling.
  *
- * The eight probes are kept as a Gradle source set that is COMPILED AND NEVER
- * RUN (`app/src/doubleProbes/kotlin`), and [everyRound18EvasionProbeIsCaught]
- * asserts the scan catches each shape. A double compiled into the test tree
- * would still be a double in the suite; the assertion over the test tree is
- * still zero.
+ * WHAT IS SCANNED, WHAT A SEAM IS, AND WHAT MANUFACTURES ONE - the three answers
+ * adversary round 19 (section 3) took apart, each of which had been a literal.
+ *
+ *  - SCANNED: [testTrees] is the `test` task's own resolved runtime classpath
+ *    minus the dependency jars and minus production's output - not
+ *    `app/build/classes/kotlin`, which left `app/build/classes/java/test` (the
+ *    java plugin's convention, and the test source set compiles Java) and
+ *    `app/build/resources/test` outside the proof entirely (r19d5). A class file
+ *    is recognised by its MAGIC and not by a `.class` suffix, so bytes checked in
+ *    under any name are read too, and
+ *    [theStructuralScanReadsEveryDirectoryOnTheTestRuntimeClasspath] asserts the
+ *    two sets are the same one, so a source set added tomorrow cannot appear
+ *    unscanned. `RepoFiles.testSources()` walks `.java` as well as `.kt` for the
+ *    same reason.
+ *  - A SEAM: [dependencySeams] is every interface or abstract class production's
+ *    own bytecode NAMES - constant pool, method and field descriptors, and the
+ *    types its locals are declared as - not only the types production DECLARES.
+ *    A named class over `ContentRetriever`, langchain4j's retrieval interface and
+ *    the RAG seam `RagStore` builds into a local, answers on a collaborator's
+ *    behalf exactly as `BagOfWordsEmbeddingModel` did, and who wrote the
+ *    `interface` keyword has nothing to do with it (r19d1). [samTargets] follows
+ *    the same set (r19d2), so the identical lambda is a finding over
+ *    `ContentRetriever` and over `EmbeddingModel` alike.
+ *  - MANUFACTURING: [manufacturingCalls] is every JDK entry point that turns
+ *    something which is not a class into a live instance -
+ *    `Proxy.newProxyInstance`, `MethodHandleProxies.asInterfaceInstance`,
+ *    `Lookup.defineClass` / `defineHiddenClass` /
+ *    `defineHiddenClassWithClassData`, `ClassLoader.defineClass`,
+ *    `Unsafe.defineAnonymousClass` - read off the constant pool as CALLS, the way
+ *    `Proxy` alone was read before (r19d4, r19d5). `MethodHandles.lookup()` on
+ *    its own manufactures nothing and is not one.
+ *
+ * The twelve probes - round 18's eight and round 19's four with their control -
+ * are kept as a Gradle source set that is COMPILED AND NEVER RUN
+ * (`app/src/doubleProbes/kotlin`), and [everyRound18EvasionProbeIsCaught] and
+ * [everyRound19EvasionProbeIsCaught] assert the scan catches each shape. A double
+ * compiled into the test tree would still be a double in the suite; the assertion
+ * over the test tree is still zero.
  *
  * THE SEAMS. The lexical `samLambda` detector named five `fun interface`s by
  * hand, which is how it missed the sixth. Production now declares NO
@@ -91,9 +126,13 @@ import java.nio.file.Files
  * written against, and `ToolStrategy` / `BaseToolStrategy`, which some seventy
  * production strategies implement: those are the program's own structure, not
  * injection points, and they are DETECTED rather than removed. [samTargets] is
- * derived from the compiled production API - single-method interfaces production
- * declares or accepts as a parameter - so a new seam is covered the day it
- * appears instead of the day someone remembers to add it to a list.
+ * derived from the compiled production API - every single-method interface
+ * production declares, accepts as a parameter, or otherwise DEPENDS ON - so a new
+ * seam is covered the day it appears instead of the day someone remembers to add
+ * it to a list. The third clause is round 19's: "declares or accepts as a
+ * parameter" made the identical lambda a finding over `EmbeddingModel` and
+ * invisible over `ContentRetriever`, on a distinction that says nothing about
+ * whether it answers in a collaborator's place.
  *
  * The two INJECTION POINTS that are left are named rather than removed, because
  * both hand back the real thing. `ToolExecutor(ragStore =, ragStoreFactory =)`
@@ -111,6 +150,27 @@ import java.nio.file.Files
  * nothing.
  */
 class NoTestDoublesTest {
+
+    /**
+     * A JUnit TEST class is not a double, whatever the attack it pins is called.
+     *
+     * Round 19 shipped `Round19FakeUpstreamWarningTest` (a fake upstream warning
+     * is what it ATTACKS) and `Round19DoubleEvasionTest` (test doubles are what it
+     * is ABOUT), and [namedDouble] flagged both on the words `Fake` and `Double`
+     * in their names - a red that says nothing about the suite. It is the same
+     * mistake as reacting to prose about a double, which is why comments are
+     * stripped: the detector reads a name for what the class IS, and a class whose
+     * name ends in `Test` is the test, not the substitute. Both are silent under
+     * the structural scan, which is the proof.
+     *
+     * The carve-out is on the NAME only and it costs nothing: a substitute called
+     * `FakeChainTest` would still have to implement or extend something to answer
+     * in a collaborator's place, and that is a supertype list
+     * [thereAreNoTestDoublesInTheCompiledTestClasses] reads.
+     * [everyDetectorStillMatchesTheShapeItLooksFor] pins its exact width so it
+     * cannot quietly grow.
+     */
+    private fun isTestClassName(declared: String) = declared.endsWith("Test")
 
     /** `FakeX`, `MockY`, `StubZ`, `RecordingW`, `ScriptedV`... by name. */
     private val namedDouble = Regex(
@@ -185,7 +245,10 @@ class NoTestDoublesTest {
             val name = file.fileName.toString()
             stripComments(Files.readString(file)).lineSequence().forEachIndexed { index, line ->
                 val n = index + 1
-                namedDouble.find(line)?.let { sites += Site(name, n, "NAMED", it.groupValues[1]) }
+                namedDouble.find(line)?.let { match ->
+                    val declared = match.groupValues[1]
+                    if (!isTestClassName(declared)) sites += Site(name, n, "NAMED", declared)
+                }
                 anonymousObject.findAll(line).forEach {
                     sites += Site(name, n, "ANONYMOUS", it.groupValues[1].substringAfterLast('.'))
                 }
@@ -208,13 +271,72 @@ class NoTestDoublesTest {
 
     // ---- the structural scan -----------------------------------------------
 
-    /** Where Kotlin puts each source set's classes. */
-    private val classesRoot = RepoFiles.root.resolve("app/build/classes/kotlin")
-    private val mainClasses: Map<String, ClassFacts> by lazy { ClassFiles.readTree(classesRoot.resolve("main")) }
-    private val testClasses: Map<String, ClassFacts> by lazy { ClassFiles.readTree(classesRoot.resolve("test")) }
-    private val probeClasses: Map<String, ClassFacts> by lazy {
-        ClassFiles.readTree(classesRoot.resolve("doubleProbes"))
+    /**
+     * A classpath entry that is a dependency ARTIFACT rather than one of this
+     * build's own output directories.
+     *
+     * A regular file is one whatever it is called - and on this build that is not
+     * only jars: `net.postchain:directory-chain`'s `.pom` is on the test runtime
+     * classpath (measured 2026-09-09), and a first cut that named `.jar` and
+     * `.zip` recorded it as a tree. The suffixes are kept for the other half of
+     * the rule: an output directory a source set has not written to yet is not a
+     * regular file either, and it must stay in the list rather than vanish from
+     * it, so anything that is neither a file on disk nor an artifact spelling is a
+     * tree.
+     */
+    private fun isDependencyArtifact(path: Path): Boolean =
+        Files.isRegularFile(path) ||
+            path.toString().lowercase().let { name ->
+                listOf(".jar", ".zip", ".pom", ".module", ".klib", ".aar").any { name.endsWith(it) }
+            }
+
+    private fun required(paths: List<Path>?, property: String, what: String): List<Path> =
+        paths ?: error(
+            "`$property` is missing, so this scan does not know $what. The `test` task in " +
+                "app/build.gradle.kts writes those paths from its OWN classpath into " +
+                "app/build/zero-doubles/scan-paths.tsv - run the scan through `:app:test`. It may not " +
+                "guess a directory instead: a guessed one is exactly what adversary round 19 (r19d5) " +
+                "walked past."
+        )
+
+    /**
+     * EVERY DIRECTORY THE TEST JVM CAN LOAD A CLASS FROM, except production's own
+     * output. Not a literal: it is the `test` task's resolved runtime classpath
+     * with the dependency jars and the `main` source set's output removed, so
+     * `app/build/classes/java/test` and `app/build/resources/test` are in it
+     * because GRADLE puts them there, and a source set added tomorrow is in it
+     * the day it is added.
+     */
+    private val testTrees: List<Path> by lazy {
+        val classpath = required(
+            RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]", "where a test class can come from"
+        )
+        val production = required(
+            RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]", "which of those trees is production's"
+        ).toSet()
+        classpath.filterNot { isDependencyArtifact(it) }
+            .filterNot { it in production }
+            .distinct()
+            .sortedBy { it.toString() }
     }
+
+    /** The compiled production classes - what a substitute stands in FOR. */
+    private val productionTrees: List<Path> by lazy {
+        required(
+            RepoFiles.productionClasses, "chromia.test.scanpaths[production.classes]", "what a substitute would stand in for"
+        )
+    }
+
+    /** The evasion probes: compiled, never run, never on the test classpath. */
+    private val probeTrees: List<Path> by lazy {
+        required(
+            RepoFiles.doubleProbeClasses, "chromia.test.scanpaths[doubleprobes.classes]", "where the evasion probes compiled to"
+        )
+    }
+
+    private val mainClasses: Map<String, ClassFacts> by lazy { ClassFiles.readTrees(productionTrees) }
+    private val testClasses: Map<String, ClassFacts> by lazy { ClassFiles.readTrees(testTrees) }
+    private val probeClasses: Map<String, ClassFacts> by lazy { ClassFiles.readTrees(probeTrees) }
 
     /**
      * A structural finding: a class file, not a line. The file name is the
@@ -237,6 +359,99 @@ class NoTestDoublesTest {
     private val proxyTypes = setOf("java/lang/reflect/Proxy", "java/lang/reflect/InvocationHandler")
 
     /**
+     * THE JDK'S OWN FACTORIES FOR AN IMPLEMENTATION THAT HAS NO SOURCE, as
+     * `owner#name` in the constant pool - the same way `Proxy` has always been
+     * read, one level down.
+     *
+     * `java.lang.reflect.Proxy` is not the only way to manufacture one. Adversary
+     * round 19 (r19d4) built a substitute for `EmbeddingModel` with
+     * `MethodHandleProxies.asInterfaceInstance` and never mentioned `Proxy`, and
+     * (r19d5) defined one from BYTES with `Lookup.defineHiddenClass`, which leaves
+     * no class file anywhere for the supertype detector to read. Every entry point
+     * that turns something which is not a class into a live instance is listed
+     * here, and the list is of CALLS, not of types: `MethodHandles.lookup()` on
+     * its own manufactures nothing, and `javaClass.classLoader` is not
+     * `ClassLoader.defineClass`.
+     */
+    private val manufacturingCalls = setOf(
+        "java/lang/reflect/Proxy#newProxyInstance",
+        "java/lang/invoke/MethodHandleProxies#asInterfaceInstance",
+        "java/lang/invoke/MethodHandles\$Lookup#defineClass",
+        "java/lang/invoke/MethodHandles\$Lookup#defineHiddenClass",
+        "java/lang/invoke/MethodHandles\$Lookup#defineHiddenClassWithClassData",
+        "java/lang/ClassLoader#defineClass",
+        "sun/misc/Unsafe#defineAnonymousClass",
+        "jdk/internal/misc/Unsafe#defineAnonymousClass"
+    )
+
+    /**
+     * EVERY EXTENSION POINT PRODUCTION DEPENDS ON - not only the ones it owns.
+     *
+     * Until 2026-09-09 a finding needed a supertype in `mainClasses`, and
+     * adversary round 19 (r19d1) walked past that with a named class over
+     * `ContentRetriever`: a langchain4j interface `RagStore` builds into a LOCAL
+     * and the RAG seam of the whole docs path. A substitute for it answers on a
+     * collaborator's behalf exactly as `BagOfWordsEmbeddingModel` did, and who
+     * DECLARED the interface has nothing to do with it.
+     *
+     * So the seam set is derived from what production's own bytecode NAMES -
+     * every `CONSTANT_Class` in the pool, every type in a method or field
+     * descriptor, and every type a local was declared as (which is where a seam
+     * production merely holds appears under its own name) - kept where the type
+     * is an interface or an abstract class, which are the two shapes something can
+     * be substituted THROUGH. Annotations and enums are neither. The language's
+     * and the harness's own types are excluded the way they always were, so
+     * `java.io.Closeable` on a real TCP endpoint is not a finding.
+     *
+     * The real library implementation is never in the scan: only the test trees
+     * are scanned, and a class that comes out of a dependency jar is not in one.
+     */
+    private val dependencySeams: Map<String, String> by lazy {
+        val referenced = mutableSetOf<String>()
+        mainClasses.values.forEach { facts ->
+            referenced += facts.referencedTypes
+            referenced += facts.interfaces
+            facts.superName?.let { referenced += it }
+            facts.methodDescriptors.forEach { referenced += ClassFiles.objectTypes(it) }
+            facts.fieldDescriptors.forEach { referenced += ClassFiles.objectTypes(it) }
+            referenced += facts.localVariableTypes
+        }
+        referenced.asSequence()
+            .filterNot { it in mainClasses || isLanguageOrHarness(it) }
+            .mapNotNull { name -> extensionPointKind(name)?.let { name to it } }
+            .toMap()
+    }
+
+    /**
+     * Loads a THIRD-PARTY type to ask whether anything can be substituted through
+     * it. Nothing being scanned is loaded - only the library types production's
+     * own bytecode names, which are on this test's classpath by construction.
+     */
+    private fun extensionPointKind(internalName: String): String? = runCatching {
+        val type = Class.forName(internalName.replace('/', '.'), false, javaClass.classLoader)
+        when {
+            type.isAnnotation || type.isEnum -> null
+            type.isInterface -> "an interface production depends on"
+            Modifier.isAbstract(type.modifiers) -> "an abstract class production depends on"
+            else -> null
+        }
+    }.getOrNull()
+
+    private val librarySupertypes = mutableMapOf<String, List<String>>()
+
+    /** A library type's own supertypes, so a closure does not stop at the jar boundary. */
+    private fun librarySupertypesOf(internalName: String): List<String> =
+        librarySupertypes.getOrPut(internalName) {
+            runCatching {
+                val type = Class.forName(internalName.replace('/', '.'), false, javaClass.classLoader)
+                val supertypes = mutableListOf<String>()
+                type.superclass?.let { supertypes += it.name.replace('.', '/') }
+                type.interfaces.forEach { supertypes += it.name.replace('.', '/') }
+                supertypes.toList()
+            }.getOrDefault(emptyList())
+        }
+
+    /**
      * The types a SAM lambda could substitute, DERIVED from the compiled
      * production API rather than listed:
      *
@@ -250,9 +465,21 @@ class NoTestDoublesTest {
      *    `RagStore` takes one.
      *
      * The value is the reason, so a finding can say why the type is one.
+     *
+     * ROUND 19 (r19d2) widened the first clause. "Declares or accepts as a
+     * parameter" caught `EmbeddingModel` and missed `ContentRetriever`, which
+     * production only ever holds in a LOCAL - so the identical lambda was a
+     * finding over one seam and invisible over the other, on a difference that
+     * says nothing about whether it is a substitute. Every single-method
+     * interface in [dependencySeams] is a target now, and the two narrower
+     * reasons are kept because they are more specific and read better in a
+     * finding.
      */
     private val samTargets: Map<String, String> by lazy {
         val targets = mutableMapOf<String, String>()
+        dependencySeams.keys
+            .filter { isFunctionalInterface(it) }
+            .forEach { targets[it] = "a single-method interface production depends on" }
         mainClasses.values
             .filter { it.isInterface && it.abstractInstanceMethods == 1 }
             .forEach { targets[it.internalName] = "a single-method interface production declares" }
@@ -280,20 +507,29 @@ class NoTestDoublesTest {
     }.getOrDefault(false)
 
     /**
-     * The first production type in [facts]'s transitive supertype closure, or
-     * null. A supertype inside the scanned tree is followed through, so a test
-     * class extending a test base class that extends production code is found;
-     * anything else (JUnit, the Kotlin runtime, a library) ends that branch.
+     * The first SEAM in [facts]'s transitive supertype closure, with the reason it
+     * is one, or null. A supertype inside the scanned tree is followed through, so
+     * a test class extending a test base class that extends a seam is found, and a
+     * supertype that comes out of a dependency jar is followed through the JAR's
+     * own hierarchy - a class three library levels above the one that was written
+     * down is still the type being answered for. The language's and the harness's
+     * types end a branch.
      */
-    private fun productionSupertypeOf(facts: ClassFacts, scanned: Map<String, ClassFacts>): String? {
+    private fun seamSupertypeOf(facts: ClassFacts, scanned: Map<String, ClassFacts>): Pair<String, String>? {
         val seen = HashSet<String>()
         val queue = ArrayDeque(listOfNotNull(facts.superName) + facts.interfaces)
         while (queue.isNotEmpty()) {
             val next = queue.removeFirst()
             if (!seen.add(next)) continue
-            if (next in mainClasses) return next
-            val known = scanned[next] ?: continue
-            queue += listOfNotNull(known.superName) + known.interfaces
+            if (isLanguageOrHarness(next)) continue
+            if (next in mainClasses) return next to "a type production owns"
+            dependencySeams[next]?.let { return next to it }
+            val known = scanned[next]
+            if (known != null) {
+                queue += listOfNotNull(known.superName) + known.interfaces
+            } else {
+                queue += librarySupertypesOf(next)
+            }
         }
         return null
     }
@@ -302,11 +538,14 @@ class NoTestDoublesTest {
         val sites = mutableListOf<Structural>()
         scanned.values.sortedBy { it.internalName }.forEach { facts ->
             val where = "${facts.sourceFile ?: "?"} [${facts.simpleName}]"
-            productionSupertypeOf(facts, scanned)?.let { production ->
-                sites += Structural(where, "SUPERTYPE", "stands in for $production")
+            seamSupertypeOf(facts, scanned)?.let { (seam, why) ->
+                sites += Structural(where, "SUPERTYPE", "stands in for $seam - $why")
             }
-            val reflective = facts.referencedTypes.intersect(proxyTypes) +
-                facts.invokeDynamicTargets.filter { it in proxyTypes }
+            val reflective = (
+                facts.referencedTypes.intersect(proxyTypes) +
+                    facts.invokeDynamicTargets.filter { it in proxyTypes } +
+                    facts.methodReferences.filter { it in manufacturingCalls }
+                ).sorted()
             if (reflective.isNotEmpty()) {
                 sites += Structural(where, "REFLECTION_PROXY", "builds a substitute at runtime: $reflective")
             }
@@ -322,9 +561,9 @@ class NoTestDoublesTest {
         assertTrue(
             testClasses.size > 500,
             "the structural scan read ${testClasses.size} compiled test classes from " +
-                "${classesRoot.resolve("test")}. The suite has far more than that, so the scan is " +
-                "looking at the wrong place or at a stale build - run it through `:app:test`, which " +
-                "compiles the tree first."
+                "${testTrees.map { RepoFiles.relative(it) }}. The suite has far more than that, so the " +
+                "scan is looking at the wrong place or at a stale build - run it through `:app:test`, " +
+                "which compiles the tree first."
         )
         assertTrue(
             mainClasses.size > 200,
@@ -367,7 +606,7 @@ class NoTestDoublesTest {
         assertTrue(
             probeClasses.size >= 8,
             "the round-18 evasion probes are not compiled (found ${probeClasses.size} classes under " +
-                "${classesRoot.resolve("doubleProbes")}). Without them the scan's silence over the " +
+                "${probeTrees.map { RepoFiles.relative(it) }}). Without them the scan's silence over the " +
                 "test tree is unproven - `:app:test` depends on compileDoubleProbesKotlin for exactly " +
                 "this reason."
         )
@@ -449,6 +688,106 @@ class NoTestDoublesTest {
         println("derived SAM targets (${samTargets.size}): ${samTargets.keys.sorted()}")
     }
 
+    /**
+     * AND THE FOUR ROUND-19 PROBES ARE CAUGHT BY THE SHIPPED SCAN ITSELF.
+     *
+     * [Round19DoubleEvasionTest] pins these too, through a faithful copy of the
+     * detectors - but a copy cannot notice the shipped scan narrowing back, since
+     * the copy would narrow with it and the round-18 table would still pass. This
+     * assertion is against the real thing, in the file the widening lives in.
+     *
+     * Each one substitutes a collaborator production does NOT own: a named class
+     * and a SAM lambda over `ContentRetriever` (a langchain4j interface `RagStore`
+     * only ever holds in a local), a `MethodHandleProxies` instance of
+     * `EmbeddingModel`, and a class defined from bytes with
+     * `Lookup.defineHiddenClass`. `r19d6` is the control - the same named class
+     * over a production type - so each is one substitution away and not a
+     * different experiment.
+     */
+    @Test
+    fun everyRound19EvasionProbeIsCaught() {
+        assertTrue(
+            probeClasses.size >= 12,
+            "the round-19 evasion probes are not compiled (found ${probeClasses.size} classes under " +
+                "${probeTrees.map { RepoFiles.relative(it) }}); round 18 contributes eight and round " +
+                "19 four more"
+        )
+        val sites = structuralSites(probeClasses)
+        val expected = mapOf(
+            "R19d1NamedClassOverAThirdPartySeam" to "SUPERTYPE",
+            "R19d2SamLambdaOnANonParameterSeam" to "SAM_CONVERSION",
+            "R19d4MethodHandleProxy" to "REFLECTION_PROXY",
+            "R19d5RuntimeDefinedClass" to "REFLECTION_PROXY",
+            "R19d6ControlNamedClassOverAProductionSeam" to "SUPERTYPE"
+        )
+        val missed = expected.filter { (probe, kind) ->
+            sites.none { it.where.contains(probe) && it.kind == kind }
+        }
+        assertTrue(
+            missed.isEmpty(),
+            "the structural scan does not see ${missed.keys.sorted()} as ${missed.values.toSet()}. A " +
+                "scan that proves ZERO doubles has to see a substitute for a LIBRARY collaborator too: " +
+                "production's seams are typed with library interfaces, and a test that answers in one " +
+                "of their places is a double whoever declared the type.\n" +
+                "what the scan DID see:\n  " + sites.joinToString("\n  ")
+        )
+    }
+
+    /**
+     * THE SCAN READS EVERY DIRECTORY THE TEST RUNTIME LOADS A CLASS FROM.
+     *
+     * `classesRoot` used to be the literal `app/build/classes/kotlin`, and
+     * adversary round 19 (r19d5) pointed out what that leaves outside: the test
+     * source set compiles Java too, into `app/build/classes/java/test`, and
+     * `app/build/resources/test` is on the classpath as well, so a double written
+     * in the other language of the same source set - or simply checked in as
+     * bytes - was proven absent by nothing.
+     *
+     * The fix is not a longer list. [testTrees] is the `test` task's own resolved
+     * runtime classpath minus the dependency jars and minus production's output,
+     * and this test asserts the two sets are the same one: every directory the
+     * JVM can load from is either production or scanned. A source set added
+     * tomorrow appears on that classpath and is therefore scanned, without anyone
+     * remembering to say so.
+     */
+    @Test
+    fun theStructuralScanReadsEveryDirectoryOnTheTestRuntimeClasspath() {
+        val classpath = required(
+            RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]", "where a test class can come from"
+        )
+        val production = required(
+            RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]", "which of those trees is production's"
+        ).toSet()
+        val directories = classpath.filterNot { isDependencyArtifact(it) }.distinct()
+        val unaccounted = directories.filterNot { it in production || it in testTrees }
+        assertTrue(
+            unaccounted.isEmpty(),
+            "the test JVM can load a class from ${unaccounted.map { RepoFiles.relative(it) }} and the " +
+                "zero-doubles scan does not read it. Every classpath directory is either production's " +
+                "own output or a tree this scan searches; there is no third kind."
+        )
+        assertTrue(
+            testTrees.none { it in production },
+            "the scan is reading production's own output as a tree to search for substitutes in: " +
+                "${testTrees.filter { it in production }.map { RepoFiles.relative(it) }}. Production " +
+                "is what a substitute stands in FOR."
+        )
+        val relative = testTrees.map { RepoFiles.relative(it) }
+        listOf(
+            "app/build/classes/kotlin/test",
+            "app/build/classes/java/test",
+            "app/build/resources/test"
+        ).forEach { tree ->
+            assertTrue(
+                tree in relative,
+                "$tree is not among the trees the scan reads ($relative). It is on the test runtime " +
+                    "classpath - the java plugin's conventional output and the test resources - and " +
+                    "round 19 (r19d5) hid a double in exactly the two that were missing."
+            )
+        }
+        println("scanned test trees (${relative.size}): $relative")
+    }
+
     // ---- the assertion ----------------------------------------------------
 
     @Test
@@ -474,6 +813,12 @@ class NoTestDoublesTest {
         assertTrue(namedDouble.containsMatchIn("    private class FakeChain(val x: Int) {"), "NAMED")
         assertTrue(namedDouble.containsMatchIn("object MockThing {"), "NAMED object")
         assertTrue(namedDouble.containsMatchIn("private class RecordingRepository : X {"), "NAMED recording")
+        // The carve-out, at exactly the width the KDoc claims: the name says what
+        // the class IS, and a class ending in `Test` is the test.
+        assertTrue(!isTestClassName("FakeChain"), "a double is not exempted by the carve-out")
+        assertTrue(!isTestClassName("MockLedger"), "a double is not exempted by the carve-out")
+        assertTrue(isTestClassName("Round19FakeUpstreamWarningTest"), "a JUnit test class is exempted")
+        assertTrue(isTestClassName("Round19DoubleEvasionTest"), "a JUnit test class is exempted")
         assertTrue(anonymousObject.containsMatchIn("val g = object : ChainGateway {"), "ANONYMOUS")
         assertTrue(mockEngine.containsMatchIn("val engine = MockEngine { respond(\"\") }"), "MOCK_ENGINE")
         assertTrue(samLambda.containsMatchIn("txPoster = TxPoster { _, _ -> outcome }"), "SAM_LAMBDA")

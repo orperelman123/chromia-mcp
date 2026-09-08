@@ -52,7 +52,7 @@ kotlin {
 }
 
 /**
- * THE ROUND-18 EVASION PROBES: eight test doubles that are COMPILED AND NEVER RUN.
+ * THE EVASION PROBES: twelve test doubles that are COMPILED AND NEVER RUN.
  *
  * `NoTestDoublesTest` used to be eight source regexes, and adversary round 18
  * (section 6) wrote eight doubles one token away from the spellings they looked
@@ -61,13 +61,20 @@ kotlin {
  * supertypes are all the same thing - and these eight are what prove it catches
  * each shape.
  *
+ * Round 19 added four more (Round19Probes.kt), aimed at the collaborators
+ * production does NOT own: a named class and a SAM lambda over langchain4j's
+ * `ContentRetriever`, a `MethodHandleProxies` instance of `EmbeddingModel`, and a
+ * class defined from bytes with `Lookup.defineHiddenClass` - plus their control.
+ * All four walked past the first structural scan and all four are caught now.
+ *
  * They therefore have to be COMPILED, and a double compiled into the test tree
  * would still be a double in the suite (Or's rule is zero, and the scan is the
  * proof). So they live in a source set of their own: it is not a test source set,
  * it declares no JUnit, nothing runs it, and nothing in app/src/test/kotlin
  * imports it. `test` depends on its compile task so the classes are on disk when
- * the scan looks, and the assertion over app/build/classes/kotlin/test is still
- * ZERO.
+ * the scan looks - and, because they are deliberately NOT on the test runtime
+ * classpath, the task hands the directory over as a system property rather than
+ * leaving the scan to find it. The assertion over the test trees is still ZERO.
  */
 val doubleProbes: SourceSet = sourceSets.create("doubleProbes")
 
@@ -180,9 +187,50 @@ java {
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
-    // NoTestDoublesTest reads app/build/classes/kotlin/doubleProbes. The probes
-    // are compiled, never run, and never on this task's classpath.
+    // NoTestDoublesTest reads the doubleProbes classes. The probes are compiled,
+    // never run, and never on this task's classpath - so the directory is handed
+    // over below rather than found on it.
     dependsOn(tasks.named("compileDoubleProbesKotlin"))
+
+    // WHERE THE ZERO-DOUBLES SCAN LOOKS - decided by GRADLE, never by a literal
+    // in a test.
+    //
+    // Until 2026-09-09 `NoTestDoublesTest.classesRoot` was the string
+    // `app/build/classes/kotlin`, and adversary round 19 (finding r19d5) walked
+    // straight past it: the test source set compiles Java too, into
+    // `app/build/classes/java/test`, and `app/build/resources/test` is a
+    // directory the test JVM loads from as well - both on THIS task's runtime
+    // classpath and neither inside that string. A list a person maintains cannot
+    // notice a source set added after it was written, so the task hands over the
+    // four things the scan needs and the scan asserts it read every directory on
+    // the classpath that is not production's own output or a dependency jar.
+    //
+    // Written to a FILE, not to `-D` properties: the runtime classpath is some
+    // three hundred jars, and putting it on the worker's command line a second
+    // time overflowed Windows' 32 KB limit outright ("CreateProcess error=206,
+    // The filename or extension is too long", measured 2026-09-09). Only the
+    // file's own path is a system property. The rows are `key<TAB>absolute path`,
+    // one per line, because a Java properties file would eat the backslashes.
+    // Written in doFirst: the classpath resolves when the task runs, not when the
+    // script is configured.
+    val scanPathsFile = layout.buildDirectory.file("zero-doubles/scan-paths.tsv").get().asFile
+    systemProperty("chromia.test.scanpaths", scanPathsFile.absolutePath)
+    val productionOutput = sourceSets["main"].output
+    val doubleProbeClasses = doubleProbes.output.classesDirs
+    val testRuntimeClasspath = classpath
+    doFirst {
+        val rows = StringBuilder()
+        testRuntimeClasspath.files.forEach { rows.append("classpath\t").append(it.absolutePath).append('\n') }
+        productionOutput.files.forEach { rows.append("production.output\t").append(it.absolutePath).append('\n') }
+        productionOutput.classesDirs.files.forEach {
+            rows.append("production.classes\t").append(it.absolutePath).append('\n')
+        }
+        doubleProbeClasses.files.forEach {
+            rows.append("doubleprobes.classes\t").append(it.absolutePath).append('\n')
+        }
+        scanPathsFile.parentFile.mkdirs()
+        scanPathsFile.writeText(rows.toString())
+    }
     // Explicit bounds so constrained build containers fail fast instead of
     // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).
     maxHeapSize = "1280m"

@@ -679,33 +679,59 @@ source at all, and a SAM lambda on a seam the five-name lambda list omitted. The
 suite really did contain no double those regexes could see, which is exactly what
 that claim was worth.
 
-`NoTestDoublesTest` now reads `app/build/classes/kotlin/test` and asks what each
-class **is**, with three detectors that are not keyed on any spelling:
+`NoTestDoublesTest` reads the compiled classes and asks what each class **is**,
+with three detectors that are not keyed on any spelling:
 
-- **SUPERTYPE** — the transitive supertype closure contains a production type.
-  `by` delegation, nesting, an import alias and a supertype on the next line all
-  compile to the same supertype list, and a test class extending a test base
-  class that extends production code is followed through.
-- **REFLECTION_PROXY** — the class names `java/lang/reflect/Proxy` or
-  `InvocationHandler` in its constant pool, which it has to do to call them.
+- **SUPERTYPE** — the transitive supertype closure contains a **seam**. `by`
+  delegation, nesting, an import alias and a supertype on the next line all
+  compile to the same supertype list; a test class extending a test base class
+  that extends a seam is followed through, and so is a supertype that comes out
+  of a dependency jar, through the jar's own hierarchy.
+- **REFLECTION_PROXY** — the class **calls** a JDK entry point that manufactures
+  an implementation, read off the constant pool as `owner#name`:
+  `Proxy.newProxyInstance`, `MethodHandleProxies.asInterfaceInstance`,
+  `Lookup.defineClass` / `defineHiddenClass` / `defineHiddenClassWithClassData`,
+  `ClassLoader.defineClass`, `Unsafe.defineAnonymousClass`. It is a list of
+  calls, not of types: `MethodHandles.lookup()` manufactures nothing and
+  `javaClass.classLoader` is not `ClassLoader.defineClass`.
 - **SAM_CONVERSION** — an `invokedynamic` whose call-site descriptor returns a
   substitutable single-method interface. A SAM lambda compiles to no class at
-  all, so this is the only structural trace it leaves. The set of substitutable
-  interfaces is **derived** from the compiled production API — every
-  single-method interface production declares or accepts as a parameter — so a
-  new seam is covered the day it appears rather than the day someone remembers
-  the list. Production declares none today; `EmbeddingModel` is in the set
-  because `RagStore` takes one, and it is the type `BagOfWordsEmbeddingModel`
-  stood in for before that double was deleted.
+  all, so this is the only structural trace it leaves.
 
-The eight round-18 probes are kept as **a Gradle source set that is compiled and
-never run** (`app/src/doubleProbes/kotlin`) — a double compiled into the test
-tree would still be a double in the suite — and the scan's own suite asserts each
-of the eight is caught, by name and by detector. It also asserts the source
-regexes still *miss* the six, so "the regexes are enough" cannot be believed
-again by accident. The assertion over the real test tree is **zero**, in both
-layers, and the source regexes are kept as the cheap second layer that sees a
-double before it has been compiled.
+**A seam is derived, not listed.** It is every interface or abstract class
+production's own bytecode names — its constant pool, its method and field
+descriptors, and the types its locals are declared as — minus the language's and
+the harness's own types. So `EmbeddingModel` is one because `RagStore` takes one,
+`ContentRetriever` is one because `RagStore` builds one into a local, and a new
+seam is covered the day it appears rather than the day someone remembers the
+list. Who wrote the `interface` keyword does not come into it: a test answering
+in langchain4j's place is a double exactly as `BagOfWordsEmbeddingModel` was. The
+real library implementation is never a finding, because only the test trees are
+scanned and a class out of a dependency jar is not in one.
+
+**What gets scanned is Gradle's answer, not a string.** The `test` task hands the
+JVM its own resolved runtime classpath and its own production output, and the
+scan searches every directory on it that is neither a dependency jar nor
+production's — `app/build/classes/kotlin/test`, `app/build/classes/java/test`
+(the java plugin's convention: the test source set compiles Java too) and
+`app/build/resources/test`. A class file is recognised by its **magic** and not by
+a `.class` suffix, so bytes checked in under any name are read as well, and the
+suite asserts the scanned set **is** the classpath's own directories, so a source
+set added tomorrow cannot appear unscanned. `RepoFiles.testSources()` walks
+`.java` beside `.kt` for the same reason. Every one of those five sentences is
+adversary round 19 (section 3), which walked past the previous answers four
+times: a named class and a SAM lambda over `ContentRetriever`, a
+`MethodHandleProxies` instance of `EmbeddingModel`, and a class defined from
+bytes into a directory the scan had never opened.
+
+The twelve probes — round 18's eight and round 19's four with their control — are
+kept as **a Gradle source set that is compiled and never run**
+(`app/src/doubleProbes/kotlin`) — a double compiled into the test tree would
+still be a double in the suite — and the scan's own suite asserts each is caught,
+by name and by detector. It also asserts the source regexes still *miss* the six,
+so "the regexes are enough" cannot be believed again by accident. The assertion
+over the real test tree is **zero**, in both layers, and the source regexes are
+kept as the cheap second layer that sees a double before it has been compiled.
 
 This replaced a ledger of 41 doubles, each with a live check said to cover the
 same path. The conversion is what proved the ledger wrong: pointed at the real
