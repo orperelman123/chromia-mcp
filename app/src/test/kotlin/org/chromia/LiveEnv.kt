@@ -323,4 +323,193 @@ object LiveEnv {
         put("at", canary.at)
         put("pid", ProcessHandle.current().pid())
     }
+
+    // =====================================================================
+    // THE THIRD STATUS: an UPSTREAM WARNING
+    // =====================================================================
+    //
+    // Or, 2026-09-08: a live test whose third party is PROVEN down is neither a
+    // pass nor a red. It is an UPSTREAM WARNING - a third status the gate counts
+    // and prints separately - and it can never be produced by our own code
+    // failing.
+    //
+    // Three things are true of it at once, and all three matter:
+    //
+    //  1. **It is still a FAILURE in the JUnit XML.** Nothing here returns, no
+    //     caller may continue, and the test's claim is NOT reported as verified.
+    //     A warning that reported a pass would be round 18 section 4 again with
+    //     better manners.
+    //  2. **It must be PROVEN, twice over.** An allowlisted signature says the
+    //     text is something only the third party can say; the canary or a dated
+    //     ledger entry says the third party really is not serving it. A marker
+    //     alone has never been enough - that belief is what made eight live
+    //     INTERNAL_ERRORs look green.
+    //  3. **It leaves EVIDENCE on disk.** `app/build/upstream/warnings/` holds
+    //     one file per warning, and the gate refuses to count a warning whose
+    //     file is missing or whose file carries no proof. The classification is
+    //     therefore auditable after the fact by someone who was not there.
+    //
+    // The partial outage is the case this shape exists for. On 2026-09-08 the
+    // canary answered in about a second while `blockchainAnalytics` took 15-41 s
+    // per chain and had been dropping the connection at 60 s (docs/UPSTREAM.md
+    // #11), and `allBlockchains(state:)` answered INTERNAL_ERROR every time
+    // (#3b). "The explorer is up" and "this query is down" were both true, so a
+    // canary-only guardrail would have called every one of those a plain red and
+    // a signature-only guardrail would have waved through anything that smelled
+    // upstream. The dated ledger entry is what separates them, and writing one
+    // is a deliberate act: the debt is recorded, with a date, or there is no
+    // warning.
+
+    /** The tool, the query and the words - everything a reader needs later. */
+    data class UpstreamEvidence(
+        /** The GraphQL field or query the third party would not serve. */
+        val query: String,
+        /** The third party's OWN text, unedited. */
+        val errorText: String,
+        /**
+         * The `docs/UPSTREAM.md` entry recording this query as broken, e.g.
+         * "11" or "3b". Required whenever the canary answers: a partial outage
+         * has to be written down before it can excuse anything.
+         */
+        val ledgerEntry: String? = null
+    )
+
+    /** Prefix of every proven-upstream failure message; the gate keys on it. */
+    const val UPSTREAM_WARNING_PREFIX = "UPSTREAM WARNING (proven): "
+
+    /**
+     * Ends the calling test as an UPSTREAM WARNING when - and only when - the
+     * failure is demonstrably the third party's. Anything less proven throws a
+     * PLAIN AssertionError, which is an ordinary red: the two guardrails below
+     * fail CLOSED.
+     *
+     * Never returns, so no caller can treat an outage as a reason to continue.
+     */
+    fun upstreamOutage(tool: String, evidence: UpstreamEvidence): Nothing {
+        val (testClass, testMethod) = callingTest()
+
+        // GUARDRAIL 1: the words are the third party's.
+        val signature = upstreamSignature(evidence.errorText)
+            ?: throw AssertionError(
+                "$tool failed and nothing in the message is an allowlisted upstream signature, so " +
+                    "the failure is OURS and stays a plain red. Allowlisted: " +
+                    UPSTREAM_SIGNATURES.joinToString(", ") { it.first } +
+                    ". The message was: ${evidence.errorText}"
+            )
+
+        // GUARDRAIL 2: the third party really is not serving it. Either the
+        // whole explorer is down in this JVM, or this specific query is written
+        // down as broken, with a date.
+        val canary = explorerCanary()
+        val ledger = evidence.ledgerEntry?.let { datedLedgerEntry(it, evidence.query) }
+        val proof = when {
+            !canary.answered -> "canary: ${canary.summary()}"
+            ledger != null -> "docs/UPSTREAM.md #${evidence.ledgerEntry}: $ledger"
+            else -> throw AssertionError(
+                "$tool failed with an upstream signature ($signature) but NOTHING PROVES the upstream " +
+                    "is down, so this stays a plain red. The canary answered in this JVM " +
+                    "(${canary.summary()}), which means the explorer is up" +
+                    (if (evidence.ledgerEntry == null) {
+                        ", and no docs/UPSTREAM.md entry was named for `${evidence.query}`. A partial " +
+                            "outage is excused by a DATED LEDGER ENTRY or not at all - write one, or " +
+                            "fix this."
+                    } else {
+                        ", and docs/UPSTREAM.md #${evidence.ledgerEntry} does not record `" +
+                            "${evidence.query}` with a date. An entry that does not name the query it " +
+                            "excuses is not evidence about it."
+                    }) +
+                    " The third party said: ${evidence.errorText}"
+            )
+        }
+
+        val at = Instant.now().toString()
+        val warning = buildJsonObject {
+            put("test", "$testClass.$testMethod")
+            put("testClass", testClass)
+            put("testMethod", testMethod)
+            put("tool", tool)
+            put("query", evidence.query)
+            put("signature", signature)
+            put("errorText", evidence.errorText.take(2000))
+            put("canaryOutcome", canary.state.name)
+            put("canary", canaryJson(canary))
+            put("ledgerEntry", evidence.ledgerEntry)
+            put("ledgerHeading", ledger)
+            put("proof", proof)
+            put("at", at)
+        }
+        runCatching {
+            val dir = upstreamDir.resolve("warnings")
+            Files.createDirectories(dir)
+            Files.writeString(dir.resolve("$testClass.$testMethod.json"), warning.toString())
+        }.onFailure { e ->
+            // Without the file the gate counts this as an ordinary red, which is
+            // the safe direction - but say why rather than letting the operator
+            // wonder which of the two statuses they are looking at.
+            throw AssertionError(
+                "$tool failed upstream ($signature, $proof) but the warning file could not be " +
+                    "written to ${upstreamDir.resolve("warnings")} (${e.message}), so this is reported " +
+                    "as a plain red: an unauditable warning is not a warning. " +
+                    "The third party said: ${evidence.errorText}"
+            )
+        }
+
+        throw AssertionError(
+            UPSTREAM_WARNING_PREFIX +
+                "$tool could not be verified because the third party would not serve `" +
+                "${evidence.query}`. This is a RED FOR THE UPSTREAM, not for us: nothing about $tool " +
+                "was proven by this run, and the remedy is to fix or wait for the third party and " +
+                "RE-RUN - never to pass, never to skip, never to record an answer. Proof: $proof. " +
+                "Signature: $signature. Evidence: app/build/upstream/warnings/$testClass.$testMethod.json. " +
+                "The third party said: ${evidence.errorText.take(600)}"
+        )
+    }
+
+    /**
+     * The heading of `docs/UPSTREAM.md` entry [entry] when that entry both NAMES
+     * [query] and carries a date, else null.
+     *
+     * Both conditions are the point. An undated entry cannot be aged out and
+     * would excuse a query forever; an entry that does not name the query is
+     * evidence about something else. The ledger is the debt, and a debt with no
+     * date and no subject is not a debt.
+     */
+    fun datedLedgerEntry(entry: String, query: String): String? {
+        val text = runCatching { RepoFiles.text("docs/UPSTREAM.md") }.getOrNull() ?: return null
+        val heading = Regex("""(?m)^##\s+${Regex.escape(entry)}\.\s+(.*)$""").find(text) ?: return null
+        val rest = text.substring(heading.range.last)
+        val end = Regex("""(?m)^##\s""").find(rest)?.range?.first ?: rest.length
+        val section = heading.groupValues[1] + rest.substring(0, end)
+        if (!Regex("""\b20\d\d-\d\d-\d\d\b""").containsMatchIn(section)) return null
+        if (!section.contains(query)) return null
+        return heading.groupValues[1].trim()
+    }
+
+    /**
+     * The `@Test` method this call came from, found by walking the stack and
+     * asking each frame's method whether JUnit would run it.
+     *
+     * The name is not passed in on purpose: a caller that could name the test
+     * could also name a different one, and the warning file is the audit record
+     * the gate trusts. Reflection over the frames that are actually on the stack
+     * cannot be talked into naming a test that is not running.
+     */
+    private fun callingTest(): Pair<String, String> {
+        for (frame in Thread.currentThread().stackTrace) {
+            val type = runCatching { Class.forName(frame.className) }.getOrNull() ?: continue
+            val method = type.declaredMethods.firstOrNull { candidate ->
+                candidate.name == frame.methodName &&
+                    candidate.annotations.any {
+                        it.annotationClass.qualifiedName?.startsWith("org.junit.jupiter.") == true &&
+                            it.annotationClass.simpleName?.endsWith("Test") == true
+                    }
+            } ?: continue
+            return type.simpleName to method.name
+        }
+        throw AssertionError(
+            "LiveEnv.upstreamOutage was called from outside a @Test method, so there is no test to " +
+                "attribute the warning to and no file the gate could match it against. An upstream " +
+                "warning is a status a TEST carries; it is not a way for a helper to report weather."
+        )
+    }
 }
