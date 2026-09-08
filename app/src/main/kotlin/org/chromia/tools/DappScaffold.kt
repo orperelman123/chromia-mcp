@@ -2887,8 +2887,8 @@ object DappScaffold {
             "is missing from it is " + declined.joinToString("; and ") { it.missingGuard } + ". Ask for " +
             "`template=$primary` ON ITS OWN when you want that half, and build the uncovered half beside it " +
             "with that guard written first and its economic invariant test written before the code. " +
-            "ADVERSARY ROUND 18 MEASURED WHY THIS IS A NO AND NOT A REDIRECT WITH A FOOTNOTE: "a lending " +
-            "pool that also runs a weekly raffle for depositors" was scaffolded onto `lending` - three " +
+            "ADVERSARY ROUND 18 MEASURED WHY THIS IS A NO AND NOT A REDIRECT WITH A FOOTNOTE: \"a lending " +
+            "pool that also runs a weekly raffle for depositors\" was scaffolded onto `lending` - three " +
             "files, ok:true, 1517 bytes about lazy interest accrual and share pricing, and NOT ONE WORD " +
             "about the raffle, the class that asked on its own is declined by name. Naming a covered class " +
             "in the same sentence as an uncovered one LAUNDERS the uncovered one: the agent gets files, a " +
