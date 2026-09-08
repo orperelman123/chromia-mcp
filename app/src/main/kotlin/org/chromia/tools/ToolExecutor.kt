@@ -3218,11 +3218,18 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             parseImports(maskedFile, module).forEach { imp ->
                 if (imp.alias != null) binds[imp.alias] = imp.module
                 if (imp.wildcard) wild += imp.module
-                imp.exact.forEach { name ->
-                    exact[name] = imp.module
-                    // `import a.{ b };` where a.b is a MODULE binds `b` as a
-                    // qualifier too; putIfAbsent so a real alias always wins.
-                    binds.putIfAbsent(name, "${imp.module}.$name")
+                // An exact import puts the names in the importing module's own
+                // namespace ONLY when it has no alias: MEASURED, `import a:
+                // tests.helpers.{ audited };` then `audited(...)` is "Unknown
+                // name: 'audited'" and `a.audited(...)` compiles, so an alias
+                // takes the exact names with it.
+                if (imp.alias == null) {
+                    imp.exact.forEach { name ->
+                        exact[name] = imp.module
+                        // `import a.{ b };` where a.b is a MODULE binds `b` as
+                        // a qualifier too; putIfAbsent so an alias always wins.
+                        binds.putIfAbsent(name, "${imp.module}.$name")
+                    }
                 }
                 if (imp.alias == null && !imp.wildcard && imp.exact.isEmpty()) {
                     binds[imp.module.substringAfterLast('.')] = imp.module
@@ -3495,11 +3502,16 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      *   import x: a.b;               aliased        compiles
      *   import a.b.*;                wildcard       compiles
      *   import a.b.{ x };            exact          compiles (also `{x}`, `{ x, y }`, multi-line)
-     *   import x: a.b.{ y };         alias + exact  compiles
+     *                                               and `x(...)` is then a.b's x
+     *   import x: a.b.{ y };         alias + exact  compiles, but `y(...)` is "Unknown name:
+     *                                               'y'" and `x.y(...)` compiles - an alias
+     *                                               takes the exact names with it
      *   import ^.b;                  parent         compiles - `^` strips one segment of the
-     *                                               IMPORTING module's name, `^^.` two
-     *   import .sub;                 submodule      compiles - `.` prefixes the importing
-     *                                               module's own name
+     *                                               IMPORTING module's name; `^^.b` from
+     *                                               tests.deep.sub reaches the root, measured
+     *   import .sub;                 submodule      `.` prefixes the importing module's own
+     *                                               name: `import .helpers;` in tests.main is
+     *                                               "Module 'tests.main.helpers' not found"
      *   import ^.b.{ x };            relative+exact compiles
      *   import a.b.{ x as y };       SYNTAX ERROR   - rell 0.15.0 has no `as` in an exact
      *                                               import, so nothing renames a definition
