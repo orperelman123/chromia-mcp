@@ -210,7 +210,11 @@ tasks.named<Test>("test") {
     val doubleProbeClasses = doubleProbes.output.classesDirs
     val testRuntimeClasspath = classpath
     doFirst {
-        val separator = java.io.File.pathSeparator
+        // NOT `java.io.File.pathSeparator`: inside a Test task block `java`
+        // resolves to the JavaPluginExtension and shadows the package, exactly as
+        // it does for `java.util.Properties` above - the script then fails to
+        // compile with "Unresolved reference: io" and takes every task with it.
+        val separator = System.getProperty("path.separator")
         systemProperty(
             "chromia.test.runtime.classpath",
             testRuntimeClasspath.files.joinToString(separator) { it.absolutePath }
