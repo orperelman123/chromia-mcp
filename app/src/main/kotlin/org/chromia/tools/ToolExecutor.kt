@@ -981,7 +981,15 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
 
         val result = repository.getAssetTopHolders(assetId, network, limit, filters)
         if (result !is NetworkResult.Success) {
-            return handleResult(result, "Failed to get asset top holders")
+            // Measured live 2026-09-08 (mainnet): the explorer answered an UNKNOWN asset
+            // id with `[]` in the morning and with `INTERNAL_ERROR for <uuid>` from
+            // ~11:00 on - every unknown id, every query shape, while a known id kept
+            // answering. An agent reading "upstream incident, retry later" for an id
+            // that simply does not exist would retry forever, so before the error is
+            // reported as upstream, the id is checked the same way an empty list is:
+            // get_asset_blockchains knows nothing about it -> "No such asset".
+            val unknown = unknownAssetError(assetId, network, repository)
+            return unknown ?: handleResult(result, "Failed to get asset top holders")
         }
 
         // Defensive on purpose: `.jsonObject` / `.jsonArray` THROW on the wrong
@@ -1039,6 +1047,26 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
      * If it fails, nothing is claimed: the empty answer comes back with the
      * ambiguity named rather than resolved.
      */
+    /** The chains carrying [assetId] per get_asset_blockchains, or null when that call did not answer. */
+    private suspend fun knownChains(assetId: String, network: String?, repository: ChromiaRepository): JsonArray? =
+        ((repository.getAssetBlockchains(network, assetId) as? NetworkResult.Success)?.data
+            ?.get("data") as? JsonObject)
+            ?.get("getAssetBlockchains")
+            ?.let { it as? JsonArray }
+
+    private fun noSuchAsset(assetId: String, where: String): CallToolResult = toolErrorResult(
+        "No such asset: the explorer knows no asset with id \"$assetId\"$where, and no " +
+            "blockchain carrying it. Check the id with filter_assets (search by name or " +
+            "symbol) or get_all_assets; an asset id is 64 hex characters and is not the " +
+            "same thing as a blockchain RID."
+    )
+
+    /** "No such asset" when get_asset_blockchains answers and lists no chain; null otherwise. */
+    private suspend fun unknownAssetError(assetId: String, network: String?, repository: ChromiaRepository): CallToolResult? {
+        val known = knownChains(assetId, network, repository) ?: return null
+        return if (known.isEmpty()) noSuchAsset(assetId, network?.let { " on $it" } ?: "") else null
+    }
+
     private suspend fun emptyAnswer(
         assetId: String,
         network: String?,
@@ -1046,18 +1074,9 @@ class AssetTopHoldersStrategy : BaseToolStrategy() {
         repository: ChromiaRepository
     ): CallToolResult {
         val where = network?.let { " on $it" } ?: ""
-        val chains = repository.getAssetBlockchains(network, assetId)
-        val known = ((chains as? NetworkResult.Success)?.data
-            ?.get("data") as? JsonObject)
-            ?.get("getAssetBlockchains")
-            ?.let { it as? JsonArray }
+        val known = knownChains(assetId, network, repository)
         return when {
-            known != null && known.isEmpty() -> toolErrorResult(
-                "No such asset: the explorer knows no asset with id \"$assetId\"$where, and no " +
-                    "blockchain carrying it. Check the id with filter_assets (search by name or " +
-                    "symbol) or get_all_assets; an asset id is 64 hex characters and is not the " +
-                    "same thing as a blockchain RID."
-            )
+            known != null && known.isEmpty() -> noSuchAsset(assetId, where)
             known != null -> toolSuccessResult(
                 buildJsonObject {
                     put("data", buildJsonObject { put("getAssetTopHolders", JsonArray(emptyList())) })
