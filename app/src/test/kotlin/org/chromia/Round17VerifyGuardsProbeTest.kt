@@ -51,7 +51,10 @@ import java.io.File
  */
 class Round17VerifyGuardsProbeTest {
 
-    private val repo = RecordingRepository()
+    // The real repository pointed at a closed port: verify_guards never reaches
+    // the network, and if a probe ever did, it fails loudly instead of being
+    // handed an invented answer (the recording double this used to take is gone).
+    private val repo = McpTestSupport.offlineRepository()
 
     private val dir = File(Round17Evidence.committedRoot, "vg")
 
