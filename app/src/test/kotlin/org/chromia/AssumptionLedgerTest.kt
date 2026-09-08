@@ -1,8 +1,21 @@
 package org.chromia
 
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.chromia.data.ChromiaRepositoryImpl
+import org.chromia.data.client.HttpClientService
+import org.chromia.data.client.PostchainClientService
+import org.chromia.data.config.ChromiaConfig
+import org.chromia.tools.FilterBlockchainsStrategy
+import org.chromia.tools.callToolRequest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * THE ASSUMPTION LEDGER: every test in this suite that can decline to run, why,
@@ -728,5 +741,149 @@ class AssumptionLedgerTest {
             LiveEnv.datedLedgerEntry("this-entry-does-not-exist", "allBlockchains(state:)") == null,
             "a ledger entry that is not in docs/UPSTREAM.md excuses nothing"
         )
+    }
+
+    /**
+     * ROUND 19'S DEEP FINDING, MEASURED END TO END.
+     *
+     * Until 2026-09-09 `LiveEnv.explorerCanary()` built `ChromiaConfig()` and
+     * `HttpClientService(config)` and asked `config.explorerUrl` - the same
+     * config, the same client, the same bounds and the same endpoint as the tool
+     * that had just failed. A fault on OUR side of the wire therefore satisfied
+     * both guardrails at once: `HttpTimeouts.requestTimeout` is ours, ktor's
+     * text for it is `Request timeout has expired`, and that text is an
+     * allowlisted signature. Set the bound low enough and our own bug reads as
+     * ChromaWay being down - `upstream=1`, exit 0.
+     *
+     * Round 19 analysed that and wrote it down as unmeasured rather than
+     * claiming it. This is the measurement, all the way through:
+     *
+     *  1. the production request timeout is tightened to 1 ms **through the real
+     *     seam** - `ChromiaConfig` and `HttpTimeouts`, the production data
+     *     classes `App` and [LiveChromia] construct. There is no double
+     *     anywhere here: the client, the repository, the strategy and the
+     *     explorer are the real ones, and the failure comes off the real wire;
+     *  2. the live call really fails, and its real ktor message really carries
+     *     an allowlisted signature - so guardrail 1 passes and the failure LOOKS
+     *     upstream, which is the whole hole;
+     *  3. `upstreamOutage` classifies it and must answer RED, because the
+     *     INDEPENDENT canary - a plain `java.net.http` client with its OWN 20 s
+     *     bound, which our 1 ms cannot reach - does not agree;
+     *  4. and no evidence file is left behind, because a file the gate could
+     *     count is a warning manufactured out of a red.
+     *
+     * It lives in this class because [onlyTheLiveExplorerHelpersMayReportAnUpstreamWarning]
+     * forbids `upstreamOutage` outside the live helpers and exempts this file
+     * exactly so the refusal branches can be driven directly.
+     */
+    @Test
+    fun ourOwnRequestTimeoutThroughTheRealSeamStaysARed() {
+        LiveChromia.requireLive(
+            "tightens the production request timeout to 1 ms through the real ChromiaConfig seam and " +
+                "proves our own bound expiring is still OUR red"
+        )
+        val evidenceFile = LiveEnv.upstreamDir.resolve("warnings").resolve(
+            "AssumptionLedgerTest.ourOwnRequestTimeoutThroughTheRealSeamStaysARed.json"
+        )
+        Files.deleteIfExists(evidenceFile)
+
+        // THE REAL SEAM: production's own config, with production's own timeouts
+        // type, holding a bound the explorer cannot possibly answer inside.
+        // Everything else is the default - this is `LiveChromia.repository()`
+        // with one field changed.
+        val production = ChromiaConfig()
+        val tightened = production.copy(
+            httpTimeouts = production.httpTimeouts.copy(requestTimeout = 1.milliseconds)
+        )
+        val repository = ChromiaRepositoryImpl(
+            config = tightened,
+            httpClientService = HttpClientService(tightened),
+            postchainClientService = PostchainClientService(tightened)
+        )
+        val refused = runBlocking {
+            FilterBlockchainsStrategy().execute(
+                callToolRequest(
+                    name = "filter_blockchains",
+                    arguments = buildJsonObject {
+                        put("network", LiveChromia.EXPLORER_NETWORK)
+                        put("limit", 1)
+                    }
+                ),
+                repository
+            )
+        }
+        val text = (refused.content.first() as TextContent).text.orEmpty()
+        assertEquals(
+            true, refused.isError,
+            "a 1 ms request timeout must make the call FAIL - if the explorer answered inside 1 ms " +
+                "this measurement is about nothing: $text"
+        )
+        val signature = LiveEnv.upstreamSignature(text)
+        assertEquals(
+            "explorer-request-timeout", signature,
+            "OUR OWN outbound bound expiring still matches an allowlisted signature - that is the " +
+                "hole, and a test that could not reproduce it would prove nothing: $text"
+        )
+
+        // The canary is the ONE measurement of this JVM, and it is independent:
+        // its bound is its own, so our 1 ms never reached it.
+        val canary = LiveEnv.explorerCanary()
+        assertTrue(
+            LiveEnv.CANARY_REQUEST_TIMEOUT.toMillis() !=
+                tightened.httpTimeouts.requestTimeout.inWholeMilliseconds &&
+                LiveEnv.CANARY_REQUEST_TIMEOUT.toMillis() !=
+                production.httpTimeouts.requestTimeout.inWholeMilliseconds,
+            "the canary's bound (${LiveEnv.CANARY_REQUEST_TIMEOUT.toMillis()} ms) must be its own - " +
+                "not the production ${production.httpTimeouts.requestTimeout} and not the " +
+                "${tightened.httpTimeouts.requestTimeout} under test. Sharing that field is exactly " +
+                "how one fault of ours satisfied the signature guard and the canary guard at once."
+        )
+        assertEquals(
+            "true", LiveEnv.canaryJson(canary)["independent"].toString(),
+            "the evidence the gate reads must say the canary was measured on the independent path"
+        )
+
+        val canaryAgreed = canary.state == LiveEnv.CanaryState.FAILED_SIGNATURE &&
+            canary.signature == signature
+        val thrown = assertThrows(AssertionError::class.java) {
+            LiveEnv.upstreamOutage(
+                "filter_blockchains",
+                LiveEnv.UpstreamEvidence(query = "allBlockchains", errorText = text, ledgerEntry = null)
+            )
+        }
+        val classified =
+            if (thrown.message.orEmpty().startsWith(LiveEnv.UPSTREAM_WARNING_PREFIX)) "UPSTREAM WARNING" else "RED"
+        val measured = buildJsonObject {
+            put("probe", "a5_our_own_request_timeout_through_the_real_seam")
+            put("seam", "ChromiaConfig(httpTimeouts = HttpTimeouts(requestTimeout = 1ms))")
+            put("tool", "filter_blockchains")
+            put("toolFailureSignature", signature)
+            put("canaryIsIndependent", true)
+            put("canaryAgreedWithTheToolFailure", canaryAgreed)
+            put("classified", classified)
+            put("evidenceFileWritten", Files.exists(evidenceFile))
+            put("truth", "RED - our own outbound bound expiring is not the third party being down")
+        }
+        Round19Evidence.record("upstream/our-own-timeout.json", measured)
+
+        assertTrue(
+            classified == "RED",
+            "OUR OWN 1 ms request timeout was reported as a PROVEN upstream outage. The signature " +
+                "guard cannot tell our bound from theirs - it is the same ktor sentence - so the " +
+                "canary is the only thing standing here, and a canary that shares our timeout falls " +
+                "over at the same moment we do: ${thrown.message}"
+        )
+        assertTrue(
+            thrown.message.orEmpty().contains("independent canary"),
+            "the refusal must name the guardrail that refused, and say it was measured on the " +
+                "independent path: ${thrown.message}"
+        )
+        assertTrue(
+            !Files.exists(evidenceFile),
+            "an unproven failure wrote an evidence file at $evidenceFile - the gate counts a warning " +
+                "only when a file backs it, so a file on the refusal path is a warning manufactured " +
+                "out of a red"
+        )
+        Round19Evidence.assertFrozen("upstream/our-own-timeout.json", measured)
     }
 }

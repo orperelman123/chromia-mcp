@@ -296,14 +296,21 @@ if (timedOut) {
 }
 // THE TALLY - one implementation, shared with CI (scripts/gate-tally.mjs).
 // It also decides the third status: a failure whose message begins
-// `UPSTREAM WARNING (proven): ` AND whose evidence file carries an allowlisted
-// signature, a failed canary or a dated docs/UPSTREAM.md entry, and a timestamp
+// `UPSTREAM WARNING (proven): `, whose message BINDS its evidence file by
+// sha256, and whose evidence file carries an allowlisted signature, an
+// independent canary that failed with that same signature or a dated
+// docs/UPSTREAM.md entry the tally reads out of the file itself, and a timestamp
 // inside this run, is counted as `upstream=N` and printed by name. It is still
 // a failure in the XML - nothing pretends to pass - but it does not set the
 // exit code, because it is a red for the THIRD PARTY, not for us. Everything
 // else, including a message that claims the status without evidence, is red as
 // before.
-const t = tally({ resultsDir, warningsDir, startedAt });
+//
+// `repoDir` is not decoration: the tally OPENS docs/UPSTREAM.md to check the
+// ledger entry a warning cites (round 19, a1 - the gate used to take the
+// producer's word for the number AND the heading), so it has to be told which
+// checkout is the ledger. CI passes the same thing as `--dir "$PWD"`.
+const t = tally({ resultsDir, warningsDir, startedAt, repoDir: repo });
 if (t.error) fail(t.error);
 
 if (docsOnly) {
