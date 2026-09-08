@@ -180,9 +180,47 @@ java {
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
-    // NoTestDoublesTest reads app/build/classes/kotlin/doubleProbes. The probes
-    // are compiled, never run, and never on this task's classpath.
+    // NoTestDoublesTest reads the doubleProbes classes. The probes are compiled,
+    // never run, and never on this task's classpath - so the directory is handed
+    // over below rather than found on it.
     dependsOn(tasks.named("compileDoubleProbesKotlin"))
+
+    // WHERE THE ZERO-DOUBLES SCAN LOOKS - decided by GRADLE, never by a literal
+    // in a test.
+    //
+    // Until 2026-09-09 `NoTestDoublesTest.classesRoot` was the string
+    // `app/build/classes/kotlin`, and adversary round 19 (finding r19d5) walked
+    // straight past it: the test source set compiles Java too, into
+    // `app/build/classes/java/test`, and `app/build/resources/test` is a
+    // directory the test JVM loads from as well - both on THIS task's runtime
+    // classpath and neither inside that string. A list a person maintains cannot
+    // notice a source set added after it was written, so the task hands over the
+    // four things the scan needs and the scan asserts it read every directory on
+    // the classpath that is not production's own output or a dependency jar.
+    // Resolved in doFirst: the classpath is resolved when the task runs, not when
+    // the script is configured.
+    val productionOutput = sourceSets["main"].output
+    val doubleProbeClasses = doubleProbes.output.classesDirs
+    val testRuntimeClasspath = classpath
+    doFirst {
+        val separator = java.io.File.pathSeparator
+        systemProperty(
+            "chromia.test.runtime.classpath",
+            testRuntimeClasspath.files.joinToString(separator) { it.absolutePath }
+        )
+        systemProperty(
+            "chromia.test.production.output",
+            productionOutput.files.joinToString(separator) { it.absolutePath }
+        )
+        systemProperty(
+            "chromia.test.production.classes",
+            productionOutput.classesDirs.files.joinToString(separator) { it.absolutePath }
+        )
+        systemProperty(
+            "chromia.test.doubleprobes.classes",
+            doubleProbeClasses.files.joinToString(separator) { it.absolutePath }
+        )
+    }
     // Explicit bounds so constrained build containers fail fast instead of
     // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).
     maxHeapSize = "1280m"
