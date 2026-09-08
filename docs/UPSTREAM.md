@@ -75,6 +75,32 @@ while the rest of the tool works. This repo does not retire the tool (the
 other filters are fine) - it pins the failure live and says so in the tool's
 description, so an agent is not left thinking its own call was malformed.
 
+## 3c. Explorer: `getAssetTopHolders` is INTERMITTENT, and it hid inside our own test
+
+Adversary round 18 drove all fifteen remaining explorer tools against the live
+explorer with arguments parsed out of the explorer's own answers - 30 calls,
+25 answers, 4 tool errors, 1 no-input - and **every one of the four errors was
+`get_asset_top_holders`**: three distinct real asset ids taken from
+`get_all_assets` plus the id its own description offers as an example, each
+retried once, **eight consecutive live attempts and eight `INTERNAL_ERROR`s**
+(2026-09-07). The other fourteen tools answered.
+
+**Re-measured 2026-09-08: it answers.** `liveGetAssetTopHoldersAnswersForARealAsset`
+made two live calls for CHR and passed on the data - holders only, `limit`
+honoured exactly, the synthetic `Others` row lifted out into `othersRemainder`,
+and `excludeAccounts` bound by the explorer - in 6.1 s. So this field is not dead
+the way `dashboardData` is (#3a); it is **intermittent**, and the tool stays.
+
+What has to be said with it is that our own suite could not tell the difference.
+`assertLiveExplorerTool` returned `null` when a tool error matched an upstream
+marker - `internal_error` first in the list - and the test body did
+`?: return@runBlocking`, so the test named "answers for a real asset" passed
+through all eight failures. An early return is not even counted the way a skip
+is. Both helpers now FAIL on an upstream refusal, carrying the explorer's own
+words and the retry advice, and `AssumptionLedgerTest` pins the shape. While this
+field is down the suite is **red**, which is what README "Testing Layers" has
+always said it would be.
+
 ## 4. Tool errors swallowed in `ToolExecutor.executeTool`
 
 Upstream builds an error `CallToolResult` inside `Result.onFailure { }` and

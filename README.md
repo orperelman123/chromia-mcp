@@ -629,17 +629,50 @@ account.
 
 Every push runs the full pyramid — none of these can be skipped:
 
-### There are no test doubles
+### There are no test doubles, and the proof is structural
 
 Not a mock, not a fake, not a stub, not a recorded response, not an `object :`
 substitute for one of our own types, and no mocking framework on the classpath.
-`NoTestDoublesTest` scans every `.kt` file under `app/src/test/kotlin` for
-declarations of substitute behaviour — doubles by name, anonymous objects over
-production types, `MockEngine`, SAM lambdas for our own `fun interface`s, client
-and loader seams, any `*OverrideForTests`, classes implementing a production seam
-type — and asserts the list is **empty**, printing every offender it finds. A
-companion test drives each detector against a literal example of the shape it
-looks for, so its silence means "found nothing", not "stopped matching".
+
+**The scan reads the compiled classes, not the source.** Until 2026-09-08 it was
+eight source regexes and their own KDoc said they were "deliberately close to
+`grep`". Adversary round 18 ported all eight verbatim and ran them over eight
+doubles written the way a person in a hurry writes one: **six were invisible** —
+an anonymous object with `by` delegation (the detector wants the supertype
+followed by `{`), a nested subclass of a production *class* rather than a listed
+interface, an import alias on the seam type, a supertype on the next line over an
+unlisted seam, a `java.lang.reflect.Proxy` whose substitute type is not in the
+source at all, and a SAM lambda on a seam the five-name lambda list omitted. The
+suite really did contain no double those regexes could see, which is exactly what
+that claim was worth.
+
+`NoTestDoublesTest` now reads `app/build/classes/kotlin/test` and asks what each
+class **is**, with three detectors that are not keyed on any spelling:
+
+- **SUPERTYPE** — the transitive supertype closure contains a production type.
+  `by` delegation, nesting, an import alias and a supertype on the next line all
+  compile to the same supertype list, and a test class extending a test base
+  class that extends production code is followed through.
+- **REFLECTION_PROXY** — the class names `java/lang/reflect/Proxy` or
+  `InvocationHandler` in its constant pool, which it has to do to call them.
+- **SAM_CONVERSION** — an `invokedynamic` whose call-site descriptor returns a
+  substitutable single-method interface. A SAM lambda compiles to no class at
+  all, so this is the only structural trace it leaves. The set of substitutable
+  interfaces is **derived** from the compiled production API — every
+  single-method interface production declares or accepts as a parameter — so a
+  new seam is covered the day it appears rather than the day someone remembers
+  the list. Production declares none today; `EmbeddingModel` is in the set
+  because `RagStore` takes one, and it is the type `BagOfWordsEmbeddingModel`
+  stood in for before that double was deleted.
+
+The eight round-18 probes are kept as **a Gradle source set that is compiled and
+never run** (`app/src/doubleProbes/kotlin`) — a double compiled into the test
+tree would still be a double in the suite — and the scan's own suite asserts each
+of the eight is caught, by name and by detector. It also asserts the source
+regexes still *miss* the six, so "the regexes are enough" cannot be believed
+again by accident. The assertion over the real test tree is **zero**, in both
+layers, and the source regexes are kept as the cheap second layer that sees a
+double before it has been compiled.
 
 This replaced a ledger of 41 doubles, each with a live check said to cover the
 same path. The conversion is what proved the ledger wrong: pointed at the real
@@ -654,7 +687,14 @@ comment saying what now covers it, or that nothing does.
 
 The production seams the doubles came through went with them: an interface with
 one implementation and a defaulted constructor parameter is not an abstraction
-once nothing is left to inject.
+once nothing is left to inject. `TxPoster`, `ProcessRunner` and `ChainGateway`
+went in the first pass; `RagStore` stopped being `open` on 2026-09-08 (nothing
+subclassed it in production or in the tests, so `open` was a door with no room
+behind it). What is left extendable is `ChromiaRepository`, the domain port every
+tool strategy is written against, and `ToolStrategy` / `BaseToolStrategy`, which
+some seventy production strategies implement: those are the program's own
+structure rather than injection points, and the scan **detects** them instead of
+pretending they are gone.
 
 ### The live third-party tests are part of the gate, and an outage is a red
 
@@ -670,11 +710,98 @@ test, never to add an allowlist entry, never to swap in a recorded answer for th
 duration. A green tally that was reached by not asking is the failure mode this
 whole section exists to prevent.
 
+**That was not true until 2026-09-08, and the exception was invisible.** The live
+explorer helper returned `null` whenever a tool's error text matched an upstream
+marker — `internal_error` first in the list — and its callers wrote
+`?: return@runBlocking`. Adversary round 18 measured `get_asset_top_holders`
+answering **eight consecutive live `INTERNAL_ERROR`s**, across three real asset
+ids and the example id in its own description, while the test named
+"answers for a real asset" passed every time: the body left before it asserted
+anything, and unlike a skip nothing counts an early return. The three live
+helpers now **fail** with the third party's own words and the retry advice, they
+cannot hand back a null for a caller to leave on, and `AssumptionLedgerTest` pins
+both shapes (no early return in the three lines after a live assertion, no live
+helper with a nullable return). While the explorer will not serve that tool the
+suite is **red**, which is the rule as written.
+
 (The e2e sweep, layer 2 below, is the one place with a softer rule, and it is
 bounded: demonstrably third-party failures become `WARN-UPSTREAM` through an
 allowlisted classifier, but all-live-warn is a FAIL, more than
 `SWEEP_MAX_UPSTREAM_WARNS` warnings is a FAIL, and non-network checks always fail
 hard.)
+
+### What the host has to deliver (measured 2026-09-08)
+
+`run_rell_tests` abandons a run at **90 s** (`RunRellTests.EXECUTION_TIMEOUT_SECONDS`).
+That bound is a product decision - a runaway test pins a core until its loop ends -
+and `CHROMIA_MCP_TEST_TIMEOUT_SECONDS` may only *tighten* it. Adversary round 18
+reported that one FT4 registration plus the chain bootstrap measured **86.4 s** on
+this box, so no FT4 test with two accounts could finish through the tool, and it
+raised the question of whether the runner needed a schema cache, a compile cache
+or a warm module.
+
+**It does not. The measurement was of a starved machine, not of FT4.** Phase
+timings, `chr test`, chr 0.29.10 / rell 0.15.0, one C.UTF-8 PostgreSQL schema per
+project:
+
+| what was run | wall | the runner's own total | per case |
+|---|---|---|---|
+| two entities, no FT4 anywhere, 2 cases | 22.2 s | 5.0 s | `assert_equals(1,1)` **2.0 s**; one entity-writing transaction **3.0 s** |
+| the shipped `insurance` template's `main.rell`, 3 cases | 29.8 s | 13.0 s | 0 registrations **2.1 s**; the FIRST registration **8.7 s**; TWO more registrations **2.3 s** |
+
+Read across the two rows:
+
+- **The ~17 s that sits outside the test cases is identical with and without
+  FT4** (17.2 s against 16.8 s). It is `chr`'s JVM start, the Rell compile and the
+  PostgreSQL schema creation. Compiling the whole vendored FT4 + iccf tree adds
+  under a second to it, so a compile cache would buy nothing.
+- **A test case's floor is ~2 s**, FT4 or not - the runner's own per-case chain.
+- **An FT4 account registration costs about 1 s once the JVM is warm.** The first
+  one in a JVM costs ~7 s more, which is JIT, not FT4. Two accounts is ~5 s of
+  work, not 86.
+- `chr install` (a git clone of the two lib registries) is **21.7 s**, once per
+  project, and is network rather than CPU.
+
+And the round's own fixture, re-run byte for byte, twice:
+
+```
+2026-09-07, round 18                          73.5s + 54.5s = 128.0s
+2026-09-08, idle box                          11.9s +  5.8s =  17.7s   wall 43.5s
+2026-09-08, two other Gradle builds running   16.7s +  6.9s =  23.6s   wall 57.2s
+```
+
+**7.2x faster than the round - and concurrent builds account for only 1.33x of
+it.** The round ran while a 24-minute Gradle test run held the box with under
+2 GB free, so load is part of the story; it is not all of it, and the rest is not
+attributed here rather than guessed at (a 15 W laptop that has been at full tilt
+for hours also thermally throttles, and nothing in the round's recording says
+what the box was doing). What IS established, three ways, is the thing the
+question turned on: **86.4 s was never the price of an FT4 registration.** A
+registration is about a second, a bootstrap about two, and the whole two-case
+drain is under twenty.
+
+So the host requirement, and it is a requirement rather than a nicety:
+
+- **One JVM build at a time, and at least 2 GB free.** Measured here a second and
+  third build cost a third of the runtime, which on a 59-minute suite is twenty
+  minutes; the box has also produced far worse than that. An FT4 test through
+  `run_rell_tests` needs about twenty seconds of work and has ninety, so a run
+  that hits the bound is a signal that the host is degraded - not that the bound
+  is wrong. `docs/AGENT-LANE-BRIEF.md` says this for lanes; it is the same fact.
+- **A C.UTF-8 PostgreSQL, one database per worktree**, reachable at
+  `CHROMIA_TEST_DATABASE_URL`. Two suites in one schema collide and it looks
+  intermittent.
+- **`chr` on PATH** (`CHROMIA_REQUIRE_CHR=true` makes an absent or unlaunchable
+  one a failure rather than a skip).
+- **Budget ~20 s of fixed cost per `chr test` invocation** before any test body
+  runs, and ~2 s per case after it. A suite of many small Rell fixtures pays that
+  fixed cost every time; this is why the dapp-template classes are the slowest in
+  the suite.
+
+The bound was not raised and no cache was added: the numbers say there is nothing
+in our runner large enough to be worth caching (the vendored FT4 zip is 165
+entries and 568 KB, unzipped per call in milliseconds), and the thing that was
+actually slow was another JVM on the same box.
 
 ### The merge gate, and the two modes it has
 

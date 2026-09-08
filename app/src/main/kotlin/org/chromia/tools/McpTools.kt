@@ -1107,6 +1107,11 @@ object McpTools {
                 - Understanding how to use different tools
                 - Finding example prompts for common tasks
                 - Learning the parameter requirements for tools
+            - Filling a prompt's blanks over prompts/get: every argument is capped
+              at ${McpPrompts.MAX_ARGUMENT_CHARS} characters and may not carry control characters other
+              than tab, newline and carriage return. Over the cap is an error naming
+              it, not a value echoed back - a template can interpolate the same blank
+              several times, so an unbounded argument is amplified into your context.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(

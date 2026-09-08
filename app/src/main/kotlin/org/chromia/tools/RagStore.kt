@@ -54,7 +54,17 @@ import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
-open class RagStore(
+/**
+ * SEAM REMOVAL (2026-09-08, adversary round 18 finding 1). This class was `open`
+ * and nothing subclassed it - not in production, not in the tests. An `open`
+ * class with no subclass is not an abstraction, it is a door left unlocked: a
+ * substitute retrieval store extending it and overriding `query()` is a double
+ * the source scan could not see (round 18's d4b shape) and the structural scan
+ * would then have to report rather than the compiler refuse. `ragStoreFactory`
+ * on ToolExecutor stays: it hands back the REAL class, lazily, and with this
+ * class final there is nothing else it can hand back.
+ */
+class RagStore(
     loadFromRegistry: Boolean = true,
     initialStore: InMemoryEmbeddingStore<TextSegment>? = null,
     /**
@@ -706,7 +716,7 @@ open class RagStore(
         embeddingStore = initialStore ?: tryLoadStore()
     }
 
-    open fun query(query: String): List<TextSegment>? {
+    fun query(query: String): List<TextSegment>? {
         val store = storeOrRetry() ?: return null
         val model = resolvedEmbeddingModel
         if (model == null) {
@@ -813,7 +823,7 @@ open class RagStore(
         }
     }
 
-    open fun fetchById(id: String): TextSegment? {
+    fun fetchById(id: String): TextSegment? {
         storeOrRetry() // repopulates the id index if the initial load failed
         return segmentsById[normalizeSegmentId(id)]
     }
@@ -826,7 +836,7 @@ open class RagStore(
      * successful cooldown retry is reflected. Fixture stores constructed with
      * loadFromRegistry=false have no loader and count as available.
      */
-    open fun isIndexUnavailable(): Boolean = embeddingStore == null && storeLoader != null
+    fun isIndexUnavailable(): Boolean = embeddingStore == null && storeLoader != null
 
     private fun rebuildSegmentIndex(store: InMemoryEmbeddingStore<TextSegment>?) {
         segmentsById.clear()

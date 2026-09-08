@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 
 /**
@@ -104,17 +105,17 @@ class ToolExecutorRemainingToolsTest {
      *
      *   OK        the explorer served it - returns `data.<field>` for the caller
      *             to assert on;
-     *   UPSTREAM  the explorer refused it - the refusal must arrive as an error
-     *             carrying the explorer's OWN words; returns null;
+     *   UPSTREAM  the explorer refused it - a FAILURE carrying the explorer's own
+     *             words and the retry advice. It never returns;
      *   NEVER     a success whose data field is absent, null or unparsed. That is
-     *             a swallowed upstream failure dressed as an answer, and it is
-     *             the only outcome that fails here.
+     *             a swallowed upstream failure dressed as an answer, and it fails
+     *             here too.
      */
     private fun assertLiveExplorerTool(
         tool: String,
         result: CallToolResult,
         field: String
-    ): JsonElement? {
+    ): JsonElement {
         val text = textOf(result)
         if (result.isError == true) {
             assertFalse(
@@ -123,12 +124,21 @@ class ToolExecutorRemainingToolsTest {
                     "changed and the query did not follow - this is ours to fix: $text"
             )
             val lower = text.lowercase()
-            assertTrue(
-                upstreamMarkers.any { lower.contains(it) },
-                "$tool failed and nothing in the message is an upstream signature, so the failure " +
-                    "is ours: $text"
+            fail<Nothing>(
+                if (upstreamMarkers.any { lower.contains(it) }) {
+                    "$tool FAILED UPSTREAM, and an upstream failure is a RED here. The explorer " +
+                        "refused the call, so nothing about $tool was verified by this run: the " +
+                        "remedy is to fix or wait for the upstream and RE-RUN, never to pass. A " +
+                        "live test that returns early on an upstream marker reports a PASS for a " +
+                        "call that answered nothing - which is how get_asset_top_holders stayed " +
+                        "green through eight consecutive live INTERNAL_ERRORs (adversary round " +
+                        "18, section 4). Only the e2e sweep may tag WARN-UPSTREAM, under its own " +
+                        "guardrail. The explorer said: $text"
+                } else {
+                    "$tool failed and nothing in the message is an upstream signature, so the " +
+                        "failure is ours: $text"
+                }
             )
-            return null
         }
         val structured = result.structuredContent
         assertNotNull(structured, "$tool answered without structured content: $text")
@@ -152,7 +162,7 @@ class ToolExecutorRemainingToolsTest {
             value is JsonNull,
             "$tool succeeded with `data.$field` null; upstream failures must be errors, not nulls: $data"
         )
-        return value
+        return value!!
     }
 
     // ==================================================================
@@ -216,7 +226,6 @@ class ToolExecutorRemainingToolsTest {
             live
         )
         val total = assertLiveExplorerTool("get_total_rewards_paid", result, "totalRewardsPaid")
-            ?: return@runBlocking
         // Live, 2026-09-07: the explorer answers a decimal string, not a number.
         // The recorded body had it as whatever the test felt like writing.
         val raw = total.jsonPrimitive.content
@@ -235,7 +244,6 @@ class ToolExecutorRemainingToolsTest {
             live
         )
         val operations = assertLiveExplorerTool("get_all_operations", result, "operations")
-            ?: return@runBlocking
         val rows = operations.jsonArray
         assertTrue(rows.isNotEmpty(), "mainnet chains expose operations: $operations")
         val first = rows.first().jsonObject
@@ -287,7 +295,7 @@ class ToolExecutorRemainingToolsTest {
             live
         )
         val rows = assertLiveExplorerTool("get_asset_distribution", result, "getAssetDistribution")
-            ?.jsonArray ?: return@runBlocking
+            .jsonArray
         assertTrue(
             rows.isNotEmpty(),
             "CHR is held by FT4 users on the Economy Chain - an empty answer means brids/accountTypes " +
@@ -374,7 +382,7 @@ class ToolExecutorRemainingToolsTest {
     @Test
     fun liveGetMonthlyActiveAccountsPerChainBindsBridAndUntilTimestamp() = runBlocking {
         LiveChromia.requireLive("calls get_monthly_active_accounts_per_chain twice against the live explorer")
-        suspend fun ask(untilTimestamp: String?): JsonElement? {
+        suspend fun ask(untilTimestamp: String?): JsonElement {
             val result = MonthlyActiveAccountsPerChainStrategy().execute(
                 callToolRequest(
                     name = "get_monthly_active_accounts_per_chain",
@@ -391,7 +399,7 @@ class ToolExecutorRemainingToolsTest {
             )
         }
 
-        val now = ask(null) ?: return@runBlocking
+        val now = ask(null)
         assertTrue(
             now.jsonPrimitive.content.toLong() > 0,
             "my_neighbor_alice is a live mainnet chain with active accounts - a zero here means the " +
@@ -399,7 +407,7 @@ class ToolExecutorRemainingToolsTest {
         )
 
         // 1600000000000 ms = 2020-09-13, before this chain existed.
-        val beforeItExisted = ask("1600000000000") ?: return@runBlocking
+        val beforeItExisted = ask("1600000000000")
         assertEquals(
             0L, beforeItExisted.jsonPrimitive.content.toLong(),
             "untilTimestamp did not reach the explorer: it answered $beforeItExisted for a cutoff " +
@@ -448,7 +456,7 @@ class ToolExecutorRemainingToolsTest {
             live
         )
         val aggregates = assertLiveExplorerTool("get_chr_aggregates", result, "chrAggregates")
-            ?.jsonObject ?: return@runBlocking
+            .jsonObject
         assertTrue(
             aggregates.getValue("groupedDeposits").jsonArray.isEmpty(),
             "includeGroupedDeposits=false did not reach the explorer: $aggregates"
@@ -497,7 +505,7 @@ class ToolExecutorRemainingToolsTest {
             live
         )
         val aggregates = assertLiveExplorerTool("get_chr_aggregates", result, "chrAggregates")
-            ?.jsonObject ?: return@runBlocking
+            .jsonObject
         val deposits = aggregates.getValue("groupedDeposits").jsonArray
         val withdrawals = aggregates.getValue("groupedWithdrawals").jsonArray
         assertTrue(

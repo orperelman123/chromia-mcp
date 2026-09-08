@@ -31,6 +31,7 @@ import org.chromia.tools.summarizeChrAggregates
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 
 /**
@@ -389,19 +390,24 @@ class ProbeImprovementsRegressionTest {
     )
 
     /**
-     * The `data.chrAggregates` object the explorer served, or null when the
-     * explorer refused. A refusal must carry upstream's words; a success whose
-     * `data` envelope is missing is a swallowed failure dressed as an answer and
-     * fails here.
+     * The `data.chrAggregates` object the explorer served. An explorer refusal is
+     * a FAILURE here, not a null: a live test that leaves early on an upstream
+     * marker reports a pass for a call that answered nothing (adversary round 18,
+     * section 4). A success whose `data` envelope is missing is a swallowed
+     * failure dressed as an answer and fails too.
      */
-    private fun assertLiveChrAggregates(payload: JsonObject?, errorText: String?): JsonObject? {
+    private fun assertLiveChrAggregates(payload: JsonObject?, errorText: String?): JsonObject {
         if (errorText != null) {
-            assertTrue(
-                upstreamMarkers.any { errorText.lowercase().contains(it) },
-                "get_chr_aggregates failed and nothing in the message is an upstream signature, " +
-                    "so the failure is ours: $errorText"
+            fail<Nothing>(
+                if (upstreamMarkers.any { errorText.lowercase().contains(it) }) {
+                    "get_chr_aggregates FAILED UPSTREAM, and an upstream failure is a RED here. " +
+                        "The remedy is to fix or wait for the upstream and RE-RUN; only the e2e " +
+                        "sweep may tag WARN-UPSTREAM. The explorer said: $errorText"
+                } else {
+                    "get_chr_aggregates failed and nothing in the message is an upstream " +
+                        "signature, so the failure is ours: $errorText"
+                }
             )
-            return null
         }
         assertTrue(payload != null, "get_chr_aggregates answered neither a payload nor an error")
         val data = payload!!["data"]
@@ -418,10 +424,10 @@ class ProbeImprovementsRegressionTest {
         return aggregates as JsonObject
     }
 
-    /** The tool's structured payload when it succeeded, its error text when it did not. */
+    /** The tool's structured payload when it succeeded; a red when it did not. */
     private fun assertLiveChrAggregatesTool(
         result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-    ): JsonObject? = assertLiveChrAggregates(
+    ): JsonObject = assertLiveChrAggregates(
         result.structuredContent,
         if (result.isError == true) textOf(result) else null
     )
@@ -454,7 +460,7 @@ class ProbeImprovementsRegressionTest {
             ),
             LiveChromia.repository()
         )
-        val aggregates = assertLiveChrAggregatesTool(result) ?: return@runBlocking
+        val aggregates = assertLiveChrAggregatesTool(result)
         val deposits = aggregates.getValue("groupedDeposits").jsonArray
         assertEquals(
             CHR_AGGREGATES_ARRAY_CAP, deposits.size,
@@ -501,7 +507,7 @@ class ProbeImprovementsRegressionTest {
         val aggregates = assertLiveChrAggregates(
             small,
             (result as? NetworkResult.Error)?.message
-        ) ?: return@runBlocking
+        )
         assertTrue(
             aggregates.getValue("groupedDeposits").jsonArray.size <= CHR_AGGREGATES_ARRAY_CAP,
             "this selection is supposed to be the small one: $aggregates"
@@ -534,7 +540,7 @@ class ProbeImprovementsRegressionTest {
             ),
             LiveChromia.repository()
         )
-        val aggregates = assertLiveChrAggregatesTool(result) ?: return@runBlocking
+        val aggregates = assertLiveChrAggregatesTool(result)
         assertTrue(
             aggregates.getValue("groupedDeposits").jsonArray.size > CHR_AGGREGATES_ARRAY_CAP,
             "full:true must not cap: ${aggregates.getValue("groupedDeposits").jsonArray.size}"

@@ -33,6 +33,7 @@ import org.chromia.tools.PromptsToolStrategy
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -342,7 +343,6 @@ class ToolExecutorStrategiesTest {
             repository
         )
         val unfiltered = assertLiveExplorerTool("filter_blockchains", nulls, "allBlockchains")
-            ?: return@runBlocking
         assertTrue(
             unfiltered.jsonArray.isNotEmpty(),
             "every filter was an explicit JSON null, so nothing should have been filtered: $unfiltered"
@@ -360,7 +360,6 @@ class ToolExecutorStrategiesTest {
             repository
         )
         val matched = assertLiveExplorerTool("filter_blockchains", literal, "allBlockchains")
-            ?: return@runBlocking
         assertTrue(
             matched.jsonArray.isEmpty(),
             "the string \"null\" is a NAME, and no mainnet chain is called that - if this is not " +
@@ -381,7 +380,7 @@ class ToolExecutorStrategiesTest {
             ),
             repository
         )
-        val rows = assertLiveExplorerTool("filter_assets", assets, "filterAssets") ?: return@runBlocking
+        val rows = assertLiveExplorerTool("filter_assets", assets, "filterAssets")
         assertTrue(
             rows.jsonObject.getValue("assets").jsonArray.isNotEmpty(),
             "JSON-null asset filters must not filter: $rows"
@@ -413,7 +412,6 @@ class ToolExecutorStrategiesTest {
             repository
         )
         val threeRows = assertLiveExplorerTool("filter_blockchains", limited, "allBlockchains")
-            ?: return@runBlocking
         assertEquals(3, threeRows.jsonArray.size, "limit = 3 did not bind: $threeRows")
 
         val nullLimit = FilterBlockchainsStrategy().execute(
@@ -428,7 +426,6 @@ class ToolExecutorStrategiesTest {
             repository
         )
         val defaultPage = assertLiveExplorerTool("filter_blockchains", nullLimit, "allBlockchains")
-            ?: return@runBlocking
         assertTrue(
             defaultPage.jsonArray.size > 3,
             "a JSON null limit must be ABSENT, not parsed into one - the explorer then answers its " +
@@ -452,7 +449,6 @@ class ToolExecutorStrategiesTest {
             repository
         )
         val everyChain = assertLiveExplorerTool("filter_blockchains", nullSystem, "allBlockchains")
-            ?: return@runBlocking
         val systems = everyChain.jsonArray.map { it.jsonObject.getValue("system").jsonPrimitive.content }
         assertTrue(
             systems.contains("true") && systems.contains("false"),
@@ -473,7 +469,6 @@ class ToolExecutorStrategiesTest {
             repository
         )
         val chr = assertLiveExplorerTool("get_chr_aggregates", aggregates, "chrAggregates")
-            ?: return@runBlocking
         assertTrue(
             chr.jsonObject.getValue("groupedDeposits").jsonArray.isNotEmpty(),
             "JSON null boolean flags keep the strategy's `true` default; false really does empty " +
@@ -628,14 +623,16 @@ class ToolExecutorStrategiesTest {
     private val ourBugMarkers = listOf("Validation error", "FieldUndefined", "OperationNotSupported")
 
     /**
-     * Asserts the contract above and returns the tool's data field when the
-     * explorer served it, or null when the explorer refused.
+     * Asserts the contract above and returns the tool's data field. There is no
+     * "the explorer refused, so we are done" branch: an upstream refusal is a
+     * FAILURE carrying the explorer's own words and the retry advice. It cannot
+     * return null, so no caller can leave a live test early on one.
      */
     private fun assertLiveExplorerTool(
         tool: String,
         result: io.modelcontextprotocol.kotlin.sdk.types.CallToolResult,
         field: String
-    ): JsonElement? {
+    ): JsonElement {
         val text = (result.content.first() as TextContent).text.orEmpty()
         if (result.isError == true) {
             assertFalse(
@@ -645,12 +642,21 @@ class ToolExecutorStrategiesTest {
                     "what the recorded fixture could not see: $text"
             )
             val lower = text.lowercase()
-            assertTrue(
-                upstreamMarkers.any { lower.contains(it) },
-                "$tool failed and nothing in the message is an upstream signature, so the failure " +
-                    "is ours: $text"
+            fail<Nothing>(
+                if (upstreamMarkers.any { lower.contains(it) }) {
+                    "$tool FAILED UPSTREAM, and an upstream failure is a RED here. The explorer " +
+                        "refused the call, so nothing about $tool was verified by this run: the " +
+                        "remedy is to fix or wait for the upstream and RE-RUN, never to pass. A " +
+                        "live test that returns early on an upstream marker reports a PASS for a " +
+                        "call that answered nothing - which is how get_asset_top_holders stayed " +
+                        "green through eight consecutive live INTERNAL_ERRORs (adversary round " +
+                        "18, section 4). Only the e2e sweep may tag WARN-UPSTREAM, under its own " +
+                        "guardrail. The explorer said: $text"
+                } else {
+                    "$tool failed and nothing in the message is an upstream signature, so the " +
+                        "failure is ours: $text"
+                }
             )
-            return null
         }
         val structured = result.structuredContent
         assertNotNull(structured, "$tool answered without structured content: $text")
@@ -670,19 +676,15 @@ class ToolExecutorStrategiesTest {
             value is kotlinx.serialization.json.JsonNull,
             "$tool succeeded with `data.$field` null; upstream failures must be errors, not nulls: $data"
         )
-        return value
+        return value!!
     }
 
     /**
-     * The directory chain's rid, discovered live. Returns null when the explorer
-     * refuses - the caller then has nothing real to ask about and says so.
-     *
-     * This exists so the `?: return` in its callers sits directly under the
-     * assertion that earned it: an early return more than a few lines away from
-     * the assert reads, to the scan in AssumptionLedgerTest and to a human, like
-     * a test leaving without having checked anything.
+     * The directory chain's rid, discovered live. An explorer that will not
+     * answer this is an upstream RED inside [assertLiveExplorerTool]; there is
+     * no null for a caller to leave on.
      */
-    private suspend fun assertLiveDirectoryChainRid(): String? {
+    private suspend fun assertLiveDirectoryChainRid(): String {
         val result = FilterBlockchainsStrategy().execute(
             callToolRequest(
                 name = "filter_blockchains",
@@ -694,7 +696,7 @@ class ToolExecutorStrategiesTest {
             ),
             liveRepository()
         )
-        val chains = assertLiveExplorerTool("filter_blockchains", result, "allBlockchains") ?: return null
+        val chains = assertLiveExplorerTool("filter_blockchains", result, "allBlockchains")
         assertTrue(chains.jsonArray.isNotEmpty(), "the live explorer knows the directory chain: $chains")
         return chains.jsonArray.first().jsonObject.getValue("rid").jsonPrimitive.content
     }
@@ -734,7 +736,7 @@ class ToolExecutorStrategiesTest {
             ),
             liveRepository()
         )
-        val chains = assertLiveExplorerTool("filter_blockchains", result, "allBlockchains") ?: return@runBlocking
+        val chains = assertLiveExplorerTool("filter_blockchains", result, "allBlockchains")
         val names = chains.jsonArray.map { it.jsonObject.getValue("name").jsonPrimitive.content }
         assertTrue(
             names.contains("directory_chain"),
@@ -764,7 +766,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val clustered = assertLiveExplorerTool("filter_blockchains", byCluster, "allBlockchains")
-            ?: return@runBlocking
         assertEquals(2, clustered.jsonArray.size, "limit = 2 did not bind: $clustered")
         assertTrue(
             clustered.jsonArray.all {
@@ -793,7 +794,7 @@ class ToolExecutorStrategiesTest {
             ),
             liveRepository()
         )
-        val assets = assertLiveExplorerTool("get_all_assets", result, "allAssets") ?: return@runBlocking
+        val assets = assertLiveExplorerTool("get_all_assets", result, "allAssets")
         assertTrue(assets.jsonArray.isNotEmpty(), "mainnet has assets: $assets")
         assertTrue(assets.jsonArray.first().jsonObject.containsKey("symbol"))
     }
@@ -805,7 +806,7 @@ class ToolExecutorStrategiesTest {
         // bound by the explorer rather than recorded by a fixture. (This is what
         // getAllTransactionsForwardsFiltersAndReturnsSuccessJson used to assert
         // against a RecordingRepository.)
-        val chainRid = assertLiveDirectoryChainRid() ?: return@runBlocking
+        val chainRid = assertLiveDirectoryChainRid()
         val result = AllTransactionsStrategy().execute(
             callToolRequest(
                 name = "get_all_transactions",
@@ -822,7 +823,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val page = assertLiveExplorerTool("get_all_transactions", result, "allTransactions")
-            ?: return@runBlocking
         val transactions = page.jsonObject.getValue("transactions").jsonArray
         assertTrue(transactions.size <= 3, "the limit variable did not bind: got ${transactions.size}")
         assertTrue(transactions.isNotEmpty(), "mainnet has transactions: $page")
@@ -852,7 +852,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val holders = assertLiveExplorerTool("get_asset_top_holders", result, "getAssetTopHolders")
-            ?: return@runBlocking
         assertTrue(holders.jsonArray.isNotEmpty(), "CHR has holders: $holders")
         // LIVE BEHAVIOUR, found 2026-09-07: `limit` caps the ACCOUNTS, and the
         // explorer then appends one synthetic remainder row whose accountId and
@@ -916,7 +915,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val remaining = assertLiveExplorerTool("get_asset_top_holders", filtered, "getAssetTopHolders")
-            ?: return@runBlocking
         assertTrue(
             remaining.jsonArray.none {
                 it.jsonObject.getValue("accountId").jsonPrimitive.content == excluded
@@ -974,7 +972,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val rows = assertLiveExplorerTool("get_asset_distribution", result, "getAssetDistribution")
-            ?: return@runBlocking
         assertTrue(rows.jsonArray.isNotEmpty(), "CHR is distributed across chains: $rows")
         assertTrue(rows.jsonArray.first().jsonObject.containsKey("totalAmount"))
     }
@@ -994,7 +991,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val rows = assertLiveExplorerTool("get_asset_blockchains", result, "getAssetBlockchains")
-            ?: return@runBlocking
         assertTrue(rows.jsonArray.isNotEmpty(), "CHR lives on chains: $rows")
         assertEquals(64, rows.jsonArray.first().jsonObject.getValue("brid").jsonPrimitive.content.length)
     }
@@ -1002,7 +998,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun liveGetBlockchainDetailsAnswersForARealRid() = runBlocking {
         LiveChromia.requireLive("calls get_blockchain_details for a real chain rid")
-        val rid = assertLiveDirectoryChainRid() ?: return@runBlocking
+        val rid = assertLiveDirectoryChainRid()
 
         val result = BlockchainDetailsStrategy().execute(
             callToolRequest(
@@ -1015,7 +1011,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val chain = assertLiveExplorerTool("get_blockchain_details", result, "blockchain")
-            ?: return@runBlocking
         assertEquals(rid, chain.jsonObject.getValue("rid").jsonPrimitive.content, "the rid variable did not bind")
         assertEquals("directory_chain", chain.jsonObject.getValue("name").jsonPrimitive.content)
     }
@@ -1023,7 +1018,7 @@ class ToolExecutorStrategiesTest {
     @Test
     fun liveGetBlockchainAnalyticsAnswersForARealChain() = runBlocking {
         LiveChromia.requireLive("calls get_blockchain_analytics for a real chain rid")
-        val rid = assertLiveDirectoryChainRid() ?: return@runBlocking
+        val rid = assertLiveDirectoryChainRid()
 
         val result = BlockchainAnalyticsStrategy().execute(
             callToolRequest(
@@ -1036,7 +1031,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val analytics = assertLiveExplorerTool("get_blockchain_analytics", result, "blockchainAnalytics")
-            ?: return@runBlocking
         assertTrue(
             analytics.jsonObject.getValue("totalTransactions").jsonPrimitive.content.toLong() > 0,
             "the directory chain has transactions: $analytics"
@@ -1059,7 +1053,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val holders = assertLiveExplorerTool("get_asset_top_holders", topHolders, "getAssetTopHolders")
-            ?: return@runBlocking
         // "Others" is the explorer's synthetic remainder row, not an account.
         val accountId = holders.jsonArray
             .map { it.jsonObject.getValue("accountId").jsonPrimitive.content }
@@ -1076,7 +1069,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val rows = assertLiveExplorerTool("get_account_blockchains", result, "accountBlockchains")
-            ?: return@runBlocking
         assertTrue(
             rows.jsonArray.isNotEmpty(),
             "a top CHR holder must hold it somewhere: $rows"
@@ -1102,7 +1094,6 @@ class ToolExecutorStrategiesTest {
             liveRepository()
         )
         val rows = assertLiveExplorerTool("get_signer_blockchains", result, "signerBlockchains")
-            ?: return@runBlocking
         assertTrue(rows.jsonArray.isEmpty(), "an unknown signer signs nothing: $rows")
     }
 

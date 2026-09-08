@@ -415,6 +415,155 @@ class AssumptionLedgerTest {
         )
     }
 
+    // ---- 5. a live test may not leave on an upstream refusal ---------------
+
+    /**
+     * The shape adversary round 18 found (section 4), and the reason this
+     * section exists:
+     *
+     *     val holders = assertLiveExplorerTool("get_asset_top_holders", result, "getAssetTopHolders")
+     *         ?: return@runBlocking
+     *
+     * The helper returned NULL whenever the tool's error text matched an
+     * upstream marker, and `internal_error` was the first entry in that list.
+     * `get_asset_top_holders` answered eight consecutive live INTERNAL_ERRORs
+     * across three real asset ids and the example id in its own description -
+     * and `liveGetAssetTopHoldersAnswersForARealAsset` PASSED through every one
+     * of them, because the body left before it asserted anything. That is the
+     * same silent non-result section 4 above forbids, wearing the clothes of an
+     * upstream courtesy.
+     *
+     * README "Testing Layers" says an upstream outage makes this suite RED and
+     * that the remedy is to re-run. So there is no "skip on upstream" path in a
+     * unit test at all: the live helpers FAIL with the third party's own words
+     * and the retry advice, and they cannot hand back a null for a caller to
+     * leave on. Only the e2e sweep may tag WARN-UPSTREAM, under its own
+     * guardrail (all-live-warn is a FAIL, and so is more than
+     * SWEEP_MAX_UPSTREAM_WARNS of them).
+     *
+     * Two scans keep it that way.
+     */
+    private val liveAssertionCall = Regex("""\bassertLive[A-Za-z0-9_]*\s*\(""")
+
+    /** A `?:` that leaves, and a `return` standing on its own line. */
+    private val leavesOnTheValue = Regex("""\?:\s*return\b|^\s*return(@\w+)?\s*$""")
+
+    /** A live helper declared to return something nullable, on one line or two. */
+    private val nullableHelperOnOneLine =
+        Regex("""\bfun\s+assertLive\w*\s*\([^)]*\)\s*:\s*[\w.<>, ]+\?""")
+    private val nullableHelperContinued = Regex("""^\s*\)\s*:\s*[\w.<>, ]+\?\s*[={]""")
+    private val returnsNull = Regex("""\breturn\s+null\b""")
+
+    /** Every live-helper CALL site, with the three lines that follow it. */
+    private fun liveAssertionWindows(): List<Pair<String, List<Pair<Int, String>>>> {
+        val windows = mutableListOf<Pair<String, List<Pair<Int, String>>>>()
+        for (file in RepoFiles.testSources()) {
+            if (RepoFiles.className(file) == "AssumptionLedgerTest") continue
+            val lines = stripKotlinComments(file.toFile().readText()).lines()
+            lines.forEachIndexed { index, line ->
+                if (!liveAssertionCall.containsMatchIn(line)) return@forEachIndexed
+                // The declaration of a helper is not a call of one.
+                if (functionDeclaration.containsMatchIn(line)) return@forEachIndexed
+                windows += file.fileName.toString() to
+                    (index..minOf(index + 3, lines.lastIndex)).map { (it + 1) to lines[it] }
+            }
+        }
+        return windows
+    }
+
+    @Test
+    fun noLiveAssertionIsFollowedByAnEarlyReturn() {
+        val offenders = liveAssertionWindows().flatMap { (file, window) ->
+            window.filter { (_, line) -> leavesOnTheValue.containsMatchIn(line) }
+                .map { (number, line) -> "$file:$number: ${line.trim()}" }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "a live test left on the value a live assertion handed back. An upstream refusal is a " +
+                "RED in a unit test - the remedy is to fix or wait for the third party and re-run - " +
+                "and a body that returns instead reports a PASS for a call that answered nothing. " +
+                "That is how get_asset_top_holders stayed green through eight consecutive live " +
+                "INTERNAL_ERRORs. Make the helper fail; then there is nothing to return on:\n  " +
+                offenders.joinToString("\n  ")
+        )
+    }
+
+    @Test
+    fun noLiveAssertionHelperCanHandBackNull() {
+        val offenders = mutableListOf<String>()
+        for (file in RepoFiles.testSources()) {
+            if (RepoFiles.className(file) == "AssumptionLedgerTest") continue
+            val lines = stripKotlinComments(file.toFile().readText()).lines()
+            var helper: String? = null
+            var depth = 0
+            var entered = false
+            lines.forEachIndexed { index, line ->
+                fun offend() { offenders += "${file.fileName}:${index + 1} [$helper]: ${line.trim()}" }
+                val declaration = functionDeclaration.find(line)
+                if (declaration != null) {
+                    val name = declaration.groupValues[1]
+                    helper = if (name.startsWith("assertLive")) name else null
+                    entered = false
+                    depth = 0
+                    if (helper != null && nullableHelperOnOneLine.containsMatchIn(line)) offend()
+                }
+                if (helper == null) return@forEachIndexed
+                if (!entered && nullableHelperContinued.containsMatchIn(line)) offend()
+                if (returnsNull.containsMatchIn(line)) offend()
+                val opens = line.count { it == '{' }
+                depth += opens - line.count { it == '}' }
+                if (opens > 0) entered = true
+                if (entered && depth <= 0) helper = null
+            }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "a live assertion helper can hand back null, which is the doorway every `?: return` " +
+                "above came through. A helper that cannot answer must FAIL with the third party's " +
+                "own words and the retry advice, so that no caller has the option:\n  " +
+                offenders.joinToString("\n  ")
+        )
+    }
+
+    /** These scans must SEE the shapes they forbid, or their silence is empty. */
+    @Test
+    fun theUpstreamEscapeScansFindTheShapesTheyLookFor() {
+        assertTrue(
+            liveAssertionCall.containsMatchIn("""        val h = assertLiveExplorerTool("t", r, "f")"""),
+            "the live-helper call is not matched"
+        )
+        assertTrue(
+            liveAssertionCall.containsMatchIn("        val a = assertLiveChrAggregatesTool(result)"),
+            "a second live helper spelling is not matched"
+        )
+        assertTrue(
+            leavesOnTheValue.containsMatchIn("""        val h = assertLiveExplorerTool("t", r, "f") ?: return@runBlocking"""),
+            "the inline elvis exit is not matched"
+        )
+        assertTrue(leavesOnTheValue.containsMatchIn("            ?: return@runBlocking"), "continued elvis")
+        assertTrue(leavesOnTheValue.containsMatchIn("            ?: return null"), "elvis returning null")
+        assertTrue(
+            !leavesOnTheValue.containsMatchIn("        val rows = holders.jsonArray"),
+            "a plain use of the value must NOT match"
+        )
+        assertTrue(
+            nullableHelperOnOneLine.containsMatchIn("    private fun assertLiveThing(r: R): JsonObject? {"),
+            "a one-line nullable helper is not matched"
+        )
+        assertTrue(nullableHelperContinued.containsMatchIn("    ): JsonElement? {"), "continued nullable")
+        assertTrue(
+            !nullableHelperContinued.containsMatchIn("    ): JsonElement {"),
+            "a non-nullable helper must NOT match"
+        )
+        assertTrue(returnsNull.containsMatchIn("            return null"), "return null not matched")
+        // And the call-site scan is reading a real corpus.
+        assertTrue(
+            liveAssertionWindows().size > 20,
+            "the live-assertion scan found ${liveAssertionWindows().size} call sites; the suite has " +
+                "more than that, so the scan stopped reading rather than the tree being clean"
+        )
+    }
+
     /** The scan must be able to SEE the shape, or its silence means nothing. */
     @Test
     fun theSilentReturnScanFindsTheShapeItLooksFor() {
