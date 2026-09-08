@@ -139,6 +139,52 @@ object DappScaffold {
      */
     private val TOKEN = Regex("[a-z0-9]+")
 
+    /**
+     * ROUND 19, FINDINGS 1 AND 2. [TOKEN] is `[a-z0-9]+`, so every letter an agent
+     * writes with a diacritic is a BOUNDARY: `lotería` tokenises to `loter` + `a`,
+     * `Glücksspiel` to `gl` + `cksspiel`, `aléatoire` to `al` + `atoire`. Round 19
+     * measured the consequence - `une loterie hebdomadaire pour les deposants` and
+     * `un sorteo semanal de premios para los depositantes` were "safe by accident":
+     * they declined, but NOTHING MATCHED, so the answer was "unknown template" and
+     * not "this class has no template", and the agent was told nothing about why a
+     * raffle is different. A class recognised by SPELLING is a class a synonym or an
+     * accent launders.
+     *
+     * So an ask is FOLDED before it is tokenised: Unicode NFD, every combining mark
+     * dropped, and the handful of Latin letters that carry no combining form mapped
+     * by hand (`ß`, `ø`, `æ`, `œ`, `ł`, `đ`, `ð`, `þ`, `ı`). `lotería` -> `loteria`,
+     * `Glücksspiel` -> `glucksspiel`, `Zahlungskanäle` -> `zahlungskanale`. The keys
+     * are written folded, so one key is one CONCEPT however it is accented, and the
+     * tokeniser's whole-token rule - the one that keeps `abetting` out of `betting` -
+     * is untouched.
+     *
+     * WHAT THIS DOES NOT REACH, written down rather than implied: a script with no
+     * Latin transliteration (round 18's Chinese ask tokenises to nothing) is invisible
+     * to every key list here, covered and uncovered alike. That is a separate gap and
+     * it is recorded in `docs/TEMPLATE-GAPS.md` rather than papered over here.
+     */
+    internal fun foldAsk(raw: String): String {
+        val decomposed = java.text.Normalizer.normalize(raw.lowercase(), java.text.Normalizer.Form.NFD)
+        val stripped = COMBINING_MARKS.replace(decomposed, "")
+        val out = StringBuilder(stripped.length)
+        stripped.forEach { c ->
+            when (c) {
+                'ß' -> out.append("ss")
+                'ø' -> out.append('o')
+                'æ' -> out.append("ae")
+                'œ' -> out.append("oe")
+                'ł' -> out.append('l')
+                'đ', 'ð' -> out.append('d')
+                'þ' -> out.append("th")
+                'ı' -> out.append('i')
+                else -> out.append(c)
+            }
+        }
+        return out.toString()
+    }
+
+    private val COMBINING_MARKS = Regex("\\p{Mn}+")
+
     fun normalizeName(raw: String?): String {
         val trimmed = raw?.trim()?.lowercase().orEmpty()
         return if (namePattern.matches(trimmed)) trimmed else DEFAULT_NAME
@@ -2340,6 +2386,133 @@ object DappScaffold {
      * covered half is still named - by template, with its exploit class - but nothing is
      * scaffolded, because a compound ask is built one template at a time.
      */
+    /**
+     * ROUND 19, FINDING 1 - THE VOCABULARY IS BUILT FROM WHAT THE CLASS *IS*, NOT FROM
+     * HOW ROUND 18 HAPPENED TO SPELL IT.
+     *
+     * `a tombola for token holders that pays out weekly` was answered `ok:true`,
+     * `template=ft4`, FOUR FILES, and not one word about the fact that a raffle has no
+     * template here. Nothing was wrong with the list-before-the-`when` fix round 18
+     * landed; what was wrong is that the list was A LIST OF WORDS. `tombola` is a
+     * raffle, it was not one of the six words, so `declined` came back empty, the
+     * routing `when` ran, `token holders` sent the ask to `ft4`, and the uncovered
+     * class was laundered by a SYNONYM - the same finding as round 18's laundering with
+     * the uncovered half spelled differently instead of hidden behind a second clause.
+     *
+     * So each list below is the class's CONCEPT, enumerated: every ordinary English name
+     * for it, and the same class in the languages agents write asks in (French, Spanish,
+     * German, Portuguese, Italian, Dutch, Polish), FOLDED so an accent is not a new word
+     * (see [foldAsk]). The tokeniser is unchanged and the star still means one stem at a
+     * time, which is what keeps round 19's clean pass clean: `a lending market for
+     * ABETTING collateral positions` routes to `lending`, because `abetting` does not
+     * START with `betting` and a substring is not the class. Every stem below was chosen
+     * against that rule - there is no `bet*` (it would take `better`, `between`,
+     * `betterment`), no `pari*` (it would take `parity`, which is a stablecoin word), no
+     * bare `signer*` (it would take a bridge's relayer signers), no `pledge*` (it would
+     * take a lending pool's pledged collateral), and no `donation*`/`gaming*` (those are
+     * two OTHER un-templated classes in `docs/TEMPLATE-GAPS.md`, and answering them with
+     * this class's guard would be a redirect to the wrong hole).
+     *
+     * A key added here is in `Round18TemplateRedirectProbeTest`'s matrix and in
+     * `Round19TemplateVocabularyTest`'s clean-pass corpus in the same commit.
+     */
+    private val UNPREDICTABLE_OUTCOME_KEYS = listOf(
+        // The stem that carries lottery/lotteries AND lotteria/lotterie (Italian,
+        // Spanish, Portuguese, Polish) - it is the first key, and the round-18 matrix
+        // derives this class's probe token from it.
+        "lotter*",
+        // ...and the OTHER Latin stem for the same word: loterie (fr), lotería (es),
+        // loteria (pt/pl), loterij (nl). `lottery` does not start with `loter`, which is
+        // why both stems are here rather than one.
+        "loter*", "lotto*", "loto",
+        // English, by every ordinary name.
+        "raffle*", "sweepstake*", "prize draw*", "prize drawing*", "lucky draw*", "lucky dip*",
+        "random winner*", "random draw*", "random selection*", "randomness", "randomly*", "random",
+        "rng", "vrf", "prediction market*", "betting*", "bettor*", "wager*", "gambl*", "casino*",
+        "jackpot*", "dice roll*", "coin flip*", "coinflip*", "tombola*", "giveaway*", "give away*",
+        "sortition", "roulette*", "bingo*", "scratch card*", "scratchcard*", "sportsbook*",
+        "sports book*", "bookmaker*", "parimutuel*", "pari mutuel*", "parlay*", "winning ticket*",
+        "raffle ticket*", "chance to win*", "odds of winning*", "pick a winner*", "picks a winner*",
+        "picks the winner*", "draws a winner*", "chosen at random*", "at random",
+        // French: loterie/tombola are above; tirage (au sort), hasard, aléatoire, pari.
+        "tirage*", "hasard", "aleatoire*", "jeu de hasard*", "pari", "parier*", "parieur*",
+        "paris sportifs*", "gagnant au hasard*",
+        // Spanish and Portuguese: sorteo/sorteio, rifa, azar, aleatorio, apuesta/aposta.
+        "sorteo*", "sorteio*", "rifa*", "azar", "aleatorio*", "aleatoria*", "juego de azar*",
+        "apuest*", "apost*", "premio mayor*",
+        // German: Lotterie is above; Verlosung, Gewinnspiel, Glücksspiel, Zufall, Wette,
+        // Ziehung. Folded, so `Glücksspiel` and `glucksspiel` are one key.
+        "verlosung*", "gewinnspiel*", "glucksspiel*", "gluecksspiel*", "zufall*", "wette*",
+        "ziehung*", "auslosung*",
+        // Italian: lotteria is above; estrazione, sorteggio, scommessa.
+        "estrazion*", "sorteggio*", "scommess*",
+        // Dutch and Polish.
+        "loterij*", "losowanie*", "zaklad bukmacherski*", "trekking*"
+    )
+
+    private val PAYMENT_CHANNEL_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "payment channel*", "state channel*", "lightning*", "channels",
+        // The class by what it IS: off-chain state two parties sign, closed on chain.
+        "off chain state*", "offchain state*", "micropayment*", "micro payment*",
+        "unidirectional channel*", "bidirectional channel*", "watchtower*",
+        // No `dispute window*` and no `sequence number*`: both are generic enough that an
+        // ESCROW or an EXCHANGE ask says them, and both of those are covered classes -
+        // declining them here would be this finding pointed the other way.
+        "commitment transaction*", "channel close*",
+        "channel closure*", "channel open*", "payment hub*", "hub and spoke*", "htlc*",
+        "hashed timelock*", "hash time lock*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish.
+        "canal de paiement*", "canaux de paiement*", "canal d etat*",
+        "canal de pago*", "canales de pago*", "canal de estado*",
+        "zahlungskanal*", "zahlungskanale*", "zahlungskanaele*", "zustandskanal*",
+        "canal de pagamento*", "canais de pagamento*",
+        "canale di pagamento*", "canali di pagamento*", "canale di stato*",
+        "betaalkanaal*", "kanal platnosci*"
+    )
+
+    private val SIGNER_SET_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "multisig*", "multi sig*", "multi signature*", "signer set*", "threshold wallet*",
+        "cosigner*", "co signer*",
+        // The class by what it IS: an account whose authority is a SET with a threshold.
+        "multisignature*", "multi signer*", "m of n*", "n of m*", "threshold account*",
+        "threshold signature*", "threshold signing*", "shared wallet*", "joint wallet*",
+        "joint account*", "signatory set*", "signing set*", "set of signers*", "quorum of signers*",
+        "key rotation*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish. No bare `signer*`
+        // or `firmante*`: a bridge's relayer signers are a COVERED class and would be
+        // declined by this one.
+        "portefeuille multisignature*", "signature multiple*", "signatures multiples*",
+        "cartera multifirma*", "multifirma*", "billetera multifirma*",
+        "mehrfachsignatur*", "gemeinschaftskonto*", "multisignatur*",
+        "carteira multiassinatura*", "multiassinatura*",
+        "portafoglio multifirma*", "firma multipla*", "firma congiunta*",
+        "portfel wielopodpisowy*"
+    )
+
+    private val CROWDFUNDING_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "crowdfund*", "crowd fund*", "crowdsale*", "crowd sale*", "kickstarter*",
+        "all or nothing*", "funding goal*", "fundraising goal*",
+        // The class by what it IS: many contributors, a goal, a deadline, and exactly two
+        // ends - the raiser is paid or every contributor is refunded.
+        "indiegogo*", "gofundme*", "ico", "initial coin offering*", "token sale*", "presale*",
+        "pre sale*", "public sale*", "backers", "backer", "fundraiser*", "fundraising campaign*",
+        "funding target*", "raise target*", "minimum raise*", "campaign goal*",
+        "refund the backers*", "contributor refund*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish. No bare
+        // `donation*`/`charity*`: a donation pool is a DIFFERENT un-templated class (the
+        // fee-splitter row of docs/TEMPLATE-GAPS.md) and its missing guard is not this one.
+        "financement participatif*", "cagnotte*", "collecte de fonds*", "objectif de financement*",
+        "financiacion colectiva*", "micromecenazgo*", "recaudacion de fondos*",
+        "meta de financiacion*", "campana de financiacion*",
+        "schwarmfinanzierung*", "finanzierungsziel*", "finanzierungskampagne*",
+        "financiamento coletivo*", "vaquinha*", "meta de financiamento*",
+        "raccolta fondi*", "finanziamento collettivo*", "obiettivo di raccolta*",
+        "crowdfunding campagne*", "zbiorka*"
+    )
+
     internal class UntemplatedClass(
         val id: String,
         val label: String,
@@ -2352,11 +2525,7 @@ object DappScaffold {
         UntemplatedClass(
             id = "unpredictable-outcome",
             label = "an unpredictable outcome (a raffle, a lottery, a prize draw, a prediction market)",
-            keys = listOf(
-                "lotter*", "raffle*", "sweepstake*", "prize draw*", "random winner*",
-                "randomness", "vrf", "prediction market*", "betting*", "gambl*", "casino*",
-                "jackpot*", "dice roll*", "coin flip*"
-            ),
+            keys = UNPREDICTABLE_OUTCOME_KEYS,
             missingGuard = "a draw NO CALLER CAN CHOOSE THE BLOCK FOR - `op_context.last_block_time` is the " +
                 "timestamp of the block ALREADY COMMITTED, so an attacker predicts nothing: she watches " +
                 "blocks land and answers the one whose ticket is hers. The shape is a COMMIT-REVEAL with a " +
@@ -2383,7 +2552,7 @@ object DappScaffold {
         UntemplatedClass(
             id = "payment-channel",
             label = "a payment or state channel",
-            keys = listOf("payment channel*", "state channel*", "lightning*", "channels"),
+            keys = PAYMENT_CHANNEL_KEYS,
             missingGuard = "a MONOTONE SEQUENCE NUMBER on the signed state and a DISPUTE WINDOW in which the " +
                 "counterparty may post a later one - the close is the exploit, and nothing here ships either",
             note =
@@ -2403,10 +2572,7 @@ object DappScaffold {
         UntemplatedClass(
             id = "signer-set",
             label = "a threshold-controlled account (a multisig wallet, a signer set)",
-            keys = listOf(
-                "multisig*", "multi sig*", "multi signature*", "signer set*", "threshold wallet*",
-                "cosigner*", "co signer*"
-            ),
+            keys = SIGNER_SET_KEYS,
             missingGuard = "WHO MAY ADD OR REMOVE A KEY, whether one signature counts once, and whether the " +
                 "set can be closed - `template=bridge`'s relayer set is the nearest shipped shape and " +
                 "FT4's own account model is the other half",
@@ -2428,10 +2594,7 @@ object DappScaffold {
         UntemplatedClass(
             id = "crowdfunding",
             label = "a crowdfunding campaign (an all-or-nothing raise with refunds)",
-            keys = listOf(
-                "crowdfund*", "crowd fund*", "crowdsale*", "crowd sale*", "kickstarter*",
-                "all or nothing*", "funding goal*", "fundraising goal*"
-            ),
+            keys = CROWDFUNDING_KEYS,
             missingGuard = "THE MONEY IS ESCROWED UNTIL THE GOAL IS DECIDED - the goal and the deadline " +
                 "written once with no operation that moves them, a refund as the campaign's only other " +
                 "exit, and no path that pays the raiser before the deadline has passed",
@@ -2460,7 +2623,11 @@ object DappScaffold {
      * this", say so and name the hole rather than implying the nearest one does.
      */
     internal fun closestTemplateNote(requested: String): String {
-        val t = requested.lowercase()
+        // ROUND 19: FOLDED, not merely lower-cased. See [foldAsk] - `lotería` and
+        // `Glücksspiel` used to tokenise into fragments, so the class they name was
+        // invisible and the refusal they drew said "unknown template" instead of
+        // "this class has no template".
+        val t = foldAsk(requested)
         // ROUND 16, AUDIT F6: THESE TESTS USED TO BE UNANCHORED SUBSTRING TESTS, and one
         // of them fired INSIDE AN UNRELATED WORD. `has("vest")` matched "in-VEST-ment",
         // the streaming branch was read before the governance one, and
@@ -2480,7 +2647,10 @@ object DappScaffold {
         val askTokens = TOKEN.findAll(t).map { it.value }.toList()
         fun matchesKey(key: String): Boolean {
             val prefix = key.endsWith("*")
-            val parts = TOKEN.findAll(if (prefix) key.dropLast(1) else key).map { it.value }.toList()
+            // The key is folded too, so a key written with an accent - `lotería` - is
+            // the same key as the folded ask it has to match, and there is no way to
+            // add a key that can never fire.
+            val parts = TOKEN.findAll(foldAsk(if (prefix) key.dropLast(1) else key)).map { it.value }.toList()
             if (parts.isEmpty() || parts.size > askTokens.size) return false
             for (start in 0..askTokens.size - parts.size) {
                 var ok = true
@@ -2857,8 +3027,50 @@ object DappScaffold {
             // THE UNCOVERED CLASS IS NAMED FIRST, whatever else the ask carries, and when
             // the ask carries a covered class too NOTHING IS SCAFFOLDED - the covered half
             // is named by template and asked for on its own.
-            else -> declined.joinToString(" ") { it.note } + mixedAskTail(declined, covered)
+            else -> declined.joinToString(" ") { it.note } +
+                (if (covered.isEmpty()) declinedOnlyTail(declined) else mixedAskTail(declined, covered))
         }
+    }
+
+    /**
+     * ROUND 19, FINDING 2 - THE CLASS AND ITS MISSING GUARD, NAMED, EVEN WHEN THE ASK
+     * NAMES NOTHING THIS SERVER COVERS.
+     *
+     * `une loterie hebdomadaire pour les deposants` and `un sorteo semanal de premios
+     * para los depositantes` were measured DECLINING, with zero files - and that was
+     * SAFE BY ACCIDENT. Nothing matched at all, so the answer was the unknown-template
+     * roster: "no shipped template covers that name, here are the fifteen". An agent
+     * reading it learns that we have no template called `une loterie hebdomadaire`. It
+     * does not learn that a raffle has an EXPLOIT CLASS no template here addresses, or
+     * what the missing guard is, so the next thing it does is build the raffle freehand
+     * - which is exactly the build round 18 drained on a chain.
+     *
+     * [foldAsk] and the concept vocabularies make both asks reach their class. This tail
+     * makes the ANSWER say the two things the mixed-ask answer already said and the
+     * single-class answer did not: what class the ask IS, in one line, and what guard is
+     * missing, as a shape. The class note above it is unchanged - it is the same
+     * paragraph the English ask has always received - so this adds the two facts rather
+     * than restating the note in different words.
+     */
+    private fun declinedOnlyTail(declined: List<UntemplatedClass>): String {
+        val labels = declined.joinToString(" and ") { it.label }
+        return " THE CLASS THIS ASK IS, AND THE GUARD THAT IS MISSING, SAID PLAINLY RATHER THAN LEFT TO BE " +
+            "INFERRED FROM THE PARAGRAPH ABOVE: what you asked for is $labels, and NOTHING WAS SCAFFOLDED - " +
+            "there are no `files` in this response, because a guard-free skeleton for a different problem is " +
+            "how an agent builds the wrong thing and passes every gate. WHAT NO TEMPLATE HERE SHIPS is " +
+            declined.joinToString("; and ") { it.missingGuard } + ". Build it with that guard written FIRST " +
+            "and its economic invariant test written before the code, and re-read this answer's shape rather " +
+            "than the nearest template's guards - a passing `rell_security_check` is not economic soundness, " +
+            "and on this class it is not even a signal: adversary round 18 built the raffle half of an ask " +
+            "this server had declined, carried every guard the refusal's own discipline implies, drew " +
+            "ok:true with ZERO findings, and was drained on a real chain - trudy staked 90 of 1890, about " +
+            "one week in twenty-one, and won FIVE OF FIVE weekly draws. AND THE ASK IS THE SAME CLASS IN " +
+            "EVERY LANGUAGE AND UNDER EVERY SYNONYM: round 19 measured `a tombola for token holders that " +
+            "pays out weekly` being answered ok:true with FOUR FILES of `template=ft4` and not one word " +
+            "about the draw, because the class was recognised by SPELLING and `tombola` was not one of the " +
+            "spellings. It is recognised by CONCEPT now - the same class whether you write raffle, tombola, " +
+            "loterie, sorteo, Verlosung, sorteio or lotteria - so this refusal is not a gap in a word list " +
+            "you can walk around by renaming what you are building."
     }
 
     /**
