@@ -21,9 +21,11 @@ import java.time.Duration
  *      one token away as `val PARTICIPATION_FLOOR = 1;`. A parameterless
  *      function whose body is a single return of a reducible term is a named
  *      constant with parentheses and resolves like one; a function that reads
- *      state or takes parameters stays unresolved and keeps the benefit of the
- *      doubt, because guessing there is how a rule starts firing on correct
- *      code. The walk is depth-bounded and cycle-safe.
+ *      state stays unresolved and keeps the benefit of the doubt, because
+ *      guessing there is how a rule starts firing on correct code. The walk is
+ *      depth-bounded and cycle-safe. (ROUND 18 went round this six ways and
+ *      replaced the shape with an EVALUATOR; the one pin below that moved is a
+ *      call with a LITERAL argument, which is now worth that literal.)
  *  (b) ROUND 16 REJECTS A FLOOR THE PROPOSER PASSES to `propose`. A floor
  *      STORED in a field that a permissionless operation writes from ITS
  *      caller's arguments is the same floor one block earlier - `set_floor(1)`
@@ -138,17 +140,47 @@ class Round17SecurityRuleFixTest {
         )
     }
 
+    /**
+     * ROUND 18 SUPERSEDED THIS PIN, IN THE STRICTER DIRECTION. Round 17 left a
+     * call with ARGUMENTS unresolved because "a function with parameters
+     * returns what the CALL SITE passed, so the declaration is not its value" -
+     * true of the DECLARATION, and beside the point at a call site that passes
+     * a LITERAL: `participation_floor(1)` is the number 1, and one ballot
+     * carries a treasury payout. Round 18's evaluator substitutes the argument.
+     * The half of round 17's claim that is still true is pinned beside it: a
+     * parameter the call site fills from STATE is a number this scan cannot
+     * see, and it keeps the benefit of the doubt.
+     */
     @Test
-    fun `a function with parameters is not a named constant`() {
-        assertFalse(
+    fun `a function called with a literal argument is worth that literal, and one filled from state is not`() {
+        assertTrue(
             "majority-without-quorum" in rules(
                 "main.rell" to dao(
                     "function participation_floor(n: integer): integer = n;",
                     "participation_floor(1)"
                 )
             ),
-            "a function with parameters returns what the CALL SITE passed, so the declaration is not " +
-                "its value and the bound stays unresolved"
+            "`participation_floor(1)` is the same 1 that fires as `val PARTICIPATION_FLOOR = 1;` - the " +
+                "parameter is bound to a literal AT THE CALL SITE, which is where a bound is read"
+        )
+        assertFalse(
+            "majority-without-quorum" in rules(
+                "main.rell" to dao(
+                    "function participation_floor(n: integer): integer = n;",
+                    "participation_floor(25)"
+                )
+            ),
+            "the same call carrying a real floor is correct code and must stay silent"
+        )
+        assertFalse(
+            "majority-without-quorum" in rules(
+                "main.rell" to dao(
+                    "function participation_floor(n: integer): integer = n;",
+                    "participation_floor(roll @ { .balance > 0 } .enrolled)"
+                )
+            ),
+            "a parameter the call site fills from STATE is a number this scan cannot see, and resolving " +
+                "it to a guess is how a rule starts firing on correct code"
         )
     }
 

@@ -310,9 +310,37 @@ object RellSecurityCheck {
     )
 
     /** Every function definition in the (masked) source with its raw parameter list - see [functionBodies]. */
-    internal fun functionDefinitions(maskedContent: String): List<FunctionDef> {
+    internal fun functionDefinitions(maskedContent: String): List<FunctionDef> =
+        definitionsOf(maskedContent, FUNCTION_REGEX)
+
+    /**
+     * Every `query name(params) ...` definition, read exactly as
+     * [functionDefinitions] reads a function.
+     *
+     * ROUND 18. A query is a callable like any other: round 18 stored the
+     * participation floor in `book.floor`, read it back through
+     * `query floor_of(): integer = book.floor;` and the trace of who WRITES
+     * that floor stopped dead, because nothing in this analyzer had ever
+     * parsed a query's parameters or its body as a definition. A rule that
+     * follows a value through a function and not through a query is keyed on
+     * which keyword the author typed.
+     */
+    internal fun queryDefinitions(maskedContent: String): List<FunctionDef> =
+        definitionsOf(maskedContent, QUERY_REGEX)
+
+    /**
+     * The definitions [head] introduces (`function` or `query`), with their raw
+     * parameter list and body.
+     *
+     * An EXPRESSION body ends at the first `;` that is not inside braces,
+     * parentheses or brackets. Cutting at the first `;` anywhere truncated
+     * `= when { c -> 1; else -> 1 };` to `when { c -> 1`, which is not an
+     * expression at all - and a bound the resolver cannot parse is a bound it
+     * hands the benefit of the doubt to.
+     */
+    private fun definitionsOf(maskedContent: String, head: Regex): List<FunctionDef> {
         val functions = mutableListOf<FunctionDef>()
-        FUNCTION_REGEX.findAll(maskedContent).forEach { match ->
+        head.findAll(maskedContent).forEach { match ->
             val name = match.groupValues[1]
             val parenStart = maskedContent.indexOf('(', match.range.first)
             val parenEnd = matchDelimiter(maskedContent, parenStart, '(', ')') ?: return@forEach
@@ -325,15 +353,27 @@ object RellSecurityCheck {
                     val braceEnd = matchDelimiter(maskedContent, braceStart, '{', '}') ?: return@forEach
                     maskedContent.substring(braceStart + 1, braceEnd)
                 }
-                eqIdx >= 0 -> {
-                    val end = maskedContent.indexOf(';', eqIdx).let { if (it < 0) maskedContent.length else it }
-                    maskedContent.substring(eqIdx + 1, end)
-                }
+                eqIdx >= 0 -> maskedContent.substring(eqIdx + 1, topLevelSemicolon(maskedContent, eqIdx + 1))
                 else -> return@forEach
             }
             functions.add(FunctionDef(name, params, body, expressionBody = !blockBody))
         }
         return functions
+    }
+
+    /** The index of the first `;` at or after [from] that is not nested, or the end of [text]. */
+    private fun topLevelSemicolon(text: String, from: Int): Int {
+        var depth = 0
+        var i = from
+        while (i < text.length) {
+            when (text[i]) {
+                '(', '[', '{' -> depth++
+                ')', ']', '}' -> depth--
+                ';' -> if (depth <= 0) return i
+            }
+            i++
+        }
+        return text.length
     }
 
     /** Fixed point: a function is in the set if seeded or if it calls one that is. */
@@ -579,6 +619,9 @@ object RellSecurityCheck {
         // A clock parked in a row by one operation is the same public number
         // when another reads it back, so those fields are clock sources too.
         val storedClockFields = clockDerivedStoredFields(fullyMasked, allEntityNames, entityHelperReturns)
+        // Functions and queries a clock value can be drawn THROUGH: which of
+        // their parameters the body uses to SELECT (round 18's raffle).
+        val clockCallables = clockSelectorCallables(fullyMasked, allEntityNames, inlinable)
         // Identity-typed attributes: the fields that name WHO a row belongs to.
         // The randomness rule keys the beneficiary on this type, never on a name.
         val identityFieldNames = entityFields(fullyMasked)
@@ -603,9 +646,19 @@ object RellSecurityCheck {
         // one block earlier, and so is any field stamped from one of those.
         val attackerWrittenFields = callerWrittenFields(fullyMasked, allEntityNames) +
             proposerControlledFields(fullyMasked, allEntityNames, authFunctions, inlinable, distrust)
-        // Parameterless functions that ARE a constant: `function floor(): integer
-        // = 1;` is the same 1 as `val FLOOR = 1;` and a bound must resolve it.
-        val constantReturns = constantReturningFunctions(fullyMasked)
+        // WHAT A BOUND IS WORTH (round 18). Not a table of shapes a bound may be
+        // spelled in - a small constant EVALUATOR and everything it may look a
+        // name up in: module-level `val`s under any namespace, module-arg
+        // defaults, every function AND query whose body is one expression, and
+        // the length of every text constant. What it cannot value stays
+        // unresolved and keeps the benefit of the doubt.
+        val boundEnv = BoundEnv(
+            constExprs = moduleConstantExpressions(fullyMasked),
+            constants = numericConstants,
+            moduleArgs = moduleArgFloors,
+            callables = boundCallables(fullyMasked),
+            textLengths = textConstantLengths(files)
+        )
         // Fields the submission ever DEBITS: a deadline is never spent, so a
         // field that IS debited holds value whatever its declared type says.
         val debitedFields = debitedValueFields(fullyMasked, allEntityNames, entityHelperReturns)
@@ -699,19 +752,17 @@ object RellSecurityCheck {
                 )
                 findings += iccfProvenanceFindings(path, op, mutatingFunctions)
                 findings += majorityWithoutQuorumFindings(
-                    path, op, valueMutatingFunctions, quorumTermPresent, numericConstants, tallyPairs,
-                    attackerWrittenFields, constantReturns
+                    path, op, valueMutatingFunctions, quorumTermPresent, tallyPairs,
+                    attackerWrittenFields, boundEnv.withoutModuleArgValues()
                 )
-                findings += unboundedTimeWindowFindings(
-                    path, op, requireFunctions, numericConstants, moduleArgFloors, constantReturns
-                )
+                findings += unboundedTimeWindowFindings(path, op, requireFunctions, boundEnv)
                 findings += unbackedConversionFindings(
                     path, op, allEntityNames, entityHelperReturns, priceReadFunctions, priceDerivedFields,
                     inlinable, escrowedCaps, mirroredCounters, timestampTypedFields, debitedFields
                 )
                 findings += blockClockRandomnessFindings(
                     path, op, allEntityNames, entityHelperReturns, inlinable, identityFieldNames,
-                    storedClockFields
+                    storedClockFields, clockCallables
                 )
             }
         }
@@ -1690,8 +1741,14 @@ object RellSecurityCheck {
      * the single constant TURNOUT_BPS to QUORUM_BPS, changing nothing else,
      * reported zero findings.
      */
+    // ROUND 18 widens only the TERM, never the shape: a floor spelled
+    // `min(1, 5)` or `[1, 5, 9][0]` is one token of punctuation outside
+    // `[\w.]+`, and a resolver that never receives the punctuation cannot
+    // value what is inside it. The comparison, the sum and the `>=` are
+    // untouched.
     private val PARTICIPATION_FLOOR_REGEX = Regex(
-        """\.\s*[A-Za-z_]\w*\s*\+\s*[\w.]*\.\s*[A-Za-z_]\w*\s*(?:>=|>)\s*([\w.]+)"""
+        """\.\s*[A-Za-z_]\w*\s*\+\s*[\w.]*\.\s*[A-Za-z_]\w*\s*(?:>=|>)\s*""" +
+            """([\w.]+(?:\s*\([^()]*\))?(?:\s*\[[^\]]*\])?)"""
     )
 
     /**
@@ -1723,39 +1780,47 @@ object RellSecurityCheck {
      * ROUND 17 WENT ROUND BOTH OF THOSE, ONE TOKEN EACH.
      *  - THE VALUE MOVED BEHIND A CALL. `function participation_floor():
      *    integer = 1;` is the same 1 that fires as `val PARTICIPATION_FLOOR =
-     *    1;`, and [constants] has no case for a call. [functionReturns] is that
-     *    case ([constantReturningFunctions]): a parameterless function whose
-     *    body is a single return of a reducible term is a named constant with
-     *    parentheses, and it is resolved on the same terms. A function that
-     *    reads state or takes parameters stays unresolved and still counts as a
-     *    floor.
+     *    1;`, and a table of literals has no case for a call.
      *  - THE FLOOR MOVED INTO A SECOND TRANSACTION. Round 16 rejects a floor
      *    the proposer PASSES; a floor STORED in a field that a permissionless
      *    operation writes from ITS caller's arguments is the same floor one
      *    block earlier - `set_floor(1)` then `propose()`. That closure is
      *    [proposerControlledFields], and its fields join [callerWrittenFields]
      *    in this rejection.
+     *
+     * ROUND 18 WENT ROUND THE FIRST OF THOSE SIX TIMES, ONE SUBSTITUTION EACH -
+     * a default-valued parameter, `2 - 1`, `min(1, 5)`, a namespaced val, and
+     * the stored floor read back through a function and then through a QUERY -
+     * so the value stopped being RECOGNISED and started being EVALUATED
+     * ([evalBound], [BoundEnv]), and the who-writes-it trace now expands the
+     * term through every callable it names ([expandBoundTerm]) so a state read
+     * behind a function or a query is the same state read.
      */
     private const val SMALLEST_ABSOLUTE_FLOOR = 10L
 
     /** True when [body] compares a SUM of two field reads against a real floor. */
     internal fun hasParticipationFloor(
         body: String,
-        constants: Map<String, Long> = emptyMap(),
-        callerWrittenFields: Set<String> = emptySet(),
-        functionReturns: Map<String, String> = emptyMap()
+        env: BoundEnv = BoundEnv(),
+        callerWrittenFields: Set<String> = emptySet()
     ): Boolean {
         val bindings by lazy { bindingsOf(body) }
         return PARTICIPATION_FLOOR_REGEX.findAll(body).any { m ->
             val term = m.groupValues[1]
             // A BAR THE PROPOSER SETS IS NOT A BAR. Read through a local
-            // binding too, so `val f = m.floor_at_creation` is the same term.
-            val attackerWritten = (sequenceOf(term) + refClosure(term, bindings).asSequence())
-                .any { it.contains('.') && it.substringAfterLast('.') in callerWrittenFields }
+            // binding too, so `val f = m.floor_at_creation` is the same term -
+            // and (ROUND 18) through the CALLABLE the read hides behind, so
+            // `participation_floor()` and `floor_of()` are both `book.floor`
+            // ([boundStateReads], which follows the VALUE and not the text).
+            val reads = sequenceOf(term) + refClosure(term, bindings).asSequence() +
+                boundStateReads(term, env).asSequence()
+            val attackerWritten = reads.any { it.contains('.') && it.substringAfterLast('.') in callerWrittenFields }
             if (attackerWritten) return@any false
             // A module arg keeps the benefit of the doubt here (literal null),
-            // exactly as it did when only literals and vals were resolved.
-            val literal = resolveBound(term, constants, emptyMap(), functionReturns).literal
+            // exactly as it did when only literals and vals were resolved. A
+            // value at or below zero is no bound at all, which the floor
+            // comparison already says.
+            val literal = resolveBound(term, env).literal
             if (literal == null) true else literal >= SMALLEST_ABSOLUTE_FLOOR
         }
     }
@@ -1980,10 +2045,9 @@ object RellSecurityCheck {
         op: OperationBlock,
         valueMutatingFunctions: Set<String>,
         quorumTermPresent: Boolean,
-        constants: Map<String, Long> = emptyMap(),
         tallyPairs: Set<Pair<String, String>> = emptySet(),
         callerWrittenFields: Set<String> = emptySet(),
-        functionReturns: Map<String, String> = emptyMap()
+        env: BoundEnv = BoundEnv()
     ): List<Finding> {
         if (quorumTermPresent) return emptyList()
         // THE MAJORITY GATE, by words OR by structure. The word list is the
@@ -1996,13 +2060,13 @@ object RellSecurityCheck {
         // rule's legacy quieting bias and stays: it only ever produces false
         // NEGATIVES. This one is what a participation floor actually looks
         // like, and it is immune to what the designer calls it.
-        if (hasParticipationFloor(op.body, constants, callerWrittenFields, functionReturns)) return emptyList()
+        if (hasParticipationFloor(op.body, env, callerWrittenFields)) return emptyList()
         val calls = calledNames(op.body)
         val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
         if (!movesValue) return emptyList()
         // A floor IS written here, and it is written by the proposer: say so,
         // because "add a quorum" is useless advice to an author who has one.
-        val proposerFloor = hasParticipationFloor(op.body, constants, emptySet(), functionReturns)
+        val proposerFloor = hasParticipationFloor(op.body, env, emptySet())
         return listOf(
             Finding(
                 "MEDIUM", "majority-without-quorum", path, op.line,
@@ -2116,9 +2180,7 @@ object RellSecurityCheck {
         path: String,
         op: OperationBlock,
         requireFunctions: Set<String>,
-        constants: Map<String, Long> = emptyMap(),
-        moduleArgDefaults: Map<String, Long?> = emptyMap(),
-        functionReturns: Map<String, String> = emptyMap()
+        env: BoundEnv = BoundEnv()
     ): List<Finding> {
         val findings = mutableListOf<Finding>()
         val expressions = statementsOf(op.body).flatMap { argumentExpressions(it) }
@@ -2165,8 +2227,7 @@ object RellSecurityCheck {
                     .filter { it.isNotEmpty() && !paramRef.matches(it) }
                     .forEach { maxFloors.add(it) }
             }
-            val bounds = (lowerBounds + maxFloors)
-                .map { resolveBound(it, constants, moduleArgDefaults, functionReturns) }
+            val bounds = (lowerBounds + maxFloors).map { resolveBound(it, env) }
             // A FLOOR IS A POSITIVE QUANTITY. Round 15's test read the TERM and
             // never its value (`lowerBounds.any { it != "0" }`), so round 16
             // extracted the same zero into `val MIN_VOTING_MS = 0;` and the
@@ -2245,102 +2306,623 @@ object RellSecurityCheck {
      */
     private const val MAX_BOUND_CALL_DEPTH = 8
 
-    /**
-     * ROUND 17: A BOUND BEHIND A CALL. Round 16 resolved a bound's VALUE
-     * through a literal, a module-level `val` and a `struct module_args`
-     * default, and had no case for a CALL - so `function participation_floor():
-     * integer = 1;` hid the same 1 that fires when it is written
-     * `val PARTICIPATION_FLOOR = 1;` one token away
-     * (`r17-quorum-floor-behind-a-function-call` and its val control).
-     *
-     * A call resolves only when the function is a NAMED CONSTANT WITH
-     * PARENTHESES ([constantReturningFunctions]): no parameters, and a body
-     * that is a single return of another term this resolver can reduce. A
-     * function that reads state, takes parameters, or does anything else stays
-     * unresolved and keeps the benefit of the doubt, exactly as a field read
-     * does - guessing there is how a rule starts firing on correct code.
-     * [seen] makes the walk cycle-safe (`a() = b(); b() = a();` terminates)
-     * and bounds it at [MAX_BOUND_CALL_DEPTH].
-     */
-    private fun resolveBound(
-        term: String,
-        constants: Map<String, Long>,
-        moduleArgDefaults: Map<String, Long?>,
-        functionReturns: Map<String, String> = emptyMap(),
-        seen: Set<String> = emptySet()
-    ): BoundValue {
-        val t = term.trim().removeSuffix("()").trim()
-        t.toLongOrNull()?.let { return BoundValue(it, null) }
-        constants[t]?.let { return BoundValue(it, null) }
-        MODULE_ARG_TERM_REGEX.find(t)?.let { return BoundValue(moduleArgDefaults[it.groupValues[1]], it.groupValues[1]) }
-        val returned = functionReturns[t]
-        if (returned != null && t !in seen && seen.size < MAX_BOUND_CALL_DEPTH) {
-            return resolveBound(returned, constants, moduleArgDefaults, functionReturns, seen + t)
-        }
-        return BoundValue(null, null)
+    // =================================================================
+    // ROUND 18: A BOUND'S VALUE IS EVALUATED, NOT RECOGNISED.
+    // =================================================================
+    //
+    // ROUND 17 made a bound resolve THROUGH A CALL when the callee is "a named
+    // constant with parentheses - no parameters, a body that is a single return
+    // of a term the resolver can reduce". ROUND 18 wrote SIX spellings of that
+    // same 1, each ONE SUBSTITUTION outside that shape and every one of them
+    // silent while `val FLOOR = 1;` fires: a DEFAULT-VALUED parameter
+    // (`participation_floor(cap: integer = 1)`), an ARITHMETIC OF CONSTANTS
+    // (`2 - 1`), a SYSTEM FUNCTION OF TWO LITERALS (`min(1, 5)`), a NAMESPACED
+    // val (`cfg.FLOOR`), a stored field read through a FUNCTION, and the same
+    // field read back through a QUERY. Naming six more shapes buys one round -
+    // rounds 11 to 17 say so every time - so the resolver stops being a shape
+    // recogniser.
+    //
+    // [evalBound] is a small CONSTANT EVALUATOR over Rell expressions: integer
+    // literals, `val`s under any namespace resolved by qualified name, `struct
+    // module_args` defaults, unary minus, + - * / %, min/max/abs, a list index,
+    // a struct field, a text length, a `when` whose every arm is the same
+    // value, and a call into any function OR QUERY whose body is a single
+    // expression - parameters the call site leaves unbound taking their own
+    // DEFAULTS - depth-bounded and cycle-safe. What it cannot value stays
+    // UNRESOLVED and keeps the benefit of the doubt exactly as before: guessing
+    // there is how a rule starts firing on correct code.
+    //
+    // The other half of what a bound is worth is WHO WRITES IT (rounds 16, 17):
+    // a term that resolves to a STATE READ is a bound only when every operation
+    // that can write that field is authenticated to a named principal. That
+    // trace now runs through functions and queries too ([expandBoundTerm]).
+
+    /** One parameter of a callable the bound resolver may enter, with its default expression. */
+    internal data class BoundParam(val name: String, val default: String?)
+
+    /** A function or query [evalBound] may enter: its parameters, and the ONE expression it returns. */
+    internal data class BoundCallable(val params: List<BoundParam>, val expr: String?)
+
+    /** Everything a bound's value may be looked up in. */
+    internal data class BoundEnv(
+        val constExprs: Map<String, String> = emptyMap(),
+        val constants: Map<String, Long> = emptyMap(),
+        val moduleArgs: Map<String, Long?> = emptyMap(),
+        val callables: Map<String, BoundCallable> = emptyMap(),
+        val textLengths: Map<String, Long> = emptyMap()
+    ) {
+        /**
+         * The same environment with module arguments UNVALUED. A configured
+         * floor keeps the benefit of the doubt in `majority-without-quorum`
+         * (round 16); only `unbounded-voting-period` reads a module arg's
+         * declared default, because there the question IS what the chain gets
+         * deployed with.
+         */
+        fun withoutModuleArgValues(): BoundEnv = copy(moduleArgs = emptyMap())
     }
 
-    /** A term this resolver can reduce: a number, an identifier, `a.b.c`, or `f()`. */
-    private val REDUCIBLE_TERM_REGEX =
-        Regex("""^-?\d+$|^[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*(?:\s*\(\s*\))?$""")
+    /** How deep the evaluator may walk before it gives up - a longer chain is not a bound anybody reads. */
+    private const val MAX_BOUND_EVAL_DEPTH = 12
 
     /** `return <term>;` as the WHOLE of a block body. */
     private val SOLE_RETURN_REGEX = Regex("""^\s*return\b(.*?);?\s*$""", RegexOption.DOT_MATCHES_ALL)
 
-    /**
-     * Functions that are a named constant with parentheses: NO parameters and a
-     * body that is a single return of one reducible term - `function f():
-     * integer = 1;`, `function f(): integer { return MIN; }`, `function f():
-     * integer = g();`. Mapped name -> that term, for [resolveBound] to reduce
-     * on the same terms as an inline bound.
-     *
-     * Everything else is left unresolved on purpose:
-     *  - a function with PARAMETERS returns whatever the CALL SITE passed, so
-     *    the declaration is not the value;
-     *  - a body with more than one statement, or whose returned term reads
-     *    STATE (`return book.floor;`, an at-expression, a call with arguments),
-     *    is a number this scan cannot see.
-     * A dotted term survives only when it is `chain_context.args.x` - a module
-     * argument, which [resolveBound] already knows how to value; every other
-     * dotted read is state. An unresolved bound still counts as a real bound,
-     * so both directions of this stay conservative.
-     *
-     * A name defined more than once resolves only when EVERY definition of it
-     * reduces to the SAME term - the conservatism [authFunctionNames] applies
-     * to duplicate names, for the same reason.
-     */
-    internal fun constantReturningFunctions(fullyMasked: Map<String, String>): Map<String, String> {
-        val terms = mutableMapOf<String, MutableSet<String?>>()
-        fullyMasked.forEach { (path, masked) ->
-            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
-            functionDefinitions(masked).forEach { def ->
-                terms.getOrPut(def.name) { mutableSetOf() }.add(constantReturnTerm(def))
+    private val IDENT_PATH_REGEX = Regex("""[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*""")
+    private val CALL_HEAD_REGEX = Regex("""^([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*\(""")
+    private val WHEN_EXPR_HEAD_REGEX = Regex("""^when\b""")
+
+    /** `name: type = default` of a parameter list - [parseParams] with the DEFAULTS kept. */
+    internal fun parseParamsWithDefaults(params: String): List<BoundParam> {
+        if (params.isBlank()) return emptyList()
+        val out = mutableListOf<BoundParam>()
+        var depth = 0
+        val cur = StringBuilder()
+        fun flush() {
+            val raw = cur.toString().trim()
+            cur.clear()
+            if (raw.isEmpty()) return
+            var eq = -1
+            var d = 0
+            raw.forEachIndexed { i, c ->
+                when (c) {
+                    '(', '[', '{' -> d++
+                    ')', ']', '}' -> d--
+                    '=' -> if (d == 0 && eq < 0 && raw.getOrNull(i + 1) != '=' &&
+                        (i == 0 || raw[i - 1] !in "=!<>")
+                    ) {
+                        eq = i
+                    }
+                }
+            }
+            val head = (if (eq >= 0) raw.substring(0, eq) else raw).trim()
+            val default = if (eq >= 0) raw.substring(eq + 1).trim().takeIf { it.isNotEmpty() } else null
+            val name = head.substringBefore(':').trim()
+            if (name.isNotEmpty()) out.add(BoundParam(name, default))
+        }
+        params.forEach { c ->
+            when (c) {
+                '(', '<', '[', '{' -> { depth++; cur.append(c) }
+                ')', '>', ']', '}' -> { depth--; cur.append(c) }
+                ',' -> if (depth == 0) flush() else cur.append(c)
+                else -> cur.append(c)
             }
         }
-        val out = mutableMapOf<String, String>()
-        terms.forEach { (name, values) ->
-            val only = values.singleOrNull()
-            if (only != null) out[name] = only
-        }
+        flush()
         return out
     }
 
-    /** The single term [def] returns, or null when it is not a named constant. */
-    private fun constantReturnTerm(def: FunctionDef): String? {
-        if (def.params.isNotBlank()) return null
+    /**
+     * Every app-owned function AND query, mapped to its parameters and the one
+     * expression it returns. A name defined more than once resolves only when
+     * every definition agrees - the conservatism [authFunctionNames] applies to
+     * duplicate names, for the same reason.
+     */
+    internal fun boundCallables(fullyMasked: Map<String, String>): Map<String, BoundCallable> {
+        val seen = mutableMapOf<String, MutableSet<BoundCallable>>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            (functionDefinitions(masked) + queryDefinitions(masked)).forEach { def ->
+                seen.getOrPut(def.name) { mutableSetOf() }
+                    .add(BoundCallable(parseParamsWithDefaults(def.params), soleExpressionOf(def)))
+            }
+        }
+        return seen.filterValues { it.size == 1 }.mapValues { it.value.single() }
+    }
+
+    /** The ONE expression [def] returns - `= expr`, or a body that is a single `return` - else null. */
+    private fun soleExpressionOf(def: FunctionDef): String? {
         val raw = if (def.expressionBody) {
             def.body
         } else {
-            val stmts = def.body.split(';').filter { it.isNotBlank() }
+            val stmts = splitTopLevelSemicolons(def.body).filter { it.isNotBlank() }
             if (stmts.size != 1) return null
             SOLE_RETURN_REGEX.find(stmts[0])?.groupValues?.get(1) ?: return null
         }
-        val t = raw.trim().trimEnd(';').trim()
-        if (t.isEmpty() || !REDUCIBLE_TERM_REGEX.matches(t)) return null
-        val bare = t.removeSuffix("()").trim().replace(WS_REGEX, "")
-        // A dotted read is STATE unless it is a module argument.
-        if (bare.contains('.') && !MODULE_ARG_TERM_REGEX.containsMatchIn(bare)) return null
-        return bare
+        return raw.trim().trimEnd(';').trim().takeIf { it.isNotEmpty() }
+    }
+
+    /** [text] split on the `;` that are NOT nested - a `when`'s arms are one expression, not three. */
+    private fun splitTopLevelSemicolons(text: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var depth = 0
+        text.forEach { c ->
+            when {
+                c == '(' || c == '[' || c == '{' -> { depth++; cur.append(c) }
+                c == ')' || c == ']' || c == '}' -> { depth--; cur.append(c) }
+                c == ';' && depth <= 0 -> { out.add(cur.toString()); cur.clear() }
+                else -> cur.append(c)
+            }
+        }
+        out.add(cur.toString())
+        return out
+    }
+
+    private val NAMESPACE_TAIL_REGEX = Regex("""\bnamespace\s+([A-Za-z_][\w.]*)\s*$""")
+    private val MODULE_VAL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*(?::[^=;]*)?=([^;]*);""")
+
+    /**
+     * Module-level `val NAME = <expression>` of the app's own files, keyed by
+     * BOTH the bare name and the name qualified by every enclosing namespace.
+     * Round 18 moved round 16's floor of 1 into `namespace cfg { val FLOOR = 1; }`
+     * and read it as `cfg.FLOOR`: the same val, one qualifier away, and the
+     * name-keyed table had never seen a qualifier. A `val` inside a function,
+     * an operation or an entity is a LOCAL, not a constant, and is skipped with
+     * its block; a name two definitions spell differently is dropped.
+     */
+    internal fun moduleConstantExpressions(fullyMasked: Map<String, String>): Map<String, String> {
+        val seen = mutableMapOf<String, MutableSet<String>>()
+        fun collect(text: String, prefix: String) {
+            val top = StringBuilder()
+            var i = 0
+            while (i < text.length) {
+                val c = text[i]
+                if (c == '{') {
+                    val close = matchDelimiter(text, i, '{', '}') ?: (text.length - 1)
+                    NAMESPACE_TAIL_REGEX.find(text.substring(maxOf(0, i - 120), i))?.let { ns ->
+                        if (close > i) collect(text.substring(i + 1, close), prefix + ns.groupValues[1] + ".")
+                    }
+                    repeat(close - i + 1) { top.append(' ') }
+                    i = close + 1
+                    continue
+                }
+                top.append(c)
+                i++
+            }
+            MODULE_VAL_REGEX.findAll(top).forEach { m ->
+                val expr = m.groupValues[2].trim()
+                if (expr.isEmpty()) return@forEach
+                seen.getOrPut(prefix + m.groupValues[1]) { mutableSetOf() }.add(expr)
+                if (prefix.isNotEmpty()) seen.getOrPut(m.groupValues[1]) { mutableSetOf() }.add(expr)
+            }
+        }
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            collect(masked, "")
+        }
+        return seen.filterValues { it.size == 1 }.mapValues { it.value.single() }
+    }
+
+    private val TEXT_VAL_REGEX = Regex("""\bval\s+([A-Za-z_]\w*)\s*(?::[^=;]*)?=\s*"([^"\\]*)"\s*;""")
+
+    /**
+     * Module-level `val NAME = "literal";` mapped to the literal's LENGTH. The
+     * masked source every other scan runs on blanks a string's contents, so the
+     * only copy a text length can be read from is the comment-masked one - and
+     * the two maskings preserve offsets exactly, so a match counts only where
+     * the FULLY masked copy also has `val` at the same offset. That is what
+     * keeps a `val` written inside a string literal from becoming a constant.
+     */
+    internal fun textConstantLengths(files: Map<String, String>): Map<String, Long> {
+        val seen = mutableMapOf<String, MutableSet<Long>>()
+        files.forEach { (path, content) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            val commentMasked = maskRellSource(content, maskStrings = false)
+            val fully = maskRellSource(content, maskStrings = true)
+            TEXT_VAL_REGEX.findAll(commentMasked).forEach { m ->
+                if (!fully.regionMatches(m.range.first, "val", 0, 3)) return@forEach
+                seen.getOrPut(m.groupValues[1]) { mutableSetOf() }.add(m.groupValues[2].length.toLong())
+            }
+        }
+        return seen.filterValues { it.size == 1 }.mapValues { it.value.single() }
+    }
+
+    /**
+     * The callable [term] names, if it really names one: a BARE name, or any
+     * name written `name()`. `book.floor` must never resolve through a function
+     * that happens to be called `floor` - a dotted read with no parentheses is
+     * a field, and reading it as a call is how an evaluator invents a number.
+     */
+    private fun namedCallable(term: String, env: BoundEnv): BoundCallable? {
+        val flat = term.replace(WS_REGEX, "")
+        val bare = flat.removeSuffix("()")
+        if (bare.contains('.') && !flat.endsWith("()")) return null
+        return env.callables[bare.substringAfterLast('.')]
+    }
+
+    /**
+     * [expr]'s value, or null when this scan cannot be SURE of it. [locals]
+     * binds a callee's parameters to the numbers the call site - or their own
+     * defaults - gave them; [seen] makes constants and calls cycle-safe.
+     */
+    private fun evalBound(
+        expr: String,
+        env: BoundEnv,
+        locals: Map<String, Long> = emptyMap(),
+        depth: Int = 0,
+        seen: Set<String> = emptySet()
+    ): Long? {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return null
+        var e = expr.trim()
+        while (e.length > 1 && e.first() == '(' && matchDelimiter(e, 0, '(', ')') == e.length - 1) {
+            e = e.substring(1, e.length - 1).trim()
+        }
+        if (e.isEmpty()) return null
+        e.toLongOrNull()?.let { return it }
+        if (WHEN_EXPR_HEAD_REGEX.containsMatchIn(e)) return evalWhen(e, env, locals, depth, seen)
+        splitBinary(e, "+-").takeIf { it.size > 1 }?.let { return foldBinary(it, env, locals, depth, seen) }
+        splitBinary(e, "*/%").takeIf { it.size > 1 }?.let { return foldBinary(it, env, locals, depth, seen) }
+        if (e.startsWith("-")) return evalBound(e.substring(1), env, locals, depth + 1, seen)?.let { -it }
+        if (e.startsWith("+")) return evalBound(e.substring(1), env, locals, depth + 1, seen)
+        return evalAtom(e, env, locals, depth, seen)
+    }
+
+    /** The top-level [ops] operands of [expr], each with the operator in front of it (' ' for the first). */
+    private fun splitBinary(expr: String, ops: String): List<Pair<Char, String>> {
+        val out = mutableListOf<Pair<Char, String>>()
+        val cur = StringBuilder()
+        var depth = 0
+        var prev = ' '
+        var op = ' '
+        var i = 0
+        while (i < expr.length) {
+            val c = expr[i]
+            val next = expr.getOrElse(i + 1) { ' ' }
+            val binary = depth == 0 && ops.indexOf(c) >= 0 && next != '=' && next != '>' &&
+                (prev.isLetterOrDigit() || prev == '_' || prev == ')' || prev == ']')
+            when {
+                c == '(' || c == '[' || c == '{' -> { depth++; cur.append(c) }
+                c == ')' || c == ']' || c == '}' -> { depth--; cur.append(c) }
+                binary -> { out.add(op to cur.toString()); cur.clear(); op = c }
+                else -> cur.append(c)
+            }
+            if (!c.isWhitespace()) prev = c
+            i++
+        }
+        out.add(op to cur.toString())
+        return out
+    }
+
+    private fun foldBinary(
+        parts: List<Pair<Char, String>>,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Long? {
+        var acc = evalBound(parts[0].second, env, locals, depth + 1, seen) ?: return null
+        parts.drop(1).forEach { (op, term) ->
+            val v = evalBound(term, env, locals, depth + 1, seen) ?: return null
+            acc = when (op) {
+                '+' -> acc + v
+                '-' -> acc - v
+                '*' -> acc * v
+                '/' -> if (v == 0L) return null else acc / v
+                '%' -> if (v == 0L) return null else acc % v
+                else -> return null
+            }
+        }
+        return acc
+    }
+
+    /**
+     * A `when` whose every arm yields the SAME value IS that value; anything
+     * else is unresolved. `when { pot > 0 -> 1; else -> 1 }` is a spelling of 1
+     * that needs no branch analysis to read, and an arm this cannot value makes
+     * the whole expression unresolved rather than the last arm's number.
+     */
+    private fun evalWhen(
+        expr: String,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Long? {
+        val open = expr.indexOf('{')
+        if (open < 0) return null
+        val close = matchDelimiter(expr, open, '{', '}') ?: return null
+        if (expr.substring(close + 1).isNotBlank()) return null
+        val arms = splitTopLevelSemicolons(expr.substring(open + 1, close))
+            .flatMap { it.split('\n') }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (arms.isEmpty()) return null
+        var value: Long? = null
+        arms.forEach { arm ->
+            val arrow = lastTopLevelArrow(arm)
+            if (arrow < 0) return null
+            val v = evalBound(arm.substring(arrow + 2), env, locals, depth + 1, seen) ?: return null
+            if (value == null) value = v else if (value != v) return null
+        }
+        return value
+    }
+
+    /** The index of the last `->` of [text] that is not nested. */
+    private fun lastTopLevelArrow(text: String): Int {
+        var depth = 0
+        var found = -1
+        var i = 0
+        while (i < text.length - 1) {
+            when (text[i]) {
+                '(', '[', '{' -> depth++
+                ')', ']', '}' -> depth--
+                '-' -> if (depth == 0 && text[i + 1] == '>') found = i
+            }
+            i++
+        }
+        return found
+    }
+
+    private fun evalAtom(
+        expr: String,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Long? {
+        val e = expr.trim()
+        // `X[i]` - a list literal, or a name that is one, indexed by a number.
+        if (e.endsWith("]")) {
+            val open = matchingOpenBracket(e)
+            if (open > 0) {
+                val idx = evalBound(e.substring(open + 1, e.length - 1), env, locals, depth + 1, seen) ?: return null
+                val items = listItems(e.substring(0, open).trim(), env, depth, seen) ?: return null
+                if (idx < 0 || idx >= items.size) return null
+                return evalBound(items[idx.toInt()], env, locals, depth + 1, seen)
+            }
+        }
+        CALL_HEAD_REGEX.find(e)?.let { m ->
+            val open = e.indexOf('(')
+            val close = matchDelimiter(e, open, '(', ')') ?: return null
+            if (e.substring(close + 1).isNotBlank()) return null
+            return evalCall(
+                m.groupValues[1].replace(WS_REGEX, ""), e.substring(open + 1, close), env, locals, depth, seen
+            )
+        }
+        return evalName(e.replace(WS_REGEX, ""), env, locals, depth, seen)
+    }
+
+    /** The `[` matching a trailing `]`, or -1 when the expression does not end in an index. */
+    private fun matchingOpenBracket(text: String): Int {
+        var depth = 0
+        var i = text.length - 1
+        while (i >= 0) {
+            when (text[i]) {
+                ')', ']', '}' -> depth++
+                '(', '[', '{' -> {
+                    depth--
+                    if (depth == 0) return if (text[i] == '[') i else -1
+                }
+            }
+            i--
+        }
+        return -1
+    }
+
+    /** [expr] as a list literal's element expressions, through a name or a call that is one. */
+    private fun listItems(expr: String, env: BoundEnv, depth: Int, seen: Set<String>): List<String>? {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return null
+        val e = expr.trim()
+        if (e.startsWith("[") && matchDelimiter(e, 0, '[', ']') == e.length - 1) {
+            return splitArgs(e.substring(1, e.length - 1))
+        }
+        val bare = e.replace(WS_REGEX, "").removeSuffix("()")
+        if (bare in seen) return null
+        val next = env.constExprs[bare] ?: namedCallable(e, env)?.expr ?: return null
+        return listItems(next, env, depth + 1, seen + bare)
+    }
+
+    private fun evalCall(
+        name: String,
+        argText: String,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Long? {
+        val args = splitArgs(argText).filter { it.isNotBlank() }
+        val bare = name.substringAfterLast('.')
+        // The system functions a bound gets spelled with.
+        when (bare) {
+            "min", "max" -> if (args.size == 2) {
+                val a = evalBound(args[0], env, locals, depth + 1, seen) ?: return null
+                val b = evalBound(args[1], env, locals, depth + 1, seen) ?: return null
+                return if (bare == "min") minOf(a, b) else maxOf(a, b)
+            }
+            "abs" -> if (args.size == 1) {
+                val a = evalBound(args[0], env, locals, depth + 1, seen) ?: return null
+                return if (a < 0) -a else a
+            }
+            "size", "len" -> if (args.isEmpty() && name.contains('.')) {
+                return env.textLengths[name.substringBeforeLast('.')]
+            }
+        }
+        val callable = env.callables[bare] ?: return null
+        val body = callable.expr ?: return null
+        if (bare in seen || depth > MAX_BOUND_EVAL_DEPTH) return null
+        val positional = args.filter { a ->
+            NAMED_ARG_REGEX.find(a.trim())?.let { n -> callable.params.none { p -> p.name == n.groupValues[1] } } ?: true
+        }
+        val bound = mutableMapOf<String, Long>()
+        var next = 0
+        callable.params.forEach { p ->
+            val named = args.firstNotNullOfOrNull { a ->
+                NAMED_ARG_REGEX.find(a.trim())?.let { n -> if (n.groupValues[1] == p.name) n.groupValues[2] else null }
+            }
+            val actual = named ?: positional.getOrNull(next)?.also { next++ }
+            val v = if (actual != null) {
+                evalBound(actual, env, locals, depth + 1, seen)
+            } else {
+                p.default?.let { evalBound(it, env, bound.toMap(), depth + 1, seen + bare) }
+            }
+            if (v == null) return null
+            bound[p.name] = v
+        }
+        return evalBound(body, env, bound, depth + 1, seen + bare)
+    }
+
+    private fun evalName(
+        name: String,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Long? {
+        locals[name]?.let { return it }
+        MODULE_ARG_TERM_REGEX.find(name)?.let { return env.moduleArgs[it.groupValues[1]] }
+        if (name in seen || depth > MAX_BOUND_EVAL_DEPTH) return null
+        env.constExprs[name]?.let { return evalBound(it, env, emptyMap(), depth + 1, seen + name) }
+        env.constants[name]?.let { return it }
+        // A parameterless callable named WITHOUT its parentheses: the
+        // participation-floor term is captured as a name, never as a call.
+        namedCallable(name, env)?.let { c ->
+            val body = c.expr
+            if (body != null && c.params.all { it.default != null }) {
+                val bound = mutableMapOf<String, Long>()
+                c.params.forEach { p ->
+                    val v = evalBound(p.default!!, env, bound.toMap(), depth + 1, seen + name) ?: return null
+                    bound[p.name] = v
+                }
+                return evalBound(body, env, bound, depth + 1, seen + name)
+            }
+        }
+        // A STRUCT FIELD of a module-level constant: `val LIMITS = limits(floor = 1);`
+        // read as `LIMITS.floor`.
+        if (name.contains('.')) {
+            val base = env.constExprs[name.substringBeforeLast('.')] ?: return null
+            val field = name.substringAfterLast('.')
+            val open = base.indexOf('(')
+            if (open < 0) return null
+            val close = matchDelimiter(base, open, '(', ')') ?: return null
+            if (base.substring(0, open).trim().substringAfterLast('.') in env.callables) return null
+            splitArgs(base.substring(open + 1, close)).forEach { arg ->
+                NAMED_ARG_REGEX.find(arg.trim())?.let { n ->
+                    if (n.groupValues[1] == field) {
+                        return evalBound(n.groupValues[2], env, emptyMap(), depth + 1, seen + name)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * The STATE READS a bound's value can come out of, following the term
+     * through every module-level `val`, function and QUERY it names. Round 18
+     * put `book.floor` behind `function participation_floor(): integer =
+     * book.floor;` and then behind `query floor_of()` as well; both are the
+     * same field, and the rule that asks WHO WRITES IT has to see it.
+     *
+     * The walk mirrors [evalBound] rather than taking every identifier in the
+     * expanded text, because the two are not the same set. `when { book.pot > 0
+     * -> 25; else -> 25 }` IS the number 25 - `book.pot` decides which arm,
+     * never what the arm is worth - and reading the condition as part of the
+     * bound rejected a real floor of 25 on a field the proposer moves. So: a
+     * `when`'s ARMS and not its conditions; a call's ARGUMENTS and the callee's
+     * returned expression; both operands of an operator; the base and the index
+     * of a subscript. Depth-bounded and cycle-safe.
+     */
+    internal fun boundStateReads(
+        expr: String,
+        env: BoundEnv,
+        depth: Int = 0,
+        seen: Set<String> = emptySet()
+    ): Set<String> {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return emptySet()
+        var e = expr.trim()
+        while (e.length > 1 && e.first() == '(' && matchDelimiter(e, 0, '(', ')') == e.length - 1) {
+            e = e.substring(1, e.length - 1).trim()
+        }
+        if (e.isEmpty() || e.toLongOrNull() != null) return emptySet()
+        if (WHEN_EXPR_HEAD_REGEX.containsMatchIn(e)) {
+            val open = e.indexOf('{')
+            val close = if (open < 0) -1 else matchDelimiter(e, open, '{', '}') ?: -1
+            if (close < 0) return emptySet()
+            return splitTopLevelSemicolons(e.substring(open + 1, close))
+                .flatMap { it.split('\n') }
+                .flatMapTo(mutableSetOf()) { arm ->
+                    val arrow = lastTopLevelArrow(arm)
+                    if (arrow < 0) emptySet() else boundStateReads(arm.substring(arrow + 2), env, depth + 1, seen)
+                }
+        }
+        listOf("+-", "*/%").forEach { ops ->
+            val parts = splitBinary(e, ops)
+            if (parts.size > 1) {
+                return parts.flatMapTo(mutableSetOf()) { boundStateReads(it.second, env, depth + 1, seen) }
+            }
+        }
+        if (e.startsWith("-") || e.startsWith("+")) return boundStateReads(e.substring(1), env, depth + 1, seen)
+        if (e.endsWith("]")) {
+            val open = matchingOpenBracket(e)
+            if (open > 0) {
+                return boundStateReads(e.substring(0, open), env, depth + 1, seen) +
+                    boundStateReads(e.substring(open + 1, e.length - 1), env, depth + 1, seen)
+            }
+        }
+        CALL_HEAD_REGEX.find(e)?.let { m ->
+            val name = m.groupValues[1].replace(WS_REGEX, "")
+            val open = e.indexOf('(')
+            val close = matchDelimiter(e, open, '(', ')') ?: return emptySet()
+            val out = splitArgs(e.substring(open + 1, close))
+                .flatMapTo(mutableSetOf()) { boundStateReads(it, env, depth + 1, seen) }
+            val callee = env.callables[name.substringAfterLast('.')]
+            if (callee != null && name !in seen) {
+                callee.expr?.let { out += boundStateReads(it, env, depth + 1, seen + name) }
+                callee.params.forEach { p ->
+                    p.default?.let { out += boundStateReads(it, env, depth + 1, seen + name) }
+                }
+            }
+            return out
+        }
+        val bare = e.replace(WS_REGEX, "")
+        if (IDENT_PATH_REGEX.matches(bare)) {
+            if (bare in seen) return emptySet()
+            env.constExprs[bare]?.let { return boundStateReads(it, env, depth + 1, seen + bare) }
+            namedCallable(e, env)?.expr?.let { return boundStateReads(it, env, depth + 1, seen + bare) }
+            return if (bare.contains('.')) setOf(bare) else emptySet()
+        }
+        // An at-expression, a lambda, anything this walk does not model: fall
+        // back to every identifier in it, which is what the raw term always got.
+        return refsOf(e)
+    }
+
+    /**
+     * What a bound TERM is worth. A `module_args` field is recognised BEFORE it
+     * is valued, because a bound that lives in configuration is a different
+     * finding from a bound that is a number in the source.
+     */
+    private fun resolveBound(term: String, env: BoundEnv): BoundValue {
+        unwrapToModuleArg(term, env)?.let { return BoundValue(env.moduleArgs[it], it) }
+        return BoundValue(evalBound(term, env), null)
+    }
+
+    /**
+     * The `module_args` field [term] IS, following module-level `val`s and
+     * zero-argument callables to get there (`function min_voting_ms(): integer
+     * = chain_context.args.min;`), cycle-safe and bounded at
+     * [MAX_BOUND_CALL_DEPTH].
+     */
+    private fun unwrapToModuleArg(term: String, env: BoundEnv): String? {
+        var t = term.trim()
+        val seen = mutableSetOf<String>()
+        repeat(MAX_BOUND_CALL_DEPTH) {
+            val flat = t.replace(WS_REGEX, "")
+            MODULE_ARG_TERM_REGEX.find(flat)?.let { return it.groupValues[1] }
+            val bare = flat.removeSuffix("()")
+            if (!IDENT_PATH_REGEX.matches(bare) || !seen.add(bare)) return null
+            t = env.constExprs[bare] ?: namedCallable(t, env)?.expr ?: return null
+        }
+        return null
     }
 
     private val MODULE_ARGS_STRUCT_REGEX = Regex("""\bstruct\s+module_args\s*\{""")
@@ -3406,6 +3988,69 @@ object RellSecurityCheck {
         """([A-Za-z_][\w.]*(?:\s*\.\s*\w+\s*\(\s*\))?|\d+)\s*(?:==|!=)\s*([A-Za-z_][\w.]*(?:\s*\.\s*\w+\s*\(\s*\))?|\d+)"""
     )
 
+    /** A source pattern that matches nothing: [clockSelectorUse] keyed on NAMES alone. */
+    private val NEVER_MATCHES_REGEX = Regex("""\z.""")
+
+    /**
+     * A callable a clock value can be drawn THROUGH: its parameters in order,
+     * and which of them the body uses as a SELECTOR.
+     */
+    internal data class ClockCallable(val params: List<String>, val selecting: Set<String>)
+
+    /**
+     * ROUND 18: THE DRAW MOVED INTO A FUNCTION'S PARAMETER.
+     *
+     * `winner_at(op_context.last_block_time)` hands the clock to a function
+     * whose body is `val ticket = at % pot.staked;` and whose RETURN is the
+     * account that ticket lands on. Flattening the helper into the operation
+     * shows the modulo, but nothing in the operation is DERIVED from it: the
+     * winner comes back through a `return` inside a loop, so the taint stops at
+     * the call and a raffle anyone can time drew zero findings
+     * (`r18-raffle-a-draw-the-caller-chooses-the-block-for`, 300 points moved on
+     * a real chain).
+     *
+     * So the clock is followed through PARAMETERS. For every app-owned function
+     * and query, a parameter is SELECTING when the body reduces it modulo
+     * something, subscripts with it, or compares it for equality against a
+     * non-literal - [clockSelectorUse] with the parameter in place of the clock
+     * - reading the body with its own helpers flattened. A call that hands a
+     * clock-derived argument to a selecting parameter is then itself a draw,
+     * and everything computed from its result is drawn from the clock.
+     *
+     * This is a DATA FLOW, not a spelling: the parameter's name, the callee's
+     * name and the arithmetic around the modulo are all free. And it cannot
+     * fire on an honest clock use, because a bound (`require(now >= deadline)`)
+     * is an inequality, which is not a selector in either direction.
+     */
+    internal fun clockSelectorCallables(
+        fullyMasked: Map<String, String>,
+        entities: Set<String>,
+        helpers: Map<String, List<FunctionDef>>
+    ): Map<String, ClockCallable> {
+        val out = mutableMapOf<String, ClockCallable>()
+        fullyMasked.forEach { (path, masked) ->
+            if (RellLibs.isVendoredLibraryPath(path) || RellLibs.isThirdPartyLibPath(path)) return@forEach
+            (functionDefinitions(masked) + queryDefinitions(masked)).forEach { def ->
+                val params = parseParams(def.params).map { it.first }
+                if (params.isEmpty()) return@forEach
+                val flat = flattenHelpers(def.body, helpers, entities)
+                val bindings = bindingsOf(flat)
+                val stmts = statementsOf(flat)
+                val selecting = params.filterTo(mutableSetOf()) { p ->
+                    val derived = derivedNames(bindings, setOf(p), null)
+                    bindings.values.any { rhss -> rhss.any { clockSelectorUse(it, derived, NEVER_MATCHES_REGEX) } } ||
+                        stmts.any { clockSelectorUse(it, derived, NEVER_MATCHES_REGEX) }
+                }
+                if (selecting.isEmpty()) return@forEach
+                val existing = out[def.name]
+                out[def.name] =
+                    if (existing == null) ClockCallable(params, selecting)
+                    else ClockCallable(existing.params, existing.selecting + selecting)
+            }
+        }
+        return out
+    }
+
     /**
      * True when [expr] uses a block-clock value to SELECT rather than to bound:
      * reduced modulo something, compared for equality against a non-literal, or
@@ -3443,7 +4088,8 @@ object RellSecurityCheck {
         helperReturns: Map<String, String>,
         helpers: Map<String, List<FunctionDef>>,
         identityFields: Set<String>,
-        storedClockFields: Set<String>
+        storedClockFields: Set<String>,
+        clockCallables: Map<String, ClockCallable> = emptyMap()
     ): List<Finding> {
         val flat = flattenHelpers(op.body, helpers, entities)
         // A clock parked in a row by one operation and read back by another is
@@ -3456,15 +4102,56 @@ object RellSecurityCheck {
         if (!clockSource.containsMatchIn(flat)) return emptyList()
         val bindings = bindingsOf(flat)
         val clockNames = derivedNames(bindings, TIME_SOURCE_NAMES, clockSource)
+        // ROUND 18: A DRAW THE OPERATION MAKES THROUGH A CALL. The selector may
+        // live inside the callee, keyed on a PARAMETER the operation hands the
+        // clock to - `winner_at(op_context.last_block_time)`, whose body does
+        // `at % pot.staked`. Flattening shows the modulo but nothing in the
+        // operation is derived from it, because the winner comes back through a
+        // `return` rather than through a value. So the CALL is the draw, read
+        // off the operation's own (unflattened) text where the arguments are
+        // still the arguments.
+        val opBindings = bindingsOf(op.body)
+        val opClockNames = derivedNames(opBindings, TIME_SOURCE_NAMES, clockSource)
+        fun drawnThroughACall(text: String): Boolean {
+            CALL_SITE_REGEX.findAll(text).forEach { m ->
+                val callee = clockCallables[m.groupValues[1]] ?: return@forEach
+                val open = text.indexOf('(', m.range.first)
+                if (open < 0) return@forEach
+                val close = matchDelimiter(text, open, '(', ')') ?: return@forEach
+                val actuals = splitArgs(text.substring(open + 1, close))
+                callee.params.forEachIndexed { i, formal ->
+                    if (formal in callee.selecting) {
+                        val named = actuals.firstNotNullOfOrNull { a ->
+                            NAMED_ARG_REGEX.find(a.trim())
+                                ?.let { n -> if (n.groupValues[1] == formal) n.groupValues[2] else null }
+                        }
+                        val actual = named ?: actuals.getOrNull(i)
+                        val fromClock = actual != null &&
+                            (clockSource.containsMatchIn(actual) || refsOf(actual).any { r -> r in opClockNames })
+                        if (fromClock) return true
+                    }
+                }
+            }
+            return false
+        }
+        val drawnByACall =
+            derivedNames(opBindings, opBindings.filterValues { rhss -> rhss.any { drawnThroughACall(it) } }.keys, null)
         // Seeds: locals whose VALUE came out of a selector use of the clock.
         // Everything computed from a seed inherits it, so routing the draw
         // through an intermediate val, a helper or a hash changes nothing.
-        val seeds = bindings.filterValues { rhs -> rhs.any { clockSelectorUse(it, clockNames, clockSource) } }.keys
-        if (seeds.isEmpty() && !statementsOf(flat).any { clockSelectorUse(it, clockNames, clockSource) }) return emptyList()
+        val seeds =
+            bindings.filterValues { rhs -> rhs.any { clockSelectorUse(it, clockNames, clockSource) } }.keys + drawnByACall
+        if (seeds.isEmpty() &&
+            !statementsOf(flat).any { clockSelectorUse(it, clockNames, clockSource) } &&
+            !statementsOf(op.body).any { drawnThroughACall(it) }
+        ) {
+            return emptyList()
+        }
         val selectors = derivedNames(bindings, seeds, null)
 
         fun selected(text: String): Boolean =
-            refClosure(text, bindings).any { it in selectors } || clockSelectorUse(text, clockNames, clockSource)
+            refClosure(text, bindings).any { it in selectors } ||
+                clockSelectorUse(text, clockNames, clockSource) || drawnThroughACall(text)
 
         var beneficiary: String? = null
         var how: String? = null
