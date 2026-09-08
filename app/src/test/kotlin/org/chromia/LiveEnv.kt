@@ -208,7 +208,7 @@ object LiveEnv {
     //     (`ChromiaConfig().explorerUrl`), because a canary against a different
     //     endpoint would be evidence about a different service.
     //
-    // AssumptionLedgerTest.ourOwnTimeoutThroughTheRealSeamStaysARed measures
+    // AssumptionLedgerTest.ourOwnRequestTimeoutThroughTheRealSeamStaysARed measures
     // exactly that end to end: it tightens the production `requestTimeout` to
     // 1 ms through the real `ChromiaConfig`/`HttpTimeouts` seam, makes a real
     // live tool call, and proves the result is a RED and not a warning.
