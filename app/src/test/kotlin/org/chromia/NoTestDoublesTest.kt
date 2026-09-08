@@ -409,7 +409,10 @@ class NoTestDoublesTest {
         librarySupertypes.getOrPut(internalName) {
             runCatching {
                 val type = Class.forName(internalName.replace('/', '.'), false, javaClass.classLoader)
-                (listOfNotNull(type.superclass) + type.interfaces).map { it.name.replace('.', '/') }
+                val supertypes = mutableListOf<String>()
+                type.superclass?.let { supertypes += it.name.replace('.', '/') }
+                type.interfaces.forEach { supertypes += it.name.replace('.', '/') }
+                supertypes.toList()
             }.getOrDefault(emptyList())
         }
 
