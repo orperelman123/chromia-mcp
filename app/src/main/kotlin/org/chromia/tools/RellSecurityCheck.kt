@@ -1795,6 +1795,32 @@ object RellSecurityCheck {
      * ([evalBound], [BoundEnv]), and the who-writes-it trace now expands the
      * term through every callable it names ([expandBoundTerm]) so a state read
      * behind a function or a query is the same state read.
+     *
+     * ROUND 19 ATTACKED THE EVALUATOR'S OWN DEFAULT - "what I cannot value
+     * keeps the benefit of the doubt" - and drained two DAOs through it on a
+     * real chain (pot 1000000 -> 0, attacker roll 0 -> 1000000, ONE signature,
+     * ONE ballot yes 1 no 0), so both are answered here rather than in a table
+     * of shapes:
+     *  - A FLOOR WITH NO ONE VALUE. `when { book.pot > 0 -> 0; else -> -1 }`
+     *    has no common arm value, so it was unresolved - while every arm of it
+     *    is <= 0 and no branch has a participation floor at all. Unknown was
+     *    the wrong word: the value is unknown, the CEILING is not. The rule now
+     *    asks the second question when the first has no answer - what is the
+     *    BEST this term can be ([evalMaxBound]) - and fires when even that is
+     *    below [SMALLEST_ABSOLUTE_FLOOR]. A term whose ceiling cannot be read
+     *    either still keeps the benefit of the doubt.
+     *  - A FLOOR THAT IS A STRUCT FIELD OFF A CALL. `limits_of().floor` over
+     *    `limits(floor = 0)` returned by a QUERY, and the same over a FUNCTION:
+     *    round 18 read that struct only out of a module-level `val`. Both are
+     *    valued now ([structFieldValue]).
+     * A `when` MIXING a real floor with a fake one - `when { c -> 0; else ->
+     * 25 }` - has a ceiling of 25 and is NOT a finding by value. That is the
+     * deliberate answer, and it is the one the measurement already gives for
+     * the same shape spelled as data: `floors()[book.pot % 2]` over `[0, 25]`
+     * fires because `book.pot` is a field the PROPOSER MOVES, not because 0 is
+     * one of the two numbers. A value refreshed on some paths and not others is
+     * caught by who writes the state that chooses the path, which is the rule
+     * rounds 16 and 17 built, and not by pessimising every branch.
      */
     private const val SMALLEST_ABSOLUTE_FLOOR = 10L
 
@@ -1820,8 +1846,21 @@ object RellSecurityCheck {
             // exactly as it did when only literals and vals were resolved. A
             // value at or below zero is no bound at all, which the floor
             // comparison already says.
-            val literal = resolveBound(term, env).literal
-            if (literal == null) true else literal >= SMALLEST_ABSOLUTE_FLOOR
+            val bound = resolveBound(term, env)
+            bound.literal?.let { return@any it >= SMALLEST_ABSOLUTE_FLOOR }
+            if (bound.moduleArg != null) return@any true
+            // ROUND 19: UNRESOLVED IS NOT THE SAME AS UNKNOWABLE. `when {
+            // book.pot > 0 -> 0; else -> -1 }` has no ONE value, so
+            // [evalBound] answers nothing about it - and every path through it
+            // is still a number this scan can read, and every one of them is
+            // <= 0. So the term gets a second question: what is the BEST it
+            // can possibly be ([evalMaxBound])? A floor whose MAXIMUM bounds
+            // nothing bounds nothing on any path, and that is a finding on all
+            // of them. A term whose ceiling this cannot read either stays
+            // unresolved and keeps the benefit of the doubt, exactly as
+            // before.
+            val ceiling = evalMaxBound(term, env) ?: return@any true
+            ceiling >= SMALLEST_ABSOLUTE_FLOOR
         }
     }
 
@@ -2322,20 +2361,57 @@ object RellSecurityCheck {
     // rounds 11 to 17 say so every time - so the resolver stops being a shape
     // recogniser.
     //
-    // [evalBound] is a small CONSTANT EVALUATOR over Rell expressions: integer
-    // literals, `val`s under any namespace resolved by qualified name, `struct
-    // module_args` defaults, unary minus, + - * / %, min/max/abs, a list index,
-    // a struct field, a text length, a `when` whose every arm is the same
-    // value, and a call into any function OR QUERY whose body is a single
-    // expression - parameters the call site leaves unbound taking their own
-    // DEFAULTS - depth-bounded and cycle-safe. What it cannot value stays
-    // UNRESOLVED and keeps the benefit of the doubt exactly as before: guessing
-    // there is how a rule starts firing on correct code.
+    // [evalBound] is a small CONSTANT EVALUATOR over Rell expressions. THE
+    // CATALOGUE OF WHAT IT VALUES, which is the catalogue this rule is
+    // answerable for:
+    //   - an integer literal, and unary + / -;
+    //   - `+ - * / %` over any of these (a zero divisor is UNRESOLVED, because
+    //     Rell has no value for it either);
+    //   - `min` / `max` of two, `abs` of one, and `.size()` / `.len()` of a
+    //     module-level text constant ([textConstantLengths]);
+    //   - a module-level `val` under any namespace, resolved by qualified name
+    //     ([moduleConstantExpressions]), and a `struct module_args` field's
+    //     declared default ([moduleArgDefaults]);
+    //   - a list literal at an index that is itself valued, through a `val` or
+    //     a callable that returns the list;
+    //   - a `when` whose every arm is the SAME value - and, for the floor rule
+    //     only, the MAXIMUM over arms that are each a constant
+    //     ([evalMaxBound], round 19);
+    //   - a STRUCT FIELD: `LIMITS.floor` of a module-level `val`, and (round
+    //     19) `limits_of().floor` where the constructor is the one expression
+    //     a FUNCTION or a QUERY returns, its arguments bound the way the call
+    //     itself binds them ([structFieldValue], [bindCallArgs]);
+    //   - a call into any function OR QUERY whose body is a single expression -
+    //     parameters the call site leaves unbound taking their own DEFAULTS.
+    // All of it depth-bounded ([MAX_BOUND_EVAL_DEPTH]) and cycle-safe. What it
+    // cannot value stays UNRESOLVED and keeps the benefit of the doubt exactly
+    // as before: guessing there is how a rule starts firing on correct code.
+    //
+    // ROUND 19 WENT ROUND THE EVALUATOR THREE TIMES, AND TWO OF THEM LANDED
+    // (both DRAINED on a real chain: pot 1000000 -> 0, one signature, one
+    // ballot).
+    //  - THE FLOOR HAD NO ONE VALUE. `when { book.pot > 0 -> 0; else -> -1 }`
+    //    is not a number, so the term was unresolved and unresolved keeps the
+    //    benefit of the doubt - while EVERY arm was <= 0 and no branch had a
+    //    floor at all. The value is unknown; the CEILING is not ([evalMaxBound]).
+    //  - THE STRUCT MOVED BEHIND A CALL. Round 18's struct-field path needed
+    //    the struct in a module-level `val`; the same `limits(floor = 0)`
+    //    returned by a query or a function was refused by one line of
+    //    [evalAtom] - a call followed by anything is not valued. A trailing
+    //    `.field` is now valued; anything else after a call still is not.
+    //  - `1 / ZERO` STAYS UNRESOLVED and the rule stays silent, which is the
+    //    RIGHT answer and is pinned as such: Rell has no value for it either,
+    //    so the operation throws on every call, no value moves, and a rule
+    //    firing there would be firing on a dapp that is broken rather than one
+    //    that is exploitable.
     //
     // The other half of what a bound is worth is WHO WRITES IT (rounds 16, 17):
     // a term that resolves to a STATE READ is a bound only when every operation
     // that can write that field is authenticated to a named principal. That
     // trace now runs through functions and queries too ([expandBoundTerm]).
+    // The two halves answer different questions and round 19 pinned the
+    // difference: `floors()[book.pot % 2]` over `[0, 25]` has a CEILING of 25
+    // and is caught anyway, because the index is a field the proposer moves.
 
     /** One parameter of a callable the bound resolver may enter, with its default expression. */
     internal data class BoundParam(val name: String, val default: String?)
@@ -2628,6 +2704,22 @@ object RellSecurityCheck {
         depth: Int,
         seen: Set<String>
     ): Long? {
+        val arms = whenArmValues(expr) ?: return null
+        var value: Long? = null
+        arms.forEach { arm ->
+            val v = evalBound(arm, env, locals, depth + 1, seen) ?: return null
+            if (value == null) value = v else if (value != v) return null
+        }
+        return value
+    }
+
+    /**
+     * The `when`'s arms as their VALUE EXPRESSIONS, in source order - the
+     * common parse [evalWhen] and [evalMaxBound] both read, so the two can
+     * never disagree about what an arm is. Null when [expr] is not a `when`
+     * this scan can take apart, or when an arm carries no `->`.
+     */
+    private fun whenArmValues(expr: String): List<String>? {
         val open = expr.indexOf('{')
         if (open < 0) return null
         val close = matchDelimiter(expr, open, '{', '}') ?: return null
@@ -2637,14 +2729,76 @@ object RellSecurityCheck {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
         if (arms.isEmpty()) return null
-        var value: Long? = null
-        arms.forEach { arm ->
+        return arms.map { arm ->
             val arrow = lastTopLevelArrow(arm)
             if (arrow < 0) return null
-            val v = evalBound(arm.substring(arrow + 2), env, locals, depth + 1, seen) ?: return null
-            if (value == null) value = v else if (value != v) return null
+            arm.substring(arrow + 2)
         }
-        return value
+    }
+
+    /**
+     * The LARGEST value [expr] can take, when every path through it is a
+     * constant - ROUND 19, and the only question the floor rule asks that
+     * [evalBound] does not.
+     *
+     * [evalBound] answers a `when` only when every arm is the SAME number,
+     * because a bound worth 0 on one path and 25 on another is not the number
+     * 25 and never was. `when { book.pot > 0 -> 0; else -> -1 }` is that case,
+     * and round 19 drained a DAO through it: unresolved kept the benefit of the
+     * doubt while EVERY arm was <= 0, so no branch had a participation floor at
+     * all. The value is genuinely unknown; the CEILING is not, and a floor that
+     * is at most 0 is not a floor in any branch.
+     *
+     * Only the shapes where a ceiling is SOUND are answered:
+     *  - anything [evalBound] values exactly - its ceiling is that value;
+     *  - a `when` whose every arm has a ceiling - the largest of them;
+     *  - those two behind parentheses, a module-level `val`, or a callable with
+     *    no parameters (`participation_floor()`, and the same name written
+     *    without its parentheses).
+     *
+     * Everything else is null. In particular an ARITHMETIC over an unvalued
+     * `when` is not answered: `-(when { ... })` inverts the order and this walk
+     * does not model that, and a ceiling guessed there is how a rule starts
+     * firing on correct code. `when { a -> 0; else -> 25 }` has a ceiling of
+     * 25 and so is NOT a finding by value - a floor refreshed on some paths and
+     * not others is caught, when it is caught, by WHO WRITES THE STATE that
+     * chooses the path (the round-19 measurement: `floors()[book.pot % 2]` over
+     * `[0, 25]` fires because `book.pot` is a field the proposer moves, not
+     * because 0 is one of the two numbers).
+     */
+    private fun evalMaxBound(
+        expr: String,
+        env: BoundEnv,
+        depth: Int = 0,
+        seen: Set<String> = emptySet()
+    ): Long? {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return null
+        evalBound(expr, env, emptyMap(), depth, seen)?.let { return it }
+        var e = expr.trim()
+        while (e.length > 1 && e.first() == '(' && matchDelimiter(e, 0, '(', ')') == e.length - 1) {
+            e = e.substring(1, e.length - 1).trim()
+        }
+        if (e.isEmpty()) return null
+        if (WHEN_EXPR_HEAD_REGEX.containsMatchIn(e)) {
+            val arms = whenArmValues(e) ?: return null
+            var best: Long? = null
+            arms.forEach { arm ->
+                val v = evalMaxBound(arm, env, depth + 1, seen) ?: return null
+                best = if (best == null) v else maxOf(best!!, v)
+            }
+            return best
+        }
+        // The same name one hop on: a module-level `val`, or the ONE expression
+        // a parameterless function or query returns. A callable that takes
+        // arguments is not followed here - its parameters would have to be
+        // bound, and [evalBound] is the walk that does that.
+        val bare = e.replace(WS_REGEX, "").removeSuffix("()")
+        if (bare in seen || !IDENT_PATH_REGEX.matches(bare)) return null
+        env.constExprs[bare]?.let { return evalMaxBound(it, env, depth + 1, seen + bare) }
+        val callable = namedCallable(e, env) ?: return null
+        if (callable.params.isNotEmpty()) return null
+        val body = callable.expr ?: return null
+        return evalMaxBound(body, env, depth + 1, seen + bare)
     }
 
     /** The index of the last `->` of [text] that is not nested. */
@@ -2684,12 +2838,72 @@ object RellSecurityCheck {
         CALL_HEAD_REGEX.find(e)?.let { m ->
             val open = e.indexOf('(')
             val close = matchDelimiter(e, open, '(', ')') ?: return null
-            if (e.substring(close + 1).isNotBlank()) return null
-            return evalCall(
-                m.groupValues[1].replace(WS_REGEX, ""), e.substring(open + 1, close), env, locals, depth, seen
-            )
+            val name = m.groupValues[1].replace(WS_REGEX, "")
+            val tail = e.substring(close + 1).trim()
+            if (tail.isNotEmpty()) {
+                // ROUND 19: A STRUCT FIELD OFF A CALL - `limits_of().floor`.
+                // Round 18 added the struct-field path through [evalName], and
+                // it needs the struct in a module-level `val`; the SAME
+                // `limits(floor = 0)` behind a function or a query was refused
+                // here, and round 19 drained a DAO through both spellings. So
+                // a trailing `.field` on a call is valued the way the `val`
+                // form is: the callee's ONE expression is the constructor, read
+                // with the call's own arguments bound, through the same
+                // call-depth bound. Anything else after the call - a chained
+                // member, a method call, an index - is still refused.
+                val field = STRUCT_FIELD_TAIL_REGEX.find(tail)?.groupValues?.get(1) ?: return null
+                val bare = name.substringAfterLast('.')
+                if (bare in seen || depth > MAX_BOUND_EVAL_DEPTH) return null
+                val callable = env.callables[bare] ?: return null
+                val body = callable.expr ?: return null
+                val args = splitArgs(e.substring(open + 1, close)).filter { it.isNotBlank() }
+                val bound = bindCallArgs(callable, bare, args, env, locals, depth, seen) ?: return null
+                return structFieldValue(body, field, env, bound, depth + 1, seen + bare)
+            }
+            return evalCall(name, e.substring(open + 1, close), env, locals, depth, seen)
         }
         return evalName(e.replace(WS_REGEX, ""), env, locals, depth, seen)
+    }
+
+    /** `.field` and nothing else - what may follow a call and still be a constant. */
+    private val STRUCT_FIELD_TAIL_REGEX = Regex("""^\.\s*([A-Za-z_]\w*)$""")
+
+    /**
+     * [field] of a struct CONSTRUCTOR expression - `limits(floor = 0)` - with
+     * the constructor's arguments read under [locals]. A bare name is followed
+     * one hop through the module-level `val`s (`function limits_of(): limits =
+     * LIMITS;`), and a head that is one of the app's OWN callables is refused:
+     * a call is not a constructor, and reading it as one is how an evaluator
+     * invents a number.
+     */
+    private fun structFieldValue(
+        ctor: String,
+        field: String,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Long? {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return null
+        val e = ctor.trim()
+        val open = e.indexOf('(')
+        if (open < 0) {
+            val bare = e.replace(WS_REGEX, "")
+            if (bare in seen || !IDENT_PATH_REGEX.matches(bare)) return null
+            val next = env.constExprs[bare] ?: return null
+            return structFieldValue(next, field, env, emptyMap(), depth + 1, seen + bare)
+        }
+        val close = matchDelimiter(e, open, '(', ')') ?: return null
+        if (e.substring(close + 1).isNotBlank()) return null
+        if (e.substring(0, open).trim().substringAfterLast('.') in env.callables) return null
+        splitArgs(e.substring(open + 1, close)).forEach { arg ->
+            NAMED_ARG_REGEX.find(arg.trim())?.let { n ->
+                if (n.groupValues[1] == field) {
+                    return evalBound(n.groupValues[2], env, locals, depth + 1, seen)
+                }
+            }
+        }
+        return null
     }
 
     /** The `[` matching a trailing `]`, or -1 when the expression does not end in an index. */
@@ -2750,6 +2964,29 @@ object RellSecurityCheck {
         val callable = env.callables[bare] ?: return null
         val body = callable.expr ?: return null
         if (bare in seen || depth > MAX_BOUND_EVAL_DEPTH) return null
+        val bound = bindCallArgs(callable, bare, args, env, locals, depth, seen) ?: return null
+        return evalBound(body, env, bound, depth + 1, seen + bare)
+    }
+
+    /**
+     * [callable]'s parameters bound to the numbers the call site gave them -
+     * named arguments by name, the rest positionally, and a parameter the call
+     * leaves out taking its OWN DEFAULT. Null when any one of them cannot be
+     * valued: a call with an unknown argument is a call with an unknown result.
+     *
+     * Extracted from [evalCall] in round 19 so that a struct field read off a
+     * call ([structFieldValue]) binds its arguments exactly the way the call
+     * itself does - one implementation, so the two can never drift.
+     */
+    private fun bindCallArgs(
+        callable: BoundCallable,
+        selfName: String,
+        args: List<String>,
+        env: BoundEnv,
+        locals: Map<String, Long>,
+        depth: Int,
+        seen: Set<String>
+    ): Map<String, Long>? {
         val positional = args.filter { a ->
             NAMED_ARG_REGEX.find(a.trim())?.let { n -> callable.params.none { p -> p.name == n.groupValues[1] } } ?: true
         }
@@ -2763,12 +3000,12 @@ object RellSecurityCheck {
             val v = if (actual != null) {
                 evalBound(actual, env, locals, depth + 1, seen)
             } else {
-                p.default?.let { evalBound(it, env, bound.toMap(), depth + 1, seen + bare) }
+                p.default?.let { evalBound(it, env, bound.toMap(), depth + 1, seen + selfName) }
             }
             if (v == null) return null
             bound[p.name] = v
         }
-        return evalBound(body, env, bound, depth + 1, seen + bare)
+        return bound
     }
 
     private fun evalName(
@@ -2797,21 +3034,12 @@ object RellSecurityCheck {
             }
         }
         // A STRUCT FIELD of a module-level constant: `val LIMITS = limits(floor = 1);`
-        // read as `LIMITS.floor`.
+        // read as `LIMITS.floor`. The field is picked out of the constructor by
+        // [structFieldValue], which is the same walk the call form uses
+        // (`limits_of().floor`, round 19).
         if (name.contains('.')) {
             val base = env.constExprs[name.substringBeforeLast('.')] ?: return null
-            val field = name.substringAfterLast('.')
-            val open = base.indexOf('(')
-            if (open < 0) return null
-            val close = matchDelimiter(base, open, '(', ')') ?: return null
-            if (base.substring(0, open).trim().substringAfterLast('.') in env.callables) return null
-            splitArgs(base.substring(open + 1, close)).forEach { arg ->
-                NAMED_ARG_REGEX.find(arg.trim())?.let { n ->
-                    if (n.groupValues[1] == field) {
-                        return evalBound(n.groupValues[2], env, emptyMap(), depth + 1, seen + name)
-                    }
-                }
-            }
+            return structFieldValue(base, name.substringAfterLast('.'), env, emptyMap(), depth, seen + name)
         }
         return null
     }
