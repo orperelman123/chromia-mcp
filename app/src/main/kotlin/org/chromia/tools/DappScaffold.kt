@@ -591,6 +591,33 @@ object DappScaffold {
         //     that the record exists exactly once per burned unit and that nobody can
         //     write one without burning.
 
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. THE PROCESSED-BURNS REGISTRY IS KEYED BY THE BURN'S IDENTITY, AND EVERY NEW MINT
+        //      PATH MUST GO THROUGH IT. `(source_chain, source_tx, log_index)` is a database `key`
+        //      on `processed_burn`, so a repeat is refused by the database and there is no check
+        //      to forget. Adversary round 14 lost TEN TIMES this bridge's backing because
+        //      `source_tx` was an operation parameter the module only checked the length of: one
+        //      burn of 1000 submitted ten times minted 10000, and three attestations quoting the
+        //      SAME source transaction paid three different accounts 1000, 5000 and 250000. A new
+        //      mint path - a different source chain, a fast lane, an admin repair - that does not
+        //      write that row is that drain again.
+        //   2. WHAT A BURN PAYS IS BOUND TO THE ROW, NOT TO THE ATTESTATION THAT COMPLETES IT.
+        //      Recipient and amount are written once by the attestation that OPENS a claim and are
+        //      read from the row by the mint, so nothing in a later attestation can be
+        //      substituted. Keep that direction for any new field you add to a claim.
+        //   3. ONE RELAYER, ONE VOICE, AND THE THRESHOLD IS CROSSED ONCE. `relayer_voice` counts a
+        //      relayer once per subject by key and the action is taken in the single transaction
+        //      where the count EQUALS the threshold - there is no flag to set afterwards and none
+        //      to forget. Any new M-of-N decision (a pause, a cap change, a new chain) has to be
+        //      counted the same way, and `close_relayer_set` must still be able to close it.
+        //   4. AND THE CAPS ARE THE LAST LINE. A rolling-period cap and a total cap bound what
+        //      this bridge can ever mint, whatever else goes wrong upstream. A new mint path that
+        //      does not consult both is a bridge with no ceiling - and the round-14 loss was
+        //      survivable only because a ceiling existed at all.
+        //   5. THE CONSERVATION TEST HERE COMPARES WHAT WAS MINTED AGAINST THE BURNS IT ACCEPTED,
+        //      never balances against a counter the mint raises itself. A transfer-conservation
+        //      test is structurally blind to a mint; it was exact at every step of the 10x mint.
+
         // Configuration. Every one of these is a decision no default can make: who
         // enrols the GENESIS relayer set, how many of them must agree, and how much this
         // bridge may ever mint. They are module args so that none of them is an argument
@@ -2199,6 +2226,230 @@ object DappScaffold {
         """.trimIndent()
     }
 
+    private val BRIDGE_KEYS = listOf(
+        "bridge*", "cross chain", "crosschain", "wrapped", "relayer*", "attestation*", "burn proof",
+            "mint on proof", "teleport*", "canonical token*"
+    )
+
+    private val EXCHANGE_KEYS = listOf(
+        "order book*", "orderbook*", "limit order*", "limitorder*", "matching engine*", "clob",
+            "bid ask*", "order matching*"
+    )
+
+    private val STABLECOIN_KEYS = listOf(
+        "stablecoin*", "stable*", "cdp*", "collateralized debt*", "collateralised debt*",
+            "collateral debt*", "peg*", "synthetic asset*", "syntheticasset*"
+    )
+
+    private val LENDING_KEYS = listOf(
+        "lend*", "borrow*", "credit*", "loan*", "debt*", "money market*", "moneymarket*", "interest*",
+            "yield farm*"
+    )
+
+    private val SUBSCRIPTION_KEYS = listOf(
+        "subscri*", "recurring", "billing", "allowance*", "membership*", "direct debit*",
+            "auto renew*", "autorenew*", "installment*", "instalment*", "annuit*", "stipend*",
+            "pull payment*", "saas"
+    )
+
+    private val INSURANCE_KEYS = listOf(
+        "insur*", "reinsur*", "premium*", "cover", "coverage", "claims pool*", "parametric*",
+            "underwrit*", "mutual pool*", "risk pool*", "actuarial*", "indemnit*", "indemnif*"
+    )
+
+    private val GOVERNANCE_KEYS = listOf(
+        "dao*", "govern*", "vot*", "treasur*", "proposal*", "quorum*"
+    )
+
+    private val STREAMING_KEYS = listOf(
+        "stream*", "payroll*", "salar*", "drip*", "wage*", "unlock*", "vest*"
+    )
+
+    private val MARKETPLACE_KEYS = listOf(
+        "auction*", "bid", "bids", "bidding", "bidder*", "nft*", "marketplace*", "listing*", "royalt*",
+            "collectible*"
+    )
+
+    private val ESCROW_KEYS = listOf(
+        "escrow*", "otc*", "atomic swap*", "p2p trade*", "peer to peer trade*",
+            "swap between two parties", "two party swap*", "counterparty swap*", "swap with a timeout"
+    )
+
+    private val LIQUIDITY_MINING_KEYS = listOf(
+        "liquidity mining*", "liquidity incentive*", "liquidity program*", "reward emission*",
+            "emission schedule*", "incentive program*"
+    )
+
+    private val AMM_KEYS = listOf(
+        "amm*", "dex*", "swap*", "liquidity", "constant product*", "constantproduct*", "uniswap*",
+            "market maker*", "marketmaker*", "exchange*", "pair*"
+    )
+
+    private val VAULT_KEYS = listOf(
+        "oracle*", "vault*", "redeem*", "redemption*", "price*", "pricing"
+    )
+
+    private val STAKING_KEYS = listOf(
+        "stak*", "reward*", "harvest*", "emission*", "farm*", "airdrop*"
+    )
+
+    private val FT4_KEYS = listOf(
+        "token*", "ft4", "asset*", "coin*", "transfer*", "wallet*", "payment*"
+    )
+
+    /**
+     * EVERY COVERED CLASS'S KEYS, in the order the routing `when` reads them, and the
+     * template each one routes to. The `when` matches on THESE LISTS - there is no
+     * second copy - so "which covered classes does this ask name" is derived from the
+     * routing rather than kept in step with it by hand. Two entries route to `staking`
+     * on purpose: a liquidity-mining programme is a reward emission, and its list has
+     * to be read ahead of `amm`.
+     */
+    internal val templateKeys: List<Pair<String, List<String>>> = listOf(
+        "bridge" to BRIDGE_KEYS,
+        "exchange" to EXCHANGE_KEYS,
+        "stablecoin" to STABLECOIN_KEYS,
+        "lending" to LENDING_KEYS,
+        "subscription" to SUBSCRIPTION_KEYS,
+        "insurance" to INSURANCE_KEYS,
+        "governance" to GOVERNANCE_KEYS,
+        "streaming" to STREAMING_KEYS,
+        "marketplace" to MARKETPLACE_KEYS,
+        "escrow" to ESCROW_KEYS,
+        "staking" to LIQUIDITY_MINING_KEYS,
+        "amm" to AMM_KEYS,
+        "vault" to VAULT_KEYS,
+        "staking" to STAKING_KEYS,
+        "ft4" to FT4_KEYS
+    )
+
+    /**
+     * A VALUE CLASS THIS SERVER DOES NOT SHIP A TEMPLATE FOR, its whole-token keys,
+     * and the guard an honest NO has to name. Round 17 made these BRANCHES of the
+     * routing `when`; round 18 measured what an ordered `when` does with an ask that
+     * carries one of them AND a covered class: "a lending pool that also runs a weekly
+     * raffle for depositors" matched `lend*` four branches earlier and was scaffolded
+     * onto `lending` - three files, ok:true, 1517 bytes about lazy interest accrual and
+     * share pricing, and NOT ONE WORD about the raffle. Naming a covered class in the
+     * same sentence as an uncovered one LAUNDERS the uncovered one: the agent gets
+     * files, a green gate, and silence about the half of its ask that has no guards at
+     * all - and the raffle half built from that answer drained on a real chain.
+     *
+     * So the classes live in a list that is consulted BEFORE the `when`, and an ask that
+     * touches one of them is answered by that class FIRST, whatever else it names. The
+     * covered half is still named - by template, with its exploit class - but nothing is
+     * scaffolded, because a compound ask is built one template at a time.
+     */
+    internal class UntemplatedClass(
+        val id: String,
+        val label: String,
+        val keys: List<String>,
+        val missingGuard: String,
+        val note: String
+    )
+
+    internal val untemplatedClasses: List<UntemplatedClass> = listOf(
+        UntemplatedClass(
+            id = "unpredictable-outcome",
+            label = "an unpredictable outcome (a raffle, a lottery, a prize draw, a prediction market)",
+            keys = listOf(
+                "lotter*", "raffle*", "sweepstake*", "prize draw*", "random winner*",
+                "randomness", "vrf", "prediction market*", "betting*", "gambl*", "casino*",
+                "jackpot*", "dice roll*", "coin flip*"
+            ),
+            missingGuard = "a draw NO CALLER CAN CHOOSE THE BLOCK FOR - `op_context.last_block_time` is the " +
+                "timestamp of the block ALREADY COMMITTED, so an attacker predicts nothing: she watches " +
+                "blocks land and answers the one whose ticket is hers. The shape is a COMMIT-REVEAL with a " +
+                "deposit the revealer forfeits, or an anchor on a FUTURE block read only after a delay, and " +
+                "the economic invariant test written before either",
+            note =
+                "No shipped template covers that name, and the honest answer is NO rather than the " +
+                    "nearest template: an ask that turns on an UNPREDICTABLE OUTCOME has an exploit " +
+                    "class no template here addresses. `template=staking` is where round 17 measured " +
+                    "\"a weekly lottery with rewards for ticket holders\" landing, on the word " +
+                    "`rewards`, and its guards are about a reward pool being FUNDED before it pays - " +
+                    "nothing in it makes a draw unpredictable, and a draw an operation's signer can " +
+                    "predict is not a draw, it is a withdrawal. On this chain a block's own data " +
+                    "(timestamp, block rid, a hash of anything in the transaction) is visible to " +
+                    "whoever chooses when to submit, so it is not entropy. If you build one anyway: " +
+                    "commit-reveal with a deposit the revealer forfeits, or an external randomness " +
+                    "source with the same discipline the vault applies to a price - bounded, " +
+                    "rate-limited, staleness-checked - and write the economic invariant test FIRST. " +
+                    "The pot's CUSTODY is a different half and is covered: money in before the draw " +
+                    "and out after it is `template=marketplace`'s escrow discipline or " +
+                    "`template=insurance`'s pro-rata payout of a short pool, neither of which makes " +
+                    "the outcome fair."
+        ),
+        UntemplatedClass(
+            id = "payment-channel",
+            label = "a payment or state channel",
+            keys = listOf("payment channel*", "state channel*", "lightning*", "channels"),
+            missingGuard = "a MONOTONE SEQUENCE NUMBER on the signed state and a DISPUTE WINDOW in which the " +
+                "counterparty may post a later one - the close is the exploit, and nothing here ships either",
+            note =
+                "No shipped template covers that name. A PAYMENT CHANNEL is off-chain state two " +
+                    "parties sign and either may close on-chain, and its exploit class is the CLOSE - " +
+                    "a stale state posted by whoever profits from it, and a dispute window somebody " +
+                    "has to watch. Nothing here ships that. Round 17 measured this ask landing on " +
+                    "`template=ft4` (the word is `payment`), which is a token ledger: it has no " +
+                    "channel, no sequence number and no dispute window, so it covers none of it. The " +
+                    "nearest shipped disciplines, and they are halves rather than answers: " +
+                    "`template=escrow` for value locked between TWO NAMED PARTIES with a deadline " +
+                    "written once and no operation that moves it, and `template=exchange` for a " +
+                    "monotone counter that makes a partial settlement unrewindable. Write the " +
+                    "economic invariant test FIRST - a passing security check is not economic " +
+                    "soundness."
+        ),
+        UntemplatedClass(
+            id = "signer-set",
+            label = "a threshold-controlled account (a multisig wallet, a signer set)",
+            keys = listOf(
+                "multisig*", "multi sig*", "multi signature*", "signer set*", "threshold wallet*",
+                "cosigner*", "co signer*"
+            ),
+            missingGuard = "WHO MAY ADD OR REMOVE A KEY, whether one signature counts once, and whether the " +
+                "set can be closed - `template=bridge`'s relayer set is the nearest shipped shape and " +
+                "FT4's own account model is the other half",
+            note =
+                "No shipped template covers that name. A THRESHOLD-CONTROLLED ACCOUNT's exploit class " +
+                    "is the SIGNER SET - who may add or remove a key, whether a signature counts once, " +
+                    "and whether the set can be closed - and no template ships it as a general " +
+                    "facility. Round 17 measured this ask landing on `template=ft4` on the word " +
+                    "`wallet`; that skeleton has one auth descriptor and no signer set at all. TWO " +
+                    "real answers instead of a redirect: FT4's own account model already supports " +
+                    "multi-signature auth descriptors, so read `chr_multi_signature_help` and " +
+                    "`fetch_docs` before building an account system freehand; and if what you want is " +
+                    "M-of-N sign-off over a SPECIFIC action rather than over an account, " +
+                    "`template=bridge` ships exactly that shape as guards you can read - a relayer SET " +
+                    "closed by configuration, one voice counted once per subject by a database key, " +
+                    "and the action taken in the single transaction where the count EQUALS the " +
+                    "threshold, so there is no flag to forget."
+        ),
+        UntemplatedClass(
+            id = "crowdfunding",
+            label = "a crowdfunding campaign (an all-or-nothing raise with refunds)",
+            keys = listOf(
+                "crowdfund*", "crowd fund*", "crowdsale*", "crowd sale*", "kickstarter*",
+                "all or nothing*", "funding goal*", "fundraising goal*"
+            ),
+            missingGuard = "THE MONEY IS ESCROWED UNTIL THE GOAL IS DECIDED - the goal and the deadline " +
+                "written once with no operation that moves them, a refund as the campaign's only other " +
+                "exit, and no path that pays the raiser before the deadline has passed",
+            note =
+                "No shipped template covers that name. A CROWDFUNDING CAMPAIGN is an all-or-nothing raise: " +
+                    "money in from many contributors, a goal, a deadline, and exactly two ends - the raiser " +
+                    "is paid or every contributor is refunded. Its exploit class is the DEADLINE AND THE " +
+                    "DECISION: a goal or a deadline a later operation can move, a payout taken before the " +
+                    "deadline has passed, and a refund path that pays first come out of a pot that no longer " +
+                    "covers everybody. Nothing here ships that as a class. The nearest shipped disciplines, " +
+                    "and they are halves rather than answers: `template=escrow` for value locked with a " +
+                    "deadline written ONCE by the operation that escrows it and no operation that moves it, " +
+                    "and `template=insurance` for the pro-rata payout of a pot that cannot cover every claim " +
+                    "on it - which is what a partial refund is. Write the economic invariant test FIRST: a " +
+                    "passing security check is not economic soundness."
+        )
+    )
+
     /**
      * What to do INSTEAD, for a template name we do not ship. The notes already
      * route a DAO to `governance` and an oracle to `vault`; the unknown-template
@@ -2243,17 +2494,28 @@ object DappScaffold {
             }
             return false
         }
-        fun has(vararg keys: String) = keys.any { matchesKey(it) }
-        return when {
+        // Every branch below reads its keys out of a NAMED LIST, and the roster of
+        // covered classes an ask touches is derived from those same lists (templateKeys):
+        // there is no second copy of a keyword anywhere, so a key added to a branch is a
+        // key the mixed-ask answer sees in the same commit.
+        fun hasAny(keys: List<String>) = keys.any { matchesKey(it) }
+        // ROUND 18. The classes with NO template are read FIRST and out of a list, not
+        // as branches of the ordered `when` below: an ask that carries one of them is
+        // answered by it whatever else it names, because an ordered `when` gave "a
+        // lending pool that also runs a weekly raffle for depositors" to `lending` four
+        // branches before the raffle was looked at.
+        val declined = untemplatedClasses.filter { c -> hasAny(c.keys) }
+        // ...and the covered classes the same ask names, derived from the SAME key lists
+        // the `when` matches on, in the `when`'s own order.
+        val covered = templateKeys.filter { (_, keys) -> hasAny(keys) }.map { it.first }.distinct()
+        val templateNote: String? = when {
             // AHEAD OF EVERYTHING, including the order-book branch: every realistic
             // phrasing of a bridge ask names a token, an asset or a transfer, so
             // "a cross-chain token bridge" used to be answered "Use `template=ft4`"
             // with no warning at all - the route audit of 2026-09-03 recorded that,
             // the TEMPLATE-GAPS row said this was the highest-severity class in the
             // file, and round 14 drained the build that followed the answer.
-            has("bridge*", "cross chain", "crosschain", "wrapped", "relayer*",
-                "attestation*", "burn proof", "mint on proof", "teleport*",
-                "canonical token*") ->
+            hasAny(BRIDGE_KEYS) ->
                 "Use `template=bridge`: it is the template for this class, and this class is what " +
                     "adversary round 14 drained WITH NO TEMPLATE AT ALL - from this very answer, " +
                     "which used to send a bridge ask to `template=ft4` and say only that it ships " +
@@ -2293,8 +2555,7 @@ object DappScaffold {
             // "an order book with bid/ask" matched THAT first and was answered with
             // listings and an auction. An order-book ask is specific enough that it
             // outranks every keyword another branch might also see.
-            has("order book*", "orderbook*", "limit order*", "limitorder*",
-                "matching engine*", "clob", "bid ask*", "order matching*") ->
+            hasAny(EXCHANGE_KEYS) ->
                 "Use `template=exchange`: it is the template for this class, and this class is " +
                     "what adversary round 12 drained WITH NO TEMPLATE AT ALL - from this very " +
                     "answer, which used to say that nothing covered an order book and offer two " +
@@ -2323,8 +2584,7 @@ object DappScaffold {
             // Ahead of `lending` (which claims "debt") and of `vault` (which used to
             // claim "stablecoin" and answered round 9's build with a reserve-backed
             // exchange: the drain was written on that advice).
-            has("stablecoin*", "stable*", "cdp*", "collateralized debt*", "collateralised debt*",
-                "collateral debt*", "peg*", "synthetic asset*", "syntheticasset*") ->
+            hasAny(STABLECOIN_KEYS) ->
                 "Use `template=stablecoin`: it is the template for this class, and this class is what " +
                     "adversary round 9 drained WITH NO TEMPLATE AT ALL - the answer here used to be " +
                     "`template=vault`, and the vault's discipline (every credit paid out of a reserve " +
@@ -2352,8 +2612,7 @@ object DappScaffold {
                     "shipped tests replay round 9 AND round 11 in both orders and require every " +
                     "party to end on the same numbers whichever order ran first, with conservation " +
                     "exact after every step. Its oracle key is a module arg exactly like the vault's."
-            has("lend*", "borrow*", "credit*", "loan*", "debt*", "money market*", "moneymarket*",
-                "interest*", "yield farm*") ->
+            hasAny(LENDING_KEYS) ->
                 "Use `template=lending`: it is the template for this class, and this class is what " +
                     "adversary round 6 drained. A hand-built pool accrued interest LAZILY (only " +
                     "inside the operations a borrower signs), so the price of a lender share was " +
@@ -2369,9 +2628,7 @@ object DappScaffold {
                     "vault's bounded oracle, over-collateralisation, a liquidation threshold with " +
                     "a close factor and bonus, and the minimum-first-deposit guard that kills " +
                     "ERC-4626 share inflation - with the round-6 drain as a must-fail test."
-            has("subscri*", "recurring", "billing", "allowance*", "membership*",
-                "direct debit*", "auto renew*", "autorenew*", "installment*",
-                "instalment*", "annuit*", "stipend*", "pull payment*", "saas") ->
+            hasAny(SUBSCRIPTION_KEYS) ->
                 "Use `template=subscription`: RECURRING PULL BILLING has its own template, " +
                     "and it is NOT `streaming`. This server used to answer this ask with " +
                     "`template=streaming`, and adversary round 13 drained the build that " +
@@ -2404,9 +2661,7 @@ object DappScaffold {
             // string round 17 measured landing on `template=ft4`, answered with the
             // sentence about copying conservation tests that also produced round 14's
             // bridge - and the build that followed it drained twice.
-            has("insur*", "reinsur*", "premium*", "cover", "coverage", "claims pool*",
-                "parametric*", "underwrit*", "mutual pool*", "risk pool*", "actuarial*",
-                "indemnit*", "indemnif*") ->
+            hasAny(INSURANCE_KEYS) ->
                 "Use `template=insurance`: it is the template for this class, and this class is what " +
                     "adversary round 17 drained WITH NO TEMPLATE AT ALL - from this very answer, which " +
                     "used to send an insurance ask to `template=ft4` on the `payment` keyword and say " +
@@ -2441,67 +2696,13 @@ object DappScaffold {
                     "loss happened. Every guard is about what a claim is PAID, never about whether it " +
                     "is true, so a real pool still needs an adjuster, an oracle or a parametric " +
                     "trigger - and that decision-maker is then the thing an attacker buys."
-            // THE HONEST ANSWERS, and they are BRANCHES rather than the `else` because a
-            // class this server does not cover deserves its name said out loud. Round 17
-            // measured each of these landing on a template whose guards do not cover the
-            // ask: a lottery on `staking` (which has no unpredictable outcome), a payment
-            // channel and a multisig wallet on `ft4` (which has neither a channel nor a
-            // signer set). GOAL.md rules out "we never claimed to cover it" as a defence,
-            // and round 8 measured what a confident redirect to the wrong guards costs -
-            // so these say NO, and say what the missing guard would have to be.
-            has("lotter*", "raffle*", "sweepstake*", "prize draw*", "random winner*",
-                "randomness", "vrf", "prediction market*", "betting*") ->
-                "No shipped template covers that name, and the honest answer is NO rather than the " +
-                    "nearest template: an ask that turns on an UNPREDICTABLE OUTCOME has an exploit " +
-                    "class no template here addresses. `template=staking` is where round 17 measured " +
-                    "\"a weekly lottery with rewards for ticket holders\" landing, on the word " +
-                    "`rewards`, and its guards are about a reward pool being FUNDED before it pays - " +
-                    "nothing in it makes a draw unpredictable, and a draw an operation's signer can " +
-                    "predict is not a draw, it is a withdrawal. On this chain a block's own data " +
-                    "(timestamp, block rid, a hash of anything in the transaction) is visible to " +
-                    "whoever chooses when to submit, so it is not entropy. If you build one anyway: " +
-                    "commit-reveal with a deposit the revealer forfeits, or an external randomness " +
-                    "source with the same discipline the vault applies to a price - bounded, " +
-                    "rate-limited, staleness-checked - and write the economic invariant test FIRST. " +
-                    "The pot's CUSTODY is a different half and is covered: money in before the draw " +
-                    "and out after it is `template=marketplace`'s escrow discipline or " +
-                    "`template=insurance`'s pro-rata payout of a short pool, neither of which makes " +
-                    "the outcome fair."
-            has("payment channel*", "state channel*", "lightning*", "channels") ->
-                "No shipped template covers that name. A PAYMENT CHANNEL is off-chain state two " +
-                    "parties sign and either may close on-chain, and its exploit class is the CLOSE - " +
-                    "a stale state posted by whoever profits from it, and a dispute window somebody " +
-                    "has to watch. Nothing here ships that. Round 17 measured this ask landing on " +
-                    "`template=ft4` (the word is `payment`), which is a token ledger: it has no " +
-                    "channel, no sequence number and no dispute window, so it covers none of it. The " +
-                    "nearest shipped disciplines, and they are halves rather than answers: " +
-                    "`template=escrow` for value locked between TWO NAMED PARTIES with a deadline " +
-                    "written once and no operation that moves it, and `template=exchange` for a " +
-                    "monotone counter that makes a partial settlement unrewindable. Write the " +
-                    "economic invariant test FIRST - a passing security check is not economic " +
-                    "soundness."
-            has("multisig*", "multi sig*", "multi signature*", "signer set*", "threshold wallet*",
-                "cosigner*", "co signer*") ->
-                "No shipped template covers that name. A THRESHOLD-CONTROLLED ACCOUNT's exploit class " +
-                    "is the SIGNER SET - who may add or remove a key, whether a signature counts once, " +
-                    "and whether the set can be closed - and no template ships it as a general " +
-                    "facility. Round 17 measured this ask landing on `template=ft4` on the word " +
-                    "`wallet`; that skeleton has one auth descriptor and no signer set at all. TWO " +
-                    "real answers instead of a redirect: FT4's own account model already supports " +
-                    "multi-signature auth descriptors, so read `chr_multi_signature_help` and " +
-                    "`fetch_docs` before building an account system freehand; and if what you want is " +
-                    "M-of-N sign-off over a SPECIFIC action rather than over an account, " +
-                    "`template=bridge` ships exactly that shape as guards you can read - a relayer SET " +
-                    "closed by configuration, one voice counted once per subject by a database key, " +
-                    "and the action taken in the single transaction where the count EQUALS the " +
-                    "threshold, so there is no flag to forget."
             // AHEAD OF THE STREAMING BRANCH (round 16, audit F6). A DAO ask must reach
             // the DAO template, and the branch that used to take it first did so on a
             // substring inside "in-VEST-ment". Tokenisation fixes that spelling; the
             // ORDER is what makes it hold for the next one, because a treasury ask is a
             // governance ask however else it is worded, and none of the classes below
             // claims a word this list claims.
-            has("dao*", "govern*", "vot*", "treasur*", "proposal*", "quorum*") ->
+            hasAny(GOVERNANCE_KEYS) ->
                 "Use `template=governance`: quorum, a fixed voting window, stake-weighted votes and " +
                     "execute-once are structural there, and it ships the single-account drain as a " +
                     "must-fail test. Two of its guards are the ones a DAO gets wrong: VOTING WEIGHT IS " +
@@ -2511,7 +2712,7 @@ object DappScaffold {
                     "WHEN A PROPOSAL IS CREATED, weights included, because a bar read live at " +
                     "execution is a veto anybody can buy - two points of stake, posted after voting " +
                     "closed, killed an approved payout for ever. Both drains ship as must-fail tests."
-            has("stream*", "payroll*", "salar*", "drip*", "wage*", "unlock*", "vest*") ->
+            hasAny(STREAMING_KEYS) ->
                 "Use `template=streaming`: it is the template for this class, and this class is what " +
                     "adversary round 7 drained WITH NO TEMPLATE AT ALL. A hand-built payment stream " +
                     "measured what was owed from a MUTABLE ANCHOR - the block of the last settlement - " +
@@ -2537,8 +2738,7 @@ object DappScaffold {
             // misroute: "a bidirectional payment channel" is not an auction ask, and
             // an unanchored `bid` claimed it. The words that ARE this class are
             // spelled out instead.
-            has("auction*", "bid", "bids", "bidding", "bidder*", "nft*", "marketplace*",
-                "listing*", "royalt*", "collectible*") ->
+            hasAny(MARKETPLACE_KEYS) ->
                 "Use `template=marketplace`: it ships listings with exact-price buys, escrowed " +
                     "offers, AND a timed ascending auction with no mutable bid field (the standing " +
                     "bid is its own immutable escrow row), plus the encumbrance helper every " +
@@ -2550,9 +2750,7 @@ object DappScaffold {
             // drained it twice. `swap` ALONE still means the pool - that is what most
             // people mean by it - but a swap that names two parties, an escrow, an OTC
             // trade or a timeout is this class and not that one.
-            has("escrow*", "otc*", "atomic swap*", "p2p trade*", "peer to peer trade*",
-                "swap between two parties", "two party swap*", "counterparty swap*",
-                "swap with a timeout") ->
+            hasAny(ESCROW_KEYS) ->
                 "Use `template=escrow`: a TWO-PARTY OTC SWAP with a deadline, and it is the " +
                     "FOURTEENTH template because adversary round 15 asked this server for exactly " +
                     "this and was answered `template=amm` - a constant-product pool - since `swap` " +
@@ -2582,16 +2780,14 @@ object DappScaffold {
             // CONSTANT-PRODUCT POOL. A mining program is a REWARD EMISSION - the class
             // whose drain was round 4's unbacked mint - and the amm's guards (an exact
             // quoted reserve, a term on a liquidity position) cover none of it.
-            has("liquidity mining*", "liquidity incentive*", "liquidity program*",
-                "reward emission*", "emission schedule*", "incentive program*") ->
+            hasAny(LIQUIDITY_MINING_KEYS) ->
                 STAKING_NOTE + " AND A LIQUIDITY MINING PROGRAM IS THIS CLASS, NOT `template=amm`: " +
                     "the pool that holds the two assets is the amm's problem, but the REWARD you emit " +
                     "on top of it is a sponsor-funded distribution, and adversary round 4 drained " +
                     "exactly that by paying a reward the pool did not hold. Build the curve from " +
                     "`template=amm` and the emission from this one, and keep the emission's guard: " +
                     "every credit is a debit of a pool somebody funded, in the same operation."
-            has("amm*", "dex*", "swap*", "liquidity", "constant product*", "constantproduct*",
-                "uniswap*", "market maker*", "marketmaker*", "exchange*", "pair*") ->
+            hasAny(AMM_KEYS) ->
                 "Use `template=amm`: it is the template for this class, and this class is what " +
                     "adversary round 8 drained WITH NO TEMPLATE AT ALL - it was built because this " +
                     "very answer used to say `template=vault`, and the vault covers a reserve and a " +
@@ -2627,7 +2823,7 @@ object DappScaffold {
                     "note for that ask and drained the pool-shaped build twice: the immutable row " +
                     "deleted whole re-created a partial fill's remainder with a fresh timeout, and " +
                     "escrowing only one leg made the window an option the maker wrote for free."
-            has("oracle*", "vault*", "redeem*", "redemption*", "price*", "pricing") ->
+            hasAny(VAULT_KEYS) ->
                 "Use `template=vault`: every credit is paid out of a reserve row in the same " +
                     "operation, price posts are bounded, rate-limited and staleness-checked, and it " +
                     "ships the 100 -> 200,000,000 oracle mint as a must-fail test. If what you are " +
@@ -2638,8 +2834,8 @@ object DappScaffold {
                     "- a stablecoin, a CDP, a synthetic - that is `template=stablecoin`: this answer " +
                     "used to send it here too, and round 9 drained the result by redeeming at par " +
                     "out of a reserve that no longer covered the coin."
-            has("stak*", "reward*", "harvest*", "emission*", "farm*", "airdrop*") -> STAKING_NOTE
-            has("token*", "ft4", "asset*", "coin*", "transfer*", "wallet*", "payment*") ->
+            hasAny(STAKING_KEYS) -> STAKING_NOTE
+            hasAny(FT4_KEYS) ->
                 "Use `template=ft4`: it ships the conservation, no-negative-balance and " +
                     "non-owner-must-fail invariant tests to copy for your own economics. If what " +
                     "you are building MINTS on proof of something that happened on ANOTHER chain " +
@@ -2648,13 +2844,60 @@ object DappScaffold {
                     "answer used to send it here, and round 14 drained the result for ten times " +
                     "its backing while the conservation invariant it copied from HERE stayed " +
                     "exact, because a TRANSFER-conservation test cannot see a mint."
-            else ->
+            else -> null
+        }
+        return when {
+            declined.isEmpty() && templateNote != null -> templateNote
+            declined.isEmpty() ->
                 "No shipped template covers that name. " + templateRoster() +
                     " Pick the one whose EXPLOIT class matches yours - the value class with no " +
                     "template is where every drain in this project has landed - and if none does, " +
                     "write the economic invariant test FIRST: a passing security check is not " +
                     "economic soundness."
+            // THE UNCOVERED CLASS IS NAMED FIRST, whatever else the ask carries, and when
+            // the ask carries a covered class too NOTHING IS SCAFFOLDED - the covered half
+            // is named by template and asked for on its own.
+            else -> declined.joinToString(" ") { it.note } + mixedAskTail(declined, covered)
         }
+    }
+
+    /**
+     * THE LAUNDERED MIXED ASK, answered. Round 18 measured `scaffold_dapp` giving "a
+     * lending pool that also runs a weekly raffle for depositors" three files, ok:true
+     * and a 1517-byte note about lazy interest accrual with not one word about the
+     * raffle - the class that, asked on its own, this server declines by name. So an ask
+     * that names an uncovered class gets that class first (the caller's [declined]
+     * notes, above this tail), and this tail names the covered half by TEMPLATE, says
+     * what that template does not cover, and repeats the missing guard. Nothing is
+     * scaffolded: a compound ask is built one template at a time, each asked for by name,
+     * which is the same rule the cross-chain DEX and liquidity-mining answers already
+     * follow - the difference is that those two halves both HAVE templates.
+     */
+    private fun mixedAskTail(declined: List<UntemplatedClass>, covered: List<String>): String {
+        if (covered.isEmpty()) return ""
+        val primary = covered.first()
+        val labels = declined.joinToString(" and ") { it.label }
+        return " AND THE SAME ASK NAMES A CLASS THIS SERVER DOES COVER, WHICH IS WHY IT IS ANSWERED HERE " +
+            "RATHER THAN THERE: `template=$primary` (${templateClasses.getValue(primary)}) covers that half " +
+            (if (covered.size > 1)
+                "- and so do " + covered.drop(1).joinToString(", ") { "`template=$it`" } + ", because the " +
+                    "ask names more than one covered class - "
+            else "") +
+            "and NOTHING WAS SCAFFOLDED for this ask. `template=$primary` does not cover $labels, and what " +
+            "is missing from it is " + declined.joinToString("; and ") { it.missingGuard } + ". Ask for " +
+            "`template=$primary` ON ITS OWN when you want that half, and build the uncovered half beside it " +
+            "with that guard written first and its economic invariant test written before the code. " +
+            "ADVERSARY ROUND 18 MEASURED WHY THIS IS A NO AND NOT A REDIRECT WITH A FOOTNOTE: \"a lending " +
+            "pool that also runs a weekly raffle for depositors\" was scaffolded onto `lending` - three " +
+            "files, ok:true, 1517 bytes about lazy interest accrual and share pricing, and NOT ONE WORD " +
+            "about the raffle, the class that asked on its own is declined by name. Naming a covered class " +
+            "in the same sentence as an uncovered one LAUNDERS the uncovered one: the agent gets files, a " +
+            "green gate, and silence about the half of its ask that has no guards at all. The raffle half " +
+            "built from that answer drained on a real chain - trudy staked 90 of 1890, about one week in " +
+            "twenty-one, and won FIVE OF FIVE weekly draws, turning 100 into 400 while alice and bob each " +
+            "put in 1500 and ended at 1350; and in the block she chose, alice and bob were EACH refused " +
+            "\"you are not this week's winner\", so every drained draw was a legal draw and no rule keyed " +
+            "on the operation could tell that block from any other."
     }
 
     /**
@@ -2872,6 +3115,15 @@ object DappScaffold {
         // NEVER import lib.ft4.admin, lib.ft4.core.admin, admin.crosschain,
         // ras_open, ras_transfer_open, or lib.ft4.core.accounts.strategies.open.
 
+        // EXTENDING THIS TEMPLATE - the seam an extender walks into:
+        //   THIS MODULE HOLDS NO VALUE, AND THAT IS THE WHOLE OF ITS SAFETY. `my_name` is one
+        //   string and `set_name` claims it once, so there is nothing here to take. ADD A
+        //   BALANCE, A TOKEN OR ANY ROW SOMEBODY CAN LOSE and none of that holds, while this
+        //   file still gives you no bounds, no conservation invariant and no must-fail test.
+        //   Do not grow value into it: call scaffold_dapp again with the template whose EXPLOIT
+        //   class matches yours - every drain this project has measured landed in the value
+        //   class that had no template.
+
         // The greeting is owned. `owner` is empty until the first rename claims it,
         // and after that only that signer can rename - authenticate, authorise, then
         // validate, which is the order every other template uses.
@@ -2996,6 +3248,32 @@ object DappScaffold {
         //                     does, and keep those tests passing as this file grows.
         // Never import FT4 admin modules or open registration/transfer strategies
         // (see the project security pins).
+
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. THE CONSERVATION TEST THIS TEMPLATE SHIPS CANNOT SEE A MINT, and adversary round
+        //      14 lost ten times a bridge's backing to exactly that - built from THIS template's
+        //      own invariant, copied exactly as the notes say. `transfer` moves points from one
+        //      row to another, so summing every balance and comparing it to what was granted
+        //      holds by construction. An operation that CREATES points - a mint, a reward, a
+        //      bridge credit, a faucet - raises the total the test compares against, and the test
+        //      stays EXACT at every step while value appears out of nothing. If you add any path
+        //      that credits without debiting, the invariant must compare what was created against
+        //      the thing that ENTITLED it (an attested burn, a funded pool, a paid premium), never
+        //      against a counter the creating operation writes itself.
+        //   2. NO OPERATION HERE TAKES AN ACCOUNT AS A PARAMETER. Every one of them acts for
+        //      `auth.authenticate()`, the account that signed; the moment a new operation takes an
+        //      owner, an account id or a payer as an argument, anybody may pass anybody's. That is
+        //      two HIGH findings from `rell_security_check` and it is also the first thing every
+        //      adversary round tries.
+        //   3. THE DEFAULT `add_auth_handler` REQUIRES THE TRANSFER FLAG, and FT4 resolves
+        //      flags with `contains_all()` - `contains_all([])` is always true, so a handler
+        //      scoped `flags = []` requires nothing at all. Never weaken the unscoped handler;
+        //      scope a NEW one if a specific operation needs different flags.
+        //   4. A `note` ROW IS FREE, AND THAT IS ONLY SAFE WHILE IT IS WORTHLESS. Nothing bounds
+        //      how many `add_note` may write for one account, because a note holds no value. If
+        //      you make a row hold value, or cost the chain anything to keep, bound how many one
+        //      account may create in the same commit that gives it value - `register_wallet` is
+        //      the shape: one row per owner, enforced by a database key rather than a check.
 
         entity note {
             index owner: byte_array;
@@ -3435,6 +3713,31 @@ object DappScaffold {
         // them out RETIRES that weight instead of copying it (ONE POCKET AT A TIME). The
         // only thing that ever increased the DAO's total voting weight is the genesis
         // allocation. Never re-open the mint.
+
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. THE BAR IS FIXED WHEN A PROPOSAL IS CREATED, AND EVERY NEW TERM MUST BE FIXED
+        //      THERE TOO. `stake_at_creation`, `quorum_weight` and `funded_at_creation` are
+        //      written onto the `proposal` row by create_proposal and read from the ROW at
+        //      execution; none of them is mutable. A term read LIVE at execution is a veto
+        //      anybody can buy - round 11 killed an approved payout for ever with two points of
+        //      stake posted after voting closed. If you add a term (a timelock, a second chamber,
+        //      a fee, a category threshold) write it onto the row at creation and read it from
+        //      there; do not compute it from `dao` at execution time.
+        //   2. VOTING WEIGHT IS NOT MINTABLE, so every new way of ACQUIRING stake is a new way of
+        //      buying the treasury. Registration credits nothing, and `claim_allocation` is
+        //      countersigned by the founder key inside a genesis window that closes ONCE - round
+        //      11 took a 7000-point treasury with four registrations of a permissionless welcome
+        //      grant, with every conservation invariant exact. A new source of weight has to cost
+        //      what the existing weight cost.
+        //   3. EVERY ROW THAT HOLDS POINTS MUST BE SUMMED IN THE CONSERVATION QUERY. Points sit
+        //      in a member's `balance`, in the member's `stake`, in `dao.treasury_balance` and in
+        //      nothing else; the shipped tests compare that sum after every step. A new escrow -
+        //      a bond, a deposit, a bounty - that is not summed makes the invariant test pass
+        //      while points go missing.
+        //   4. AND A PAYOUT RETIRES THE STAKE THAT BACKED IT. `proposal_stake` records the weight
+        //      each member had when the proposal was created, so a payout cannot be restaked into
+        //      fresh voting weight for the same treasury (round 13). Any new payout path must
+        //      retire on the same rule, or compounding weight is free.
 
         // The founder key: configuration, exactly like the vault's oracle. It signs the
         // genesis allocation and nothing else, and the production chromia.yml deliberately
@@ -5353,6 +5656,30 @@ object DappScaffold {
         // the window - priced at the moment it OPENS - is what makes the ordering not
         // matter. Size it against how fast your holders act.
 
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. THE COIN IS A LIABILITY OF A POSITION, NEVER A CLAIM ON A POOL. There is no
+        //      operation here that pays a coin holder par out of somebody else's `cdp`, and that
+        //      absence is the template: adversary round 9 drained the hand-built version by
+        //      redeeming at par out of a reserve that no longer covered the coin, and THIRTY
+        //      tokens moved on transaction order alone with every conservation invariant exact.
+        //      If you add a redemption, it is either a debtor burning against their OWN debt or it
+        //      is the settlement below - there is no third shape.
+        //   2. LIQUIDATION AND SETTLEMENT ARE ONE SHARED POOL, NOT A QUEUE. A liquidator is paid
+        //      the position's PRO-RATA share, and only while the SYSTEM is worth at least its coin
+        //      at a fresh price, before AND after the seizure - round 11 drained the template
+        //      through that gap with the per-position cap intact, moving 15 tokens of which 7 came
+        //      from a holder who was party to no liquidation. Any new path that takes collateral
+        //      out of `system` faster than it retires coin re-opens that exact hole, so check the
+        //      whole-system ratio on both sides of it.
+        //   3. EVERY RATIO IS CHECKED AGAINST THE WHOLE DEBT AT A FRESH, BOUNDED PRICE. `set_price`
+        //      bounds the move, the interval and the staleness; mint and withdraw re-check the
+        //      ratio after the write, not before it. A new operation that reads the price directly,
+        //      or that checks a ratio it computed before its own update, is the round-1 unbacked
+        //      mint again.
+        //   4. AND THE SETTLEMENT IS FINAL AND ONCE. `settlement` is written by the one operation
+        //      that opens it and every coin then redeems for the same share of one pool; a second
+        //      path into or out of settlement is a first-come exit with extra steps.
+
         struct module_args {
             oracle_pubkey: pubkey;
         }
@@ -6982,6 +7309,29 @@ object DappScaffold {
         //     never paid for a fraction of a unit. Over many periods that is at most one
         //     unit per collection.
 
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE PAYER FUNDED. `charge` moves points out
+        //      of `subscription.escrow` and never out of `account.balance`, and accrual is capped
+        //      at what is in there. Adversary round 13 drained the hand-built version because the
+        //      claim was on the payer's ACCOUNT: a plan at 10 points a month took all 9990 points
+        //      she held in ONE permissionless charge eighty-three years later, still owed 20, and
+        //      took every point that arrived afterwards in the block it landed. If you add a
+        //      penalty, an overage, a setup fee or a reconnection charge, it comes out of the
+        //      escrow or it is a standing claim on a person.
+        //   2. THE FEE ACCRUES PRO RATA, AND NOTHING IS BILLED IN ADVANCE. What is owed is a pure
+        //      function of `started_at`, `accrual_start`, `amount_per_period` and `period_ms`, so
+        //      no boundary is worth straddling - two subscribers cancelling ten minutes either
+        //      side of a boundary in a thirty-day period paid 1000 and 2000 in the drained build.
+        //      A new term that bills a WHOLE period on any event puts that staircase back.
+        //   3. EITHER PARTY MAY ALWAYS CANCEL. There is deliberately no `cancellable` field: a
+        //      pull authorisation that cannot be revoked is a standing claim on a person rather
+        //      than a right over a sum, and that is exactly what streaming's `cancellable = false`
+        //      meant when it was copied into this class. Do not add one.
+        //   4. `started_at` IS WRITTEN ONCE AND `charged` IS MONOTONE. `accrual_start` moves only
+        //      forward and only by the module's own settlement; a new operation that writes a
+        //      timestamp of its own is the round-7 anchor grief, where a stranger settling faster
+        //      than one unit of entitlement ground a payee's income to nothing.
+
         entity account {
             key owner: byte_array;
             mutable balance: integer = 0;
@@ -7815,6 +8165,30 @@ object DappScaffold {
         //     row on purpose, and they are queries rather than operations, so nobody pays
         //     for them inside a transaction. Keep the ordering rule - price, then time,
         //     then id - exactly as it is.
+
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. A RESTING ORDER'S TERMS ARE IMMUTABLE AND A PARTIAL FILL WRITES ONE MONOTONE
+        //      COUNTER AND NOTHING ELSE. `price`, `qty` and `created_at` never change; `filled` is
+        //      the only field a fill touches. Adversary round 12 drained the hand-built version
+        //      because a partial fill was DELETE-AND-RECREATE: the remainder's `created_at` was
+        //      NOW, so a taker buying one unit every 59 minutes held a maker's whole position
+        //      frozen and took it at a stale price - the maker ended with 1000 where an
+        //      uninterrupted maker ends with 2000. Carrying `created_at` through a recreate is the
+        //      OTHER pinned drain, so neither branch of delete-and-recreate is safe. If you add a
+        //      modify, a repricing or an iceberg, it is a CANCEL and a NEW ORDER with a new clock,
+        //      or it is one more monotone counter on the same row.
+        //   2. NO OPERATION NAMES A COUNTERPARTY. The book matches on best price, then longest
+        //      rested, then lowest id, and `place_order` is the only way in. A new operation that
+        //      lets a caller pick which resting order to fill hands the caller the choice of who
+        //      is filled at a stale price, which is the whole of the round-12 loss.
+        //   3. BOTH SIDES ARE ESCROWED WHEN THE ORDER IS PLACED. A buy escrows points and a sell
+        //      escrows units, so a match cannot fail for want of funds and a crossing order is
+        //      filled in the block it is signed. Any new order type has to escrow on the same
+        //      rule; an unescrowed leg is an option the other side wrote for free, which is
+        //      round 15's second drain in the two-party class.
+        //   4. AND POINTS AND UNITS LIVE IN `trader` ROWS AND IN OPEN ORDERS ONLY. The shipped
+        //      conservation test sums both. A new row that holds either and is not summed makes
+        //      the invariant pass while value goes missing.
 
         entity trader {
             key owner: byte_array;
@@ -8711,6 +9085,28 @@ object DappScaffold {
         //     transfer into the module's own account and back out, and the ONE EXIT rule
         //     is what stops it being paid twice.
 
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. A SWAP SETTLES IN FULL OR NOT AT ALL, SO THERE IS NO REMAINDER AND NO SECOND CLOCK.
+        //      `qty_a`, `qty_b`, `opened_at` and `deadline` are written once by `open_swap` and
+        //      `status` is the only mutable field. Adversary round 15 drained the hand-built
+        //      version because a partly filled offer re-created its remainder as a NEW row whose
+        //      timeout started NOW: a taker buying ONE unit every 59 minutes held a one-hour offer
+        //      open for ever, and six hours in 94 of the maker's 100 units were still escrowed
+        //      with her reclaim refused every time. If you add partial fills, the deadline must
+        //      stay on the ORIGINAL row - which means one more monotone counter, not a new row.
+        //   2. THE OFFER IS REVOCABLE IN ANY BLOCK, AND THAT IS A COST THIS HEADER OWNS. The other
+        //      drain was that only ONE leg was escrowed, so the window was an option the maker
+        //      wrote for free: the taker committed nothing and decided at the end of the hour.
+        //      Revocability is what pays for that. If you make an offer BINDING for a window, you
+        //      must escrow the taker's leg too, or you have re-created the free option.
+        //   3. NO OPERATION WRITES A TIMESTAMP. `deadline` comes from the block that escrowed the
+        //      maker's leg plus an immutable term; nothing moves it. A new path that extends,
+        //      renews or refreshes a deadline is the round-7 anchor grief, and it is also how the
+        //      round-12 order book lost a maker's whole position.
+        //   4. AND `expire_swap` SENDS EACH LEG HOME TO ITS OWNER, NEVER TO THE CALLER. It is
+        //      permissionless on purpose, so neither party can hold the other's value by refusing
+        //      to act. Any new exit must pay the owner of the leg and must be reachable by anybody.
+
         // The two assets. Balances only - nothing is created after the welcome grant, and
         // the conservation queries at the bottom prove it for BOTH assets, because a swap
         // that conserves one of them and not the other is not a swap.
@@ -9229,7 +9625,7 @@ object DappScaffold {
         //     MOVED ON TRANSACTION ORDER ALONE, where pro rata is 100 each. That is
         //     r9-stablecoin-redemption-at-par-exit-race in a class that had no template:
         //     the pro-rata settlement the stablecoin ships had no counterpart here.
-        // Eleven guards are STRUCTURAL - they live in the entities and their operations,
+        // Twelve guards are STRUCTURAL - they live in the entities and their operations,
         // not in a require() a later operation has to remember:
         //   THE HOLDER IS THE SIGNER  - a policy is written off auth.authenticate() and
         //     never off a parameter, and every operation that moves a policy's money
@@ -9266,6 +9662,23 @@ object DappScaffold {
         //     between them - round 17's second drain made unwritable rather than checked.
         //     This is the stablecoin template's shared-settlement shape, and it is here
         //     for the same reason: a short reserve is shared, never raced.
+        //   NO PREMIUM LEAVES WHILE A CLAIM ROUND IS OPEN  - an exit filed during an open
+        //     round JOINS the round instead of racing it: the policy is marked leaving,
+        //     nothing is paid, and `settle_claim_round` retires it AFTER the claims, out of
+        //     the reserve they left. `retire_policy()` refuses outright while the round is
+        //     open, so there is no order of transactions in which a premium can be taken
+        //     out of the reserve a filed claim is about to be paid from. This is round 18's
+        //     drain and it is the reason the two pro-rata promises above were not enough:
+        //     they hold for cancel-against-cancel and claim-against-claim, and the race
+        //     neither of them names is a CANCEL AGAINST THE SETTLEMENT. A claim is public
+        //     the moment it is filed, settlement is REFUSED for a whole CLAIM_WINDOW_MS,
+        //     and a loss-free member used to be allowed out for the whole of that day:
+        //     three members, three policies of 400 cover for 100 premium, alice with a
+        //     covered loss of 400, and the two cancels inside the window paid
+        //     alice=1000 bob=1000 eve=1000 where the settlement signed first pays
+        //     alice=1200 bob=900 eve=900. TWO HUNDRED POINTS ON TRANSACTION ORDER ALONE.
+        //     Both orders now pay the same three numbers and the shipped tests assert ONE
+        //     string from both, the way the claim and refund races are pinned.
         //   A ROUND SETTLES ONCE, AFTER ITS WINDOW  - claims are filed while the round is
         //     open and only inside CLAIM_WINDOW_MS of the block that opened it; settlement
         //     is refused before the window and closes the round, so a second call has no
@@ -9314,11 +9727,57 @@ object DappScaffold {
         //     reason. That is a rounding unit, not an exit race - nothing scales with it -
         //     but it is a point, and the shipped tests pin the exact-division fixture in
         //     both orders rather than claiming the general case.
+        //   - AN EXIT IS SUBORDINATED TO THE CLAIMS OF THE ROUND IT IS IN, AND TO NOTHING
+        //     ELSE. Between rounds there is no claim on chain to be subordinated to, so a
+        //     member may leave with her pro-rata share of the reserve while another member
+        //     is holding a loss she has not filed yet - nothing on this chain knows about
+        //     it. The pro-rata settlement leaves a short reserve at its remainder, so
+        //     there is usually nothing left to take; what a real pool adds on top is a
+        //     NOTICE PERIOD, an exit requested now and paid a window later, which
+        //     subordinates a leaver to every claim filed while she is on notice. That is
+        //     one more mutable field and one more operation, and it is written up in
+        //     EXTENDING THIS TEMPLATE below rather than pretended away here.
+        //   - AND THE ONE BLOCK AT THE EDGE OF A ROUND. `open_claim_round` and a cancel can
+        //     land in the SAME block, and which of them the block builder puts first
+        //     decides whether that cancel is immediate or joins the round. It is one block
+        //     rather than the protocol-guaranteed day round 18 drained, and it carries no
+        //     information: nothing is public before the round opens. A claimant who wants
+        //     it gone signs `open_claim_round` and `file_claim` in ONE transaction - the
+        //     shipped drain test does exactly that - and then there is no block in which
+        //     anybody knows a claim is coming and is not already frozen.
         //   - THE POINTS ARE A STAND-IN. `member.balance` is a balance on this chain,
         //     credited once by a welcome grant so the tests can move real value. Replace it
         //     with an FT4 asset and keep every guard above: the reserve becomes the
         //     module's own account, and ONE REFUND, ONE PLACE IT IS COMPUTED is what stops
         //     a premium being paid back twice.
+
+        // EXTENDING THIS TEMPLATE - the seam an extender walks into, and it is the one
+        // round 18 walked into:
+        //   EVERY PATH OUT OF A POLICY IS A SECOND EXIT PATH, AND THE RACE IS AGAINST THE
+        //   SETTLEMENT, NOT AGAINST THE OTHER EXIT. `retire_policy()` is the only place a
+        //   premium is returned and `leave_policy()` is the only place a policy leaves;
+        //   both are helpers so that a new operation - a surrender for a fee, a transfer of
+        //   a policy to another member, an admin write-off, a lapse for non-payment - has
+        //   to go through them. If you add one, call `leave_policy(p)` and NOTHING ELSE: a
+        //   path that calls `retire_policy()` directly will be refused while a round is
+        //   open (which is safe) and a path that credits `.balance` itself is the drain
+        //   round 17 measured (which is not). And if you add a path that pays a member
+        //   WITHOUT retiring the policy - a dividend, a no-claims bonus, a premium rebate -
+        //   it is a draw on the same reserve as the claims, so it belongs INSIDE the
+        //   settlement after the claims are paid, exactly where the exit queue is, and not
+        //   in an operation of its own that can be signed during the window.
+        //   THE NOTICE PERIOD, if you need one: give `policy` an immutable
+        //   `exit_requested_at` written once by the request, refuse the payout until
+        //   `op_context.last_block_time >= exit_requested_at + NOTICE_MS`, and keep
+        //   `retire_policy()`'s refusal while a round is open. Do not make the notice a
+        //   parameter and do not let a second request rewrite the anchor - that is the
+        //   round-7 grief, and this template's own "NO OPERATION WRITES A TIMESTAMP OF ITS
+        //   OWN" guard is what stops it.
+        //   AND THE BOOK. `cover_written` and `refundable` are aggregates; every new path
+        //   must move them exactly as the policies it touches move, or `book_written()`
+        //   and `refundable_from_policies()` - asserted after every step of the shipped
+        //   tests - will part company with them. An aggregate that drifts from its rows is
+        //   leverage nobody wrote down.
 
         // The pool's leverage: how many points of cover it may write against one point of
         // reserve. Configuration, because no default can know your loss distribution - and
@@ -9343,6 +9802,10 @@ object DappScaffold {
             cover: integer;
             mutable paid_out: integer = 0;
             mutable active: boolean = true;
+            // LEAVING WITH THE ROUND. Set by an exit filed while a claim round is open and
+            // read by the settlement that retires it; it moves no money on its own, and a
+            // policy that carries it can neither claim nor file a second exit.
+            mutable exiting: boolean = false;
         }
 
         object pool {
@@ -9420,6 +9883,12 @@ object DappScaffold {
         // without deleting this function.
         function retire_policy(p: policy) {
             require(p.active, "the policy is not active");
+            // NO PREMIUM LEAVES WHILE A CLAIM ROUND IS OPEN. The settlement closes the
+            // round before it drains the exit queue, so this refuses every path that could
+            // take money out of a reserve a filed claim is about to be paid from - round
+            // 18's drain, which the two pro-rata promises above do not reach because it is
+            // a cancel against the SETTLEMENT rather than against another cancel.
+            require(not round_state.open, "no premium leaves the pool while a claim round is open");
             // A CLAIM SPENDS THE PREMIUM THAT PAID IT.
             val entitled = p.premium_paid - min(p.paid_out, p.premium_paid);
             // ...AND WHAT IS LEFT IS SHARED, NEVER RACED: this entitlement's proportion of
@@ -9430,12 +9899,32 @@ object DappScaffold {
             require(pool.reserve >= refund, "the pool cannot refund this premium");
             val holder = member_of(p.holder);
             update holder ( .balance += refund );
-            update p ( .active = false );
+            update p ( .active = false, .exiting = false );
             pool.reserve -= refund;
             pool.refunds_out += refund;
             pool.refundable -= entitled;
             // Only what the claims did NOT retire.
             pool.cover_written -= live_cover(p);
+        }
+
+        // THE ONE PLACE A POLICY LEAVES, and every exit operation calls it. With no round
+        // open there is nothing to race and the exit is immediate. With a round OPEN the
+        // exit JOINS it: the policy is marked leaving, nothing is paid, and the settlement
+        // retires it out of the reserve the claims left. That is round 18's drain made
+        // unwritable rather than checked - there is no order of the round's transactions in
+        // which a premium leaves ahead of a claim already filed against it.
+        function leave_policy(p: policy) {
+            require(p.active, "the policy is not active");
+            if (round_state.open) {
+                require(
+                    claim @? { .round == round_state.id, .policy == p } == null,
+                    "this policy has a claim in the open round"
+                );
+                require(not p.exiting, "this policy is already leaving with the round");
+                update p ( .exiting = true );
+            } else {
+                retire_policy(p);
+            }
         }
 
         operation join_pool() {
@@ -9495,6 +9984,11 @@ object DappScaffold {
             val p = require(policy @? { .id == policy_id }, "no such policy");
             require(p.holder == account.id, "that is not your policy");
             require(p.active, "the policy is not active");
+            // ...AND THE OTHER HALF OF THE SAME RULE: a policy that is leaving with this
+            // round cannot also claim in it. Without this the exit and the claim would
+            // race each other through the order they were signed in, which is the drain
+            // one operation further back.
+            require(not p.exiting, "this policy is leaving with the round");
             require(round_state.open, "no claim round is open");
             require(
                 op_context.last_block_time < round_state.opened_at + CLAIM_WINDOW_MS,
@@ -9549,24 +10043,28 @@ object DappScaffold {
                     pool.refundable -= spent_after - spent_before;
                 }
             }
+            // THE ROUND IS CLOSED BEFORE ANY EXIT IS PAID, which is what lets the queue
+            // below run through the same retire_policy() a closed-round cancel does.
             round_state.open = false;
             round_state.total_claimed = 0;
+            // THE EXITS THE ROUND CARRIED, retired out of the reserve THE CLAIMS LEFT, in
+            // the database's own order rather than in the order anybody signed. Each is the
+            // same pro-rata refund a cancel gets between rounds - reserve * entitled /
+            // refundable - so no leaver is paid ahead of another either.
+            for (p in policy @* { .active == true, .exiting == true }) {
+                retire_policy(p);
+            }
         }
 
         // CANCEL. The holder leaves and takes back what her claims have not spent - which
-        // is retire_policy()'s arithmetic and nothing else. A policy with a claim in the
-        // open round cannot walk out of the round it is in.
+        // is retire_policy()'s arithmetic and nothing else. With a claim round open the
+        // cancel JOINS the round rather than racing it: leave_policy() marks the policy and
+        // the settlement pays it out of what the claims leave.
         operation cancel_policy(policy_id: text) {
             val account = auth.authenticate();
             val p = require(policy @? { .id == policy_id }, "no such policy");
             require(p.holder == account.id, "that is not your policy");
-            if (round_state.open) {
-                require(
-                    claim @? { .round == round_state.id, .policy == p } == null,
-                    "this policy has a claim in the open round"
-                );
-            }
-            retire_policy(p);
+            leave_policy(p);
         }
 
         // CLOSE AN EXHAUSTED POLICY. Once its cover is fully paid the policy stands for
@@ -9576,7 +10074,7 @@ object DappScaffold {
             auth.authenticate();
             val p = require(policy @? { .id == policy_id }, "no such policy");
             require(live_cover(p) == 0, "that policy still carries cover");
-            retire_policy(p);
+            leave_policy(p);
         }
 
         // ------------------------------- QUERIES -----------------------------------
@@ -9598,13 +10096,17 @@ object DappScaffold {
         query member_count(): integer = member @* {} ( .owner ).size();
         query live_policies_of(owner: byte_array): integer =
             (policy @* { .holder == owner, .active == true } ( .id )).size();
+        // The exits waiting on the open round's settlement. A number the shipped tests
+        // read, so "the cancel moved nothing yet" is measured rather than assumed.
+        query leaving_policies(): integer =
+            (policy @* { .active == true, .exiting == true } ( .id )).size();
 
         query policy_state(policy_id: text) {
             val p = policy @? { .id == policy_id };
             return if (p != null)
                 (
                     id = p.id, holder = p.holder, premium_paid = p.premium_paid, cover = p.cover,
-                    paid_out = p.paid_out, active = p.active
+                    paid_out = p.paid_out, active = p.active, exiting = p.exiting
                 )
             else null;
         }
@@ -9677,6 +10179,18 @@ object DappScaffold {
         // one string, so "identical payouts" is one value rather than a comparison
         // somebody has to read.
         val PRO_RATA_OUTCOME = "bob=1050 eve=1050 reserve=0";
+
+        // AND THE ROUND-18 ONE, THE CANCEL AGAINST THE SETTLEMENT: three members, three
+        // policies of 400 cover for 100 premium - every purchase sitting EXACTLY on the
+        // reserve bound, 400<=400, 800<=800, 1200<=1200 at the default multiplier of 4 -
+        // and alice with a covered loss of 400. The two loss-free members leaving inside
+        // the claim window and the settlement signed first are the SAME arithmetic in two
+        // transaction orders, so they are one string asserted by both cases below. What
+        // round 18 measured before the exit joined the round was
+        // "alice=1000 bob=1000 eve=1000 reserve=0 claims_out=100 refunds_out=200": two
+        // hundred points, and alice covered for 400 against a loss of 400 paid 100.
+        val R18_SETTLEMENT_OUTCOME =
+            "alice=1200 bob=900 eve=900 reserve=0 claims_out=300 refunds_out=0";
 
         // AND THE SAME ON THE WAY OUT: whoever leaves FIRST from a pool whose reserve
         // cannot pay both entitlements in full is paid 950 and leaves 50 behind - the
@@ -9935,7 +10449,9 @@ object DappScaffold {
             // exit is not a back door into one that is still carrying cover.
             signed_must_fail(k.eve, main.close_exhausted_policy("a1"), "that policy still carries cover");
             signed(k.alice, main.cancel_policy("a1"));
-            signed_must_fail(k.alice, main.cancel_policy("a1"), "the policy is not active");
+            // The round is still open, so alice's exit JOINED it rather than racing it -
+            // and a second exit has nowhere to go either.
+            signed_must_fail(k.alice, main.cancel_policy("a1"), "this policy is already leaving with the round");
             assert_conserved();
         }
 
@@ -10023,6 +10539,124 @@ object DappScaffold {
             assert_equals(
                 "eve=" + main.balance_of(k.eve_id) + " reserve=" + main.pool_reserve(),
                 "eve" + REFUND_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // EXPLOIT MUST FAIL. ROUND 18: THE CANCEL AGAINST THE SETTLEMENT. The two guards
+        // above make cancel-against-cancel and claim-against-claim order-free, and the race
+        // neither of them names is a cancel against the SETTLEMENT. A claim is public the
+        // moment it is filed and settle_claim_round is REFUSED until CLAIM_WINDOW_MS has
+        // passed, so a member with no loss used to have a protocol-guaranteed day, with
+        // somebody else's loss already on chain, to take her premium out of the reserve
+        // that loss was about to be paid from: alice=1000 bob=1000 eve=1000 against the
+        // honest alice=1200 bob=900 eve=900, two hundred points on transaction order alone.
+        //
+        // Here the exit JOINS the round. cancel_policy() marks the policy and pays nothing;
+        // settle_claim_round pays the claims, closes the round and only then retires the
+        // leavers, out of the reserve the claims left. THE ATTACK IS DRIVEN, not refused:
+        // both cancels succeed, and the numbers at the end are the ones the control below
+        // gets from the opposite order.
+        function test_r18_i7_a_cancel_cannot_outrun_the_settlement_it_shares_must_fail() {
+            val k = join_three();
+            // Every purchase sits EXACTLY on the reserve bound at the default multiplier
+            // of 4: 400<=400, then 800<=800, then 1200<=1200.
+            signed(k.alice, main.buy_policy("a1", 400, 100));
+            signed(k.bob, main.buy_policy("b1", 400, 100));
+            signed(k.eve, main.buy_policy("e1", 400, 100));
+            assert_equals(main.pool_reserve(), 300);
+            assert_equals(main.cover_written(), 1200);
+            assert_conserved();
+
+            // A COVERED LOSS OF 400, filed in the same transaction that opens the round so
+            // that no block exists in which the claim is public and the exits are not yet
+            // frozen. This is the shape the header's residual points at.
+            rell.test.tx()
+                .op(ft_auth_operation_for(k.alice.pub)).op(main.open_claim_round())
+                .op(ft_auth_operation_for(k.alice.pub)).op(main.file_claim("a1", 400))
+                .nop().sign(k.alice).run();
+
+            // THE ATTACK: both loss-free members leave, with the claim on chain and a whole
+            // day before it can be settled. Neither is refused - and neither is paid.
+            signed(k.bob, main.cancel_policy("b1"));
+            signed(k.eve, main.cancel_policy("e1"));
+            assert_conserved();
+
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+
+            // The claim is paid out of the whole reserve, and the two exits are paid out of
+            // what it left - which is nothing. Round 18 measured
+            // alice=1000 bob=1000 eve=1000 reserve=0 claims_out=100 refunds_out=200 here.
+            assert_equals(
+                "alice=" + main.balance_of(k.alice_id)
+                    + " bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve()
+                    + " claims_out=" + main.claims_out()
+                    + " refunds_out=" + main.refunds_out(),
+                R18_SETTLEMENT_OUTCOME
+            );
+            assert_conserved();
+        }
+
+        // AN EXIT FILED INSIDE A ROUND JOINS IT, AND JOINING IS ALL IT DOES. The two
+        // properties that make the case above a settlement rather than a refusal: the
+        // cancel moves NO money in the block it is signed, and a policy that is leaving
+        // cannot claim its way back into the round it is leaving with - the symmetric
+        // hole, since a claim already in the round already refuses the exit.
+        function test_r18_i8_an_exit_inside_a_round_joins_it_and_cannot_also_claim_must_fail() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 400, 100));
+            signed(k.bob, main.buy_policy("b1", 400, 100));
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 400));
+            signed(k.bob, main.cancel_policy("b1"));
+            // NOTHING MOVED: the exit is in the round, not ahead of it.
+            assert_equals(
+                "bob=" + main.balance_of(k.bob_id) + " reserve=" + main.pool_reserve()
+                    + " leaving=" + main.leaving_policies(),
+                "bob=900 reserve=200 leaving=1"
+            );
+            // THE ATTACK: claim out of the round you are walking out of.
+            signed_must_fail(k.bob, main.file_claim("b1", 100), "this policy is leaving with the round");
+            // ...and the exit is filed once.
+            signed_must_fail(k.bob, main.cancel_policy("b1"), "this policy is already leaving with the round");
+            assert_conserved();
+
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+            assert_equals(main.leaving_policies(), 0);
+            assert_conserved();
+        }
+
+        // THE CONTROL, and the other half of "no ordering moves a point": the SAME three
+        // members, the SAME claim and the SAME arithmetic with the settlement signed FIRST
+        // and the two cancels after it. One string, asserted from both orders.
+        function test_r18_i7_control_the_settlement_signed_first_pays_the_same_numbers() {
+            val k = join_three();
+            signed(k.alice, main.buy_policy("a1", 400, 100));
+            signed(k.bob, main.buy_policy("b1", 400, 100));
+            signed(k.eve, main.buy_policy("e1", 400, 100));
+
+            signed(k.alice, main.open_claim_round());
+            signed(k.alice, main.file_claim("a1", 400));
+            after(DAY + 60 * 1000);
+            signed(k.alice, main.settle_claim_round());
+
+            // NOW they leave, into the reserve the settlement left.
+            signed(k.bob, main.cancel_policy("b1"));
+            signed(k.eve, main.cancel_policy("e1"));
+
+            assert_equals(
+                "alice=" + main.balance_of(k.alice_id)
+                    + " bob=" + main.balance_of(k.bob_id)
+                    + " eve=" + main.balance_of(k.eve_id)
+                    + " reserve=" + main.pool_reserve()
+                    + " claims_out=" + main.claims_out()
+                    + " refunds_out=" + main.refunds_out(),
+                R18_SETTLEMENT_OUTCOME
             );
             assert_conserved();
         }
@@ -10154,6 +10788,30 @@ object DappScaffold {
         // within the bound, and a trader can capture that move - but only out of what
         // the reserve holds, never out of thin air. Size MAX_PRICE_MOVE_BPS and the
         // interval for your asset, and keep the conservation test green.
+
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. THIS IS A RESERVE PRICED BY A FEED, NOT A CURVE AND NOT A LOAN. Every credit is
+        //      paid out of a reserve row in the SAME operation, and the price comes from
+        //      `price_feed`, which only the configured `oracle_pubkey` may write. If what you are
+        //      adding prices off its own reserves, that is a constant-product pool and a different
+        //      exploit class - `template=amm`, which adversary round 8 exists for. If it mints a
+        //      coin against LOCKED COLLATERAL that a price can put under water, that is
+        //      `template=stablecoin`, which round 9 exists for. Both were once answered with THIS
+        //      template and both drained.
+        //   2. THE PRICE IS BOUNDED, RATE-LIMITED AND STALENESS-CHECKED, AND EVERY NEW READER
+        //      MUST USE THE SAME HELPER. `set_price` bounds the move and the interval; every
+        //      operation that values anything reads the feed through the module's own checked
+        //      accessor and refuses a stale one. A new operation that reads `price_feed.price`
+        //      directly is the round-1 unbacked mint with one line removed - 100 points became
+        //      200,000,000 there.
+        //   3. THE ORACLE KEY IS CONFIGURATION, NOT AN ARGUMENT. `oracle_pubkey` is a module arg
+        //      with NO default, so a chain cannot be built with a placeholder. Never take a
+        //      signer, a price source or a feed id as an operation parameter: the caller then
+        //      chooses the price.
+        //   4. AND EVERY NEW ROW THAT HOLDS VALUE JOINS THE CONSERVATION IDENTITY. Cash lives in
+        //      `cash_account`, tokens in `token_account`, and the shipped tests compare both
+        //      totals after every step. A row that holds either and is not summed makes the
+        //      invariant pass while value goes missing.
 
         struct module_args {
             oracle_pubkey: pubkey;
@@ -10536,6 +11194,30 @@ object DappScaffold {
         // moved, never created. Keep those tests passing as this file grows.
         // What no template can fix: REWARD_PER_SECOND and COOLDOWN_MS are your
         // economics - a rate the sponsors cannot keep funded simply stops paying.
+
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. EVERY CREDIT IS A DEBIT OF A POOL SOMEBODY FUNDED, IN THE SAME OPERATION. The
+        //      reward a staker is paid comes out of `pool.undistributed`, which only
+        //      `fund_rewards` raises and only out of a sponsor's own balance. Adversary round 4
+        //      drained a hand-built version of exactly this by paying stake x elapsed x rate out
+        //      of a pool that held nothing - nothing was minted in the source, and the points
+        //      appeared anyway. If you add a bonus, a multiplier, a referral or a boost, it is
+        //      paid from the same pool or it is a mint.
+        //   2. THE ACCUMULATOR IS THE PRICE OF A SHARE, AND A NEW OPERATION THAT MOVES `staked`
+        //      MUST SETTLE IT FIRST. `acc_reward_per_share` is advanced by the module's own update
+        //      helper and each member carries a `reward_snapshot`; a path that changes a member's
+        //      stake without settling against the current accumulator either pays them for time
+        //      they were not staked or loses time they were. That is round 6's just-in-time
+        //      interest capture in the reward-pool class.
+        //   3. THE COOLDOWN IS THE POINT OF `unstake_request`, AND IT IS `key member` ON PURPOSE.
+        //      One request per member, `ready_at` written once and not mutable, and withdrawal
+        //      refused before it. A second exit path - an emergency withdraw, a fee-paying instant
+        //      exit - is a second clock, and the round-7 lesson is that the second clock is the
+        //      one somebody restarts.
+        //   4. AND POINTS LIVE IN FOUR PLACES ONLY: a member's balance, their stake, the pool's
+        //      undistributed and the pool's unclaimed. The shipped conservation test sums exactly
+        //      those. A new row that holds points and is not summed makes the test pass while
+        //      points go missing.
 
         entity member {
             key owner: byte_array;

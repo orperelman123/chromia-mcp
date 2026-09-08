@@ -2545,6 +2545,81 @@ class DappScaffoldSecureTemplatesTest {
         )
     }
 
+    /**
+     * ROUND 18 MEASURED FOUR OF FIFTEEN. The brief for that round asked the adversary to
+     * follow a template's EXTENDING seam literally, because rounds 7 and 8 were each
+     * topped by a build that did exactly that - and `describe/template_extending.json`
+     * (one `scaffold_dapp` call per template) records that only `marketplace`, `lending`,
+     * `streaming` and `amm` carried an EXTENDING section at all. The other eleven,
+     * including the two newest, handed an extender a header full of guards and nothing
+     * about the seam those guards leave open. That is the same shape as every drain this
+     * project has measured: the guard is not missing, the SENTENCE about where it stops
+     * is.
+     *
+     * So every template ships one, and this pins three things about each: it exists, it
+     * is long enough to say something, and it carries a seam sentence that is SPECIFIC to
+     * that template (a generic "be careful" cannot satisfy this map). The fourth check is
+     * derived rather than pinned: the section must name at least one snake_case
+     * identifier that is really in that module's code, so a seam cannot be written about
+     * a field the template does not have.
+     */
+    private val extendingSeam: Map<String, String> = linkedMapOf(
+        "hello" to "THIS MODULE HOLDS NO VALUE",
+        "ft4" to "CANNOT SEE A MINT",
+        "governance" to "THE BAR IS FIXED WHEN A PROPOSAL IS CREATED",
+        "vault" to "NOT A CURVE AND NOT A LOAN",
+        "staking" to "EVERY CREDIT IS A DEBIT OF A POOL SOMEBODY FUNDED",
+        "marketplace" to "MUTUALLY EXCLUSIVE WITH THE OTHERS",
+        "lending" to "MUST PRICE THROUGH",
+        "streaming" to "NEVER MEASURE THE ENTITLEMENT FROM A MARKER A CALLER CAN ADVANCE",
+        "amm" to "NEVER ADD A SLIPPAGE TOLERANCE",
+        "stablecoin" to "THE COIN IS A LIABILITY OF A POSITION",
+        "exchange" to "A PARTIAL FILL WRITES ONE MONOTONE",
+        "subscription" to "A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE PAYER FUNDED",
+        "bridge" to "THE PROCESSED-BURNS REGISTRY IS KEYED BY THE BURN'S IDENTITY",
+        "escrow" to "A SWAP SETTLES IN FULL OR NOT AT ALL",
+        "insurance" to "EVERY PATH OUT OF A POLICY IS A SECOND EXIT PATH"
+    )
+
+    @Test
+    fun everyTemplateShipsAnExtendingSectionNamingItsOwnSeam() {
+        assertEquals(
+            DappScaffold.templates.toSet(),
+            extendingSeam.keys,
+            "every shipped template needs a pinned EXTENDING seam, and nothing else may be in this map"
+        )
+        DappScaffold.templates.forEach { template ->
+            val main = DappScaffold.files("t", template = template).getValue("src/main.rell")
+            val lines = main.lines()
+            val first = lines.indexOfFirst { it.trimStart().startsWith("// EXTENDING THIS TEMPLATE") }
+            assertTrue(
+                first >= 0,
+                "$template has no EXTENDING THIS TEMPLATE section - an extender gets the guards and " +
+                    "nothing about where they stop, which is where rounds 6, 7 and 8 all landed"
+            )
+            var last = first
+            while (last + 1 < lines.size && lines[last + 1].trimStart().startsWith("//")) last++
+            val section = lines.subList(first, last + 1).joinToString("\n")
+            assertTrue(
+                section.length >= 400,
+                "$template's EXTENDING section is ${'$'}{section.length} characters - too short to name a seam: $section"
+            )
+            assertTrue(
+                section.contains(extendingSeam.getValue(template)),
+                "$template's EXTENDING section must carry its own seam sentence: $section"
+            )
+            // DERIVED, not pinned: the seam has to be about something this module really
+            // has. A section that names no identifier of its own module is advice about a
+            // different dapp.
+            val named = Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").findAll(section).map { it.value }.toSet()
+            val code = withoutComments(main)
+            assertTrue(
+                named.any { code.contains(it) },
+                "$template's EXTENDING section names no identifier this module actually has: $named"
+            )
+        }
+    }
+
     @Test
     fun templatesCompileWithVendoredLib() {
         secureTemplates.forEach { template ->
@@ -2924,6 +2999,9 @@ class DappScaffoldSecureTemplatesTest {
             "test_an_exhausted_policy_closes_through_the_same_helper_must_fail",
             "test_r17_i6_a_short_reserve_refunds_pro_rata_not_first_come_must_fail",
             "test_r17_i6_control_the_reverse_cancel_order_pays_the_same_number",
+            "test_r18_i7_a_cancel_cannot_outrun_the_settlement_it_shares_must_fail",
+            "test_r18_i8_an_exit_inside_a_round_joins_it_and_cannot_also_claim_must_fail",
+            "test_r18_i7_control_the_settlement_signed_first_pays_the_same_numbers",
             "test_conservation_holds_across_premiums_claims_and_refunds"
         )
     )
@@ -2954,12 +3032,58 @@ class DappScaffoldSecureTemplatesTest {
             "the refund is the premium LESS what the policy was already paid: $helper"
         )
         listOf("cancel_policy", "close_exhausted_policy").forEach {
-            assertTrue(opBody(code, it).contains("retire_policy(p);"), "$it must exit through the one helper")
+            assertTrue(opBody(code, it).contains("leave_policy(p);"), "$it must exit through the one helper")
             assertFalse(
                 opBody(code, it).contains(".balance +="),
                 "$it must not credit a balance of its own - that is the second place"
             )
+            assertFalse(
+                opBody(code, it).contains("retire_policy(p);"),
+                "$it must not reach the refund without going through leave_policy - that is round 18's race"
+            )
         }
+
+        // ROUND 18. NO PREMIUM LEAVES WHILE A CLAIM ROUND IS OPEN, and it is one line in
+        // the one helper rather than a check each exit remembers. The two pro-rata
+        // promises above hold for cancel-against-cancel and claim-against-claim; the race
+        // neither of them names is a CANCEL AGAINST THE SETTLEMENT, and round 18 measured
+        // it moving 200 points (alice=1000 bob=1000 eve=1000 against the honest
+        // alice=1200 bob=900 eve=900) with rell_security_check ok:true, zero findings.
+        assertTrue(
+            helper.contains("require(not round_state.open, \"no premium leaves the pool while a claim round is open\");"),
+            "the refund helper must refuse outright while a round is open: ${'$'}helper"
+        )
+        assertTrue(code.contains("function leave_policy(p: policy) {"), "the one exit helper must exist by name")
+        val leave = code.substringAfter("function leave_policy(p: policy) {").substringBefore("\n}")
+        assertTrue(
+            leave.contains("if (round_state.open) {") && leave.contains("update p ( .exiting = true );"),
+            "an exit filed during an open round must JOIN it rather than race it: ${'$'}leave"
+        )
+        assertTrue(
+            leave.contains("require(not p.exiting, \"this policy is already leaving with the round\");"),
+            "an exit is filed once: ${'$'}leave"
+        )
+        // ...and the settlement closes the round BEFORE it retires the leavers, which is
+        // what lets them go through the same refund helper a closed-round cancel does.
+        val settleBody = opBody(code, "settle_claim_round")
+        assertTrue(
+            settleBody.indexOf("round_state.open = false;") <
+                settleBody.indexOf("for (p in policy @* { .active == true, .exiting == true })"),
+            "the round must be closed before any exit is paid: ${'$'}settleBody"
+        )
+        // ...and the symmetric hole: a policy that is leaving cannot claim in the round it
+        // is leaving with, exactly as a policy that has claimed cannot leave.
+        assertTrue(
+            opBody(code, "file_claim").contains("require(not p.exiting, \"this policy is leaving with the round\");"),
+            "a leaving policy must not be able to claim its way back into the round"
+        )
+        // TWO CALLERS OF THE REFUND, and both of them are in this module's own helpers:
+        // leave_policy's closed-round branch and the settlement's exit queue.
+        assertEquals(
+            2,
+            Regex("retire_policy\\(p\\);").findAll(code).count(),
+            "the refund helper may be called from leave_policy and from the settlement, and nowhere else"
+        )
         // ...and the caller of the permissionless exit is not the one who is paid.
         assertFalse(
             opBody(code, "close_exhausted_policy").contains("member_of(account.id)"),
@@ -3050,8 +3174,8 @@ class DappScaffoldSecureTemplatesTest {
         assertTrue(code.contains("val MAX_CLAIMS_PER_ROUND ="), "a round's claims must be bounded")
 
         // THE HEADER'S OWN COUNT, measured from the list it writes.
-        assertTrue(main.contains("Eleven guards are STRUCTURAL"), "the insurance header must state its guard count")
-        assertEquals(11, guardCount(main), "the insurance header's stated count must be the number of guards it lists")
+        assertTrue(main.contains("Twelve guards are STRUCTURAL"), "the insurance header must state its guard count")
+        assertEquals(12, guardCount(main), "the insurance header's stated count must be the number of guards it lists")
         assertTrue(
             main.contains("THIS MODULE DOES NOT DECIDE WHETHER A LOSS HAPPENED"),
             "the header must admit what no guard here can fix"
@@ -3305,6 +3429,43 @@ class DappScaffoldSecureTemplatesTest {
         // drain was blocked by an accident of the fixture rather than by the arithmetic.
         "the pool cannot refund this premium",
         "alice=1280"
+    )
+
+    /**
+     * ROUND 18 - NO PREMIUM LEAVES WHILE A CLAIM ROUND IS OPEN. Put the round-18 shape
+     * back: an exit filed during an open round is PAID in the block it is signed, out of
+     * the reserve the filed claim is about to be settled from. The replay reddens on the
+     * three balances, and they are the numbers round 18 measured on a chain -
+     * alice=1000 bob=1000 eve=1000 where both honest orders pay alice=1200 bob=900
+     * eve=900. Two hundred points, and alice - covered for 400 against a loss of 400 -
+     * is paid 100.
+     *
+     * The mutant has to remove BOTH halves of the guard: the branch that queues the exit
+     * AND the refund helper's own refusal, which would otherwise refuse the immediate
+     * retirement and hide the drain behind a require().
+     */
+    @Test
+    fun insuranceR18ReplayGoesRedWhenACancelCanOutrunTheSettlement() = assertGuardMutationRedensExploitTest(
+        "insurance",
+        "    if (round_state.open) {\n" +
+            "        require(\n" +
+            "            claim @? { .round == round_state.id, .policy == p } == null,\n" +
+            "            \"this policy has a claim in the open round\"\n" +
+            "        );\n" +
+            "        require(not p.exiting, \"this policy is already leaving with the round\");\n" +
+            "        update p ( .exiting = true );\n" +
+            "    } else {\n" +
+            "        retire_policy(p);\n" +
+            "    }",
+        "    retire_policy(p);",
+        "test_r18_i7_a_cancel_cannot_outrun_the_settlement_it_shares_must_fail",
+        // Wrong reason: the exit still refused by the helper's own line, which would mean
+        // the mutant proved nothing about the branch it removed.
+        "no premium leaves the pool while a claim round is open",
+        "alice=1000 bob=1000 eve=1000",
+        alsoRemove = listOf(
+            "    require(not round_state.open, \"no premium leaves the pool while a claim round is open\");\n"
+        )
     )
 
     /**
