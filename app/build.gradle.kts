@@ -52,7 +52,7 @@ kotlin {
 }
 
 /**
- * THE ROUND-18 EVASION PROBES: eight test doubles that are COMPILED AND NEVER RUN.
+ * THE EVASION PROBES: twelve test doubles that are COMPILED AND NEVER RUN.
  *
  * `NoTestDoublesTest` used to be eight source regexes, and adversary round 18
  * (section 6) wrote eight doubles one token away from the spellings they looked
@@ -61,13 +61,20 @@ kotlin {
  * supertypes are all the same thing - and these eight are what prove it catches
  * each shape.
  *
+ * Round 19 added four more (Round19Probes.kt), aimed at the collaborators
+ * production does NOT own: a named class and a SAM lambda over langchain4j's
+ * `ContentRetriever`, a `MethodHandleProxies` instance of `EmbeddingModel`, and a
+ * class defined from bytes with `Lookup.defineHiddenClass` - plus their control.
+ * All four walked past the first structural scan and all four are caught now.
+ *
  * They therefore have to be COMPILED, and a double compiled into the test tree
  * would still be a double in the suite (Or's rule is zero, and the scan is the
  * proof). So they live in a source set of their own: it is not a test source set,
  * it declares no JUnit, nothing runs it, and nothing in app/src/test/kotlin
  * imports it. `test` depends on its compile task so the classes are on disk when
- * the scan looks, and the assertion over app/build/classes/kotlin/test is still
- * ZERO.
+ * the scan looks - and, because they are deliberately NOT on the test runtime
+ * classpath, the task hands the directory over as a system property rather than
+ * leaving the scan to find it. The assertion over the test trees is still ZERO.
  */
 val doubleProbes: SourceSet = sourceSets.create("doubleProbes")
 
