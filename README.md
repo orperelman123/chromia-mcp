@@ -762,18 +762,32 @@ Read across the two rows:
 - `chr install` (a git clone of the two lib registries) is **21.7 s**, once per
   project, and is network rather than CPU.
 
-And the round's own fixture, re-run byte for byte on an idle host: its two drain
-cases took **11.9 s + 5.8 s = 17.7 s** against the round's **73.5 s + 54.5 s =
-128.0 s** on 2026-09-07 - **7.2x**. The round measured itself while a 24-minute
-Gradle test run held the box with under 2 GB free.
+And the round's own fixture, re-run byte for byte, twice:
+
+```
+2026-09-07, round 18                          73.5s + 54.5s = 128.0s
+2026-09-08, idle box                          11.9s +  5.8s =  17.7s   wall 43.5s
+2026-09-08, two other Gradle builds running   16.7s +  6.9s =  23.6s   wall 57.2s
+```
+
+**7.2x faster than the round - and concurrent builds account for only 1.33x of
+it.** The round ran while a 24-minute Gradle test run held the box with under
+2 GB free, so load is part of the story; it is not all of it, and the rest is not
+attributed here rather than guessed at (a 15 W laptop that has been at full tilt
+for hours also thermally throttles, and nothing in the round's recording says
+what the box was doing). What IS established, three ways, is the thing the
+question turned on: **86.4 s was never the price of an FT4 registration.** A
+registration is about a second, a bootstrap about two, and the whole two-case
+drain is under twenty.
 
 So the host requirement, and it is a requirement rather than a nicety:
 
-- **One JVM build at a time, and at least 2 GB free.** A second build does not
-  slow the suite by a few percent, it multiplies every timing by about seven, and
-  at that multiplier the 90 s bound starts abandoning FT4 tests that need twenty
-  seconds of work. `docs/AGENT-LANE-BRIEF.md` says this for lanes; it is the same
-  fact.
+- **One JVM build at a time, and at least 2 GB free.** Measured here a second and
+  third build cost a third of the runtime, which on a 59-minute suite is twenty
+  minutes; the box has also produced far worse than that. An FT4 test through
+  `run_rell_tests` needs about twenty seconds of work and has ninety, so a run
+  that hits the bound is a signal that the host is degraded - not that the bound
+  is wrong. `docs/AGENT-LANE-BRIEF.md` says this for lanes; it is the same fact.
 - **A C.UTF-8 PostgreSQL, one database per worktree**, reachable at
   `CHROMIA_TEST_DATABASE_URL`. Two suites in one schema collide and it looks
   intermittent.
