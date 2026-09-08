@@ -106,6 +106,36 @@ Not "fewer than last round". Coverage moving is not a pass.
    accepts that is NOT what the author wrote (a false `load_bearing` or a false
    `still_refused`) is the dangerous one; an honest shape the tool rejects is a
    capability lost, and belongs in the round's report too.
+   **Round 18 attacks the seventh design and the suite that now claims to be
+   real.** Round 17 closed ten false verdicts by resolving helpers across every
+   test module (imports, wildcard imports, aliases), counting operations over
+   the whole call closure, following chains sixteen deep, and attributing a
+   frame-less refusal to the mutant sources that ran. So attack each seam one
+   step past where the fix stopped, in both directions and both layouts: a
+   helper reached through TWO aliases; an alias that shadows a production
+   module name; a wildcard import of a module that itself imports the guard's
+   module; a helper in a test module the calling module does NOT import (the
+   tool must not see it); an operation added by a helper called only inside a
+   nested lambda or branch; recursion at exactly the cap; a replacement whose
+   require message equals a production literal the test also uses; a shape-A
+   statement whose transaction reaches the declaration through an `@extend`
+   whose frame names the extendable; a shape-B assertion that itself invokes a
+   second guard. Attack the rules the same way: a bound behind a function with
+   a default-valued parameter, or returning an arithmetic of constants; a floor
+   written by an operation guarded only by `is_signer(get_signers()[0])`
+   against one guarded by a module-args admin; a floor read back through a
+   QUERY of a stored field; the deployment-time DAO floor left open as a
+   false-positive question. Attack the fifteenth template at its seams: one
+   claimant in a round, a claim filed twice, a cancel during an open round,
+   cover exactly at the bound, dust across many small claims, the EXTENDING
+   section's own warning built for real. And attack the suite's new claims
+   directly: try to write a test double the zero-doubles scan does not catch
+   (a lambda returning canned bytes, a subclass in a nested class, `by`
+   delegation, a `Proxy`, a recorded HTTP body as a resource); drive every
+   remaining explorer tool against the LIVE explorer for the fake-green shape
+   that retired four of them; confirm nothing still advertises the retired
+   four. Evidence recorders write under `app/build/` and assert against frozen
+   files; no absolute path of the machine may be committed.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
