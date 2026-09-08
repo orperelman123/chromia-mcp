@@ -629,17 +629,50 @@ account.
 
 Every push runs the full pyramid — none of these can be skipped:
 
-### There are no test doubles
+### There are no test doubles, and the proof is structural
 
 Not a mock, not a fake, not a stub, not a recorded response, not an `object :`
 substitute for one of our own types, and no mocking framework on the classpath.
-`NoTestDoublesTest` scans every `.kt` file under `app/src/test/kotlin` for
-declarations of substitute behaviour — doubles by name, anonymous objects over
-production types, `MockEngine`, SAM lambdas for our own `fun interface`s, client
-and loader seams, any `*OverrideForTests`, classes implementing a production seam
-type — and asserts the list is **empty**, printing every offender it finds. A
-companion test drives each detector against a literal example of the shape it
-looks for, so its silence means "found nothing", not "stopped matching".
+
+**The scan reads the compiled classes, not the source.** Until 2026-09-08 it was
+eight source regexes and their own KDoc said they were "deliberately close to
+`grep`". Adversary round 18 ported all eight verbatim and ran them over eight
+doubles written the way a person in a hurry writes one: **six were invisible** —
+an anonymous object with `by` delegation (the detector wants the supertype
+followed by `{`), a nested subclass of a production *class* rather than a listed
+interface, an import alias on the seam type, a supertype on the next line over an
+unlisted seam, a `java.lang.reflect.Proxy` whose substitute type is not in the
+source at all, and a SAM lambda on a seam the five-name lambda list omitted. The
+suite really did contain no double those regexes could see, which is exactly what
+that claim was worth.
+
+`NoTestDoublesTest` now reads `app/build/classes/kotlin/test` and asks what each
+class **is**, with three detectors that are not keyed on any spelling:
+
+- **SUPERTYPE** — the transitive supertype closure contains a production type.
+  `by` delegation, nesting, an import alias and a supertype on the next line all
+  compile to the same supertype list, and a test class extending a test base
+  class that extends production code is followed through.
+- **REFLECTION_PROXY** — the class names `java/lang/reflect/Proxy` or
+  `InvocationHandler` in its constant pool, which it has to do to call them.
+- **SAM_CONVERSION** — an `invokedynamic` whose call-site descriptor returns a
+  substitutable single-method interface. A SAM lambda compiles to no class at
+  all, so this is the only structural trace it leaves. The set of substitutable
+  interfaces is **derived** from the compiled production API — every
+  single-method interface production declares or accepts as a parameter — so a
+  new seam is covered the day it appears rather than the day someone remembers
+  the list. Production declares none today; `EmbeddingModel` is in the set
+  because `RagStore` takes one, and it is the type `BagOfWordsEmbeddingModel`
+  stood in for before that double was deleted.
+
+The eight round-18 probes are kept as **a Gradle source set that is compiled and
+never run** (`app/src/doubleProbes/kotlin`) — a double compiled into the test
+tree would still be a double in the suite — and the scan's own suite asserts each
+of the eight is caught, by name and by detector. It also asserts the source
+regexes still *miss* the six, so "the regexes are enough" cannot be believed
+again by accident. The assertion over the real test tree is **zero**, in both
+layers, and the source regexes are kept as the cheap second layer that sees a
+double before it has been compiled.
 
 This replaced a ledger of 41 doubles, each with a live check said to cover the
 same path. The conversion is what proved the ledger wrong: pointed at the real
@@ -654,7 +687,14 @@ comment saying what now covers it, or that nothing does.
 
 The production seams the doubles came through went with them: an interface with
 one implementation and a defaulted constructor parameter is not an abstraction
-once nothing is left to inject.
+once nothing is left to inject. `TxPoster`, `ProcessRunner` and `ChainGateway`
+went in the first pass; `RagStore` stopped being `open` on 2026-09-08 (nothing
+subclassed it in production or in the tests, so `open` was a door with no room
+behind it). What is left extendable is `ChromiaRepository`, the domain port every
+tool strategy is written against, and `ToolStrategy` / `BaseToolStrategy`, which
+some seventy production strategies implement: those are the program's own
+structure rather than injection points, and the scan **detects** them instead of
+pretending they are gone.
 
 ### The live third-party tests are part of the gate, and an outage is a red
 
@@ -669,6 +709,20 @@ The remedy is to fix or wait for the upstream and **re-run** — never to skip t
 test, never to add an allowlist entry, never to swap in a recorded answer for the
 duration. A green tally that was reached by not asking is the failure mode this
 whole section exists to prevent.
+
+**That was not true until 2026-09-08, and the exception was invisible.** The live
+explorer helper returned `null` whenever a tool's error text matched an upstream
+marker — `internal_error` first in the list — and its callers wrote
+`?: return@runBlocking`. Adversary round 18 measured `get_asset_top_holders`
+answering **eight consecutive live `INTERNAL_ERROR`s**, across three real asset
+ids and the example id in its own description, while the test named
+"answers for a real asset" passed every time: the body left before it asserted
+anything, and unlike a skip nothing counts an early return. The three live
+helpers now **fail** with the third party's own words and the retry advice, they
+cannot hand back a null for a caller to leave on, and `AssumptionLedgerTest` pins
+both shapes (no early return in the three lines after a live assertion, no live
+helper with a nullable return). While the explorer will not serve that tool the
+suite is **red**, which is the rule as written.
 
 (The e2e sweep, layer 2 below, is the one place with a softer rule, and it is
 bounded: demonstrably third-party failures become `WARN-UPSTREAM` through an

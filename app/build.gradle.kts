@@ -51,6 +51,26 @@ kotlin {
     sourceSets.getByName("main").kotlin.srcDir(generateBuildInfo)
 }
 
+/**
+ * THE ROUND-18 EVASION PROBES: eight test doubles that are COMPILED AND NEVER RUN.
+ *
+ * `NoTestDoublesTest` used to be eight source regexes, and adversary round 18
+ * (section 6) wrote eight doubles one token away from the spellings they looked
+ * for: six were invisible. The scan is structural now - it reads the compiled
+ * classes, where `by` delegation, nesting, import aliases and multi-line
+ * supertypes are all the same thing - and these eight are what prove it catches
+ * each shape.
+ *
+ * They therefore have to be COMPILED, and a double compiled into the test tree
+ * would still be a double in the suite (Or's rule is zero, and the scan is the
+ * proof). So they live in a source set of their own: it is not a test source set,
+ * it declares no JUnit, nothing runs it, and nothing in app/src/test/kotlin
+ * imports it. `test` depends on its compile task so the classes are on disk when
+ * the scan looks, and the assertion over app/build/classes/kotlin/test is still
+ * ZERO.
+ */
+val doubleProbes: SourceSet = sourceSets.create("doubleProbes")
+
 // rell-api-gtx's postchain dependencies pull kotlin-stdlib 2.4.0, whose metadata
 // our Kotlin 2.2 compiler rejects. Pin the stdlib to the project Kotlin version.
 // postchain 3.49 (via rell-api-gtx) also constrains http4k to 6.53.x, which breaks
@@ -123,6 +143,12 @@ dependencies {
     implementation("org.apache.logging.log4j:log4j-slf4j2-impl:2.25.1")
     implementation("org.apache.logging.log4j:log4j-core:2.25.1")
     
+    // The evasion probes compile against production and its dependencies only -
+    // no JUnit, because nothing runs them.
+    "doubleProbesImplementation"(sourceSets["main"].output)
+    "doubleProbesImplementation"("io.modelcontextprotocol:kotlin-sdk-core:$mcpVersion")
+    "doubleProbesImplementation"("dev.langchain4j:langchain4j-easy-rag:1.8.0-beta15")
+
     // Test dependencies
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
     testImplementation("io.ktor:ktor-client-cio:$ktorVersion")
@@ -146,6 +172,9 @@ java {
 
 tasks.named<Test>("test") {
     useJUnitPlatform()
+    // NoTestDoublesTest reads app/build/classes/kotlin/doubleProbes. The probes
+    // are compiled, never run, and never on this task's classpath.
+    dependsOn(tasks.named("compileDoubleProbesKotlin"))
     // Explicit bounds so constrained build containers fail fast instead of
     // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).
     maxHeapSize = "1280m"
