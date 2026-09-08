@@ -3117,16 +3117,12 @@ object DappScaffold {
 
         // EXTENDING THIS TEMPLATE - the seam an extender walks into:
         //   THIS MODULE HOLDS NO VALUE, AND THAT IS THE WHOLE OF ITS SAFETY. `my_name` is one
-        //   mutable string that belongs to nobody, so `set_name` is deliberately open: there is
-        //   nothing here to take. THE MOMENT YOU ADD A BALANCE, A TOKEN, A DEPOSIT OR ANY OTHER
-        //   ROW SOMEBODY CAN LOSE, none of that is true any more, and this file gives you no
-        //   guard at all - no authentication, no bounds, no conservation invariant, and no
-        //   must-fail test replaying an attack. Do not grow value into it. Call `scaffold_dapp`
-        //   again with the template whose EXPLOIT class matches what you are building (it lists
-        //   all fifteen with their classes): every drain this project has measured landed in the
-        //   value class that had no template. If all you want is the FT4 account model and a
-        //   ledger to copy, that is `template=ft4` - and it still asks you to write the economic
-        //   invariant test for your own economics before the code.
+        //   string and `set_name` claims it once, so there is nothing here to take. ADD A
+        //   BALANCE, A TOKEN OR ANY ROW SOMEBODY CAN LOSE and none of that holds, while this
+        //   file still gives you no bounds, no conservation invariant and no must-fail test.
+        //   Do not grow value into it: call scaffold_dapp again with the template whose EXPLOIT
+        //   class matches yours - every drain this project has measured landed in the value
+        //   class that had no template.
 
         // The greeting is owned. `owner` is empty until the first rename claims it,
         // and after that only that signer can rename - authenticate, authorise, then

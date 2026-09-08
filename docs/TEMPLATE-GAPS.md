@@ -216,9 +216,20 @@ chose, alice and bob are EACH refused "you are not this week's winner", so no ru
 on the operation can tell that block from any other - which is why this is a template's
 job and not a checker's.
 
-**AND NO RULE CATCHES THE LAUNDERED FORM, WHICH IS THE SECOND HALF OF WHY IT IS FIRST.**
-`rell_security_check` is silent on the fixture and correct to be: nothing in it is
-unauthenticated, unbounded, unowned or minted. The redirect used to hand the ask to
+**AND THE ONE RULE AIMED AT THIS CLASS DID NOT FIRE, WHICH IS THE SECOND HALF OF WHY IT
+IS FIRST.** `rell_security_check` returned ok:true with ZERO findings on the fixture -
+and it is not that no rule exists: `block-clock-randomness` was added in round 5 for
+exactly this ("a raffle picks its winner with `op_context.last_block_time %
+ticket_count`"), it is HIGH, and its own text says hashing the clock or routing it
+through a helper does not change the answer. It stayed silent here. Reading the rule
+beside the fixture, the shape it looks for is the clock reduced or compared and then
+DECIDING A BENEFICIARY it can name; this draw computes `winner_at(op_context.
+last_block_time)` inside a helper, then `require(winner == caller)` against the
+caller's own parameter and pays the row `depositor @? { .account == winner }` - the
+beneficiary the rule would have to name is reached through the parameter the attacker
+supplied. That reading is a lead for the rules lane and not a measurement; what IS
+measured is the verdict, ok:true with zero findings, recorded in
+`realworld/adversary-round18/fixtures/raffle/`. The redirect used to hand the ask to
 `lending` and say nothing about the raffle, and the fix for THAT (an uncovered class is
 named first, the covered half is named by template, nothing is scaffolded) is a fix to
 the ANSWER, not to the class. An agent that reads the refusal, builds the raffle anyway
