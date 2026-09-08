@@ -204,33 +204,32 @@ tasks.named<Test>("test") {
     // notice a source set added after it was written, so the task hands over the
     // four things the scan needs and the scan asserts it read every directory on
     // the classpath that is not production's own output or a dependency jar.
-    // Resolved in doFirst: the classpath is resolved when the task runs, not when
-    // the script is configured.
+    //
+    // Written to a FILE, not to `-D` properties: the runtime classpath is some
+    // three hundred jars, and putting it on the worker's command line a second
+    // time overflowed Windows' 32 KB limit outright ("CreateProcess error=206,
+    // The filename or extension is too long", measured 2026-09-09). Only the
+    // file's own path is a system property. The rows are `key<TAB>absolute path`,
+    // one per line, because a Java properties file would eat the backslashes.
+    // Written in doFirst: the classpath resolves when the task runs, not when the
+    // script is configured.
+    val scanPathsFile = layout.buildDirectory.file("zero-doubles/scan-paths.tsv").get().asFile
+    systemProperty("chromia.test.scanpaths", scanPathsFile.absolutePath)
     val productionOutput = sourceSets["main"].output
     val doubleProbeClasses = doubleProbes.output.classesDirs
     val testRuntimeClasspath = classpath
     doFirst {
-        // NOT `java.io.File.pathSeparator`: inside a Test task block `java`
-        // resolves to the JavaPluginExtension and shadows the package, exactly as
-        // it does for `java.util.Properties` above - the script then fails to
-        // compile with "Unresolved reference: io" and takes every task with it.
-        val separator = System.getProperty("path.separator")
-        systemProperty(
-            "chromia.test.runtime.classpath",
-            testRuntimeClasspath.files.joinToString(separator) { it.absolutePath }
-        )
-        systemProperty(
-            "chromia.test.production.output",
-            productionOutput.files.joinToString(separator) { it.absolutePath }
-        )
-        systemProperty(
-            "chromia.test.production.classes",
-            productionOutput.classesDirs.files.joinToString(separator) { it.absolutePath }
-        )
-        systemProperty(
-            "chromia.test.doubleprobes.classes",
-            doubleProbeClasses.files.joinToString(separator) { it.absolutePath }
-        )
+        val rows = StringBuilder()
+        testRuntimeClasspath.files.forEach { rows.append("classpath\t").append(it.absolutePath).append('\n') }
+        productionOutput.files.forEach { rows.append("production.output\t").append(it.absolutePath).append('\n') }
+        productionOutput.classesDirs.files.forEach {
+            rows.append("production.classes\t").append(it.absolutePath).append('\n')
+        }
+        doubleProbeClasses.files.forEach {
+            rows.append("doubleprobes.classes\t").append(it.absolutePath).append('\n')
+        }
+        scanPathsFile.parentFile.mkdirs()
+        scanPathsFile.writeText(rows.toString())
     }
     // Explicit bounds so constrained build containers fail fast instead of
     // thrashing or hanging (a Render Docker build sat 12h+ with no heap bound).

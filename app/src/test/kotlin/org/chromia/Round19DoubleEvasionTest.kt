@@ -85,13 +85,14 @@ class Round19DoubleEvasionTest {
 
     private fun required(paths: List<Path>?, property: String): List<Path> =
         paths ?: error(
-            "the system property `$property` is not set; the `test` task in app/build.gradle.kts sets " +
-                "it from its own classpath, so run this through `:app:test`"
+            "`$property` is missing; the `test` task in app/build.gradle.kts writes those paths from " +
+                "its own classpath into app/build/zero-doubles/scan-paths.tsv, so run this through " +
+                "`:app:test`"
         )
 
     private val testTrees: List<Path> by lazy {
-        val classpath = required(RepoFiles.testRuntimeClasspath, "chromia.test.runtime.classpath")
-        val production = required(RepoFiles.productionOutput, "chromia.test.production.output").toSet()
+        val classpath = required(RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]")
+        val production = required(RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]").toSet()
         classpath.filterNot { isDependencyArchive(it) }
             .filterNot { it in production }
             .distinct()
@@ -99,10 +100,10 @@ class Round19DoubleEvasionTest {
     }
 
     private val mainClasses: Map<String, ClassFacts> by lazy {
-        ClassFiles.readTrees(required(RepoFiles.productionClasses, "chromia.test.production.classes"))
+        ClassFiles.readTrees(required(RepoFiles.productionClasses, "chromia.test.scanpaths[production.classes]"))
     }
     private val probeClasses: Map<String, ClassFacts> by lazy {
-        ClassFiles.readTrees(required(RepoFiles.doubleProbeClasses, "chromia.test.doubleprobes.classes"))
+        ClassFiles.readTrees(required(RepoFiles.doubleProbeClasses, "chromia.test.scanpaths[doubleprobes.classes]"))
     }
 
     // ---- the detectors, copied ---------------------------------------------
@@ -377,8 +378,8 @@ class Round19DoubleEvasionTest {
      */
     @Test
     fun theScanReadsEveryDirectoryTheTestRuntimeLoadsClassesFrom() {
-        val classpath = required(RepoFiles.testRuntimeClasspath, "chromia.test.runtime.classpath")
-        val production = required(RepoFiles.productionOutput, "chromia.test.production.output").toSet()
+        val classpath = required(RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]")
+        val production = required(RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]").toSet()
         val directories = classpath.filterNot { isDependencyArchive(it) }.distinct()
         val scanned = testTrees.map { RepoFiles.relative(it) }.sorted()
         val unaccounted = directories

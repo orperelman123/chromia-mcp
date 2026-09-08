@@ -258,10 +258,11 @@ class NoTestDoublesTest {
 
     private fun required(paths: List<Path>?, property: String, what: String): List<Path> =
         paths ?: error(
-            "the system property `$property` is not set, so this scan does not know $what. The `test` " +
-                "task in app/build.gradle.kts sets it from its OWN classpath - run the scan through " +
-                "`:app:test`. It may not guess a directory instead: a guessed one is exactly what " +
-                "adversary round 19 (r19d5) walked past."
+            "`$property` is missing, so this scan does not know $what. The `test` task in " +
+                "app/build.gradle.kts writes those paths from its OWN classpath into " +
+                "app/build/zero-doubles/scan-paths.tsv - run the scan through `:app:test`. It may not " +
+                "guess a directory instead: a guessed one is exactly what adversary round 19 (r19d5) " +
+                "walked past."
         )
 
     /**
@@ -274,10 +275,10 @@ class NoTestDoublesTest {
      */
     private val testTrees: List<Path> by lazy {
         val classpath = required(
-            RepoFiles.testRuntimeClasspath, "chromia.test.runtime.classpath", "where a test class can come from"
+            RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]", "where a test class can come from"
         )
         val production = required(
-            RepoFiles.productionOutput, "chromia.test.production.output", "which of those trees is production's"
+            RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]", "which of those trees is production's"
         ).toSet()
         classpath.filterNot { isDependencyArchive(it) }
             .filterNot { it in production }
@@ -288,14 +289,14 @@ class NoTestDoublesTest {
     /** The compiled production classes - what a substitute stands in FOR. */
     private val productionTrees: List<Path> by lazy {
         required(
-            RepoFiles.productionClasses, "chromia.test.production.classes", "what a substitute would stand in for"
+            RepoFiles.productionClasses, "chromia.test.scanpaths[production.classes]", "what a substitute would stand in for"
         )
     }
 
     /** The evasion probes: compiled, never run, never on the test classpath. */
     private val probeTrees: List<Path> by lazy {
         required(
-            RepoFiles.doubleProbeClasses, "chromia.test.doubleprobes.classes", "where the evasion probes compiled to"
+            RepoFiles.doubleProbeClasses, "chromia.test.scanpaths[doubleprobes.classes]", "where the evasion probes compiled to"
         )
     }
 
@@ -718,10 +719,10 @@ class NoTestDoublesTest {
     @Test
     fun theStructuralScanReadsEveryDirectoryOnTheTestRuntimeClasspath() {
         val classpath = required(
-            RepoFiles.testRuntimeClasspath, "chromia.test.runtime.classpath", "where a test class can come from"
+            RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]", "where a test class can come from"
         )
         val production = required(
-            RepoFiles.productionOutput, "chromia.test.production.output", "which of those trees is production's"
+            RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]", "which of those trees is production's"
         ).toSet()
         val directories = classpath.filterNot { isDependencyArchive(it) }.distinct()
         val unaccounted = directories.filterNot { it in production || it in testTrees }
