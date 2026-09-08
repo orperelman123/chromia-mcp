@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.chromia.tools.McpTools
 import org.chromia.tools.RunRellTests
 import org.chromia.tools.VerifyGuardsStrategy
 import org.chromia.tools.callToolRequest
@@ -127,6 +128,164 @@ class Round19VerifyGuardsProbeTest {
     @Test
     fun `round 19 transaction builder and namespace probes get the true verdict out of verify_guards`() {
         driveEveryProbe("probes.json")
+    }
+
+    /**
+     * THE FIX LANE'S OWN PROBES. The three inputs round 19 found are measured by
+     * `probes.json` above, which is the adversary's evidence and does not move.
+     * The FIX, though, says more than those three probes measure: it counts a
+     * `rell.test.block()`'s operations through BOTH its builders, it resolves a
+     * qualified call through NAMESPACES in five spellings, and it binds a
+     * helper's parameters to the caller's arguments. A sentence in the long
+     * form, the advertised description or the README that no probe measures is a
+     * claim, not a measurement.
+     *
+     * `probes-fix.json` is one probe per form those sentences name - a list
+     * literal in the block builder, the block CONSTRUCTOR carrying operations, a
+     * whole transaction inside the block builder, a namespace in an imported
+     * module and one nested, reached plainly, by wildcard, by exact import and
+     * behind an alias, and two operations passed as PARAMETERS - plus four
+     * controls in the other direction, which the widened models must still
+     * certify: a namespaced helper that builds the honest one-operation
+     * transaction, one operation reached through both builders, the operation
+     * bound by NAME, the block constructor with one operation, and a
+     * TRANSACTION passed as a parameter, which must not be substituted into the
+     * closure or its one operation reads as two.
+     *
+     * Every one was written to disk and run on a REAL chain first
+     * (`harness/vg_r19_fix.py`, this worktree's own database, one schema per
+     * probe): baseline green, mutant red, recorded in `vg/<probe>.chain.json`.
+     * And every Rell form any of them uses was put in front of the compiler on
+     * its own first (`harness/spellings_r19.py`, recorded in
+     * `vg/spellings.json`), so the fix models no spelling the language does not
+     * have - `.ops([...])` and `.txs([...])` are both "no member" and neither is
+     * modelled.
+     */
+    @Test
+    fun `the block carriers namespace spellings and parameter binding the fixed tool claims are each measured`() {
+        driveEveryProbe("probes-fix.json")
+    }
+
+    /**
+     * EVERY SENTENCE ROUND 19 ADDED, WHERE AN AGENT READS IT, ATTACHED TO A
+     * PROBE THAT MEASURED IT - the round-17/round-18 pattern applied to round
+     * 19's own sentences. A sentence edited away is a red here, not a quiet
+     * drift into prose that no longer describes the tool.
+     */
+    @Test
+    fun `every verify_guards sentence round 19 added is present where an agent reads it`() {
+        val long = McpTools.fullDescription("verify_guards").orEmpty()
+        val advertised = McpTools.advertisedDescription("verify_guards").orEmpty()
+        val readme = File("../README.md").readText()
+        fun flat(text: String) = text.replace(Regex("\\s+"), " ").trim()
+        val sources = mapOf("long" to flat(long), "advertised" to flat(advertised), "readme" to flat(readme))
+
+        // (id, which text, the sentence verbatim, the probe that measured it)
+        val claims = listOf(
+            // the namespaces (r19b, f19d, f19e, f19f, f19g, f19h)
+            listOf("long-namespace-qualifier", "long", "A QUALIFIER MAY ALSO BE A NAMESPACE", "r19b"),
+            listOf("long-namespace-dotted-path", "long", "it may be a whole dotted path", "f19e"),
+            listOf(
+                "long-namespace-imported-module", "long",
+                "a namespace of an IMPORTED test module is reached through every import form", "f19d"
+            ),
+            listOf("long-namespace-is-not-an-import", "long", "A namespace is not an import", "r19b"),
+            // the parameter binding (r19c2, f19l, f19n)
+            listOf("long-parameters-bound", "long", "A HELPER'S PARAMETERS ARE BOUND TO THE CALLER'S ARGUMENTS", "r19c2"),
+            listOf("long-parameters-positional-or-named", "long", "positionally or by name", "f19l"),
+            listOf("long-unknown-stays-unknown", "long", "is left as it stands and is still UNKNOWN", "f19n"),
+            // the block carriers (r19a, r19a2, f19a, f19b, f19k)
+            listOf("long-block-carries-operations", "long", "A BLOCK CARRIES OPERATIONS TOO", "r19a"),
+            listOf("long-block-one-transaction-two-operations", "long", "is ONE transaction of TWO operations", "r19a2"),
+            listOf("long-not-counted-twice", "long", "counted by that transaction's own carriers, never twice", "f19k"),
+            listOf("long-no-ops-no-txs", "long", "There is no `.ops(` and no `.txs(`", "spellings"),
+            // the same facts in the 1200-byte description an agent sees first
+            listOf("advertised-namespaces", "advertised", "plus NAMESPACES", "r19b"),
+            listOf("advertised-parameters", "advertised", "Helper PARAMETERS bind to call ARGUMENTS", "r19c2"),
+            listOf("advertised-block-args", "advertised", "block .tx() args", "r19a"),
+            // and in the README's own account of the two shapes
+            listOf("readme-namespace-qualifier", "readme", "**A qualifier may also be a namespace**", "r19b"),
+            listOf(
+                "readme-namespace-imported", "readme",
+                "a namespace of an imported test module is reached through every import form", "f19d"
+            ),
+            listOf("readme-parameters", "readme", "**A helper's parameters are bound to the caller's arguments**", "r19c2"),
+            listOf("readme-block-carries", "readme", "**A block carries operations too**", "r19a"),
+            listOf("readme-block-one-two", "readme", "**one transaction of two operations**", "r19a2"),
+            listOf("readme-not-twice", "readme", "counted by that transaction's own carriers, never twice", "f19k"),
+            listOf("readme-no-ops-no-txs", "readme", "There is no `.ops(` and no `.txs(`", "spellings")
+        )
+        val rows = buildJsonArray {
+            for (claim in claims) {
+                add(
+                    buildJsonObject {
+                        put("claim", claim[0])
+                        put("where", claim[1])
+                        put("present", sources.getValue(claim[1]).contains(flat(claim[2])))
+                        put("measured_by", claim[3])
+                        put("text", flat(claim[2]))
+                    }
+                )
+            }
+        }
+        Round19Evidence.record("describe/verify_guards_claims.json", rows)
+        val missing = claims.filterNot { sources.getValue(it[1]).contains(flat(it[2])) }
+            .map { "${it[0]} (${it[1]}, measured by ${it[3]}): ${it[2]}" }
+        assertAll(
+            Executable {
+                assertEquals(
+                    emptyList<String>(),
+                    missing,
+                    "verify_guards sentence(s) round 19 added are no longer in the text an agent reads:\n" +
+                        missing.joinToString("\n")
+                )
+            },
+            Executable { Round19Evidence.assertFrozen("describe/verify_guards_claims.json", rows) }
+        )
+    }
+
+    /**
+     * The compiler's own answer for every Rell form the fix models, recorded by
+     * `harness/spellings_r19.py` on a real chain. It is read here so that a
+     * spelling the fix names is one the language HAS: round 18's lesson was two
+     * probes written for forms that do not exist, and the two that do not exist
+     * here - `.ops([...])` and `.txs([...])` - are pinned as not existing.
+     */
+    @Test
+    fun `every rell form the fix models was put in front of the compiler`() {
+        val file = File(dir, "spellings.json")
+        assertTrue(file.isFile, "the spelling measurements are missing at ${file.absolutePath}")
+        val rows = Json.parseToJsonElement(file.readText()).jsonArray.associate { row ->
+            val o = row.jsonObject
+            o.getValue("spelling").jsonPrimitive.content to o
+        }
+        val mustCompile = listOf(
+            "block_tx_two_operations", "block_tx_one_operation", "block_tx_list_of_operations",
+            "block_tx_of_a_transaction", "block_constructor_with_a_transaction",
+            "block_constructor_with_a_list_of_transactions", "block_constructor_with_operations",
+            "namespace_in_the_calling_module", "namespace_nested", "namespace_dotted_declaration",
+            "namespace_through_a_plain_import", "namespace_through_a_wildcard_import",
+            "namespace_through_an_exact_import", "namespace_through_an_alias",
+            "operation_as_a_parameter", "operation_as_a_named_argument", "transaction_as_a_parameter"
+        )
+        val mustNotCompile = listOf("tx_ops_member", "block_txs_member")
+        val wrong = mutableListOf<String>()
+        (mustCompile + mustNotCompile).forEach { name ->
+            val row = rows[name] ?: run { wrong += "$name was never measured"; return@forEach }
+            val compiles = row.getValue("compiles").jsonPrimitive.content == "true"
+            val expected = name in mustCompile
+            if (compiles != expected) {
+                wrong += "$name: compiles=$compiles, expected $expected (${row["compiler_says"]})"
+            }
+            if (expected && row.getValue("test_ok").jsonPrimitive.content != "true") {
+                wrong += "$name compiles but does not RUN: ${row["compiler_says"]}"
+            }
+        }
+        assertEquals(
+            emptyList<String>(),
+            wrong,
+            "the compiler no longer agrees with what the fix models:\n" + wrong.joinToString("\n")
+        )
     }
 
     private fun driveEveryProbe(probesFile: String) {

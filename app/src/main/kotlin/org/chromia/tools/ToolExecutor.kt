@@ -2936,6 +2936,92 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
     }
 
     /**
+     * `namespace h {`, `namespace a.b {` - one namespace body and the dotted
+     * path it puts its declarations under.
+     *
+     * ROUND 19. A `namespace` is the other thing in Rell that a call may be
+     * QUALIFIED by, and it is not an import: `namespace h { function audited }`
+     * is called `h.audited(...)` and by no other spelling (MEASURED - see
+     * `adversary-round19/vg/spellings.json`). Round 18 taught the scan every
+     * import form the compiler accepts, and r19b walked in through the door
+     * next to it: `resolveHelper` looked a qualifier up in the calling module's
+     * import bindings ONLY, found nothing, never expanded the helper, and never
+     * counted the second operation the helper adds to the transaction.
+     */
+    private val NAMESPACE_HEAD_REGEX =
+        Regex("""\bnamespace\s+([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*\{""")
+
+    private data class NamespaceSpan(val path: String, val start: Int, val end: Int)
+
+    private fun namespaceSpans(masked: String): List<NamespaceSpan> =
+        NAMESPACE_HEAD_REGEX.findAll(masked).mapNotNull { m ->
+            val brace = m.range.last
+            val close = matchBrace(masked, brace, '{', '}') ?: return@mapNotNull null
+            NamespaceSpan(m.groupValues[1].replace(Regex("""\s+"""), ""), brace, close)
+        }.toList()
+
+    /**
+     * One `function` of a test module: its NAMESPACE-QUALIFIED name (`audited`,
+     * `h.audited`, `a.b.audited`), its parameter names in order, and its body.
+     */
+    private data class NamespacedFunction(val name: String, val params: List<String>, val body: String)
+
+    private val FUNCTION_HEAD_REGEX = Regex("""\bfunction\s+([A-Za-z_]\w*)\s*\(""")
+
+    /**
+     * Every function of one MASKED file, qualified by the namespaces it is
+     * nested in. `RellSecurityCheck.functionDefinitions` is namespace-blind - it
+     * is a scan of PRODUCTION code, where a namespace changes no call the
+     * analyzer follows - so a helper inside `namespace h` was registered under
+     * the bare name `audited`, and `h.audited(...)`, the only spelling that
+     * reaches it, resolved to nothing (r19b).
+     */
+    private fun namespacedFunctions(masked: String): List<NamespacedFunction> {
+        val spaces = namespaceSpans(masked)
+        val out = mutableListOf<NamespacedFunction>()
+        FUNCTION_HEAD_REGEX.findAll(masked).forEach { m ->
+            val parenStart = masked.indexOf('(', m.range.first)
+            if (parenStart < 0) return@forEach
+            val parenEnd = matchBrace(masked, parenStart, '(', ')') ?: return@forEach
+            var j = parenEnd + 1
+            while (j < masked.length && masked[j] != '{' && masked[j] != '=' && masked[j] != ';') j++
+            val body = when {
+                j < masked.length && masked[j] == '{' ->
+                    matchBrace(masked, j, '{', '}')?.let { masked.substring(j + 1, it) } ?: return@forEach
+                j < masked.length && masked[j] == '=' -> {
+                    var k = j + 1
+                    var depth = 0
+                    loop@ while (k < masked.length) {
+                        when (masked[k]) {
+                            '(', '[', '{' -> depth++
+                            ')', ']', '}' -> depth--
+                            ';' -> if (depth <= 0) break@loop
+                        }
+                        k++
+                    }
+                    masked.substring(j + 1, minOf(k, masked.length))
+                }
+                else -> return@forEach
+            }
+            val prefix = spaces.filter { m.range.first in it.start..it.end }
+                .sortedBy { it.start }.joinToString(".") { it.path }
+            val name = if (prefix.isEmpty()) m.groupValues[1] else "$prefix.${m.groupValues[1]}"
+            out += NamespacedFunction(name, parameterNames(masked.substring(parenStart + 1, parenEnd)), body)
+        }
+        return out
+    }
+
+    /**
+     * The parameter NAMES of a (masked) parameter list, in order - what a
+     * caller's arguments bind to when a helper's closure is flattened.
+     */
+    private fun parameterNames(params: String): List<String> =
+        splitArguments(params).mapNotNull { p ->
+            val t = p.trim().substringBefore(':').trim()
+            if (PLAIN_NAME_REGEX.matches(t)) t else null
+        }
+
+    /**
      * Every string literal in [raw], unescaped, ignoring comments. What a
      * declaration can SAY is exactly the set of literals it owns, and that is
      * how a frame-less error is attributed to a declaration.
@@ -3203,14 +3289,30 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         // the old IMPORT_REGEX saw that form, and a helper reached through it
         // was invisible (p18a, p18k).
         val exactImports = mutableMapOf<String, MutableMap<String, String>>()
+        // ROUND 19: the parameter names of every helper, index-parallel to its
+        // bodies, so a call's ARGUMENTS can be bound to them when the closure is
+        // flattened (r19c2).
+        val paramsByModule = mutableMapOf<String, MutableMap<String, MutableList<List<String>>>>()
         files.forEach { (p, content) ->
             if (!isTest.getValue(p)) return@forEach
             val maskedFile = maskRellSource(content, maskStrings = true)
             val module = RunRellTests.moduleNameForPath(RellCheck.normalizeSourceRoot(p), content)
             moduleOfFile[p] = module
             val fns = functionsByModule.getOrPut(module) { mutableMapOf() }
-            RellSecurityCheck.functionDefinitions(maskedFile).forEach { d ->
-                fns.getOrPut(d.name) { mutableListOf() }.add(d.body)
+            val params = paramsByModule.getOrPut(module) { mutableMapOf() }
+            // ROUND 19: a helper is registered under its full NAMESPACE path AND
+            // under every suffix of it, the bare name included. `h.audited(...)`
+            // is the only spelling that reaches `namespace h { function audited }`
+            // from outside, and `b.f(...)` reaches `a.b.f` from inside
+            // `namespace a`. A suffix can only WIDEN which body a name reaches,
+            // which costs an ambiguous_refusal and never a false load_bearing.
+            namespacedFunctions(maskedFile).forEach { d ->
+                val segments = d.name.split('.')
+                for (k in segments.indices) {
+                    val spelling = segments.drop(k).joinToString(".")
+                    fns.getOrPut(spelling) { mutableListOf() }.add(d.body)
+                    params.getOrPut(spelling) { mutableListOf() }.add(d.params)
+                }
             }
             val binds = importBindings.getOrPut(module) { mutableMapOf() }
             val wild = wildcardImports.getOrPut(module) { mutableSetOf() }
@@ -3241,22 +3343,74 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         // alias rule.
         val submissionTestModules = functionsByModule.keys
 
-        /** The test-module function a call `q.n(...)` (q may be empty) in [module] names, as `module:n`. */
+        /**
+         * The test-module function a call `q.n(...)` names, as `module:n` -
+         * where `q` may be empty, one name, or a whole dotted path, and `n` may
+         * itself be namespace-qualified inside the module that declares it.
+         *
+         * ROUND 19 ADDED THE NAMESPACES. A qualifier used to be looked up in the
+         * calling module's IMPORT bindings and nowhere else, so `h.audited(...)`
+         * - the one spelling that reaches `namespace h { function audited }` -
+         * resolved to nothing, the helper was never expanded, and the second
+         * operation it adds to the transaction was never counted (r19b). A
+         * qualified call now resolves, in this order and against what the
+         * compiler accepts (MEASURED, `adversary-round19/vg/spellings.json`):
+         *   * the CALLING module's own namespaces - `h.audited(...)`,
+         *     `a.b.audited(...)`, nested or declared `namespace a.b { }`;
+         *   * an import binding of the whole qualifier or of a PREFIX of it,
+         *     with the rest read as a namespace path inside that module -
+         *     `import tests.helpers;` then `helpers.h.audited(...)`, and
+         *     `import x: tests.helpers;` then `x.h.audited(...)`;
+         *   * a namespace an exact import binds - `import tests.helpers.{ h };`
+         *     then `h.audited(...)` (the binding is `tests.helpers.h`, which is
+         *     not a module, so it is split back into module + namespace);
+         *   * a namespace a wildcard import brings into scope -
+         *     `import tests.helpers.*;` then `h.audited(...)`.
+         */
         fun resolveHelper(module: String, qualifier: String, name: String): String? {
-            if (qualifier.isNotEmpty()) {
-                val target = importBindings[module]?.get(qualifier) ?: return null
-                return if (functionsByModule[target]?.containsKey(name) == true) "$target:$name" else null
+            if (qualifier.isEmpty()) {
+                val candidates = listOf(module) +
+                    listOfNotNull(exactImports[module]?.get(name)) +
+                    wildcardImports[module].orEmpty()
+                return candidates.firstOrNull { functionsByModule[it]?.containsKey(name) == true }
+                    ?.let { "$it:$name" }
             }
-            val candidates = listOf(module) +
-                listOfNotNull(exactImports[module]?.get(name)) +
-                wildcardImports[module].orEmpty()
-            return candidates.firstOrNull { functionsByModule[it]?.containsKey(name) == true }?.let { "$it:$name" }
+            val candidates = LinkedHashSet<Pair<String, String>>()
+            // the calling module's own namespaces
+            candidates += module to "$qualifier.$name"
+            val segments = qualifier.split('.')
+            for (k in segments.size downTo 1) {
+                val bound = importBindings[module]?.get(segments.take(k).joinToString(".")) ?: continue
+                val rest = segments.drop(k)
+                candidates += bound to (rest + name).joinToString(".")
+                // `import a.{ h };` binds `h` to `a.h`, which may be a NAMESPACE
+                // of module `a` rather than a module of its own.
+                val bs = bound.split('.')
+                for (j in bs.size - 1 downTo 1) {
+                    candidates += bs.take(j).joinToString(".") to (bs.drop(j) + rest + name).joinToString(".")
+                }
+            }
+            wildcardImports[module].orEmpty().forEach { candidates += it to "$qualifier.$name" }
+            return candidates.firstOrNull { (m, n) -> functionsByModule[m]?.containsKey(n) == true }
+                ?.let { (m, n) -> "$m:$n" }
         }
         val helperBodies = mutableMapOf<String, List<String>>()
-        functionsByModule.forEach { (m, fns) -> fns.forEach { (n, bodies) -> helperBodies["$m:$n"] = bodies } }
+        val helperParams = mutableMapOf<String, List<List<String>>>()
+        functionsByModule.forEach { (m, fns) ->
+            fns.forEach { (n, bodies) ->
+                helperBodies["$m:$n"] = bodies
+                helperParams["$m:$n"] = paramsByModule[m]?.get(n).orEmpty()
+            }
+        }
 
+        // ROUND 19: the qualifier of a call site is a whole dotted PATH, not one
+        // name - `helpers.h.audited(...)` and `a.b.audited(...)` are both calls
+        // whose qualifier has two segments, and a one-name capture read the LAST
+        // segment as the whole qualifier.
+        fun qualifierOf(match: MatchResult) =
+            match.groupValues[1].replace(Regex("""\s+"""), "").trimEnd('.')
         val callSite = Regex(
-            """(?:([A-Za-z_]\w*)\s*\.\s*)?\b(${bare.joinToString("|") { Regex.escape(it) }})\s*\("""
+            """((?:[A-Za-z_]\w*\s*\.\s*)*)\b(${bare.joinToString("|") { Regex.escape(it) }})\s*\("""
         )
         /**
          * Does the call site `q.n(...)` (q may be empty), read from inside
@@ -3286,6 +3440,10 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                     ?: return true
                 return exact in mods || exact.substringAfterLast('.') in mods
             }
+            // ROUND 19, the same rule for a QUALIFIED call: `h.take(...)` where
+            // `namespace h { function take }` is a helper the helper scan counts,
+            // not the guard's operation that happens to share its name.
+            if (resolveHelper(module, qualifier, name) != null) return false
             val bound = importBindings[module]?.get(qualifier)
                 ?: return qualifier in mods
             if (bound in submissionTestModules) return false
@@ -3293,16 +3451,27 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         }
         /** How many times [text], read from inside [module], invokes the guard's declaration. */
         fun invocationsIn(module: String, text: String) = callSite.findAll(text).count { m ->
-            invokesGuardDeclaration(module, m.groupValues[1], m.groupValues[2])
+            invokesGuardDeclaration(module, qualifierOf(m), m.groupValues[2])
         }
-        val anyCallSite = Regex("""(?:([A-Za-z_]\w*)\s*\.\s*)?\b([A-Za-z_]\w*)\s*\(""")
+        val anyCallSite = Regex("""((?:[A-Za-z_]\w*\s*\.\s*)*)\b([A-Za-z_]\w*)\s*\(""")
+
+        /** One call of a test-module helper: which helper, and the ARGUMENTS it is given. */
+        fun helperCallSitesIn(module: String, text: String): List<Pair<String, List<String>>> {
+            val out = mutableListOf<Pair<String, List<String>>>()
+            anyCallSite.findAll(text).forEach { m ->
+                val node = resolveHelper(module, qualifierOf(m), m.groupValues[2]) ?: return@forEach
+                val open = m.range.last
+                val close = matchBrace(text, open, '(', ')')
+                val args = if (close == null) emptyList()
+                else splitArguments(text.substring(open + 1, close)).map { it.trim() }.filter { it.isNotEmpty() }
+                out += node to args
+            }
+            return out
+        }
         /** Every test-module helper [text] calls from inside [module], and how many times. */
         fun helperCallsIn(module: String, text: String): Map<String, Int> {
             val out = mutableMapOf<String, Int>()
-            anyCallSite.findAll(text).forEach { m ->
-                val node = resolveHelper(module, m.groupValues[1], m.groupValues[2]) ?: return@forEach
-                out[node] = (out[node] ?: 0) + 1
-            }
+            helperCallSitesIn(module, text).forEach { (node, _) -> out[node] = (out[node] ?: 0) + 1 }
             return out
         }
         // A test-module helper "reaches" the declaration when its own body
@@ -3332,15 +3501,59 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
          * (p17d/p17d2). What a statement runs is what its whole call closure
          * runs, so the operations and the `run_must_fail` are counted over
          * that.
+         *
+         * ROUND 19 BINDS THE HELPER'S PARAMETERS TO THE CALLER'S ARGUMENTS. A
+         * body was appended verbatim, so `function run_it(o: rell.test.op) {
+         * rell.test.tx().op(o).run(); }` called as `run_it(take("a", 11))` left
+         * the scan looking at `.op(o)`: `o` is a parameter, not a call, and "an
+         * argument this scan cannot reduce is an UNKNOWN number of operations"
+         * refused an honest one-operation shape B (r19c2, the conservative
+         * direction). A parameter is now replaced by the argument bound to it,
+         * positionally or by name.
+         *
+         * A parameter is substituted ONLY when its argument is a plain call
+         * carrying no transaction of its own. An argument that itself builds or
+         * extends a transaction - `audited(rell.test.tx().op(take(...)))` - is
+         * left alone, because its carriers are already in the caller's text and
+         * substituting it would count the same operations twice; the parameter
+         * then keeps exactly the meaning it had before, which is "unknown". An
+         * argument that is not a call at all (an operation held in a `val`) is
+         * left alone too, and stays unknown rather than becoming zero.
          */
+        fun bindParameters(node: String, index: Int, body: String, args: List<String>): String {
+            val params = helperParams[node]?.getOrNull(index).orEmpty()
+            if (params.isEmpty() || args.isEmpty()) return body
+            val bound = LinkedHashMap<String, String>()
+            var positional = 0
+            for (a in args) {
+                val named = NAMED_ARGUMENT_REGEX.find(a)
+                if (named != null && named.groupValues[1] in params) {
+                    bound[named.groupValues[1]] = named.groupValues[2].trim()
+                } else {
+                    params.getOrNull(positional)?.let { bound[it] = a }
+                    positional++
+                }
+            }
+            var out = body
+            bound.forEach { (parameter, argument) ->
+                if (OP_ARGUMENT_REGEX.find(argument) == null) return@forEach
+                if (buildsATransaction(argument)) return@forEach
+                out = out.replace(Regex("""(?<![\w.])${Regex.escape(parameter)}(?![\w])""")) { argument }
+            }
+            return out
+        }
         fun flatten(module: String, text: String, depth: Int, seen: MutableSet<String>): String {
             if (depth > MAX_HELPER_DEPTH) return text
             val sb = StringBuilder(text)
-            helperCallsIn(module, text).keys.forEach { node ->
-                if (seen.add(node)) {
-                    helperBodies.getValue(node).forEach {
-                        sb.append('\n').append(flatten(node.substringBeforeLast(':'), it, depth + 1, seen))
-                    }
+            helperCallSitesIn(module, text).forEach { (node, args) ->
+                // One expansion per distinct CALL, not per helper: the same
+                // helper called with different operations runs different
+                // operations, and a key that ignored them would count one.
+                if (!seen.add(node + "(" + args.joinToString(",") + ")")) return@forEach
+                helperBodies.getValue(node).forEachIndexed { i, body ->
+                    sb.append('\n').append(
+                        flatten(node.substringBeforeLast(':'), bindParameters(node, i, body, args), depth + 1, seen)
+                    )
                 }
             }
             return sb.toString()
@@ -3617,11 +3830,31 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      * scan cannot reduce to a call ([unresolved], e.g. an op held in a `val`)
      * is NOT zero, it is "cannot be determined", which is `ambiguous_refusal`.
      *
+     * ROUND 19 ADDED THE BLOCK BUILDERS. `rell.test.block().tx(op, op)` is ONE
+     * transaction of TWO operations and contains neither `rell.test.tx(` nor
+     * `.op(`, so it had no carrier at all: count 0, builds false, and one `.tx(`
+     * which is not more than one transaction. Every branch of the shape check
+     * was skipped and it read as the canonical single-operation shape - in
+     * shape A the second operation refusing ON THE DAMAGE reported as the
+     * attack being refused (r19a), and in shape B a false `load_bearing`,
+     * ok:TRUE, on a transaction that never committed (r19a2). A block's `.tx(`
+     * and the block CONSTRUCTOR are carriers now, and because both take a
+     * TRANSACTION as readily as an operation, an argument that builds a
+     * transaction of its own is left to its own carriers rather than counted
+     * twice.
+     *
      * MEASURED on chr 0.29.10 / rell 0.15.0, each on a real chain with a green
-     * baseline and a red mutant (`harness/vg_r18_fix.py`): `rell.test.tx(op)`
-     * (f18g), `rell.test.tx(op, op)` (p18b), `rell.test.tx([op, op])` (f18b),
-     * `rell.test.tx().op(op, op)` (f18a), an operation built in one statement
-     * and run in another (f18d) and `rell.test.block().tx(op).tx(op)` (f18e).
+     * baseline and a red mutant (`harness/vg_r18_fix.py`, `harness/vg_r19_fix.py`):
+     * `rell.test.tx(op)` (f18g), `rell.test.tx(op, op)` (p18b),
+     * `rell.test.tx([op, op])` (f18b), `rell.test.tx().op(op, op)` (f18a), an
+     * operation built in one statement and run in another (f18d),
+     * `rell.test.block().tx(op).tx(op)` (f18e), `rell.test.block().tx(op, op)`
+     * (r19a), `rell.test.block().tx([op, op])` (f19a) and
+     * `rell.test.block(op, op)` (f19b). The spellings that do NOT exist were
+     * measured too and are not modelled: `rell.test.tx().ops([...])` is "Type
+     * rell.test.tx has no member 'ops'" and `rell.test.block().txs([...])` is
+     * "Type rell.test.block has no member 'txs'"
+     * (`adversary-round19/vg/spellings.json`).
      */
     private data class TxOperations(
         /** True when the statement builds a rell.test transaction at all. */
@@ -3632,11 +3865,15 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         /** The first argument that is not a call, when there is one. */
         val unresolved: String?,
         /**
-         * How many transactions a `rell.test.block()` in the statement carries.
-         * A block is not one transaction, and `rell.test.block().tx(take(...))
-         * .tx(audit(...))` carries two operations with neither `rell.test.tx(`
-         * nor `.op(` anywhere in it - the same hole p18b came through, one
-         * builder along.
+         * How many transactions a `rell.test.block()` in the statement carries:
+         * one per `.tx(` of the block, plus every argument of the block
+         * CONSTRUCTOR that builds a transaction of its own. A block is not one
+         * transaction, and `rell.test.block().tx(take(...)).tx(audit(...))`
+         * carries two operations with neither `rell.test.tx(` nor `.op(`
+         * anywhere in it - the same hole p18b came through, one builder along.
+         * The count of OPERATIONS is a separate question, and r19a is the case
+         * where a block holds exactly one transaction and that transaction
+         * holds two operations.
          */
         val blockTransactions: Int
     )
@@ -3653,9 +3890,22 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      */
     private val TX_OP_REGEX = Regex("""\.\s*op\s*\(""")
 
-    /** `rell.test.block()` and the `.tx(` calls that give it its transactions. */
+    /**
+     * `rell.test.block()` - a CARRIER in its own right since round 19:
+     * `rell.test.block(take("a", 11), audit("a"))` and
+     * `rell.test.block(rell.test.tx()...)` both compile (measured), so its
+     * arguments are operations or transactions and have to be read either way.
+     */
     private val TX_BLOCK_REGEX = Regex("""\brell\s*\.\s*test\s*\.\s*block\s*\(""")
 
+    /**
+     * `.tx(` - a block's own builder, which takes ONE transaction's worth of
+     * operations (`\.tx(op, op)`, `\.tx([op, op])`) or a whole transaction.
+     * There is no `.txs(`: `rell.test.block().txs([...])` is "Type
+     * rell.test.block has no member 'txs'" on rell 0.15.0, measured, so the
+     * fix does not model it. The `.tx(` inside `rell.test.tx(` matches this
+     * too and is excluded by offset, not by a second regex.
+     */
     private val TX_BLOCK_TX_REGEX = Regex("""\.\s*tx\s*\(""")
 
     /** `f(...)` or `m.f(...)` - an argument that is a call, and the name it calls. */
@@ -3681,11 +3931,60 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         return out
     }
 
+    /**
+     * True when [text] builds or extends a rell.test transaction of its own -
+     * the test for "this argument is a TRANSACTION, whose operations its own
+     * carriers already carry", not an operation to be counted here.
+     */
+    private fun buildsATransaction(text: String) =
+        TX_CTOR_REGEX.containsMatchIn(text) || TX_OP_REGEX.containsMatchIn(text) ||
+            TX_BLOCK_REGEX.containsMatchIn(text)
+
+    /** `o = take("a", 11)` - a call argument passed by NAME, and the value bound to it. */
+    private val NAMED_ARGUMENT_REGEX =
+        Regex("""^([A-Za-z_]\w*)\s*=(?!=)\s*(.+)$""", RegexOption.DOT_MATCHES_ALL)
+
+    /**
+     * ROUND 19 ADDED THE BLOCK BUILDERS TO THE CARRIERS. A `rell.test.block()`
+     * carries OPERATIONS, exactly as `rell.test.tx(...)` does:
+     * `rell.test.block().tx(take("a", 11), audit("a"))` is ONE transaction of
+     * TWO operations, and `rell.test.block(take(...), audit(...))` compiles as
+     * well - both MEASURED on chr 0.29.10 / rell 0.15.0 and recorded in
+     * `adversary-round19/vg/spellings.json`. With only `rell.test.tx(` and
+     * `.op(` counted, r19a's statement had NO carrier at all: builds=false,
+     * count=0, and blockTransactions one, which is not `> 1`. Every branch of
+     * the shape check was skipped and a two-operation transaction read as the
+     * canonical single-operation shape - in SHAPE B, `load_bearing` with
+     * ok:TRUE on a transaction the second operation rolled back (r19a2).
+     */
     private fun transactionOperations(flat: String): TxOperations {
-        val blockTransactions =
-            if (TX_BLOCK_REGEX.containsMatchIn(flat)) TX_BLOCK_TX_REGEX.findAll(flat).count() else 0
-        val carriers = (TX_CTOR_REGEX.findAll(flat) + TX_OP_REGEX.findAll(flat))
-            .map { it.range.last }.sorted().toList()
+        // The `.tx(` calls that belong to a BLOCK - every one except the `.tx(`
+        // inside `rell.test.tx(`, which the two regexes both end on.
+        val ctorEnds = TX_CTOR_REGEX.findAll(flat).map { it.range.last }.toSet()
+        val blockTxCarriers = TX_BLOCK_TX_REGEX.findAll(flat)
+            .map { it.range.last }.filter { it !in ctorEnds }.toList()
+        val blockCtorCarriers = TX_BLOCK_REGEX.findAll(flat).map { it.range.last }.toList()
+        // A block's carriers take a TRANSACTION as readily as an operation, so
+        // the arguments that are transactions are what says how many
+        // transactions the block holds; a `.tx(` is one on its own.
+        val blockArguments = blockCtorCarriers.flatMap { open ->
+            val close = matchBrace(flat, open, '(', ')') ?: return@flatMap emptyList<String>()
+            splitArguments(flat.substring(open + 1, close)).map { it.trim() }.filter { it.isNotEmpty() }
+                .flatMap { a ->
+                    if (a.startsWith("[") && a.endsWith("]")) {
+                        splitArguments(a.substring(1, a.length - 1)).map { it.trim() }.filter { it.isNotEmpty() }
+                    } else {
+                        listOf(a)
+                    }
+                }
+        }
+        val blockTransactions = blockTxCarriers.size + blockArguments.count { buildsATransaction(it) }
+        val blockCarriers = (blockTxCarriers + blockCtorCarriers).toSet()
+        val carriers = (
+            TX_CTOR_REGEX.findAll(flat).map { it.range.last }.toList() +
+                TX_OP_REGEX.findAll(flat).map { it.range.last }.toList() +
+                blockCarriers
+            ).distinct().sorted()
         if (carriers.isEmpty()) {
             return TxOperations(
                 builds = false, count = 0, names = emptyList(), unresolved = null,
@@ -3695,9 +3994,13 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         var count = 0
         val names = mutableListOf<String>()
         var unresolved: String? = null
-        fun takeArgument(argument: String) {
+        fun takeArgument(argument: String, fromBlock: Boolean) {
             val t = argument.trim()
             if (t.isEmpty()) return
+            // A block builder also accepts a rell.test.tx. Its operations are
+            // carried by its OWN carriers, which this same scan visits, so
+            // counting it here as well would count them twice.
+            if (fromBlock && buildsATransaction(t)) return
             val match = OP_ARGUMENT_REGEX.find(t)
             if (match == null) {
                 if (unresolved == null) unresolved = t
@@ -3707,6 +4010,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             }
         }
         for (open in carriers) {
+            val fromBlock = open in blockCarriers
             val close = matchBrace(flat, open, '(', ')')
             if (close == null) {
                 if (unresolved == null) unresolved = flat.substring(open)
@@ -3715,9 +4019,9 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             for (argument in splitArguments(flat.substring(open + 1, close))) {
                 val t = argument.trim()
                 if (t.startsWith("[") && t.endsWith("]")) {
-                    splitArguments(t.substring(1, t.length - 1)).forEach { takeArgument(it) }
+                    splitArguments(t.substring(1, t.length - 1)).forEach { takeArgument(it, fromBlock) }
                 } else {
-                    takeArgument(t)
+                    takeArgument(t, fromBlock)
                 }
             }
         }
