@@ -345,7 +345,19 @@ object McpTools {
 
     fun getBlockchainAnalyticsTool() = Tool(
         name = "get_blockchain_analytics",
-        description = "Get detailed analytics for a specific blockchain including transaction counts, operation counts, and active accounts over time",
+        // The upstream state is part of the answer, not a footnote: an agent
+        // that reads these counts as current reports four-day-old numbers, and
+        // one that waits on a busy chain has no way to know a minute is normal.
+        // docs/UPSTREAM.md #11 carries the measurements and closes the entry
+        // when ChromaWay fixes it; this note goes with it. Well inside
+        // MAX_DESCRIPTION_BYTES, so describe_tool serves the same text.
+        description = """
+            Get detailed analytics for a specific blockchain including transaction counts, operation counts, and active accounts over time.
+            UPSTREAM, measured 2026-09-08 (docs/UPSTREAM.md #11): the explorer's index is STALE since 2026-09-04 06:40Z, so every count here
+            stops at that moment and the response does not say so. Cost tracks the chain's transaction count, not the request: a 15-transaction
+            chain answers in 0.6s, a 1.4M-transaction chain took 41.5s, and the query has been observed dropping the connection at the 60s
+            request timeout. Treat a timeout as the explorer's, retry, and read the numbers as of 2026-09-04.
+        """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
                 mapOf(

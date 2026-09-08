@@ -182,6 +182,64 @@ vendored v1.1.0r copy, and scans any file that differs, with a note (commits
 `b66f033`, `15dbaf8`). Relevant to upstream if it ever grows scanning, and
 to any other Rell security tooling.
 
+## 11. Explorer analytics: `blockchainAnalytics` is unbounded in chain size, and the index is stale since 2026-09-04
+
+Measured live 2026-09-08 against `explorer.chromia.com` (mainnet).
+
+**The index is four days behind.** The newest transaction the explorer will
+return is
+
+```
+{ allTransactions(limit: 1, sortBy: "timestamp", sortDirection: DESC)
+    { transactions { timestamp rid } } }
+  -> timestamp 1788504000333 = 2026-09-04T06:40:00.333Z   (measured 2026-09-08T18:41Z)
+```
+
+so every count, aggregate and "active accounts over time" the explorer serves
+stops at 2026-09-04 06:40Z. Nothing in the response says so - the shape is
+identical to a fresh one - and a client that trusts it reports four-day-old
+numbers as current. The explorer back-end lane's root cause is an unbounded
+per-transaction-per-account query plus a stalled synchronizer.
+
+**`blockchainAnalytics` is the query that shows it.** Per chain, one call each,
+node client, 60 s ceiling:
+
+| chain | brid | wall |
+|---|---|---|
+| CONNECTED_FASHION (15 tx) | `0E091F5E…` | 0.6 s |
+| Fanzeal (100 tx) | `BC04E517…` | 0.6 s |
+| AllianceGames (5.3 M tx) | `8A61C857…` | 18.8 s |
+| directory_chain (2.3 M tx) | `7E5BE539…` | 24.4 s, then 14.8 / 15.1 / 14.7 s |
+| AllianceGamesArcade (3.0 M tx) | `431B410C…` | 28.7 s |
+| Cod3CrewMarketplace (1.4 M tx) | `50CC05D0…` | 41.5 s |
+
+The cost tracks the chain's transaction count, not the request: 15 transactions
+answer in half a second, 1.4 M take 41 s. `ChromiaConfig.httpTimeouts.requestTimeout`
+is **60 s**, so the busiest chains are inside the bound only by margin - and
+earlier the same day the explorer back-end lane measured `blockchainAnalytics`
+**dropping the connection at 60 s for every chain it tried**, including the two
+small ones and the directory chain. Between that measurement and this one the
+query recovered to "slow but answering"; nothing changed on our side.
+
+**Correction to the premise this entry was opened on.** It was opened as "times
+out for EVERY chain". Re-measured before writing, that is not what the explorer
+is doing at 2026-09-08T18:41Z, and the entry says what was measured rather than
+what was expected. What stands: the query is unbounded in the chain's size, it
+has already been observed past the 60 s bound today, and the data it returns is
+four days stale.
+
+**What this means for the suite.**
+`ToolExecutorStrategiesTest.liveGetBlockchainAnalyticsAnswersForARealChain`
+passes while the query answers, and is an **upstream warning** - not a pass, not
+our red - whenever it comes back with `Request timeout has expired` on the
+explorer URL, for as long as this entry is open. The entry is the guardrail that
+makes that legal (`LiveEnv.datedLedgerEntry("11", "blockchainAnalytics")` reads
+this file and requires both the date and the query name). Closing it removes the
+excuse: when ChromaWay bounds the query and catches the index up, delete this
+entry, the `blockchainAnalytics` row in
+`ToolExecutorStrategiesTest.upstreamLedgerEntries` and the staleness note in the
+tool's description, and a timeout there goes back to being an ordinary red.
+
 ## Status (2026-09-06, amended 2026-09-07)
 
 Findings #3a and #3b were added on 2026-09-07 and are NOT part of the ported
