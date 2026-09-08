@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.function.Executable
 import java.lang.reflect.Modifier
+import java.nio.file.Files
 import java.nio.file.Path
 
 /**
@@ -80,8 +81,11 @@ class Round19DoubleEvasionTest {
 
     // ---- the trees, as the shipped scan derives them ------------------------
 
-    private fun isDependencyArchive(path: Path): Boolean =
-        path.toString().let { it.endsWith(".jar", ignoreCase = true) || it.endsWith(".zip", ignoreCase = true) }
+    private fun isDependencyArtifact(path: Path): Boolean =
+        Files.isRegularFile(path) ||
+            path.toString().lowercase().let { name ->
+                listOf(".jar", ".zip", ".pom", ".module", ".klib", ".aar").any { name.endsWith(it) }
+            }
 
     private fun required(paths: List<Path>?, property: String): List<Path> =
         paths ?: error(
@@ -93,7 +97,7 @@ class Round19DoubleEvasionTest {
     private val testTrees: List<Path> by lazy {
         val classpath = required(RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]")
         val production = required(RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]").toSet()
-        classpath.filterNot { isDependencyArchive(it) }
+        classpath.filterNot { isDependencyArtifact(it) }
             .filterNot { it in production }
             .distinct()
             .sortedBy { it.toString() }
@@ -380,7 +384,7 @@ class Round19DoubleEvasionTest {
     fun theScanReadsEveryDirectoryTheTestRuntimeLoadsClassesFrom() {
         val classpath = required(RepoFiles.testRuntimeClasspath, "chromia.test.scanpaths[classpath]")
         val production = required(RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]").toSet()
-        val directories = classpath.filterNot { isDependencyArchive(it) }.distinct()
+        val directories = classpath.filterNot { isDependencyArtifact(it) }.distinct()
         val scanned = testTrees.map { RepoFiles.relative(it) }.sorted()
         val unaccounted = directories
             .filterNot { it in production || it in testTrees }

@@ -151,6 +151,27 @@ import java.nio.file.Path
  */
 class NoTestDoublesTest {
 
+    /**
+     * A JUnit TEST class is not a double, whatever the attack it pins is called.
+     *
+     * Round 19 shipped `Round19FakeUpstreamWarningTest` (a fake upstream warning
+     * is what it ATTACKS) and `Round19DoubleEvasionTest` (test doubles are what it
+     * is ABOUT), and [namedDouble] flagged both on the words `Fake` and `Double`
+     * in their names - a red that says nothing about the suite. It is the same
+     * mistake as reacting to prose about a double, which is why comments are
+     * stripped: the detector reads a name for what the class IS, and a class whose
+     * name ends in `Test` is the test, not the substitute. Both are silent under
+     * the structural scan, which is the proof.
+     *
+     * The carve-out is on the NAME only and it costs nothing: a substitute called
+     * `FakeChainTest` would still have to implement or extend something to answer
+     * in a collaborator's place, and that is a supertype list
+     * [thereAreNoTestDoublesInTheCompiledTestClasses] reads.
+     * [everyDetectorStillMatchesTheShapeItLooksFor] pins its exact width so it
+     * cannot quietly grow.
+     */
+    private fun isTestClassName(declared: String) = declared.endsWith("Test")
+
     /** `FakeX`, `MockY`, `StubZ`, `RecordingW`, `ScriptedV`... by name. */
     private val namedDouble = Regex(
         """^\s*(?:private\s+|internal\s+|open\s+|abstract\s+|inner\s+)*(?:class|object)\s+(\w*(?:Mock|Fake|Stub|Recording|Scripted|Dummy|Canned|Noop|NoOp|Spy|Double)\w*)\b"""
@@ -224,7 +245,10 @@ class NoTestDoublesTest {
             val name = file.fileName.toString()
             stripComments(Files.readString(file)).lineSequence().forEachIndexed { index, line ->
                 val n = index + 1
-                namedDouble.find(line)?.let { sites += Site(name, n, "NAMED", it.groupValues[1]) }
+                namedDouble.find(line)?.let { match ->
+                    val declared = match.groupValues[1]
+                    if (!isTestClassName(declared)) sites += Site(name, n, "NAMED", declared)
+                }
                 anonymousObject.findAll(line).forEach {
                     sites += Site(name, n, "ANONYMOUS", it.groupValues[1].substringAfterLast('.'))
                 }
@@ -249,12 +273,22 @@ class NoTestDoublesTest {
 
     /**
      * A classpath entry that is a dependency ARTIFACT rather than one of this
-     * build's own output directories. Decided by suffix rather than by looking on
-     * disk, so an output directory a source set has not written to yet is still
-     * classified as a directory instead of vanishing from the list.
+     * build's own output directories.
+     *
+     * A regular file is one whatever it is called - and on this build that is not
+     * only jars: `net.postchain:directory-chain`'s `.pom` is on the test runtime
+     * classpath (measured 2026-09-09), and a first cut that named `.jar` and
+     * `.zip` recorded it as a tree. The suffixes are kept for the other half of
+     * the rule: an output directory a source set has not written to yet is not a
+     * regular file either, and it must stay in the list rather than vanish from
+     * it, so anything that is neither a file on disk nor an artifact spelling is a
+     * tree.
      */
-    private fun isDependencyArchive(path: Path): Boolean =
-        path.toString().let { it.endsWith(".jar", ignoreCase = true) || it.endsWith(".zip", ignoreCase = true) }
+    private fun isDependencyArtifact(path: Path): Boolean =
+        Files.isRegularFile(path) ||
+            path.toString().lowercase().let { name ->
+                listOf(".jar", ".zip", ".pom", ".module", ".klib", ".aar").any { name.endsWith(it) }
+            }
 
     private fun required(paths: List<Path>?, property: String, what: String): List<Path> =
         paths ?: error(
@@ -280,7 +314,7 @@ class NoTestDoublesTest {
         val production = required(
             RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]", "which of those trees is production's"
         ).toSet()
-        classpath.filterNot { isDependencyArchive(it) }
+        classpath.filterNot { isDependencyArtifact(it) }
             .filterNot { it in production }
             .distinct()
             .sortedBy { it.toString() }
@@ -724,7 +758,7 @@ class NoTestDoublesTest {
         val production = required(
             RepoFiles.productionOutput, "chromia.test.scanpaths[production.output]", "which of those trees is production's"
         ).toSet()
-        val directories = classpath.filterNot { isDependencyArchive(it) }.distinct()
+        val directories = classpath.filterNot { isDependencyArtifact(it) }.distinct()
         val unaccounted = directories.filterNot { it in production || it in testTrees }
         assertTrue(
             unaccounted.isEmpty(),
@@ -779,6 +813,12 @@ class NoTestDoublesTest {
         assertTrue(namedDouble.containsMatchIn("    private class FakeChain(val x: Int) {"), "NAMED")
         assertTrue(namedDouble.containsMatchIn("object MockThing {"), "NAMED object")
         assertTrue(namedDouble.containsMatchIn("private class RecordingRepository : X {"), "NAMED recording")
+        // The carve-out, at exactly the width the KDoc claims: the name says what
+        // the class IS, and a class ending in `Test` is the test.
+        assertTrue(!isTestClassName("FakeChain"), "a double is not exempted by the carve-out")
+        assertTrue(!isTestClassName("MockLedger"), "a double is not exempted by the carve-out")
+        assertTrue(isTestClassName("Round19FakeUpstreamWarningTest"), "a JUnit test class is exempted")
+        assertTrue(isTestClassName("Round19DoubleEvasionTest"), "a JUnit test class is exempted")
         assertTrue(anonymousObject.containsMatchIn("val g = object : ChainGateway {"), "ANONYMOUS")
         assertTrue(mockEngine.containsMatchIn("val engine = MockEngine { respond(\"\") }"), "MOCK_ENGINE")
         assertTrue(samLambda.containsMatchIn("txPoster = TxPoster { _, _ -> outcome }"), "SAM_LAMBDA")
