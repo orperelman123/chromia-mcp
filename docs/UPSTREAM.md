@@ -277,7 +277,49 @@ One file per warning, written by the test that failed, in the directory the test
 4. **the message binds the file** (below);
 5. **an independent canary agrees, or an entry in this file excuses the query**
    (below);
-6. the evidence is timestamped inside this run.
+6. the evidence is timestamped **inside this run**, and "this run" is derived
+   rather than assumed (below).
+
+**When this run started, and why that is not a flag.** Clause 6 was the one
+clause that could not fire where it mattered. The gate computed the run's start
+as
+
+```js
+const runStart = startedAt ?? (Math.min(...mtimes) - TEST_TASK_TIMEOUT_MS);   // 90 minutes
+```
+
+where `startedAt` was the `--started-at` argument — and **no workflow passed it**
+(`grep -c started-at .github/workflows/*.yml` was `0` in all four, measured by
+adversary round 20). Classified the way CI classified, an evidence file dated
+**sixty minutes before the run** was accepted as a proven outage, and `t.stale` —
+the check `report()` calls fatal, *"you are reading someone else's evidence"* —
+was only ever computed `if (startedAt !== null)`, so it could not fire in CI at
+all. A warning file left in `app/build` by an outage last week would have excused
+an identical failure today.
+
+The remedy is not to pass the argument in four more places; a gate armed by
+remembering a flag is a gate disarmed by forgetting one. The run's start is now
+**derived from the run**: `:app:test` writes `app/build/test-run/starts.tsv`
+before its first test executes, one row per invocation
+(`<epoch-ms>\t<ISO-8601>\t<task path>`), truncated when the results directory
+holds no XML and appended otherwise — so the partitioned local gate records every
+slice and the run's start is the earliest of them. `--started-at` survives only
+as a NARROWING override (`max(marker, flag)`), and with neither a marker nor a
+flag the tally **fails closed**: a results directory nobody can date is not
+evidence of anything.
+
+`Round20UpstreamBindingProbeTest` re-measures that on every run, against the
+marker THAT RUN wrote, through the real `scripts/gate-tally.mjs` called the way
+CI calls it — `--dir` and no flags — over a JUnit XML the real launcher and the
+real `LegacyXmlReportGeneratingListener` produced, so the `[evidence sha256:…]`
+that binds the file to the failure is one the test process actually threw.
+Evidence an hour older than the marker is refused, evidence **one second** older
+is refused, evidence written during the run is accepted and does not set the exit
+code; a result file older than the marker is reported stale **with no flag
+passed**; `--started-at` narrows the window and cannot widen it; and a checkout
+with no marker is refused outright. The recordings are frozen at
+`exploit-corpus/realworld/adversary-round20/upstream/freshness-after-fix.json`,
+`…/run-window-after-fix.json` and `…/fails-closed-with-no-marker.json`.
 
 **What binds evidence to a run.** Nothing in the repository says only `LiveEnv`
 may write into `app/build/upstream/warnings` — round 19's a2 wrote a file by hand

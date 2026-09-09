@@ -1,4 +1,11 @@
 import java.time.Duration
+// IMPORTED, never written inline. Inside a `tasks.named<Test>("test") { ... }`
+// block the name `java` resolves to the Gradle Kotlin DSL's `java` extension
+// (JavaPluginExtension), not to the JDK's root package, so `java.time.Instant`
+// is a script compilation error - "Unresolved reference: time", measured
+// 2026-09-09 at line 248 of this file. The build failed at CONFIGURE time, which
+// is why nothing that merely reads the sources noticed.
+import java.time.Instant
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Properties
@@ -218,6 +225,38 @@ tasks.named<Test>("test") {
     val productionOutput = sourceSets["main"].output
     val doubleProbeClasses = doubleProbes.output.classesDirs
     val testRuntimeClasspath = classpath
+
+    // WHEN THIS RUN STARTED - written by the task, before the first test, and
+    // read by scripts/gate-tally.mjs as the ONE definition of "inside this run".
+    //
+    // Adversary round 20, section 4: the tally dated a run as
+    // `startedAt ?? (min(result mtimes) - 90 minutes)`, and `startedAt` was the
+    // `--started-at` flag, which NO workflow passed (grep count 0 in all four).
+    // So in CI an upstream-warning evidence file written an HOUR before the run
+    // was accepted as proof, and the fatal "these result files predate this run"
+    // check was never even computed. Passing the flag in four more places would
+    // leave the fifth workflow to forget it - the removed `--allow-skip` by
+    // another route - so the run's start is DERIVED from the run instead.
+    //
+    // TRUNCATE OR APPEND, and the difference matters: the merge gate on this 15 W
+    // laptop runs the suite PARTITIONED - thirteen serial `--tests` slices at the
+    // last full gate - all writing into ONE test-results/test directory whose
+    // union the tally reads. Each slice appends a row and the run's start is the
+    // EARLIEST of them, so one slice's XMLs are never stale against a later
+    // slice's start. A results directory holding no XML means a new accumulation
+    // is beginning (scripts/loop-gate.mjs clears both before every gate run, and
+    // CI is a fresh checkout), and then the file starts again.
+    val runStartMarker = layout.buildDirectory.file("test-run/starts.tsv").get().asFile
+    val junitResultsDir = layout.buildDirectory.dir("test-results/test").get().asFile
+    val thisTaskPath = path
+    doFirst {
+        val startedAt = System.currentTimeMillis()
+        val fresh = (junitResultsDir.listFiles { f -> f.name.endsWith(".xml") } ?: emptyArray()).isEmpty()
+        val row = "$startedAt\t${Instant.ofEpochMilli(startedAt)}\t$thisTaskPath\n"
+        runStartMarker.parentFile.mkdirs()
+        if (fresh) runStartMarker.writeText(row) else runStartMarker.appendText(row)
+    }
+
     doFirst {
         val rows = StringBuilder()
         testRuntimeClasspath.files.forEach { rows.append("classpath\t").append(it.absolutePath).append('\n') }

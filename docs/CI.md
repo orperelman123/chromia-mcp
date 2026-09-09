@@ -24,6 +24,13 @@ removed `--allow-skip` flag was.
 Nothing in CI has an allowlist of test names. There is no list of tests that may
 fail, and no list of tests that may skip.
 
+**And nothing the gate checks is armed by an argument somebody remembers.** Both
+of `gate-tally.mjs`'s optional arguments are DERIVED when they are not given —
+see [The two derived arguments](#the-two-derived-arguments). Adversary round 20
+measured `grep -c started-at .github/workflows/*.yml` and `grep -c expect-min` at
+**zero in all four**, which left three of the gate's five conditions unable to
+fire in the gate that decides merges.
+
 ---
 
 ## The four workflows
@@ -92,7 +99,9 @@ other, nothing pretends to pass — that satisfies *all* of:
    **or** a `docs/UPSTREAM.md` entry that the gate **opens and reads**: the
    entry must exist, its heading must match the evidence exactly, its section
    must carry a date, and it must name the query being excused;
-5. the evidence timestamp is inside this run.
+5. the evidence timestamp is inside this run — and the run's start is **derived**
+   from the marker `:app:test` writes before its first test, never defaulted and
+   never a flag. See below.
 
 An upstream warning is counted, printed by name, and does **not** set the exit
 code. It is **a red for the third party, not a pass for us**: nothing those
@@ -101,6 +110,111 @@ or wait for the third party and re-run.
 
 A failure whose message *claims* the status without evidence that survives all
 five checks is an **ordinary red**. The gate fails closed, by design.
+
+---
+
+## The two derived arguments
+
+`scripts/gate-tally.mjs` accepts `--started-at` and `--expect-min`, and until
+2026-09-09 **no workflow passed either**. That is not a small omission: three of
+the five conditions the gate fails on depend on them.
+
+| condition `report()` fails on | armed by | before round 20 |
+| --- | --- | --- |
+| result files predate this run | the run's start | never computed — `tally` filled `stale` only `if (startedAt !== null)` |
+| `tests === 0` | nothing | worked |
+| the suite ran fewer than *n* tests | `--expect-min` | never passed, so a suite narrowed to ONE test was green |
+| failures that are ours | nothing | worked |
+| any skip | nothing | worked |
+
+Passing the two flags in four more workflows would have left the fifth workflow
+to forget them — the removed `--allow-skip` arrived at by omission. Both are
+derived instead, and both fail towards a red.
+
+### When this run started — `app/build/test-run/starts.tsv`
+
+`:app:test`'s own `doFirst` writes one row per invocation, before the first test
+executes: `<epoch-ms>\t<ISO-8601>\t<task path>`. It **truncates** the file when
+`app/build/test-results/test` holds no XML — a new accumulation is beginning —
+and **appends** otherwise, so the partitioned local gate (thirteen serial
+`--tests` slices into one results directory) records every slice and the run's
+start is the **earliest** of them. No slice's XMLs are stale against a later
+slice's start.
+
+The tally reads that file. `--started-at` survives only as a **narrowing**
+override — the run start is `max(marker, flag)`, so nothing a caller says can
+widen the window — and the old fallback, "ninety minutes before the oldest result
+file" (the test task's own timeout), is **deleted**. With neither a marker nor a
+flag the tally **fails closed**: no marker means no `:app:test` execution wrote
+one in this tree, which is either "the suite did not run" or "the task was up to
+date and executed nothing".
+
+**What starts a run is what clears the marker**, and that is deliberate rather
+than assumed. A build cannot tell "slice 2 of a partitioned gate" from "the same
+suite run again an hour later" — both find XMLs already in the results directory,
+and both append. So the two callers that decide anything clear it: `loop-gate.mjs`
+removes `app/build/test-run` and `app/build/upstream` before every gate run, and
+CI is a fresh checkout. A hand-run `./gradlew :app:test`, twice, into a build
+directory nobody cleared records both starts and dates the run from the earlier
+one — but that directory then holds two runs' XMLs as well, and it is not a
+verdict on anything. Clear the build directory, or run the gate, which does.
+
+What this arms, measured in
+`app/src/test/resources/exploit-corpus/realworld/adversary-round20` and
+re-measured by `Round20UpstreamBindingProbeTest` on every run: an upstream
+warning dated **one second** before the marker is refused as an earlier run's
+evidence (it used to be accepted up to an hour early), one written during the run
+is accepted, and the fatal stale-results check now runs on every classification.
+
+### How big the suite should be — `ci/expected-min.json`
+
+```json
+{ "expectMin": 1650, "verifiedBy": "…", "verifiedAt": "…", "why": "…" }
+```
+
+`gate-tally.mjs` reads it whenever it classifies the repository's own
+`app/build/test-results/test`, and fails the run when fewer tests executed. It is
+the only check between `tests === 0` and a suite silently narrowed by a `--tests`
+filter that matched almost nothing, or by a class that failed to compile and took
+its tests with it — neither of which produces a single failure.
+
+The floor is committed rather than read from the last green run's published
+`test-report` artifact, and the reason is the one that decides everything else in
+this document: the artifact **expires** (7 days), needs the API and a token, and
+does not exist for a fork's first pull request, so a fortnight's quiet would
+disarm the check silently. A committed file is in every checkout, never expires,
+and moves only in a reviewable diff.
+
+It is not a number anybody has to remember either: `scripts/loop-gate.mjs`
+**ratchets it up** after a green FULL run — never down, because a docs-only run
+covers a derived subset and a partition covers one slice, and either lowering it
+would excuse exactly the narrowing the floor exists to catch. Lowering it is a
+deliberate edit that has to be argued for in the diff.
+
+A caller pointing `--results` at some other directory (a nested run's temp
+directory, a probe harness) does **not** get the floor automatically — that is
+not this suite — and must pass `--expect-min` to get a size check at all.
+
+### One verdict object, one headline
+
+`verdict(t, { expectMin })` in `gate-tally.mjs` returns every condition above
+with its state, a `green` field and a `headline`. `report()` prints it and the
+process exits on it, `--json` exits on it, and `scripts/ci-summary.mjs` renders
+the `headline` **verbatim** and tabulates the five conditions.
+
+Before that, the job summary computed its own headline from two of the five:
+
+```js
+const ours = t.red.length;
+const verdict = ours || t.skippedNames.length ? 'RED - this build does not ship' : … 'GREEN';
+```
+
+so a run the gate failed on stale results, on `tests === 0` or on the floor was
+headed `## CI gate: GREEN` — and in the stale case the summary printed GREEN at
+the top and *"You are reading an earlier run's evidence. This is fatal."* twenty
+lines below it. Two renderings of what a pass is is the same defect as two
+classifiers. The presenter can no longer disagree with the exit code, because it
+no longer has an opinion of its own.
 
 ---
 
@@ -173,6 +287,7 @@ the same thing at the point of use.
 | `Classify the tally (ours, theirs, and skips)` | **The verdict.** The suite failed, or did not run at all. Read the job summary. |
 | `Build the fat jar` | `shadowJar` failed on a suite that already passed — in practice a duplicate or missing entry in the shadow merge, not a test problem. |
 | `Fail on any skipped test` | A test skipped. Provision what it needs; there is no allowlist. |
+| `Fail on a suite narrowed below the floor` | Far fewer tests ran than `ci/expected-min.json` says this suite has. A `--tests` filter matched almost nothing, or a class failed to compile and took its tests with it. Read the count, not a test name. |
 | `Upload test report` / `Upload upstream evidence` | The artifact upload itself failed (quota, or a transient GitHub fault). Not a verdict on the code. |
 | `Start server (full toolset) and run the end-to-end sweep` | Our contract broke against a live server. Read the `FAIL <check>` lines, **not** the `WARN-UPSTREAM` ones. |
 | `PowerShell launchers parse` | `serve-local.ps1` or `serve-public.ps1` no longer parses. A syntax fix, never a flake. |
@@ -262,7 +377,9 @@ gate as a command. It and CI agree by construction, not by convention:
 | --- | --- | --- |
 | classifier | imports `tally` / `report` from `scripts/gate-tally.mjs` | runs `node scripts/gate-tally.mjs --dir "$PWD"` |
 | skips allowed | none (`--allow-skip` was removed 2026-09-07 and now fails with that reason) | none (`ALLOWED = set()`) |
-| stale results | refuses any XML older than the run's start | same check, plus `--dir` binds the ledger to this checkout |
+| the run's start | derived from `app/build/test-run/starts.tsv`, which it clears before the run; its own wall clock can only narrow it | the same marker, from the same file the same task wrote |
+| stale results | refuses any XML older than the run's start | the same check, now that the start exists; `--dir` also binds the ledger to this checkout |
+| size floor | `ci/expected-min.json`, and **raises** it after a green full run | the same file, plus an independent second reader in `Fail on a suite narrowed below the floor` |
 | cached task | forces `--rerun-tasks`; a fast `BUILD SUCCESSFUL` proves nothing | a fresh checkout every run |
 | live environment | **refuses to start** unless `CHROMIA_TEST_DATABASE_URL`, `CHROMIA_LIVE_PROVISIONING_TESTS=true` and `CHROMIA_REQUIRE_CHR=true` are set, from real env vars or `local-test-env.properties` | the same three are set in the workflow |
 | upstream ledger | reads `docs/UPSTREAM.md` in the repo it was pointed at | the same file in the checkout |
@@ -314,6 +431,7 @@ Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
 | the tally alone, over results you already have | `node scripts/gate-tally.mjs --dir "$PWD"` (add `--json` for the raw structure) |
 | the job summary, as CI renders it | `node scripts/ci-summary.mjs --dir "$PWD"` |
 | `Fail on any skipped test` | the same `loop-gate.mjs` run — it fails on any skip |
+| `Fail on a suite narrowed below the floor` | the same `loop-gate.mjs` run — it reads `ci/expected-min.json` too |
 | `Start server … end-to-end sweep` | `./gradlew :app:shadowJar` then `java -jar app/build/libs/chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001`, then in another shell: `node scripts/e2e-sweep.mjs http://127.0.0.1:3001 --transport sse`, again with `--transport http`, then `node scripts/synthetic-agent.mjs http://127.0.0.1:3001` |
 | `PowerShell launchers parse` | `[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'serve-local.ps1'), [ref]$null, [ref]$errors)` |
 | `Stdio transport smoke …` | `node scripts/stdio-smoke.mjs app/build/libs/chromia-mcp-server.jar` then `node scripts/stdio-smoke.mjs --launcher` |
@@ -538,7 +656,14 @@ goes to bash passes `bash -n` with the `${{ }}` expressions substituted, the
 `shell: pwsh` block and both launchers pass the PowerShell parser, the scripts
 pass `node --check`, `gh workflow list` resolves all four, `git add
 --renormalize .` is a no-op against `.gitattributes`, and
-`CiWorkflowDocumentationTest` asserts that this document and `ci.yml` agree.
+`CiWorkflowDocumentationTest` asserts that this document and `ci.yml` agree, and
+`Round20CiVerdictProbeTest` drives the real `gate-tally.mjs` and the real
+`ci-summary.mjs` over five result directories and one start marker to prove the
+verdict and the headline cannot disagree, and `Round20UpstreamBindingProbeTest`
+drives the real `gate-tally.mjs` against the marker THE RUNNING SUITE ITSELF
+wrote, to prove that evidence one second older than the run is refused, that
+evidence written during it is accepted, and that a results directory with no
+marker is refused outright.
 
 A shell syntax error inside a YAML block scalar is invisible to a YAML parse
 and to every test in the suite, which is why it is checked separately and why

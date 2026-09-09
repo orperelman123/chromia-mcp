@@ -1,0 +1,6 @@
+{
+  "expectMin": 1650,
+  "verifiedBy": "main, adversary round 19's merge gate - 1650 tests, zero skips, zero errors, zero failures of our own, gated in thirteen partitions (GOAL.md, round 19)",
+  "verifiedAt": "2026-09-09",
+  "why": "THE FLOOR THE GATE READS, so that nobody has to remember --expect-min. scripts/gate-tally.mjs reads this file whenever it classifies the repository's own app/build/test-results/test, and fails the run when fewer tests than expectMin executed - which is the only check between `tests === 0` and a suite silently narrowed to one test by a --tests filter that matched almost nothing or by a class that failed to compile. Adversary round 20, section 5, measured a ONE-test run passing every check CI makes. The number is a RATCHET: scripts/loop-gate.mjs rewrites it upward after a green FULL run and never downward, so it tracks the suite without a human step; lowering it is a deliberate edit that has to be argued for in the diff, because a floor that drops on its own excuses the narrowing it exists to catch."
+}
