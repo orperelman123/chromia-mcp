@@ -414,6 +414,47 @@ On the two failing runs, on the totals: 19,107 + 6,481 = 25,588 against the
 published 25,588. That is not a tolerance being stretched, it is the proof that
 nothing was lost.
 
+### The first breakdown, measured
+
+A full local `./gradlew :app:generateEmbeddingsNoUpload` on 2026-09-09
+reproduced both failing runs exactly — the same 2,547 documents, the same 381
+sitemap pages — and wrote the first sidecar to carry the breakdown:
+
+| source | documents | segments | ex-docs | ex-segs | available |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `chromia-cli` | 11 | 118 | 0 | 0 | 118 |
+| `directory-chain` | 490 | 3,315 | 0 | 0 | 3,315 |
+| `docs-chromia-com` | 381 | 3,216 | 0 | 0 | 3,216 |
+| `ft4-lib` | 378 | 2,263 | 0 | 0 | 2,263 |
+| `postchain` | 650 | 3,605 | 268 | 1,941 | 5,546 |
+| `postchain-client` | 4 | 21 | 0 | 0 | 21 |
+| `postchain-eif` | 20 | 191 | 0 | 0 | 191 |
+| `rell` | 613 | 6,552 | 272 | 4,601 | 11,153 |
+| **TOTAL** | **2,547** | **19,281** | **540** | **6,542** | **25,823** |
+
+25,823 segments offered against the published 25,588 is **100.9%** and the gate
+exits 0. That same store is 111,686,474 bytes against 147,681,194 — **75.6%** —
+so the byte gate would have refused this healthy ingest a third time. Every
+excluded segment sits in the two repositories that carry host-language sources,
+`rell` (4,601) and `postchain` (1,941); for the other six, `available` is simply
+what they indexed.
+
+**One unit seam, named rather than smoothed over.** The published 25,588 is the
+STORE's segment count — the old workflow grepped it out of `rag-eval.txt` —
+while the sidecar's `segments` is what the splitter *planned*, before the
+embedding pass drops the blank ones. The gap is the same 0.9% in both ingests:
+25,823 planned / 25,588 stored on 2026-09-04, and 19,281 planned / 19,107 stored
+on 2026-09-07 and 2026-09-09. The totals fallback therefore compares a planned
+count against a stored one and is 0.9% generous, which decides nothing against a
+20% floor, and it disappears at the first publish, when both sides are the
+generator's own number.
+
+The fallback is weak in a second way the per-source comparison is not: a run
+that loses `postchain` outright — all 5,546 segments it offers — lands at 79.2%
+of the published total, 194 segments under the floor. Caught, but only just.
+Compared per source the same run is 0% of postchain and is refused by name.
+`EmbeddingsGateTest` runs exactly that pair of sidecars.
+
 The published sidecar of 2026-09-04 predates the breakdown and carries only its
 total, so the gate falls back to comparing totals the same way and says so in
 the job summary. The first run that publishes a sidecar with `sources` turns the

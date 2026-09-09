@@ -97,7 +97,10 @@ jobs:
       # the gate compares SEGMENTS OFFERED (indexed + deliberately excluded),
       # per source, which is the quantity that survives an ingest-rule change:
       # 19,107 + 6,481 = 25,588 against the published 25,588. The byte figures
-      # stay in the summary as information, not as the verdict.
+      # stay in the summary as information, not as the verdict. (Those two are
+      # the STORE's counts; the sidecar carries the splitter's planned ones,
+      # 0.9% higher on both sides of the totals fallback - docs/CI.md, "One unit
+      # seam", says why that decides nothing against a 20% floor.)
       - name: Gate - no source shrank against the published index
         run: |
           published=""

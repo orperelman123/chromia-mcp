@@ -39,6 +39,21 @@
 // same way and says so. Once a run publishes a sidecar with `sources`, the
 // comparison is per source and a single repository failing to clone can no
 // longer hide inside a healthy total.
+//
+// ONE UNIT SEAM, NAMED rather than smoothed over, because it is arithmetic. The
+// published 25,588 is the STORE's segment count - the old workflow grepped it
+// out of rag-eval.txt - while `segments` here is what the splitter PLANNED,
+// before the embedding pass drops the blank ones. Both ingests show the same
+// 0.9% between the two: 25,823 planned against 25,588 stored on 2026-09-04, and
+// 19,281 planned against 19,107 stored on 2026-09-07 and 2026-09-09. So the
+// TOTALS fallback compares a planned count against a stored one and is 0.9%
+// generous, which decides nothing against a 20% floor - and it is gone at the
+// first publish, when both sides are the generator's own number.
+//
+// And the fallback is weak in a second way that the per-source form is not: a
+// run that loses `postchain` outright - all 5,546 segments it offers - lands at
+// 79.2% of the published total, 194 segments under the floor. It is caught, but
+// only just. Per source that same run is 0% of postchain and refused by name.
 import { readFileSync, appendFileSync } from 'node:fs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, arr) => {

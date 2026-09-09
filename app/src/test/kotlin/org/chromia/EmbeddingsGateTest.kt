@@ -25,12 +25,17 @@ import java.util.concurrent.TimeUnit
  *    the breakdown, so it exercises the totals fallback the next real run will
  *    take.
  *  - `local-refresh.provenance.json` is the sidecar a real
- *    `:app:generateEmbeddingsNoUpload` wrote on this laptop - seven repositories
- *    cloned, the sitemap fetched, every segment split.
- *  - `local-refresh-postchain-lost.provenance.json` is that same run with one
- *    source's four numbers set to zero: what the sidecar of a run whose
- *    `postchain` clone produced nothing would look like. It is the failing case
- *    stated in the units the gate reads, not a stub of one.
+ *    `:app:generateEmbeddingsNoUpload` wrote on this laptop on 2026-09-09:
+ *    seven repositories cloned, 381 sitemap pages fetched, 2,547 documents and
+ *    19,281 segments indexed, 540 documents and 6,542 segments left out by the
+ *    F15 rule - 25,823 offered against the published 25,588, from a store of
+ *    111,686,474 bytes against 147,681,194, which is 75.6% and would have been
+ *    the byte gate's third refusal of a healthy ingest.
+ *  - `local-refresh-postchain-lost.provenance.json` is that same run with the
+ *    `postchain` row's four numbers set to zero and the totals recomputed from
+ *    the rows: what the sidecar of a run whose `postchain` clone produced
+ *    nothing looks like. It is the failing case stated in the units the gate
+ *    reads, not an imitation of one.
  *
  * The script is run as a process, the way the workflow runs it, so the exit code
  * under test is the exit code the workflow sees.
@@ -138,6 +143,12 @@ class EmbeddingsGateTest {
 
     @Test
     fun aTotalThatShrankIsRefusedEvenWithoutPerSourceNumbersOnTheOtherSide() {
+        // The margin is the point, and it is thin: postchain offers 5,546 of
+        // the 25,823 segments this ingest saw, so losing the whole repository
+        // lands at 79.2% of the published 25,588 - 194 segments under the
+        // floor. A totals-only comparison catches it by that much. The same run
+        // compared per source is 0% of postchain, refused by name, which is
+        // what the test above asserts and why the sidecar carries rows at all.
         val (exit, output) = gate(cut, published)
         assertEquals(
             1, exit,
