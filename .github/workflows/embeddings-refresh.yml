@@ -42,11 +42,15 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # v5, not v4: run 34103273206 (2026-09-07) warned `Node.js 20 is
+      # deprecated ... gradle/actions/setup-gradle@v4 ... forced to run on
+      # Node.js 24`. Not v6, for the licensing reason ci.yml records.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
+      # v7, matching the other three workflows.
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -58,6 +62,18 @@ jobs:
           set -o pipefail
           node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar --embeddings app/build/embeddings.json | tee rag-eval.txt
 
+      # RED HERE: a half-failed ingest. The freshly generated store is under 80%
+      # of the published one, so publishing it would REPLACE a good index with a
+      # worse one - and every fresh `npx chromia-mcp` install downloads that
+      # asset. Refusing is correct and the run is meant to stay red until
+      # somebody looks at WHY the ingest shrank (a docs source that moved, a
+      # sitemap that 404s, a rate limit).
+      #
+      # THIS STEP HAS BEEN RED SINCE 2026-09-07 (run 34103273206), which means
+      # the published index has not been refreshed since 2026-09-04. The numbers
+      # were only in the step log; they are in the job summary now, because "how
+      # much smaller, and since when" is the first question and it should not
+      # cost a log dive.
       - name: Gate - not drastically smaller than the published asset
         env:
           GH_TOKEN: ${{ github.token }}
@@ -65,9 +81,21 @@ jobs:
           new=$(stat -c %s app/build/embeddings.json)
           old=$(gh release view embeddings --json assets --jq '.assets[] | select(.name=="embeddings.json") | .size' 2>/dev/null || echo 0)
           echo "new=$new bytes, published=$old bytes"
+          {
+            echo "## Embeddings refresh"
+            echo ""
+            echo "| | bytes |"
+            echo "| --- | ---: |"
+            echo "| newly generated | $new |"
+            echo "| currently published | $old |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$old" -gt 0 ] && [ "$new" -lt $((old * 8 / 10)) ]; then
-            echo "::error::new store is under 80% of the published asset size - refusing to publish"; exit 1
+            pct=$((new * 100 / old))
+            echo "REFUSED: the new store is ${pct}% of the published asset (floor is 80%) - a half-failed ingest must not overwrite a good index" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::new store is ${new} bytes, ${pct}% of the published ${old} - under the 80% floor, refusing to publish"; exit 1
           fi
+          echo "Passed the 80% floor." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write provenance sidecar
         run: |

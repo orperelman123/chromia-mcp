@@ -1,8 +1,50 @@
 name: Nightly deep fuzz
 
-# Random-seeded fuzzing of the compiler tools against a real server, far beyond
-# the per-push suite's time budget. Fresh seeds every night find what fixed
-# seeds cannot; any crash/hang/leaked exception fails the run and opens an issue.
+# Random-seeded fuzzing of the compiler tools against a real server: any
+# crash/hang/leaked exception fails the run and opens an issue. `docs/CI.md`
+# is the operator's manual for this file.
+#
+# THREE THINGS THIS WORKFLOW CLAIMED AND DID NOT DO, all measured on its own
+# runs on 2026-09-09 and all fixed below. They are written down rather than
+# quietly corrected because each was invisible for the same reason - the run
+# went green, or went red for the wrong thing, and nobody read the log.
+#
+#   1. "Fresh seeds every night." It passed no seed base, so
+#      `scripts/fuzz-marathon.mjs` used its default of 1000 and the nightly ran
+#      seeds 1000..1599 EVERY night. Run 34200056218 printed it verbatim:
+#      `fuzz marathon: 600 iterations against ... (seeds 1000..1599)`, and so
+#      did 34096782190 the night before. Fixed: the seed base is derived from
+#      the run id, printed by the script, and carried into the issue body so a
+#      finding is still reproducible.
+#
+#   2. "Opens an issue." It could not. The default GITHUB_TOKEN for this
+#      repository is read-only (`Contents: read, Metadata: read, Packages:
+#      read`, printed in every run's "Set up job" group), so `gh issue create`
+#      answered `GraphQL: Resource not accessible by integration (createIssue)`
+#      on run 34325133558 - and the `|| true` on the end turned that into a
+#      green step. The fuzzer has never been able to report anything. Fixed by
+#      asking for `issues: write` below; release.yml is the in-repo proof that
+#      a workflow-level `permissions:` block does raise the token above the
+#      repository default.
+#
+#   3. "The build step is the same gate as CI." It was not - it ran
+#      `./gradlew :app:test` and took gradle's exit code as the verdict, with
+#      no tally and no skip check. So run 34325133558 went red on
+#      `ToolExecutorStrategiesTest.liveFilterBlockchainsFiltersByChainState`,
+#      which is the PROVEN upstream outage the CI gate counts as `upstream=1`
+#      and passes (docs/UPSTREAM.md #3b) - and the fuzzer never started. A
+#      nightly that is red every night for a third party's outage is a gate
+#      everyone learns to ignore, which GOAL.md rates worse than no gate at
+#      all. The build step below now runs the same three steps CI does, in the
+#      same order, off the same scripts/gate-tally.mjs.
+#
+# ALSO MEASURED, and NOT changed here because it is a product decision rather
+# than a defect: "far beyond the per-push suite's time budget" is not true of
+# the default. 600 iterations took 19s (run 34200056218) and 20s
+# (34096782190) - the fuzz step is twenty seconds of a job budgeted in tens of
+# minutes. The lever is the `iterations` input; raising the default is Or's
+# call, and docs/CI.md records the measurement so the next reader does not have
+# to rediscover it.
 
 on:
   schedule:
@@ -14,10 +56,32 @@ on:
         required: false
         default: '600'
 
+# `issues: write` is the whole point of the reporting step (see 2 above);
+# everything else stays read-only. This block RAISES the token above the
+# repository's read-only default, which is the same mechanism release.yml uses
+# for `contents: write`.
+permissions:
+  contents: read
+  issues: write
+
+# A manual dispatch while the 03:00 schedule is still running would put two
+# suites on one runner pool for no benefit. `cancel-in-progress: false` because
+# unlike CI's per-ref runs, the older nightly here is not superseded by a newer
+# tree - it is the same tree with different seeds, and finishing it is worth
+# more than starting again.
+concurrency:
+  group: nightly-fuzz
+  cancel-in-progress: false
+
 jobs:
   fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Measured on this workflow's own runs: the build step was 7m33s
+    # (34200056218) and 8m28s (34096782190) before rounds 17-19 landed and
+    # 43m41s (34325133558) after; the fuzz step 19-20s. Budgets below are per
+    # step so a hang is attributed, with the job set above their sum
+    # (50 + 30 + ~1m setup) so a step timeout always fires first.
+    timeout-minutes: 85
     # Same database and chr as ci.yml: the build step runs the full suite (the
     # jar is never built untested), and the template mutant tests REQUIRE a
     # database rather than skipping without one. Run 33849222724 (2026-09-04)
@@ -42,12 +106,16 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # v5 for the same licensing reason as ci.yml - see the note there.
       - uses: gradle/actions/setup-gradle@v5
 
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
+      # RED HERE: apt.chromia.com is unreachable or dropped the amd64 package.
+      # Fatal on purpose: with no chr, the two CLI probes skip, and a skip is a
+      # test that did not run.
       - name: Install Chromia CLI
         run: |
           curl -fsSL https://apt.chromia.com/chromia.gpg | sudo tee /usr/share/keyrings/chromia.gpg >/dev/null
@@ -56,35 +124,136 @@ jobs:
           sudo apt-get install -y -qq chr
           chr --version
 
-      - name: Build server
+      # THE SUITE, run exactly as ci.yml runs it: the same environment (so
+      # nothing skips) and gradle's exit code deliberately swallowed, because
+      # the verdict is the tally, not the exit code. See note 3 in the header.
+      # RED HERE: only infrastructure or the 50-minute budget.
+      - name: Run the unit suite
+        timeout-minutes: 50
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
           # Network-only live tests (dry runs and public reads; no key, nothing spent).
           CHROMIA_LIVE_PROVISIONING_TESTS: "true"
-        run: ./gradlew :app:test :app:shadowJar --console=plain
+          # chr is installed above, so a missing or unlaunchable chr must FAIL
+          # rather than skip. ci.yml has set this since the zero-skip guard
+          # landed; this job had not, so its suite was quietly the weaker one.
+          CHROMIA_REQUIRE_CHR: "true"
+        run: |
+          rc=0
+          ./gradlew :app:test --console=plain || rc=$?
+          echo "gradle :app:test exited $rc - the verdict is the tally below"
 
+      # The same presenter ci.yml uses, so a red nightly is readable from the
+      # run page. Never a verdict: it exits 0 by construction.
+      - name: Write the job summary
+        if: always()
+        run: node scripts/ci-summary.mjs --dir "$PWD"
+
+      # THE VERDICT. The same single classifier as the local merge gate and as
+      # ci.yml. A PROVEN upstream outage counts as upstream=N and does not red
+      # the build; every skip and every unproven failure does.
+      - name: Classify the tally (ours, theirs, and skips)
+        run: node scripts/gate-tally.mjs --dir "$PWD"
+
+      # The independent second reader of the same XMLs, identical to ci.yml's.
+      # RED HERE: a test skipped. There is no allowlist.
+      - name: Fail on any skipped test
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          ALLOWED = set()
+          t = f = s = 0; skipped = []; unexpected = []
+          for p in glob.glob('app/build/test-results/test/*.xml'):
+              r = ET.parse(p).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); s += int(r.get('skipped', 0))
+              for tc in r.iter('testcase'):
+                  if tc.find('skipped') is not None:
+                      key = f"{r.get('name')}::{tc.get('name')}"
+                      line = f"{key}: {(tc.find('skipped').get('message') or '').strip()[:160]}"
+                      skipped.append(line)
+                      if key not in ALLOWED: unexpected.append(line)
+          print(f"tests={t} failures={f} skipped={s} (allowed-by-name={len(skipped) - len(unexpected)})")
+          for x in skipped: print("  skip:", x)
+          if t == 0:
+              print("no test results found - the suite did not run"); sys.exit(1)
+          if unexpected:
+              print("UNEXPECTED SKIPS (a skip is a test that did not run):"); print("\n".join("  " + x for x in unexpected)); sys.exit(1)
+          PY
+
+      # RED HERE: shadowJar failed on a suite that already passed. The fuzzer
+      # cannot run without the jar.
+      - name: Build the server jar
+        run: ./gradlew :app:shadowJar --console=plain
+
+      # The same evidence ci.yml keeps, for the same reason: an outage argument
+      # is made across days.
+      - name: Upload test report and upstream evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-test-report
+          path: |
+            app/build/reports/tests/test
+            app/build/upstream
+          if-no-files-found: warn
+          retention-days: 14
+
+      # THE FUZZER. RED HERE: a random-seeded input crashed, hung, or leaked an
+      # exception out of a compiler tool. The seed base is printed by the script
+      # and repeated in the issue the next step opens - reproduce with the exact
+      # command in that issue, not with the defaults.
+      #
+      # SEED_BASE derives from the run id so every night is a different block of
+      # seeds (see note 1 in the header - it used to be 1000..1599 for ever).
+      # `% 4000000 * 1000` keeps base+iterations inside the 32-bit range the
+      # xorshift PRNG in fuzz-marathon.mjs is defined over, and gives each run
+      # its own 1000-wide block, so two runs cannot overlap at 600 iterations.
+      #
+      # `set -e` is why the exit code is captured with `|| rc=$?` rather than by
+      # reading `$?` on the next line: the old shape put `STATUS=$?` AFTER an
+      # unguarded `node ...`, so on the failure it was written for, the shell had
+      # already exited and neither the capture nor the `kill` ever ran.
       - name: Deep fuzz against a live server
+        id: fuzz
+        timeout-minutes: 30
         env:
           ITERATIONS: ${{ github.event.inputs.iterations || '600' }}
         run: |
+          SEED_BASE=$(( GITHUB_RUN_ID % 4000000 * 1000 + 1 ))
+          echo "SEED_BASE=$SEED_BASE" >> "$GITHUB_ENV"
           java -XX:MaxRAMPercentage=60 -jar app/build/libs/chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
           SERVER_PID=$!
           for i in $(seq 1 90); do curl -sf http://127.0.0.1:3001/health >/dev/null && break; sleep 2; done
-          node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 "$ITERATIONS"
-          STATUS=$?
-          kill $SERVER_PID || true
-          exit $STATUS
+          rc=0
+          node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 "$ITERATIONS" "$SEED_BASE" || rc=$?
+          kill "$SERVER_PID" 2>/dev/null || true
+          wait "$SERVER_PID" 2>/dev/null || true
+          exit "$rc"
 
+      # RED HERE: it cannot be - `gh issue create` used to end in `|| true`,
+      # which is how `Resource not accessible by integration (createIssue)` went
+      # unnoticed for the life of this workflow. The `|| true` is gone: if the
+      # fuzzer found something and the report cannot be filed, that is worth a
+      # red of its own, because the finding would otherwise be lost with the run.
+      # Scoped to the FUZZ step, not to `failure()`. A bare `failure()` opened
+      # "Nightly fuzz found a defect" for a red unit suite too - a title that
+      # sends the reader looking for a seed that does not exist.
       - name: Open an issue when the fuzzer finds something
-        if: failure()
+        if: failure() && steps.fuzz.conclusion == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
+          ITERATIONS: ${{ github.event.inputs.iterations || '600' }}
         run: |
           gh issue create \
             --title "Nightly fuzz found a defect ($(date -u +%Y-%m-%d))" \
-            --body "The nightly deep fuzz run failed. Reproduce locally with the printed seed:
+            --body "The nightly deep fuzz run failed. Reproduce locally with the run's OWN seed base
+          (the defaults are a different corpus - see the note at the top of the workflow):
           \`\`\`
-          node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 600
+          ./gradlew :app:shadowJar
+          java -jar app/build/libs/chromia-mcp-server.jar --sse --host 127.0.0.1 --port 3001 &
+          node scripts/fuzz-marathon.mjs http://127.0.0.1:3001 ${ITERATIONS} ${SEED_BASE}
           \`\`\`
+          Each finding also prints its own \`seed=\`, which reproduces that one case alone.
+
           Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --label bug || true
+            --label bug
