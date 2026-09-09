@@ -352,21 +352,43 @@ object ToolDocs {
         the unearned remainder, and `cancellable` is fixed at creation so a vesting grant
         cannot be clawed back. Its tests replay the round-7 grind and require the payee to be
         paid what the clock says anyway.
-        AND WHERE THE ANSWER IS NO. Some value classes have NO template here, and for those
-        this tool scaffolds NOTHING (ok:false, no `files`) and names the class and the guard
-        that is missing instead: an UNPREDICTABLE OUTCOME (a raffle, a lottery, a prize draw,
-        a prediction market, betting), a PAYMENT or STATE CHANNEL, a THRESHOLD-CONTROLLED
-        ACCOUNT (a multisig wallet, a signer set), and a CROWDFUNDING CAMPAIGN. Attaching a
+        Building a RAFFLE, a lottery, a prize draw or a sweepstake - anything where a WINNER
+        IS DRAWN and the draw is meant to be unpredictable: use 'raffle' - a COMMIT-REVEAL
+        whose seed folds the COMMITTED set in COMMIT order (`@sort .seq`, written before any
+        secret in the round exists) so no reveal order can move it, which refuses to draw a
+        round where reveals != commits, which BURNS a forfeited deposit instead of paying it
+        into the prize, and which caps the stake at the deposit so walking away never costs
+        less than playing. This is the class adversary round 20 drained FROM THIS PROJECT'S
+        OWN DESIGN NOTE - eleven guards proved load-bearing on a chain, and an attacker
+        holding 4.76% of the stake won five of five draws with nothing forfeited, because the
+        seed was folded in REVEAL order and six commitments were 720 free attempts. Its tests
+        replay that search verbatim and require it to change nothing.
+        AND WHERE THE ANSWER IS STILL NO. Some value classes have NO template here, and for
+        those this tool scaffolds NOTHING (ok:false, no `files`) and names the class and the
+        guard that is missing instead: WAGERING - taking the other side of a bet, a prediction
+        market, a sportsbook, a casino game, which must be SOLVENT FOR EVERY OUTCOME AT ONCE
+        and is not the same class as a draw - a PAYMENT or STATE CHANNEL, a
+        THRESHOLD-CONTROLLED ACCOUNT (a multisig wallet, a signer set), a CROWDFUNDING
+        CAMPAIGN, a LOYALTY or POINTS PROGRAMME (the issuer MINTS the unit, so staking's
+        "every credit is a pool debit" is vacuous on it), and a SPLITTER OF INCOME AMONG
+        WEIGHTED RECIPIENTS (a fee splitter, a revenue share, a donation pool). Attaching a
         compilable, guard-free skeleton for a different problem to that answer is how an agent
         builds the wrong thing and passes every gate - adversary rounds 8 and 14 are both that
         mistake, and round 18 drained a raffle built from the nearest template's guards with
-        rell_security_check at ok:true and zero findings. These classes are recognised BY
-        CONCEPT, not by spelling: raffle, tombola, sweepstake, giveaway, jackpot, loterie,
-        sorteo, rifa, Verlosung, sorteio, lotteria, estrazione and the rest are one class,
-        accents included, so renaming what you are building does not route it somewhere that
-        has files. An ask that names an uncovered class ALONGSIDE a covered one is answered by
-        the uncovered one FIRST and still scaffolds nothing; ask for the covered half on its
-        own by name when you want it. docs/TEMPLATE-GAPS.md is the queue.
+        rell_security_check at ok:true and zero findings.
+        These classes are recognised BY CONCEPT, not by spelling: raffle, tombola, sweepstake,
+        jackpot, loterie, sorteo, rifa, Verlosung, sorteio, lotteria, estrazione, lotereya and
+        klirosi are one class - accents, Cyrillic and Greek included - so renaming what you
+        are building does not route it somewhere that has files. AND A CLASS IS RECOGNISED
+        WHEN THE ASK IS ABOUT IT, not when its word appears: a key inside the ask's head noun
+        phrase answers the ask, the class named AFTER the head is a compound ask (every
+        covered half named, nothing scaffolded - ask for them one at a time), a word that
+        merely describes HOW something works becomes a note beside the scaffold, and a key
+        inside a negation is the class being RULED OUT, so "a stablecoin whose peg is
+        deterministic and uses no VRF" is a stablecoin. An ask that NAMES an uncovered class
+        alongside a covered one is still answered by the uncovered one FIRST and still
+        scaffolds nothing; ask for the covered half on its own by name when you want it.
+        docs/TEMPLATE-GAPS.md is the queue.
         NEVER includes lib.ft4.admin, admin.crosschain, ras_open, or ras_transfer_open.
         Does not send signed transactions and does not run chr. Confirm APIs with fetch_docs.
     """.trimIndent()
