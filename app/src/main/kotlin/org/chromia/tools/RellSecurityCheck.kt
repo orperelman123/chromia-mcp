@@ -5960,159 +5960,56 @@ object RellSecurityCheck {
         return null
     }
 
-    // ---- THE PERMISSIONLESS ENTRY POINT (round 20) ----
+    // ---- WHAT `unauthenticated-mutation` ALREADY SAYS ABOUT A PERMISSIONLESS
+    //      ENTRY POINT, and the one thing it gets wrong (round 20) ----
     //
-    // Round 20 built the commit-reveal raffle of docs/TEMPLATE-GAPS.md from
-    // this repository's own design note and put it back through this gate
+    // Round 20 built the commit-reveal raffle of docs/TEMPLATE-GAPS.md from this
+    // repository's own design note and put it back through this gate
     // (`realworld/adversary-round20/raffle`): four `unauthenticated-mutation`
-    // findings at HIGH, three of them on operations the note requires to be
-    // permissionless in so many words - "anyone may enter a raffle". A gate
-    // whose fix sentence tells an author to do the one thing their design
-    // forbids is a gate an agent routes around, which is the failure mode
-    // this whole corpus exists to prevent.
+    // findings at HIGH, and the round read three of them as findings against
+    // operations the note requires to be permissionless. MEASURING it says
+    // something else, and the measurement is what decides here.
     //
-    // `unauthenticated-mutation` is RIGHT about the general case, so the
-    // answer is not to weaken it: it is to name, structurally, the ONE shape
-    // that is permissionless BY CONSTRUCTION - an entry point anybody may
-    // call, where calling it can only take value FROM the caller or move the
-    // caller's OWN rows. Two forms, and everything outside them still fires:
+    // THE FOUR WERE `fund`, `open_round`, `settle_round` AND `refund_round` -
+    // not `commit` and not `reveal`. Those two bind the caller
+    // (`val who = op_context.get_signers()[0]`), and [getSignersUsedAsGate] has
+    // counted a signer value that is actually USED as auth since real-world
+    // round 1 (the filechain `for (s in get_signers()) create uploader(s)`
+    // idiom). So the shape the round asked this rule to accept - an entry point
+    // anybody may call because calling it can only take value FROM the caller
+    // or move the caller's OWN rows - ALREADY PASSES, and has all along:
     //
-    //  S1 DEPOSIT-BACKED. The operation's FIRST state effect debits value from
-    //     the caller's own row, and every later effect is either keyed by that
-    //     same caller or a CREDIT-ONLY write to a row no identity selects (a
-    //     pot, an escrow, a counter). A commit-reveal `commit(round_id, h,
-    //     stake)` is this: `update p ( .balance -= stake + d )` on the row
-    //     `.pubkey == who`, then the entry row keyed by `who`, then
-    //     `r.pot += stake` and `book.escrow += stake + d`.
+    //  S1 DEPOSIT-BACKED. The caller is read from the transaction, the first
+    //     state effect debits her own row, and every later effect is keyed by
+    //     her or credits a row no identity selects (a pot, an escrow, a
+    //     counter). `commit(round_id, h, stake)` is this.
+    //  S2 CALLER-SCOPED. Every create/update/delete is keyed by that caller.
+    //     `reveal()` and a per-participant refund are this.
     //
-    //  S2 CALLER-SCOPED. Every create/update/delete the operation makes is
-    //     keyed by the caller - a row selected by her, or created with her as
-    //     a field - and any object/singleton write moves an amount read out of
-    //     one of those rows. A `claim_refund(round_id)` is this: the caller's
-    //     own entry, the caller's own balance, and `book.escrow -= <her own
-    //     stake>`.
+    // Pinned as `r20-permissionless-deposit-backed-entry-point`, which is CLEAN
+    // with no auth check anywhere. The `fix` sentence below names the shape, so
+    // an author whose design forbids a signer check is told what to write
+    // instead of being told to break the design; the four operations that DID
+    // fire read no caller at all and move a pot for somebody else, and the rule
+    // is right about them. A permissionless SETTLEMENT is not covered by any
+    // reading of this and must become a caller-scoped claim or carry a check.
     //
-    // THE CALLER MUST COME FROM `op_context.get_signers()`, never from a
-    // parameter: a row selected by an account the CALLER SUPPLIES is the
-    // confused deputy [confusedDeputyFindings] is named after, and reading it
-    // as "the caller's own row" would silence the drain this corpus was built
-    // on. Nothing else moves the verdict: a row another identity selects, a
-    // credit to a balance that is not the caller's, a debit of a pot for an
-    // amount that does not come from the caller's own row - each of those is
-    // enough on its own, and the operation still draws the finding.
-
-    /** `val who = op_context.get_signers()[0];` - the caller, read from the TRANSACTION and not from an argument. */
-    private val CALLER_FROM_SIGNERS_REGEX = Regex(
-        """\b(?:val|var)\s+([A-Za-z_]\w*)\s*(?::[^=;]*)?=(?!=)[^;]*?\bop_context\s*\.\s*get_signers\s*\("""
-    )
-
-    /**
-     * A name that stands for AN IDENTITY, so a row selected by it belongs to
-     * somebody. Read on the last segment of a reference and over the whole
-     * transitive closure of the selector, so `wp` <- `player @? { .pubkey == w
-     * }` <- `w` <- `e.account` is an identity three bindings away from the
-     * `update` that names only `wp`.
-     */
-    private val IDENTITY_NAME_REGEX = Regex(
-        """(?:^|_)(?:account|owner|from|sender|user|holder|wallet|member|spender|payer|recipient|""" +
-            """beneficiary|winner|pubkey|pub_key|signer|to)(?:$|_)""",
-        RegexOption.IGNORE_CASE
-    )
-
-    /**
-     * True when [body] is a permissionless entry point in the sense above: an
-     * operation anybody may call because calling it can only take value from
-     * the caller (S1) or move rows keyed by the caller (S2).
-     *
-     * [body] is the operation's body with every app-owned helper INLINED, so a
-     * deposit taken one call deep is the same deposit; [params] carries the
-     * declared types, because a row selected by an account-typed PARAMETER is
-     * somebody else's row however it is named.
-     */
-    internal fun permissionlessEntryPoint(
-        body: String,
-        entities: Set<String>,
-        params: List<Pair<String, String>>
-    ): Boolean {
-        val callers = CALLER_FROM_SIGNERS_REGEX.findAll(body).map { it.groupValues[1] }.toSet()
-        if (callers.isEmpty()) return false
-        val bindings = bindingsOf(body)
-        val accountParams = params.filter { isAccountTypedParam(it.first, it.second) }.map { it.first }.toSet()
-
-        fun fromTheCaller(expr: String): Boolean =
-            refClosure(expr, bindings).any { it.substringBefore('.') in callers }
-
-        fun fromAnotherIdentity(expr: String): Boolean =
-            refClosure(expr, bindings).any { r ->
-                val head = r.substringBefore('.')
-                head !in callers &&
-                    (head in accountParams || IDENTITY_NAME_REGEX.containsMatchIn(r.substringAfterLast('.')))
-            }
-
-        var effects = 0
-        var callerKeyedEffects = 0
-        var depositIsTheFirstEffect = false
-        var outsideS1 = false
-        var outsideS2 = false
-
-        /** One state effect, in source order: does it stay inside S1, inside S2, and is it the caller's own? */
-        fun record(callerKeyed: Boolean, debitsTheCaller: Boolean, okForS1: Boolean, okForS2: Boolean) {
-            effects++
-            if (callerKeyed) callerKeyedEffects++
-            if (effects == 1 && callerKeyed && debitsTheCaller) depositIsTheFirstEffect = true
-            if (!okForS1) outsideS1 = true
-            if (!okForS2) outsideS2 = true
-        }
-
-        statementsOf(body).forEach { stmt ->
-            val mutations = MUTATION_REGEX.findAll(stmt).toList()
-            if (mutations.isEmpty()) {
-                // A plain assignment to an `object` field - `book.escrow -= back`.
-                // None of create/update/delete appears in one, and it is a write.
-                val write = DOTTED_ASSIGN_REGEX.find(stmt) ?: return@forEach
-                val base = write.groupValues[1].replace(WS_REGEX, "").substringBeforeLast('.')
-                if (base in entities) return@forEach
-                val (flow, amount) = flowOf(write.groupValues[2], write.groupValues[3])
-                val theCallersOwnMoney = fromTheCaller(amount)
-                record(false, false, flow == Flow.CREDIT || theCallersOwnMoney, theCallersOwnMoney)
-                return@forEach
-            }
-            mutations.forEachIndexed { i, m ->
-                val end = if (i + 1 < mutations.size) mutations[i + 1].range.first else stmt.length
-                val piece = stmt.substring(m.range.first, end)
-                if (m.groupValues[1] == "create") {
-                    val create = CREATE_STMT_REGEX.find(piece) ?: return@forEachIndexed
-                    if (create.groupValues[1] !in entities) return@forEachIndexed
-                    val open = piece.indexOf('(', create.range.first)
-                    val close = if (open >= 0) matchDelimiter(piece, open, '(', ')') else null
-                    val args = if (open >= 0 && close != null) piece.substring(open + 1, close) else ""
-                    val keyed = fromTheCaller(args)
-                    record(keyed, false, keyed, keyed)
-                    return@forEachIndexed
-                }
-                val brace = piece.indexOf('{')
-                val braceEnd = if (brace >= 0) matchDelimiter(piece, brace, '{', '}') else null
-                val selector = if (braceEnd != null) {
-                    piece.substring(brace + 1, braceEnd)
-                } else {
-                    piece.substring(m.range.last - m.range.first).substringBefore('(').trim()
-                }
-                val setPart = if (braceEnd != null) piece.substring(braceEnd + 1) else piece.substringAfter('(')
-                val creditOnly = m.groupValues[1] == "update" && isCreditOnly(setPart)
-                val keyed = fromTheCaller(selector)
-                val debits = keyed && updateSetList(piece)?.second.orEmpty()
-                    .any { (_, op, rhs) -> flowOf(op, rhs).first == Flow.DEBIT }
-                // A pot, an escrow or a counter taking value IN is the other
-                // half of the caller's own deposit; a balance some other
-                // identity selects never is, whatever it is called.
-                record(keyed, debits, keyed || (creditOnly && !fromAnotherIdentity(selector)), keyed)
-            }
-        }
-
-        val depositBacked = depositIsTheFirstEffect && !outsideS1
-        val callerScoped = callerKeyedEffects > 0 && !outsideS2
-        return depositBacked || callerScoped
-    }
+    // AND THE FALSE NEGATIVE THE SAME MEASUREMENT FOUND, recorded rather than
+    // half-closed: because [getSignersUsedAsGate] answers on the OPERATION's
+    // text, ONE signer-derived write launders every other write in the same
+    // operation. `r20-permissionless-op-that-moves-someone-elses-balance` logs
+    // the caller and then credits a row an attacker-supplied account selects,
+    // out of the pot - anybody may call it and pay anybody anything - and this
+    // gate is silent. It is a GAP with its reason in CORPUS.md, and NOT closed
+    // here: deciding auth per EFFECT instead of per operation means the rule
+    // must first read `require(p.holder == holder, ...)` - the ordinary Rell
+    // way of binding a row to its owner - as a binding, or every correct
+    // self-service operation starts firing. That is measured, not guessed:
+    // `file_claim` in `r17-insurance-cancel-retires-only-the-unclaimed-cover-clean`
+    // is exactly that shape, and a per-effect rule that does not understand the
+    // require() flags it. A rule that cannot be made precise is dropped with
+    // the reasoning stated (docs/AGENT-LANE-BRIEF.md principle 3), never
+    // shipped as an exemption that decides nothing.
 
     private fun operationFindings(
         path: String,
@@ -6140,10 +6037,12 @@ object RellSecurityCheck {
         val mutates = mutatesState(op.body) ||
             mutatingFunctions.any { it in calls }
 
-        // An INTENTIONALLY permissionless entry point is not an unauthenticated
-        // mutation (round 20): see [permissionlessEntryPoint] for the two
-        // shapes and for why nothing outside them is accepted.
-        if (mutates && !hasAuth && !permissionlessEntryPoint(effectiveBody, entities, parseParams(op.params))) {
+        // An operation that binds the caller from op_context.get_signers() and
+        // uses the value is already authenticated here (round 1's filechain
+        // idiom), which is why a permissionless deposit-backed entry point
+        // passes without a carve-out - see the block above for the measurement
+        // and for the false negative it leaves behind.
+        if (mutates && !hasAuth) {
             findings.add(
                 Finding(
                     "HIGH", "unauthenticated-mutation", path, op.line,

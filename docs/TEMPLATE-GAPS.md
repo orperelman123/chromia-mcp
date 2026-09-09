@@ -388,8 +388,9 @@ class along), the redirect moved in the same commit, and this row deleted in tha
 **WHAT `rell_security_check` ACCEPTS AS PERMISSIONLESS, so this template does not have to
 choose between its design and its own gate.** Round 20 built this design and the gate answered
 with four `unauthenticated-mutation` findings at HIGH, three of them on operations this note
-requires to be permissionless. The rule was not weakened; the shape was named. THE ACCEPTED
-SHAPE, verbatim, is:
+requires to be permissionless. MEASURING that is what settles it: the four were `fund`,
+`open_round`, `settle_round` and `refund_round` - NOT `commit` and NOT `reveal`, which bind the
+caller and which the gate has passed all along. THE ACCEPTED SHAPE, verbatim, is:
 
 > An operation with no auth check is a PERMISSIONLESS ENTRY POINT BY CONSTRUCTION - and not an
 > unauthenticated mutation - when it binds the caller from `op_context.get_signers()` rather
@@ -405,10 +406,16 @@ per-participant refund are S2. **`settle_round()` is NEITHER**, and deliberately
 WINNER, which is a row the caller does not select, out of a pot. So either it carries a signer
 check, or - better for this class - the payout becomes a caller-scoped CLAIM, each winner
 claiming her own prize, and the settlement itself writes only `round.mixed`, `round.settled`
-and the winner row. Both sides are pinned in the corpus
-(`r20-permissionless-deposit-backed-entry-point`, clean, and
-`r20-permissionless-op-that-moves-someone-elses-balance`, still HIGH), and the long form is
-the `permissionlessEntryPoint` KDoc in `RellSecurityCheck.kt`.
+and the winner row. `r20-permissionless-deposit-backed-entry-point` is that `commit` with no
+auth check anywhere, pinned CLEAN, so you can write this shape and stay green; the long form is
+the block above `operationFindings` in `RellSecurityCheck.kt`.
+
+**And one thing the gate will NOT tell you, so the template has to.** Because the rule reads a
+used signer value as auth for the whole OPERATION, one signer-derived write launders every other
+write beside it: an operation that logs the caller and then credits a row an attacker-supplied
+account selects draws nothing at all (`r20-permissionless-op-that-moves-someone-elses-balance`,
+a named GAP). So binding the caller is not evidence that a write is hers. Key every write off the
+caller, or off a row a `require()` has already bound to her.
 
 **AND THE HALF NO TEMPLATE CLOSES, stated in the header rather than discovered later:** a
 commit-reveal raffle with ONE participant is decided by that participant, and one with two
