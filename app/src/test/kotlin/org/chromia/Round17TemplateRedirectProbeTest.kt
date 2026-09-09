@@ -149,13 +149,21 @@ class Round17TemplateRedirectProbeTest {
             assertTrue(note(it).contains("NOTHING IS PAID INSIDE A CLAIM"), "$it must arrive with the other one")
         }
 
-        // 3. THE LOTTERY. `staking` has no unpredictable outcome, so it is a NO that
-        //    names what is missing rather than a template that does not cover it.
+        // 3. THE LOTTERY. Round 17's finding was that this ask reached `staking` on the
+        //    word `rewards`, and staking's guards are about a reward pool being FUNDED
+        //    before it pays - nothing in it makes a draw unpredictable. Round 17 turned it
+        //    into a NO that named the missing guard; round 20 BUILT that guard as the
+        //    sixteenth template, after building this project's own design note for the
+        //    class and watching it drained five of five draws. The ask must never reach
+        //    `staking` again, and it no longer has to be a refusal to avoid it.
         val lottery = note("a weekly lottery with rewards for ticket holders")
-        assertEquals(null, DappScaffold.closestTemplate("a weekly lottery with rewards for ticket holders"))
-        assertTrue(lottery.startsWith("No shipped template covers that name"), lottery.take(120))
-        assertTrue(lottery.contains("UNPREDICTABLE OUTCOME"), lottery.take(300))
-        assertTrue(lottery.contains("commit-reveal"), "a NO that offers no shape is a shrug")
+        assertEquals("raffle", DappScaffold.closestTemplate("a weekly lottery with rewards for ticket holders"))
+        assertTrue(lottery.startsWith("Use `template=raffle`"), lottery.take(120))
+        assertTrue(lottery.contains("commit-reveal") || lottery.contains("COMMIT order"), lottery.take(400))
+        // ...and the guard round 17 asked for is what the template ships, named here so
+        // this row still measures the GUARD and not just a destination.
+        assertTrue(lottery.contains("COMMIT order"), "the seed must be described, not just promised")
+        assertTrue(lottery.contains("DENY a round by not revealing"), "the residual must still be stated")
 
         // 4. THE AIRDROP keeps `staking`, whose guards DO cover its exploit - a reward
         //    paid out of a pool nobody funded is round 4 - and is told what they do not.
