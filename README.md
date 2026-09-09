@@ -1,6 +1,13 @@
 # Chromia MCP Server
 
+[![CI](https://github.com/orperelman123/chromia-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orperelman123/chromia-mcp/actions/workflows/ci.yml)
+
 A Model Context Protocol (MCP) server that provides access to Chromia blockchain infrastructure and deployed dApps through the Chromia Explorer GraphQL API.
+
+The badge is `main`'s last CI verdict. Green means the whole suite ran with
+**zero skips**, every failure was either fixed or PROVEN to be a third party's,
+and the end-to-end sweep passed over both HTTP transports. [docs/CI.md](./docs/CI.md)
+says what each of those means and how to read a red one.
 
 ## Documentation
 
@@ -9,6 +16,7 @@ A Model Context Protocol (MCP) server that provides access to Chromia blockchain
 - [Functionality](./docs/Functional.md)
 - [Setup & Development](./docs/Setup.md)
 - [Deployment](./docs/Deployment.md)
+- [CI](./docs/CI.md) — what runs on which trigger, what a red in each step means, and how to reproduce one locally
 
 ## Overview
 
@@ -1044,16 +1052,36 @@ process could have noticed. The mode derives the list instead:
 
 ## Continuous Integration
 
-- `.github/workflows/ci.yml` — tests + fat jar on every push/PR (Ubuntu, JDK 21), then the
-  e2e sweep, the stdio smoke, the npm launcher's real release download, and the
-  fresh-install boot against the published index (no artifact upload: see the comment in
-  the workflow for why)
-- `.github/workflows/embeddings-refresh.yml` — weekly RAG embeddings regeneration (Mondays
-  04:00 UTC, or manual dispatch). Runs `scripts/rag-eval.mjs` (40 probe questions, segment
-  floor) and a size check against the published asset; only a store that passes both is
-  uploaded, with `--clobber`, as `embeddings.json` on the rolling `embeddings` release, next to
-  an `embeddings.provenance.json` sidecar (date, commit, segments, probe score). Uses the
-  built-in `GITHUB_TOKEN` — no secret to configure.
+**[docs/CI.md](./docs/CI.md) is the operator's manual** — every step, what a red in it
+means, how to reproduce it locally, the expected durations and where the timeout budgets
+come from. `CiWorkflowDocumentationTest` reads `.github/workflows/ci.yml` and that document
+and fails if they disagree, so the manual cannot go stale.
+
+- `.github/workflows/ci.yml` — **CI**. Push to `main` and pull requests into `main`
+  (Ubuntu, JDK 21, a C.UTF-8 PostgreSQL and the real `chr` CLI): the full suite, then the
+  e2e sweep over **both** HTTP transports, the synthetic agent, the stdio smoke, the npm
+  launcher's real release download, and the fresh-install boot against the published index.
+  The verdict is `scripts/gate-tally.mjs` — the same classifier the local merge gate
+  imports — not gradle's exit code, so a **proven** third-party outage is counted and named
+  separately instead of being confused with a real failure. Any skip is fatal. Every run
+  writes a job summary naming the failures and uploads the test report and the upstream
+  evidence (the fat jar is deliberately not an artifact: see the comment in the workflow).
+- `.github/workflows/release.yml` — **Release**. A `v*` tag builds the jar behind the same
+  gate and attaches it to a GitHub Release. That asset is what a first `npx chromia-mcp`
+  downloads.
+- `.github/workflows/nightly-fuzz.yml` — **Nightly deep fuzz**. 03:00 UTC: the same gate,
+  then random-seeded fuzzing of the compiler tools against a live server, with a fresh seed
+  block per run. A finding opens an issue carrying the exact reproduction command.
+- `.github/workflows/embeddings-refresh.yml` — **Embeddings refresh**. Weekly RAG
+  embeddings regeneration (Mondays 04:00 UTC, or manual dispatch). Runs
+  `scripts/rag-eval.mjs` (40 probe questions, segment floor) and a size check against the
+  published asset; only a store that passes both is uploaded, with `--clobber`, as
+  `embeddings.json` on the rolling `embeddings` release, next to an
+  `embeddings.provenance.json` sidecar (date, commit, segments, probe score).
+
+**No repository secrets are required.** Nothing references `secrets.*` or `vars.*`; the
+only credential is the automatic `GITHUB_TOKEN`, and each workflow declares the narrowest
+`permissions` it needs.
 
 ## Installation
 

@@ -1,0 +1,43 @@
+# Line endings, pinned so a Windows checkout is byte-identical to the Linux CI
+# checkout. Round 17 lost a cycle to exactly this drift: a file read on Windows
+# came back with CRLF, the same file on ubuntu-latest came back with LF, and a
+# test that hashed or length-checked its bytes disagreed between the two with no
+# code change between them. `core.autocrlf` is a per-MACHINE setting (Git for
+# Windows sets it to true in the SYSTEM config, which is where this checkout's
+# `true` comes from - neither the local nor the global config sets it), so it
+# cannot be relied on. This file is per-REPOSITORY and travels with the clone.
+
+# Everything git recognises as text is stored LF in the index and checked out in
+# the platform's default. Binary content (the FT4 zip, the PNG, the two gradle
+# wrapper jars) is left alone by git's own NUL-byte heuristic - the same
+# heuristic that already reports those files as `-text` today.
+* text=auto
+
+# The two file types whose BYTES are compared across platforms: Rell sources fed
+# to the compiler and to `rell_security_check`, and the JSON that the tool
+# surface, the prompt catalogue and the RAG store are read from. `text eol=lf`
+# forces the WORKING TREE to LF as well, so a Windows developer runs the tests
+# against the same bytes CI does.
+*.rell text eol=lf
+*.json text eol=lf
+
+# THE TWO WINDOWS INTERPRETERS, and they need DIFFERENT rules because the tree
+# already stores them differently - measured with `git ls-files --eol` on
+# 2026-09-09, before a line of this file was written:
+#
+#   gradlew.bat, docs/knowledge/sources/chromia-mcp/gradlew.bat   i/crlf w/crlf
+#   serve-local.cmd, serve-public.cmd                             i/lf   w/crlf
+#
+# `.bat` is `-text` - "these bytes are already what they should be, convert
+# nothing in either direction". The obvious `text eol=crlf` would normalise the
+# INDEX to LF and produce a 188-line content change to the launcher every
+# Windows developer runs, out of a whitespace rule; that is a rewrite, not a
+# pin. Both matching files are gradle's own generated wrapper.
+#
+# `.cmd` is `text eol=crlf`: LF in the index (which is what it already is) and
+# CRLF in the working tree (which is what it already is), so cmd.exe keeps the
+# terminator it is least surprising with, deterministically, on any machine.
+#
+# Both rules are chosen so that `git add --renormalize .` changes NOTHING.
+*.bat -text
+*.cmd text eol=crlf

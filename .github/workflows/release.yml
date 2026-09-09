@@ -2,6 +2,27 @@ name: Release
 
 # Builds the fat jar and attaches it to a GitHub Release.
 # Trigger by pushing a tag like v0.3.0, or manually with a tag input.
+# `docs/CI.md` is the operator's manual for this file.
+#
+# THE JAR THIS WORKFLOW PUBLISHES IS THE ONE END USERS RUN: ci.yml's
+# `npm launcher release download` step downloads the LATEST release's asset and
+# boots it, which is what a first `npx chromia-mcp` does. So the suite that
+# guards it has to be the same suite that guards main - and until 2026-09-09 it
+# was not.
+#
+# WHAT WAS WRONG, and why nobody saw it: the last release was v0.5.0 on
+# 2026-09-01, ONE DAY before the zero-skip guard landed and days before the
+# suite began requiring a database, the chr CLI and the live-provisioning flag.
+# This job had none of the three. Its `./gradlew :app:test` ran against no
+# PostgreSQL, no chr and no flags, so every environment-gated test would have
+# SKIPPED - and the whole point of the zero-skip guard is that a green suite
+# carrying skips covered less than it claimed. The next tag would either have
+# gone red on the DB-backed tests or shipped a jar behind a quietly narrowed
+# suite. Fixed below: the same service, the same environment, the same
+# gate-tally classification and the same skip check as ci.yml.
+#
+# It also ran `gradle/actions/setup-gradle@v4` while the other three workflows
+# were on v5. Aligned - and NOT to v6, for the licensing reason ci.yml records.
 
 on:
   push:
@@ -12,13 +33,47 @@ on:
         description: 'Tag to release (e.g. v0.3.0)'
         required: true
 
+# A tag push and a manual dispatch of the same tag would race to create the same
+# release. `cancel-in-progress: false`: a half-finished publish is worse than a
+# queued one.
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    # `contents: write` is what lets `gh release create` publish. It is at the
+    # job level rather than the workflow level so nothing before the publish
+    # step can be tricked into using it.
     permissions:
       contents: write
+    # The suite is the same suite ci.yml runs (32m51s worst measured) plus the
+    # jar and the publish. 60 = 45 for the suite + the rest, the same budget
+    # shape ci.yml uses. This job had NO timeout at all, which means GitHub's
+    # 6-hour default: a hang here would have held a runner all day.
+    timeout-minutes: 60
+    services:
+      # Identical to ci.yml. Postchain's collation check needs C-style ordering
+      # AND Unicode case mapping at once, which only glibc's C.UTF-8 provides.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postchain
+          POSTGRES_INITDB_ARGS: "--locale=C.UTF-8"
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          # `-Pversion="${TAG#v}"` does not need history, but `gh release
+          # --generate-notes` compares against the previous tag, and a
+          # depth-1 checkout has none of them.
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v6
@@ -27,13 +82,100 @@ jobs:
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
-      - name: Test and build
+      # The tally is a node script, so node is a prerequisite of the VERDICT,
+      # not a convenience. Set up before the suite for the same reason ci.yml
+      # does it: the merge decision must not depend on a runner's ambient node.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # RED HERE: apt.chromia.com is unreachable. Fatal on purpose - without chr
+      # the two CLI probes skip, and a release must not ship behind a skip.
+      - name: Install Chromia CLI
+        run: |
+          curl -fsSL https://apt.chromia.com/chromia.gpg | sudo tee /usr/share/keyrings/chromia.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/chromia.gpg] https://apt.chromia.com stable main" | sudo tee /etc/apt/sources.list.d/chromia.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chr
+          chr --version
+
+      # THE SUITE, in the environment that makes it the WHOLE suite. Gradle's
+      # exit code is swallowed for the same reason as in ci.yml: a proven
+      # upstream outage is a <failure> in the XML, and the verdict is the tally.
+      # RED HERE: only infrastructure, or the 45-minute budget.
+      - name: Run the unit suite
+        timeout-minutes: 45
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: ./gradlew :app:test :app:shadowJar --console=plain -Pversion="${TAG#v}"
+          CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
+          CHROMIA_LIVE_PROVISIONING_TESTS: "true"
+          CHROMIA_REQUIRE_CHR: "true"
+        run: |
+          rc=0
+          ./gradlew :app:test --console=plain -Pversion="${TAG#v}" || rc=$?
+          echo "gradle :app:test exited $rc - the verdict is the tally below"
 
+      - name: Write the job summary
+        if: always()
+        run: node scripts/ci-summary.mjs --dir "$PWD"
+
+      # THE VERDICT, and it gates the publish. Same single classifier as the
+      # local merge gate, ci.yml and nightly-fuzz.yml.
+      - name: Classify the tally (ours, theirs, and skips)
+        run: node scripts/gate-tally.mjs --dir "$PWD"
+
+      # RED HERE: a test skipped, so this release would ship behind a suite that
+      # covered less than it claims. There is no allowlist.
+      - name: Fail on any skipped test
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.etree.ElementTree as ET
+          ALLOWED = set()
+          t = f = s = 0; skipped = []; unexpected = []
+          for p in glob.glob('app/build/test-results/test/*.xml'):
+              r = ET.parse(p).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); s += int(r.get('skipped', 0))
+              for tc in r.iter('testcase'):
+                  if tc.find('skipped') is not None:
+                      key = f"{r.get('name')}::{tc.get('name')}"
+                      line = f"{key}: {(tc.find('skipped').get('message') or '').strip()[:160]}"
+                      skipped.append(line)
+                      if key not in ALLOWED: unexpected.append(line)
+          print(f"tests={t} failures={f} skipped={s} (allowed-by-name={len(skipped) - len(unexpected)})")
+          for x in skipped: print("  skip:", x)
+          if t == 0:
+              print("no test results found - the suite did not run"); sys.exit(1)
+          if unexpected:
+              print("UNEXPECTED SKIPS (a skip is a test that did not run):"); print("\n".join("  " + x for x in unexpected)); sys.exit(1)
+          PY
+
+      # RED HERE: shadowJar failed on a suite that already passed. Nothing is
+      # published.
+      - name: Build the fat jar
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: ./gradlew :app:shadowJar --console=plain -Pversion="${TAG#v}"
+
+      - name: Upload test report and upstream evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-test-report
+          path: |
+            app/build/reports/tests/test
+            app/build/upstream
+          if-no-files-found: warn
+          # A release's evidence outlives a push's: "was v0.6.0 green?" is asked
+          # months later.
+          retention-days: 90
+
+      # THE PUBLISH, and it is the last step on purpose: everything above it is
+      # the proof that this jar is worth publishing.
+      # RED HERE: the tag already has a release AND the asset upload also failed
+      # - read the second command's error, not the first's (the `||` is there
+      # because re-running a release for an existing tag is a normal operation).
       - name: Create release with jar
         env:
           GH_TOKEN: ${{ github.token }}

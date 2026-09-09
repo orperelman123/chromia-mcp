@@ -1,10 +1,50 @@
 name: CI
 
+# THE MERGE GATE, as GitHub runs it. `docs/CI.md` is the operator's manual for
+# this file: what every step proves, what a red in it means, and what to do
+# next. Every claim docs/CI.md makes about this workflow is pinned by
+# CiWorkflowDocumentationTest, so the two cannot drift apart silently.
+#
+# The rule this workflow exists to keep: THE LOCAL GATE AND THIS GATE MUST BE
+# THE SAME GATE. `scripts/gate-tally.mjs` is the single classifier; the local
+# `scripts/loop-gate.mjs` imports it and the `Classify the tally` step below
+# runs it. Two gates with different definitions of green is one gate and one
+# bypass, which is exactly what the removed `--allow-skip` flag was.
+
 on:
   push:
     branches: [main]
+  # PRs INTO MAIN, gated identically. A branch is merged by the orchestrator
+  # after `scripts/loop-gate.mjs` passes in its worktree; this is the same
+  # verdict computed on a clean Linux checkout, which is the half a Windows
+  # laptop cannot prove (see .gitattributes - CRLF drift cost round 17 a cycle).
+  # Scoped with `branches:` so a PR between two side branches does not spend the
+  # budget on a tree nobody is about to merge.
   pull_request:
+    branches: [main]
   workflow_dispatch:
+
+# Least privilege. Nothing in this workflow writes to the repository: it reads
+# the checkout, runs tests and uploads artifacts (which need no `contents`
+# permission at all). release.yml and embeddings-refresh.yml ask for
+# `contents: write` because they publish; this one has nothing to publish.
+permissions:
+  contents: read
+
+# A SUPERSEDED PUSH IS CANCELLED. This job is a 16-44 minute occupation of a
+# runner (measured across the last twelve CI runs, below), and two pushes a
+# minute apart used to run it twice to completion for a tree that only existed
+# for sixty seconds.
+#
+# Grouped by REF, so main and each pull request queue independently and a PR run
+# never cancels main's. Nothing untested can land this way: cancelling the run
+# for commit A when commit B arrives on the same ref is safe precisely because
+# B's tree CONTAINS A, so the newer run gates strictly more. What IS lost is A's
+# own per-commit verdict, which matters when bisecting - re-run it from the
+# Actions tab, which is what `workflow_dispatch` above is for.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -12,13 +52,40 @@ jobs:
     # The unit suite had no database, so every DB-backed test SKIPPED here - 8 of
     # them - and a skip is a test that silently did not run. Postchain's collation
     # check needs C-style ordering AND Unicode case mapping at once, which only
-    # glibc's C.UTF-8 provides, hence POSTGRES_INITDB_ARGS (same service the e2e
-    # job already uses).
-    # Unit suite (~8-10 min) plus the e2e budget that used to be its own job:
-    # two full sweep attempts, server startups and the 30s inter-attempt pause.
-    # A healthy attempt is ~8-12 min and run 33601190754 measured ~16 for one
-    # DURING an upstream outage, so the sweep half keeps its 35.
-    timeout-minutes: 50
+    # glibc's C.UTF-8 provides, hence POSTGRES_INITDB_ARGS (same service the
+    # nightly fuzz job also uses).
+    #
+    # TIMEOUTS, DERIVED. Every number here is measured off the last twelve CI
+    # runs (34032465035 .. 34274736432, 2026-09-06 to 2026-09-08) via
+    # `gh api repos/.../actions/runs/<id>/jobs`, not guessed:
+    #
+    #   whole job, wall clock         16m08s .. 43m52s
+    #   the unit suite step           18m27s and 32m51s, the two runs since
+    #                                 rounds 17-19 landed. The ten runs before
+    #                                 them measured 5m43s .. 8m02s for the same
+    #                                 work under the step's old name, so the
+    #                                 suite roughly quadrupled - and it still
+    #                                 spread 1.8x between two consecutive runs
+    #                                 of the same 1623 tests
+    #   the e2e sweep step            8m51s median, 17m32s worst (34053646001,
+    #                                 a real failure that also paid for a retry)
+    #   everything else               ~1m00s setup + 39s jar + ~35s tail
+    #
+    # The old `timeout-minutes: 50` was PROVABLY too tight: worst measured unit
+    # suite + worst measured e2e + the fixed cost is 52m37s, so a bad-but-healthy
+    # run would have been killed with no verdict at all. It came within 6m08s.
+    #
+    # Per-STEP budgets are what actually diagnose a hang - a job timeout kills
+    # the runner without saying which step was in the chair - and the job budget
+    # is deliberately set ABOVE their sum so a step timeout always fires first:
+    #   45 (unit suite) + 30 (e2e) + 2 (setup) + 1 (jar) + 1 (tail) = 79.
+    #
+    # This also answers the FLAG left in app/build.gradle.kts, which asks whether
+    # ubuntu-latest is materially faster than the 15 W laptop or whether CI was
+    # being killed. Measured: the same suite is 58m55s there and 32m51s here, so
+    # the runner IS faster and CI was not being killed - but 50 minutes had
+    # stopped covering it, which is the half of that flag that was true.
+    timeout-minutes: 80
     services:
       postgres:
         image: postgres:16
@@ -32,8 +99,11 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
+      # RED HERE: GitHub could not fetch the repository. Infrastructure, not you.
       - uses: actions/checkout@v7
 
+      # RED HERE: the Temurin 21 download failed, or the toolchain moved. The
+      # project targets JDK 21 and nothing below it compiles.
       - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:
@@ -45,6 +115,7 @@ jobs:
       # make upgrading constitute acceptance of Terms of Use for its now-
       # proprietary caching component - a licensing decision for the repo
       # owner, not a CI chore.
+      # RED HERE: the action or the Gradle distribution could not be fetched.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
@@ -52,6 +123,7 @@ jobs:
       # step below) as well as the e2e sweep, so it is set up BEFORE the suite
       # rather than after it - a runner's ambient node version is not something
       # the merge decision should depend on.
+      # RED HERE: Node 22 could not be installed. Infrastructure.
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -60,6 +132,9 @@ jobs:
       # live `chr version` probe) and SKIPPED here because the runner had no
       # chr - the zero-skip guard surfaced that. Official Linux install per
       # docs.chromia.com linux.mdx (apt.chromia.com, amd64).
+      # RED HERE: apt.chromia.com is unreachable, or has dropped the `chr`
+      # package for amd64. That is upstream, and it is fatal on purpose: with no
+      # chr the two CLI tests SKIP, and a skip is a test that did not run.
       - name: Install Chromia CLI
         run: |
           curl -fsSL https://apt.chromia.com/chromia.gpg | sudo tee /usr/share/keyrings/chromia.gpg >/dev/null
@@ -68,7 +143,21 @@ jobs:
           sudo apt-get install -y -qq chr
           chr --version
 
+      # THE SUITE. RED HERE: only ever infrastructure - this step deliberately
+      # swallows gradle's exit code (see below), so it can only fail if the shell
+      # itself does, or if it exceeds the 45-minute budget. A TIMEOUT here means
+      # a hang: read the last `> Task :app:test` lines for the class that was in
+      # the chair, and do NOT raise this number before deciding whether it was a
+      # hang or a genuinely longer suite. app/build.gradle.kts carries the same
+      # warning about the task's own 90-minute timeout, and it is there because
+      # raising a timeout hides a hang perfectly.
+      #
+      # Budget: 45. Worst measured 32m51s (run 34274736432); the step spread
+      # 18m27s -> 32m51s between two consecutive runs, so 45 is the worst
+      # measured plus that spread again - and still 45 minutes short of the
+      # point at which gradle would kill the task itself and say so.
       - name: Run the unit suite
+        timeout-minutes: 45
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
           # All four live provisioning tests need only network, never a key:
@@ -95,6 +184,25 @@ jobs:
           ./gradlew :app:test --console=plain -Pversion="$(git describe --tags --always)" || rc=$?
           echo "gradle :app:test exited $rc - the verdict is the tally below (upstream warnings are counted separately)"
 
+      # THE SUMMARY, and it is a PRESENTER, never a gate. It renders the tally
+      # the next step is about to compute into `$GITHUB_STEP_SUMMARY` - the
+      # ours/upstream/skipped counts, every failing test by name with the reason,
+      # and every proven outage with the docs/UPSTREAM.md entry that excuses it -
+      # so an operator never has to open a 40-minute log to learn what broke.
+      # Before it existed, the one classification failure in the last twelve runs
+      # (34272194244) printed its verdict interleaved with another test's
+      # evidence, because GitHub merges stdout and stderr by arrival.
+      #
+      # It imports `tally` from the same gate-tally.mjs rather than
+      # re-implementing it - one classifier, always - and it ALWAYS EXITS 0 by
+      # construction, because a presenter that could red or green the build would
+      # be a second gate with different rules. `if: always()` so the table exists
+      # even when the suite step above timed out.
+      # RED HERE: cannot happen. The step exits 0 or the runner died.
+      - name: Write the job summary
+        if: always()
+        run: node scripts/ci-summary.mjs --dir "$PWD"
+
       # THE VERDICT, and the third status. One implementation, shared with
       # scripts/loop-gate.mjs: a failure whose message begins
       # `UPSTREAM WARNING (proven): ` AND which is backed by an evidence file in
@@ -118,9 +226,16 @@ jobs:
       # evidence, and every skip - is red. There is NO allowlist of test names
       # here or anywhere else. docs/UPSTREAM.md, "The upstream-warning
       # contract", is the long form.
+      #
+      # RED HERE: the suite failed, or did not run at all. THIS IS THE STEP THAT
+      # DECIDES THE MERGE. The job summary above already names every failure;
+      # docs/CI.md says how to reproduce each kind locally.
       - name: Classify the tally (ours, theirs, and skips)
         run: node scripts/gate-tally.mjs --dir "$PWD"
 
+      # RED HERE: shadowJar failed on a suite that had already passed - which in
+      # practice means a duplicate or missing entry in the shadow merge, not a
+      # test problem. Nothing below this line can run without the jar.
       - name: Build the fat jar
         run: ./gradlew :app:shadowJar --console=plain -Pversion="$(git describe --tags --always)"
 
@@ -129,6 +244,12 @@ jobs:
       # to a green run with none - that is exactly how this job quietly covered
       # less than it claimed until 2026-09-02. Count them from the XML and red
       # the build on any, so coverage cannot drift back without CI noticing.
+      #
+      # This DUPLICATES the skip half of the classification step above, and the
+      # duplication is deliberate: the two readers are independent (python's
+      # ElementTree here, a regex scan over the same XMLs there), so a bug in
+      # either one cannot make a skipped test invisible to both.
+      # RED HERE: a test skipped. Provision what it needs. There is no allowlist.
       - name: Fail on any skipped test
         run: |
           python3 - <<'PY'
@@ -161,14 +282,47 @@ jobs:
               print("UNEXPECTED SKIPS (a skip is a test that did not run):"); print("\n".join("  " + x for x in unexpected)); sys.exit(1)
           PY
 
+      # THE TEST REPORT, ON EVERY RUN. It used to be `if: failure()`, which is
+      # backwards for two of the three things it is actually read for: comparing
+      # a slow run against the previous GREEN one (the round-19 task-timeout
+      # decision was made off exactly that comparison), and confirming what a
+      # green run covered. `always()` also catches the case the old condition
+      # missed entirely - a job cancelled by `concurrency` or killed by a timeout
+      # is neither success nor failure, and used to leave nothing behind at all.
+      #
+      # Cost: this is the small HTML report, not the 266 MB fat jar whose 90-day
+      # uploads once put 14.4 GB into the account's artifact quota in four days
+      # (see the note further down; that artifact is gone). 7 days is long enough
+      # to read after a red run and short enough not to accumulate.
       - name: Upload test report
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: test-report
           path: app/build/reports/tests/test
-          # Long enough to read after a red run, short enough not to accumulate.
+          # A run that died before the suite produced a report must not turn this
+          # step red on top of whatever actually broke.
+          if-no-files-found: warn
           retention-days: 7
+
+      # THE UPSTREAM EVIDENCE, ON EVERY RUN. One JSON per proven third-party
+      # outage, written by LiveEnv during the suite: the signature, the third
+      # party's own words, the canary measurement, the ledger entry, and the
+      # sha256 the failing test bound into its own assertion message. It is the
+      # only durable record that an `upstream=1` verdict was earned rather than
+      # asserted, and the job summary cites these paths by name - so they have to
+      # survive the run, green or red. Retained longer than the test report
+      # because an outage argument is made across days ("#3b has been failing all
+      # week"), not minutes.
+      - name: Upload upstream evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-evidence
+          path: app/build/upstream
+          # The normal case is that there is none, and that is not a failure.
+          if-no-files-found: ignore
+          retention-days: 30
 
       # THE JAR IS NOT AN ARTIFACT ANY MORE, and the e2e steps now run in this
       # same job. It only ever existed to hand a 266 MB file from this job to a
@@ -197,7 +351,26 @@ jobs:
       #   upstream guardrails (all-live-warn / too-many-warns) - deterministic
       #   for the duration of an outage, so a second 10+ minute attempt cannot
       #   change the verdict. Fail immediately without retrying (still red).
+      #
+      # RED HERE: read the `FAIL <check>` lines, not the `WARN-UPSTREAM` ones. If
+      # both attempts fail the SAME check it is ours and it reproduces locally
+      # (docs/CI.md has the two commands). If they fail different checks, suspect
+      # the network before the code.
+      #
+      # MEASURED LIMIT, recorded rather than fixed: the retry re-runs the WHOLE
+      # e2e - both transports and the synthetic agent - when any one of them
+      # failed. Run 34053646001 spent 17m32s failing `agent: preflight blocks the
+      # placeholder container` twice for a deterministic defect, and the second
+      # 8m41s bought nothing. Making the retry per-check needs the sweep to say
+      # which check failed in a machine-readable way, which it does not do today;
+      # until then the cost is ~9 minutes, and only on a genuinely broken push.
+      #
+      # Budget: 30. Worst measured 17m32s (34053646001, both attempts), median
+      # 8m51s over twelve runs. Two attempts of the worst SINGLE pass (~9m) plus
+      # the 30s pause is ~19m, so 30 covers a bad-network double run with room -
+      # and a hang is then named as this step's rather than the whole job's.
       - name: Start server (full toolset) and run the end-to-end sweep
+        timeout-minutes: 30
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
         run: |
@@ -241,6 +414,8 @@ jobs:
       # honestly do: it catches the class of breakage that actually happens to them
       # (a bad edit that only fails when a user double-clicks the .cmd). The real
       # -NoTunnel run is a Windows step; starting an actual tunnel is never CI's call.
+      # RED HERE: one of the two launchers no longer parses. The error names the
+      # file and the parser's own message. It is a syntax fix, never a flake.
       - name: PowerShell launchers parse
         shell: pwsh
         run: |
@@ -253,6 +428,10 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # RED HERE: the stdio transport - the surface Claude Code and every other
+      # local MCP client actually speaks - stopped answering, or the npm launcher
+      # stopped finding the jar it was handed. Neither touches the network, so a
+      # red here is ours, always.
       - name: Stdio transport smoke (the Claude Code surface + npm launcher)
         env:
           CHROMIA_MCP_JAR: app/build/libs/chromia-mcp-server.jar
@@ -264,6 +443,10 @@ jobs:
       # launcher must download the LAST RELEASE's jar from the public GitHub
       # release and run it. Transport-level checks only - that jar is not this
       # commit. Possible since the repo went public (2026-09-05).
+      # RED HERE: a new user's very first `npx chromia-mcp` is broken. Either the
+      # launcher's download path regressed (ours), or the latest GitHub release
+      # carries no jar asset - check release.yml's last run before blaming this
+      # commit.
       - name: npm launcher release download (the end-user install path)
         run: node scripts/stdio-smoke.mjs --launcher-download
 
@@ -275,5 +458,8 @@ jobs:
       # answering from the 2025-10-21 GitLab package (first the loader could not
       # read it under the JVM caps, then the private repo answered 404) while
       # every unit test was green. A red here means a fresh install would be stale.
+      # RED HERE: check embeddings-refresh.yml's last run first - a stale or
+      # missing `embeddings` release asset reds this step without anything in
+      # this commit being wrong.
       - name: Fresh-install boot (no local index, no cache, no token -> published asset)
         run: node scripts/rag-eval.mjs --production-shaped --jar app/build/libs/chromia-mcp-server.jar
