@@ -114,8 +114,11 @@ jobs:
       # thing that built the store.
       - name: Complete the provenance sidecar
         run: |
-          set -o pipefail
-          probes=$(grep -o '[0-9]*/[0-9]* probes answered' rag-eval.txt | head -n1 | cut -d' ' -f1)
+          # `|| true`: the default shell is `bash -e -o pipefail`, and `head -n1`
+          # closing the pipe can leave grep with SIGPIPE on a line that is there.
+          # A missing probe count must degrade to `?` in the sidecar, never red a
+          # run whose store already passed both gates.
+          probes=$(grep -o '[0-9]*/[0-9]* probes answered' rag-eval.txt | head -n1 | cut -d' ' -f1 || true)
           jq --arg commit "$GITHUB_SHA" \
              --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
              --arg probes "${probes:-?}" \
