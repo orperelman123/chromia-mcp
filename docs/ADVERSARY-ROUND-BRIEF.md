@@ -164,6 +164,37 @@ Not "fewer than last round". Coverage moving is not a pass.
    exist) - every attempt must be a RED, never a warning. Then the commit-reveal
    raffle at the top of `docs/TEMPLATE-GAPS.md`, built with ONLY this server's
    guidance now that the redirect names the missing guard.
+   **Round 20 attacks the ninth design, the evaluator's second question, and
+   the derived proofs.** Round 19 made `verify_guards` count a block's carriers,
+   resolve namespaces and bind helper parameters; made the evaluator answer a
+   CEILING when it has no value; made the zero-doubles scan DERIVE its seams,
+   factories and trees; bound every upstream warning to its run by digest with
+   an independent canary; and made the redirect recognise an uncovered class by
+   concept. So attack each derivation where a derivation can be wrong: a helper
+   that RETURNS an operation (`run_it(make())`, the observation round 19 left
+   open) in both shapes; a parameter bound to a parameter two helpers deep; a
+   namespace and an import that bind the SAME name to different declarations;
+   a block built in a helper and extended by the caller; `rell.test.block()`'s
+   own `.run()` with two transactions of one operation each; and the
+   conservative direction, an honest one-operation test written through every
+   carrier the fix now counts. Attack the ceiling: a `when` whose arms are a
+   real floor and a call the evaluator cannot value; a floor behind two calls
+   the second of which takes a parameter; a struct field off a call whose
+   argument is state; `max()` over an unvalued term; and ten more CORRECT dapps
+   whose legitimate floors sit exactly at `SMALLEST_ABSOLUTE_FLOOR`. Attack the
+   derived scan: a seam production names only in an annotation or a generic
+   signature; a lambda over a functional interface reached through a dependency's
+   supertype; a class file in a NESTED jar on the classpath; bytes under a
+   directory the test task adds tomorrow (prove the classpath assertion catches
+   it). Attack the binding: a digest computed by the attacker from the file they
+   wrote and pasted into a hand-written XML (the XML identity check must hold);
+   a real LiveEnv warning replayed against a later run; the independent canary
+   answering while the tool's own client is misconfigured (must be RED). Attack
+   the concept vocabulary: a non-Latin ask (round 19's documented GAP - measure
+   it, do not just record it), a class named by a compound the folder splits,
+   and the loyalty/points and fee-splitter rows that still have no named refusal.
+   Then build the commit-reveal raffle from the round-19 design note with ONLY
+   this server's guidance, and drain it.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
