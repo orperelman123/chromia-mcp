@@ -390,13 +390,16 @@ const upstreamSuffix = t.upstream.length
 // would excuse exactly the narrowing this check exists to catch. Committing the
 // change is the author's, and it shows up in the diff.
 if (!docsOnly && tests > committedFloor.floor) {
+  // `verifiedBy` is REWRITTEN, not inherited: it is the provenance of THIS
+  // number, and carrying the previous run's sentence over a new count would be
+  // a floor citing a run that never measured it. `why` is the mechanism rather
+  // than the measurement, so the committed wording is kept when there is one.
   const record = {
     expectMin: tests,
-    verifiedBy: committedFloor.record?.verifiedBy ?? 'scripts/loop-gate.mjs, a green full run',
+    verifiedBy: `scripts/loop-gate.mjs, a green full run of ${tests} tests with 0 skips`,
     verifiedAt: new Date().toISOString().slice(0, 10),
     why: committedFloor.record?.why ?? 'the floor the gate reads instead of a remembered --expect-min',
   };
-  record.verifiedBy = `scripts/loop-gate.mjs, a green full run of ${tests} tests with 0 skips`;
   writeFileSync(join(repo, EXPECTED_MIN_FILE), `${JSON.stringify(record, null, 2)}\n`);
   console.log(
     `gate: RAISED the floor in ${EXPECTED_MIN_FILE} from ${committedFloor.floor} to ${tests} - ` +

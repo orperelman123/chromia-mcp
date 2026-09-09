@@ -230,6 +230,24 @@ jobs:
       # RED HERE: the suite failed, or did not run at all. THIS IS THE STEP THAT
       # DECIDES THE MERGE. The job summary above already names every failure;
       # docs/CI.md says how to reproduce each kind locally.
+      # BOTH OF THE GATE'S OPTIONAL ARGUMENTS ARE DERIVED HERE, and that is why
+      # this step passes neither. Adversary round 20, sections 4 and 5, measured
+      # `grep -c started-at .github/workflows/*.yml` and `grep -c expect-min` at
+      # ZERO in all four:
+      #
+      #   * WHEN THIS RUN STARTED comes from app/build/test-run/starts.tsv, which
+      #     `:app:test` writes before its first test. Without it the tally dated a
+      #     run as "ninety minutes before the oldest result file", so an upstream
+      #     warning written an HOUR earlier was proof, and the fatal "these result
+      #     files predate this run" check was never even computed. With no marker
+      #     and no flag the tally now FAILS CLOSED.
+      #   * THE SIZE FLOOR comes from the committed ci/expected-min.json. Without
+      #     it the only size check was `tests === 0`, so a suite narrowed from
+      #     1650 tests to ONE was a green build.
+      #
+      # A flag that has to be remembered in five workflows is a flag the sixth
+      # forgets - the removed `--allow-skip` by another route. Deriving both is
+      # what makes them impossible to leave off.
       - name: Classify the tally (ours, theirs, and skips)
         run: node scripts/gate-tally.mjs --dir "$PWD"
 
@@ -280,6 +298,33 @@ jobs:
               print("no test results found - the suite did not run"); sys.exit(1)
           if unexpected:
               print("UNEXPECTED SKIPS (a skip is a test that did not run):"); print("\n".join("  " + x for x in unexpected)); sys.exit(1)
+          PY
+
+      # THE SIZE FLOOR, read a SECOND time by an INDEPENDENT reader - the same
+      # argument as the skip check above, for the same reason: this is python's
+      # ElementTree over the XMLs and a plain json.load of the floor, where the
+      # classification step is a regex scan in node. A bug in either cannot make
+      # a silently narrowed suite invisible to both.
+      #
+      # RED HERE: far fewer tests ran than the last verified count. Either a
+      # `--tests` filter matched almost nothing, or a class failed to compile and
+      # took its tests with it - neither of which produces a single failure. Look
+      # at the count, not at a test name. If the suite legitimately shrank, that
+      # is a decision to argue for in the diff of ci/expected-min.json; the file
+      # is raised automatically by a green `scripts/loop-gate.mjs` run and never
+      # lowered by anything.
+      - name: Fail on a suite narrowed below the floor
+        run: |
+          python3 - <<'PY'
+          import glob, json, sys, xml.etree.ElementTree as ET
+          floor = int(json.load(open('ci/expected-min.json'))['expectMin'])
+          t = sum(int(ET.parse(p).getroot().get('tests', 0))
+                  for p in glob.glob('app/build/test-results/test/*.xml'))
+          print(f"tests={t} floor={floor} (ci/expected-min.json)")
+          if t < floor:
+              print(f"GATE FAILED: only {t} tests ran, expected at least {floor} - a filter or a "
+                    f"compile failure silently narrowed the suite")
+              sys.exit(1)
           PY
 
       # THE TEST REPORT, ON EVERY RUN. It used to be `if: failure()`, which is

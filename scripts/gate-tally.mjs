@@ -606,12 +606,21 @@ export function verdict(t, { expectMin = 0 } = {}) {
         fatal: t.red.length ? `GATE FAILED: ${t.red.length} failure(s)/error(s) that are OURS:` : null,
       },
       {
+        // THE PHRASE STAYS WHOLE.
+        // `AssumptionLedgerTest.theMergeGateRefusesToRunWithoutTheseVariables`
+        // asserts that this file still SAYS "there is no allowlist" where it
+        // classifies, because the rule it pins - every skip is red, and the
+        // third status is never a way to stop counting one - has no other
+        // signature in the source. Moving the verdict into one object broke that
+        // pin by splitting the sentence across a `+` for line length, which is a
+        // pin missing a rule that is still there. It is one string now, and it
+        // stays one string.
         condition: 'nothing skipped',
         failed: t.skippedNames.length > 0,
         detail: t.skippedNames.length ? t.skippedNames.join(', ') : 'none',
         fatal: t.skippedNames.length
-          ? 'GATE FAILED: skipped test(s) - a skip is a test that did not run, and there is no ' +
-            `allowlist:\n  ${t.skippedNames.join('\n  ')}`
+          ? 'GATE FAILED: skipped test(s) - a skip is a test that did not run, and ' +
+            `there is no allowlist:\n  ${t.skippedNames.join('\n  ')}`
           : null,
       },
     ];
