@@ -396,6 +396,18 @@ object ChromiaRellPracticesHelp {
                 "stablecoin / CDP / synthetic / pegged asset: template=stablecoin, never vault - " +
                 "insurance pool / premiums and cover / claims pool / mutual or risk pool / parametric or underwriting: template=insurance, never ft4 - " +
                 "ONE helper returns every premium and it returns the premium less what the policy was already paid, nothing is paid inside a claim (a claim round snapshots the reserve and pays every claimant reserve * claim / total_claimed), a refund is pro rata for the same reason, and cover is bounded by the reserve that backs it; adversary round 17 was answered template=ft4 for this ask and drained twice, with the copied conservation invariant exact throughout; " +
+                "raffle / lottery / prize draw / sweepstake - a WINNER IS DRAWN and the draw is meant to be " +
+                "unpredictable: template=raffle, never staking and never ft4 - the seed folds the COMMITTED " +
+                "set in COMMIT order (@sort .seq, written by commit before any secret in the round exists) " +
+                "and reveal touches no accumulator, so no reveal order can move the draw; a round with " +
+                "reveals != commits does not draw, it refunds; a forfeited deposit is BURNED rather than " +
+                "paid into the prize; and the stake is capped by the deposit so walking away never costs " +
+                "less than playing. Adversary round 20 built this class from this server's own design note, " +
+                "proved eleven guards load-bearing on a chain, and lost five of five draws to an attacker " +
+                "holding 4.76% of the stake with NOTHING forfeited, because the seed was folded in REVEAL " +
+                "order and six commitments were 720 free attempts. A BET somebody takes the other side of - " +
+                "a prediction market, a sportsbook, a casino game - is a DIFFERENT class with no template " +
+                "here: a book must be solvent for every outcome at once; " +
                 "their guards are structural and their shipped tests replay the real drain as must-fail. " +
                 "Then PROVE your own guards the same way the templates are proven: verify_guards removes a guard " +
                 "you name, reruns only its must-fail test, and reports load_bearing only if that test failed " +
