@@ -1,4 +1,11 @@
 import java.time.Duration
+// IMPORTED, never written inline. Inside a `tasks.named<Test>("test") { ... }`
+// block the name `java` resolves to the Gradle Kotlin DSL's `java` extension
+// (JavaPluginExtension), not to the JDK's root package, so `java.time.Instant`
+// is a script compilation error - "Unresolved reference: time", measured
+// 2026-09-09 at line 248 of this file. The build failed at CONFIGURE time, which
+// is why nothing that merely reads the sources noticed.
+import java.time.Instant
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Properties
@@ -245,7 +252,7 @@ tasks.named<Test>("test") {
     doFirst {
         val startedAt = System.currentTimeMillis()
         val fresh = (junitResultsDir.listFiles { f -> f.name.endsWith(".xml") } ?: emptyArray()).isEmpty()
-        val row = "$startedAt\t${java.time.Instant.ofEpochMilli(startedAt)}\t$thisTaskPath\n"
+        val row = "$startedAt\t${Instant.ofEpochMilli(startedAt)}\t$thisTaskPath\n"
         runStartMarker.parentFile.mkdirs()
         if (fresh) runStartMarker.writeText(row) else runStartMarker.appendText(row)
     }
