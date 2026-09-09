@@ -440,7 +440,19 @@ object ToolDocs {
         helpers.h.f(...) after `import tests.helpers;`, x.h.f(...) after
         `import x: tests.helpers;`, and h.f(...) after `import tests.helpers.*;` or
         `import tests.helpers.{ h };`. A namespace is not an import, and a scan that knew only
-        imports could not see the helper at all. AND A
+        imports could not see the helper at all. A NAME BINDS THE WAY THE COMPILER BINDS IT,
+        and the tool follows that ORDER rather than trying every spelling of a name: an
+        unqualified n(...) names the member of the namespace the call is READ IN, innermost
+        first (inside `namespace h`, a bare f(...) is h.f even when the module declares a
+        top-level f), then the calling module's own top-level declaration, then an exact
+        import, then a wildcard one; a qualified q.n(...) resolves against those enclosing
+        namespaces first (inside `namespace a`, b.f(...) is a.b.f), then the module's own
+        namespaces, then its imports as above. A NAMESPACE MEMBER HAS NO BARE SPELLING:
+        `namespace h { function f }` called as f(...) from the module's top level is
+        "Unknown name: 'f'", so a local namespace never shadows an `import a.b.{ f };` -
+        round 19 registered every helper under every SUFFIX of its namespace path instead,
+        which let the tool read a no-op local body while the chain ran the imported one and
+        certify a transaction that had rolled back. AND A
         QUALIFIER IS RESOLVED IN THE CALLING MODULE FIRST: `import main: tests.helpers;` makes
         main.take(...) a call to the TEST HELPER, not to the production module it is spelled
         like, and a qualifier bound to a test module is never the guard's declaration. The
@@ -454,6 +466,12 @@ object ToolDocs {
         name, so `run_it(take("a", 11))` with `function run_it(o: rell.test.op)` runs ONE
         operation and not an unreadable one; an argument that is not a plain call, or that
         builds a transaction of its own, is left as it stands and is still UNKNOWN.
+        THE OPERATION A CARRIER'S ARGUMENT NAMES IS FOLLOWED THROUGH OPERATION-RETURNING
+        HELPERS: .op(make()) with `function make(): rell.test.op = take("a", 11);` carries
+        take, and a CHAIN of such helpers is followed to the end. A helper whose body builds
+        or runs a transaction of its own is not followed - its operations are counted by its
+        own carriers - and neither is one this scan cannot read, because a body it cannot
+        read is not an operation it may rename.
         HOW THE OPERATIONS ARE COUNTED: structurally, not by counting `.op(`. Every argument of
         every rell.test.tx(...) and .op(...) in that closure is one operation, a list literal
         is counted element by element, and a rell.test BLOCK of more than one transaction is

@@ -3300,19 +3300,33 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             moduleOfFile[p] = module
             val fns = functionsByModule.getOrPut(module) { mutableMapOf() }
             val params = paramsByModule.getOrPut(module) { mutableMapOf() }
-            // ROUND 19: a helper is registered under its full NAMESPACE path AND
-            // under every suffix of it, the bare name included. `h.audited(...)`
-            // is the only spelling that reaches `namespace h { function audited }`
-            // from outside, and `b.f(...)` reaches `a.b.f` from inside
-            // `namespace a`. A suffix can only WIDEN which body a name reaches,
-            // which costs an ambiguous_refusal and never a false load_bearing.
+            // ROUND 20: a helper is registered under ITS OWN NAMESPACE PATH AND
+            // NOTHING ELSE. Round 19 also filed it under every SUFFIX of that
+            // path, the bare name included, on the reasoning that "a suffix can
+            // only WIDEN which body a name reaches, which costs an
+            // ambiguous_refusal and never a false load_bearing". Both halves are
+            // wrong, and both were MEASURED wrong (`adversary-round20`):
+            //   * a suffix reaches the WRONG body. `namespace h { function
+            //     audited }` put the bare name `audited` in the module, ahead of
+            //     the module's own `import tests.aux.{ audited };` - the tool
+            //     read the local no-op body while the chain ran the imported one
+            //     that adds a second operation (r20a, and r20a2 `ok:TRUE`).
+            //   * a suffix reaches TWO bodies. A top-level `run_one` and a
+            //     `namespace h { function run_one }` were both filed under
+            //     `run_one`, and `flatten` appends EVERY body a name has, so an
+            //     operation the compiler never puts in the transaction was
+            //     counted into it (r20c).
+            // A namespace member has NO bare spelling at all: `namespace h {
+            // function tagged }` called as `tagged(...)` is "Unknown name:
+            // 'tagged'" (MEASURED, `adversary-round20/vg/spellings.json`, sp20f).
+            // What is real is RELATIVE resolution - a bare call INSIDE
+            // `namespace h` names `h`'s own member (sp20g), and `b.f(...)` inside
+            // `namespace a` names `a.b.f` (sp20h) - and that is a property of
+            // where the call is READ, which [resolveHelper]'s `scope` now carries,
+            // not a property of the name.
             namespacedFunctions(maskedFile).forEach { d ->
-                val segments = d.name.split('.')
-                for (k in segments.indices) {
-                    val spelling = segments.drop(k).joinToString(".")
-                    fns.getOrPut(spelling) { mutableListOf() }.add(d.body)
-                    params.getOrPut(spelling) { mutableListOf() }.add(d.params)
-                }
+                fns.getOrPut(d.name) { mutableListOf() }.add(d.body)
+                params.getOrPut(d.name) { mutableListOf() }.add(d.params)
             }
             val binds = importBindings.getOrPut(module) { mutableMapOf() }
             val wild = wildcardImports.getOrPut(module) { mutableSetOf() }
@@ -3345,30 +3359,57 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
 
         /**
          * The test-module function a call `q.n(...)` names, as `module:n` -
-         * where `q` may be empty, one name, or a whole dotted path, and `n` may
-         * itself be namespace-qualified inside the module that declares it.
+         * where `q` may be empty, one name, or a whole dotted path, `n` may
+         * itself be namespace-qualified inside the module that declares it, and
+         * [scope] is the dotted namespace path the call is READ IN (empty at a
+         * module's top level, `h` inside `namespace h`, `a.b` inside a nested
+         * one).
          *
-         * ROUND 19 ADDED THE NAMESPACES. A qualifier used to be looked up in the
-         * calling module's IMPORT bindings and nowhere else, so `h.audited(...)`
-         * - the one spelling that reaches `namespace h { function audited }` -
-         * resolved to nothing, the helper was never expanded, and the second
-         * operation it adds to the transaction was never counted (r19b). A
-         * qualified call now resolves, in this order and against what the
-         * compiler accepts (MEASURED, `adversary-round19/vg/spellings.json`):
-         *   * the CALLING module's own namespaces - `h.audited(...)`,
-         *     `a.b.audited(...)`, nested or declared `namespace a.b { }`;
-         *   * an import binding of the whole qualifier or of a PREFIX of it,
-         *     with the rest read as a namespace path inside that module -
-         *     `import tests.helpers;` then `helpers.h.audited(...)`, and
-         *     `import x: tests.helpers;` then `x.h.audited(...)`;
-         *   * a namespace an exact import binds - `import tests.helpers.{ h };`
-         *     then `h.audited(...)` (the binding is `tests.helpers.h`, which is
-         *     not a module, so it is split back into module + namespace);
-         *   * a namespace a wildcard import brings into scope -
-         *     `import tests.helpers.*;` then `h.audited(...)`.
+         * ROUND 19 ADDED THE NAMESPACES and ROUND 20 GAVE THEM THE COMPILER'S
+         * OWN ORDER. A qualifier used to be looked up in the calling module's
+         * IMPORT bindings and nowhere else, so `h.audited(...)` - the one
+         * spelling that reaches `namespace h { function audited }` - resolved to
+         * nothing (r19b); round 19 fixed that by filing every helper under every
+         * SUFFIX of its namespace path, which let a namespace member answer to a
+         * bare name it does not have and made a false `ok:true` one declaration
+         * away (r20a2). THE ORDER, as the compiler has it and as every step of it
+         * was measured (`adversary-round19/vg/spellings.json`,
+         * `adversary-round20/vg/spellings.json`):
+         *   * UNQUALIFIED `n(...)`: the ENCLOSING NAMESPACES from the innermost
+         *     outwards - inside `namespace h`, a bare `tagged(...)` is
+         *     `h.tagged` even when the module also declares a top-level one
+         *     (sp20g) - then the module's own TOP-LEVEL declarations, then an
+         *     exact import (`import a.b.{ n };`), then a wildcard import. A
+         *     namespace member has no bare spelling from outside its namespace:
+         *     `tagged(...)` at module level is "Unknown name" (sp20f).
+         *   * QUALIFIED `q.n(...)`: the enclosing namespaces first, again
+         *     innermost outwards - inside `namespace a`, `b.tagged(...)` is
+         *     `a.b.tagged` even when the module also declares a top-level
+         *     `namespace b` (sp20h) - then the module's own namespaces
+         *     (`h.audited(...)`, `a.b.audited(...)`, nested or declared
+         *     `namespace a.b { }`), then an import binding of the whole
+         *     qualifier or of a PREFIX of it with the rest read as a namespace
+         *     path inside that module (`import tests.helpers;` then
+         *     `helpers.h.audited(...)`, `import x: tests.helpers;` then
+         *     `x.h.audited(...)`), then a namespace an exact import binds
+         *     (`import tests.helpers.{ h };` then `h.audited(...)` - the binding
+         *     is `tests.helpers.h`, which is not a module, so it is split back
+         *     into module + namespace), then a namespace a wildcard import
+         *     brings into scope (`import tests.helpers.*;`).
          */
-        fun resolveHelper(module: String, qualifier: String, name: String): String? {
+        fun resolveHelper(module: String, scope: String, qualifier: String, name: String): String? {
+            // The enclosing namespaces, innermost first: inside `a.b` those are
+            // `a.b` then `a`. A name found there is the one the compiler binds,
+            // whatever the module's top level or its imports also hold.
+            val enclosing = mutableListOf<String>()
+            if (scope.isNotEmpty()) {
+                val s = scope.split('.')
+                for (k in s.size downTo 1) enclosing += s.take(k).joinToString(".")
+            }
             if (qualifier.isEmpty()) {
+                enclosing.forEach { ns ->
+                    if (functionsByModule[module]?.containsKey("$ns.$name") == true) return "$module:$ns.$name"
+                }
                 val candidates = listOf(module) +
                     listOfNotNull(exactImports[module]?.get(name)) +
                     wildcardImports[module].orEmpty()
@@ -3376,7 +3417,8 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                     ?.let { "$it:$name" }
             }
             val candidates = LinkedHashSet<Pair<String, String>>()
-            // the calling module's own namespaces
+            // the enclosing namespaces, then the calling module's own namespaces
+            enclosing.forEach { ns -> candidates += module to "$ns.$qualifier.$name" }
             candidates += module to "$qualifier.$name"
             val segments = qualifier.split('.')
             for (k in segments.size downTo 1) {
@@ -3393,6 +3435,15 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             wildcardImports[module].orEmpty().forEach { candidates += it to "$qualifier.$name" }
             return candidates.firstOrNull { (m, n) -> functionsByModule[m]?.containsKey(n) == true }
                 ?.let { (m, n) -> "$m:$n" }
+        }
+
+        /**
+         * The namespace path a helper node's body is READ IN - `tests.main:h.audited`
+         * is read inside `h`, `tests.main:audited` at the module's top level.
+         */
+        fun scopeOf(node: String): String {
+            val name = node.substringAfterLast(':')
+            return if (name.contains('.')) name.substringBeforeLast('.') else ""
         }
         val helperBodies = mutableMapOf<String, List<String>>()
         val helperParams = mutableMapOf<String, List<List<String>>>()
@@ -3428,14 +3479,14 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
          * The CALLING module's binding now decides, and a qualifier bound to a
          * test module is never the production declaration, whatever it is called.
          */
-        fun invokesGuardDeclaration(module: String, qualifier: String, name: String): Boolean {
+        fun invokesGuardDeclaration(module: String, scope: String, qualifier: String, name: String): Boolean {
             val mods = modulesByName[name] ?: return false
             if (qualifier.isEmpty()) {
                 // A name that resolves to a TEST-module function is a helper
                 // call - the helper scan counts it, and counting it here too
                 // would double it. `import tests.helpers.{ take };` is the form
                 // that makes this reachable.
-                if (resolveHelper(module, "", name) != null) return false
+                if (resolveHelper(module, scope, "", name) != null) return false
                 val exact = exactImports[module]?.get(name)
                     ?: return true
                 return exact in mods || exact.substringAfterLast('.') in mods
@@ -3443,36 +3494,79 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             // ROUND 19, the same rule for a QUALIFIED call: `h.take(...)` where
             // `namespace h { function take }` is a helper the helper scan counts,
             // not the guard's operation that happens to share its name.
-            if (resolveHelper(module, qualifier, name) != null) return false
+            if (resolveHelper(module, scope, qualifier, name) != null) return false
             val bound = importBindings[module]?.get(qualifier)
                 ?: return qualifier in mods
             if (bound in submissionTestModules) return false
             return bound in mods || bound.substringAfterLast('.') in mods
         }
-        /** How many times [text], read from inside [module], invokes the guard's declaration. */
-        fun invocationsIn(module: String, text: String) = callSite.findAll(text).count { m ->
-            invokesGuardDeclaration(module, qualifierOf(m), m.groupValues[2])
+        /**
+         * How many times [text], read from inside [module] and inside the
+         * namespace [scope], invokes the guard's declaration.
+         */
+        fun invocationsIn(module: String, scope: String, text: String) = callSite.findAll(text).count { m ->
+            invokesGuardDeclaration(module, scope, qualifierOf(m), m.groupValues[2])
         }
         val anyCallSite = Regex("""((?:[A-Za-z_]\w*\s*\.\s*)*)\b([A-Za-z_]\w*)\s*\(""")
 
-        /** One call of a test-module helper: which helper, and the ARGUMENTS it is given. */
-        fun helperCallSitesIn(module: String, text: String): List<Pair<String, List<String>>> {
-            val out = mutableListOf<Pair<String, List<String>>>()
+        /**
+         * One call of a test-module helper: which helper, the ARGUMENTS it is
+         * given, and the call's own TEXT - `make()`, `h.make()`,
+         * `real.take(id, n)` - exactly as a carrier's argument would be written.
+         */
+        fun helperCallSitesIn(
+            module: String,
+            scope: String,
+            text: String
+        ): List<Triple<String, List<String>, String>> {
+            val out = mutableListOf<Triple<String, List<String>, String>>()
             anyCallSite.findAll(text).forEach { m ->
-                val node = resolveHelper(module, qualifierOf(m), m.groupValues[2]) ?: return@forEach
+                val node = resolveHelper(module, scope, qualifierOf(m), m.groupValues[2]) ?: return@forEach
                 val open = m.range.last
                 val close = matchBrace(text, open, '(', ')')
                 val args = if (close == null) emptyList()
                 else splitArguments(text.substring(open + 1, close)).map { it.trim() }.filter { it.isNotEmpty() }
-                out += node to args
+                val spelling = if (close == null) "" else text.substring(m.range.first, close + 1).trim()
+                out += Triple(node, args, spelling)
             }
             return out
         }
         /** Every test-module helper [text] calls from inside [module], and how many times. */
-        fun helperCallsIn(module: String, text: String): Map<String, Int> {
+        fun helperCallsIn(module: String, scope: String, text: String): Map<String, Int> {
             val out = mutableMapOf<String, Int>()
-            helperCallSitesIn(module, text).forEach { (node, _) -> out[node] = (out[node] ?: 0) + 1 }
+            helperCallSitesIn(module, scope, text).forEach { (node, _, _) -> out[node] = (out[node] ?: 0) + 1 }
             return out
+        }
+
+        /**
+         * The operation a carrier's argument really names, when the argument is
+         * a call to a test-module helper that RETURNS an operation - `function
+         * make(): rell.test.op = take("a", 11);` (MEASURED, sp20c), or a chain
+         * of them (sp20i). Null when the argument names no such helper, and the
+         * argument then keeps the name it is written with.
+         *
+         * ROUND 20, THE CONSERVATIVE DIRECTION (r20b2). `bindParameters`
+         * substitutes such an argument - it IS a call and builds no transaction
+         * of its own - so the carrier the count reads is `.op(make())`, whose one
+         * operation NAMES `make`: "the one operation in that transaction is
+         * `make`, which is not a declaration this guard runs in", refusing an
+         * honest single-operation SHAPE B whose transaction carries exactly the
+         * guard's own operation. A helper is followed only when it has ONE body
+         * that is ONE call expression building or extending no transaction of its
+         * own and running nothing; anything else is left alone, because a body
+         * this scan cannot read is not an operation it may rename.
+         */
+        fun operationBuiltBy(module: String, scope: String, argument: String, depth: Int): String? {
+            if (depth > MAX_HELPER_DEPTH) return null
+            val head = QUALIFIED_CALL_ARGUMENT_REGEX.find(argument.trim()) ?: return null
+            val qualifier = head.groupValues[1].replace(WHITESPACE_REGEX, "").trimEnd('.')
+            val node = resolveHelper(module, scope, qualifier, head.groupValues[2]) ?: return null
+            val body = helperBodies[node]?.singleOrNull()?.trim()
+                ?.removePrefix("return")?.trim()?.trimEnd(';')?.trim() ?: return null
+            if (buildsATransaction(body) || TX_RUN_REGEX.containsMatchIn(body)) return null
+            val inner = QUALIFIED_CALL_ARGUMENT_REGEX.find(body) ?: return null
+            return operationBuiltBy(node.substringBeforeLast(':'), scopeOf(node), body, depth + 1)
+                ?: inner.groupValues[2]
         }
         // A test-module helper "reaches" the declaration when its own body
         // invokes it, or when it calls another helper that does.
@@ -3483,8 +3577,9 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             helperBodies.forEach { (node, bodies) ->
                 if (node in reaching) return@forEach
                 val owner = node.substringBeforeLast(':')
+                val ns = scopeOf(node)
                 val hit = bodies.any { b ->
-                    invocationsIn(owner, b) > 0 || helperCallsIn(owner, b).keys.any { it in reaching }
+                    invocationsIn(owner, ns, b) > 0 || helperCallsIn(owner, ns, b).keys.any { it in reaching }
                 }
                 if (hit) { reaching += node; grew = true }
             }
@@ -3542,17 +3637,42 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             }
             return out
         }
-        fun flatten(module: String, text: String, depth: Int, seen: MutableSet<String>): String {
+        fun flatten(
+            module: String,
+            scope: String,
+            text: String,
+            depth: Int,
+            seen: MutableSet<String>,
+            /**
+             * ROUND 20: the operation each helper-call SPELLING really names,
+             * collected at the level that can read it - the flat text is one
+             * blob from several modules, and a name resolved against the wrong
+             * one is a name this scan invented. A spelling two levels resolve
+             * differently is mapped to null, which renames nothing.
+             */
+            operations: MutableMap<String, String?>
+        ): String {
             if (depth > MAX_HELPER_DEPTH) return text
             val sb = StringBuilder(text)
-            helperCallSitesIn(module, text).forEach { (node, args) ->
+            helperCallSitesIn(module, scope, text).forEach { (node, args, spelling) ->
+                if (spelling.isNotEmpty()) {
+                    val here = operationBuiltBy(module, scope, spelling, 0)
+                    if (operations.containsKey(spelling) && operations[spelling] != here) {
+                        operations[spelling] = null
+                    } else {
+                        operations[spelling] = here
+                    }
+                }
                 // One expansion per distinct CALL, not per helper: the same
                 // helper called with different operations runs different
                 // operations, and a key that ignored them would count one.
                 if (!seen.add(node + "(" + args.joinToString(",") + ")")) return@forEach
                 helperBodies.getValue(node).forEachIndexed { i, body ->
                     sb.append('\n').append(
-                        flatten(node.substringBeforeLast(':'), bindParameters(node, i, body, args), depth + 1, seen)
+                        flatten(
+                            node.substringBeforeLast(':'), scopeOf(node),
+                            bindParameters(node, i, body, args), depth + 1, seen, operations
+                        )
                     )
                 }
             }
@@ -3571,15 +3691,15 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
          * a person writes by hand, a helper that is already on the stack ends
          * the walk the same way, and the refusal SAYS the cap.
          */
-        fun sites(module: String, text: String, depth: Int, stack: MutableSet<String>): Int {
+        fun sites(module: String, scope: String, text: String, depth: Int, stack: MutableSet<String>): Int {
             if (depth > MAX_HELPER_DEPTH) return DEPTH_EXCEEDED
-            var n = invocationsIn(module, text)
-            for ((node, here) in helperCallsIn(module, text)) {
+            var n = invocationsIn(module, scope, text)
+            for ((node, here) in helperCallsIn(module, scope, text)) {
                 if (node !in reaching) continue
                 if (!stack.add(node)) return DEPTH_EXCEEDED
                 var inner = 0
                 for (body in helperBodies.getValue(node)) {
-                    val deeper = sites(node.substringBeforeLast(':'), body, depth + 1, stack)
+                    val deeper = sites(node.substringBeforeLast(':'), scopeOf(node), body, depth + 1, stack)
                     if (deeper == DEPTH_EXCEEDED) {
                         stack.remove(node)
                         return DEPTH_EXCEEDED
@@ -3599,7 +3719,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
         // take("a", 11);` - therefore executes nothing, and the red that follows
         // belongs to the statement that ran the transaction, which is a
         // different one.
-        val runRx = Regex("""\.\s*run(?:_must_fail)?\s*\(""")
+        val runRx = TX_RUN_REGEX
         files.forEach { (p, content) ->
             if (!isTest.getValue(p)) return@forEach
             val masked = maskRellSource(content, maskStrings = true)
@@ -3614,10 +3734,14 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
             var i = brace + 1
             fun record(endAt: Int) {
                 val statement = masked.substring(from, endAt)
-                val siteCount = sites(module, statement, 0, mutableSetOf())
+                // A test function is a module TOP-LEVEL declaration, so the
+                // statement itself is read in no namespace; the scope of every
+                // helper body it reaches comes from that helper's own name.
+                val siteCount = sites(module, "", statement, 0, mutableSetOf())
                 if (siteCount != 0) {
-                    val flat = flatten(module, statement, 0, mutableSetOf())
-                    val tx = transactionOperations(flat)
+                    val operations = mutableMapOf<String, String?>()
+                    val flat = flatten(module, "", statement, 0, mutableSetOf(), operations)
+                    val tx = transactionOperations(flat) { a -> operations[a.trim()] }
                     val runs = runRx.containsMatchIn(flat)
                     val mustFail = mustFailRx.containsMatchIn(flat)
                     spans += TestStatement(
@@ -3912,6 +4036,26 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
     private val OP_ARGUMENT_REGEX =
         Regex("""^(?:[A-Za-z_]\w*\s*\.\s*)*([A-Za-z_]\w*)\s*\(.*\)$""", RegexOption.DOT_MATCHES_ALL)
 
+    /**
+     * The same argument, with its QUALIFIER captured separately - what
+     * `operationBuiltBy` needs to resolve `h.make()` as well as `make()`.
+     */
+    private val QUALIFIED_CALL_ARGUMENT_REGEX =
+        Regex(
+            """^((?:[A-Za-z_]\w*\s*\.\s*)*)([A-Za-z_]\w*)\s*\(.*\)$""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+
+    private val WHITESPACE_REGEX = Regex("""\s+""")
+
+    /**
+     * `.run(` / `.run_must_fail(` - the members that EXECUTE. Nothing in test
+     * scope runs until one of them is called, which is what makes "this
+     * statement invokes the operation but runs no transaction" an answer, and
+     * what keeps `operationBuiltBy` off a helper body that runs something.
+     */
+    private val TX_RUN_REGEX = Regex("""\.\s*run(?:_must_fail)?\s*\(""")
+
     /** Splits an argument list on the commas at nesting depth zero. */
     private fun splitArguments(text: String): List<String> {
         val out = mutableListOf<String>()
@@ -3957,7 +4101,16 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
      * canonical single-operation shape - in SHAPE B, `load_bearing` with
      * ok:TRUE on a transaction the second operation rolled back (r19a2).
      */
-    private fun transactionOperations(flat: String): TxOperations {
+    private fun transactionOperations(
+        flat: String,
+        /**
+         * ROUND 20: the operation a carrier's argument really names, when that
+         * argument is a call to a test-module helper that RETURNS an operation
+         * (r20b2). Null - the default - leaves every argument named the way it
+         * is written, which is what every round before 20 did.
+         */
+        operationBuiltBy: (String) -> String? = { null }
+    ): TxOperations {
         // The `.tx(` calls that belong to a BLOCK - every one except the `.tx(`
         // inside `rell.test.tx(`, which the two regexes both end on.
         val ctorEnds = TX_CTOR_REGEX.findAll(flat).map { it.range.last }.toSet()
@@ -4006,7 +4159,7 @@ class VerifyGuardsStrategy : BaseToolStrategy() {
                 if (unresolved == null) unresolved = t
             } else {
                 count++
-                names += match.groupValues[1]
+                names += operationBuiltBy(t) ?: match.groupValues[1]
             }
         }
         for (open in carriers) {

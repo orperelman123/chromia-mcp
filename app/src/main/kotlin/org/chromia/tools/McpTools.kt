@@ -1916,18 +1916,19 @@ object McpTools {
         name = "verify_guards",
         description = """
             Prove a guard in YOUR dapp is load-bearing: a must-fail test is evidence only if it goes red
-            without the guard, BECAUSE THE ATTACK LANDED. Per {guard, test}: the test must PASS as given,
-            the guard is replaced (default: deleted), that test alone re-runs, the verdict is WHY it failed.
-            TWO shapes: one must-fail statement on the guard's declaration, or one must-hold statement
-            plus an assertion; anything else is ambiguous_refusal. It may reach the declaration through
+            without it, BECAUSE THE ATTACK LANDED. Per {guard,test}: the test must PASS as given, the
+            guard is replaced (default: deleted), that test alone re-runs, the verdict is WHY it failed.
+            TWO shapes: one must-fail statement on the guard's declaration, or one must-hold plus an
+            assertion; else ambiguous_refusal. It reaches it through
             helpers in ANY test module, via imports and aliases, up to 16 calls deep - every import form
-            the compiler takes, exact `.{ }` and relative too, plus NAMESPACES - and a qualifier the
+            the compiler takes, exact `.{ }` and relative too, plus NAMESPACES, in the COMPILER'S order:
+            enclosing namespace, then module, then imports, a member has no bare name - a qualifier the
             CALLING module binds to a test module is a HELPER. Helper PARAMETERS bind to call ARGUMENTS.
-            Its operations are counted structurally (rell.test.tx(), .op() and block .tx() args): any
+            Its operations are counted structurally (rell.test.tx(), .op(), block .tx() args): any
             count but one, or one it cannot read, is ambiguous_refusal. A replacement's own messages are
             attributed like the guard's; stillRefused/attackLanded are read in the must-hold shape only.
-            ok=true only when EVERY guard is load_bearing; moduleArgs as for run_rell_tests. It says
-            nothing about guards you did not name. In full: describe_tool{tool:"verify_guards"}.
+            ok=true only when EVERY guard is load_bearing; says nothing about guards you did not name.
+            Full: describe_tool{tool:"verify_guards"}.
         """.trimIndent(),
         inputSchema = ToolSchema(
             properties = JsonObject(
