@@ -160,7 +160,18 @@ whole dotted path: `h.f(...)` reaches `namespace h { function f }` in the callin
 reached through every import form — `helpers.h.f(...)` after `import tests.helpers;`,
 `x.h.f(...)` after `import x: tests.helpers;`, and `h.f(...)` after `import tests.helpers.*;` or
 `import tests.helpers.{ h };`. A namespace is not an import, and a scan that knew only imports
-could not see such a helper at all. **A qualifier is resolved in the calling module first** —
+could not see such a helper at all. **A name binds the way the compiler binds it, and the tool
+follows that order** rather than trying every spelling of a name: an unqualified `n(...)` names the
+member of the namespace the call is *read in*, innermost first — inside `namespace h`, a bare
+`f(...)` is `h.f` even when the module declares a top-level `f` — then the calling module's own
+top-level declaration, then an exact import, then a wildcard one; a qualified `q.n(...)` resolves
+against those enclosing namespaces first (inside `namespace a`, `b.f(...)` is `a.b.f`), then the
+module's own namespaces, then its imports as above. **A namespace member has no bare spelling** —
+`namespace h { function f }` called as `f(...)` from the module's top level is
+`Unknown name: 'f'` — so a local namespace never shadows an `import a.b.{ f };`. Round 19
+registered every helper under every *suffix* of its namespace path instead, and round 20 walked in
+one declaration later: the tool read a no-op local body while the chain ran the imported one, and
+certified `ok:true` on a transaction that had rolled back. **A qualifier is resolved in the calling module first** —
 `import main: tests.helpers;` makes `main.take(...)` a call to the *test helper*, not to the
 production module it is spelled like, and a qualifier bound to a test module is never the guard's
 declaration. The chain is followed **16 calls deep**; past that, or through a helper
@@ -172,7 +183,12 @@ statement `ambiguous_refusal` instead of a single-operation shape A. **A helper'
 bound to the caller's arguments** when that closure is flattened, positionally or by name, so
 `run_it(take("a", 11))` with `function run_it(o: rell.test.op)` runs one operation rather than an
 unreadable one; an argument that is not a plain call, or that builds a transaction of its own, is
-left as it stands and stays unknown.
+left as it stands and stays unknown. **The operation a carrier's argument names is followed through
+operation-returning helpers**: `.op(make())` with `function make(): rell.test.op = take("a", 11);`
+carries `take`, and a chain of such helpers is followed to the end. A helper whose body builds or
+runs a transaction of its own is not followed — its operations are counted by its own carriers —
+and neither is one this scan cannot read, because a body it cannot read is not an operation it may
+rename.
 
 The operations themselves are counted **structurally**, not by counting `.op(`: every argument of
 every `rell.test.tx(...)` and `.op(...)` in that closure is one operation, a list literal is

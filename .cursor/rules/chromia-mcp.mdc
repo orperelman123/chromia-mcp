@@ -47,6 +47,13 @@ Rules that are not negotiable:
   heuristic over runner output loses one token away every round (rounds 11-18).
   `verify_guards` answers `ambiguous_refusal`, never `ok:true`, for what it cannot
   prove.
+- **Resolve a name the way the compiler resolves it, never a superset.** Round 19
+  made namespaces work by filing every helper under every SUFFIX of its namespace
+  path, reasoning that a wider name can only cost an `ambiguous_refusal`. It cost
+  a false `ok:true` one declaration later: the suffix reached the wrong body (a
+  local `namespace h` shadowing an exact import) and two bodies at once. A model
+  that accepts spellings the language does not have is not conservative, it is
+  wrong in both directions - measure the order (`chr test`), then implement it.
 - **Every guard has a mutant** that reddens a shipped must-fail test BECAUSE the
   attack landed, in both the `src/` and flat layouts. A mutant that goes red for
   another reason proves nothing.
