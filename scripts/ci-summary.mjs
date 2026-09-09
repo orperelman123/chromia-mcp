@@ -31,6 +31,26 @@
 //      was. So this imports `tally` from that file and only formats what it
 //      returns. Every number below is the gate's own number.
 //
+//      IT MUST NOT COMPUTE A VERDICT WORD EITHER, and until adversary round 20
+//      it did. The headline was
+//
+//          const ours = t.red.length;
+//          const verdict = ours || t.skippedNames.length ? 'RED ...' : ... 'GREEN';
+//
+//      - TWO of the five conditions `report()` fails on. A run the gate failed
+//      on stale results, on `tests === 0`, or on the size floor was therefore
+//      headed `## CI gate: GREEN`; in the stale case this file printed GREEN at
+//      the top and, twenty lines below it, "You are reading an earlier run's
+//      evidence. This is fatal." Measured through both real scripts over five
+//      result directories: three of five disagreed
+//      (exploit-corpus/realworld/adversary-round20/ci).
+//
+//      A second RENDERING of what is a pass is the same defect as a second
+//      classifier, so the headline is now `verdict(t, { expectMin }).headline`
+//      out of gate-tally.mjs - the identical object the exit code is taken from.
+//      The summary cannot disagree with the verdict, because it no longer has an
+//      opinion to disagree with.
+//
 //   2. It MUST NOT decide the exit code. It always exits 0, deliberately: the
 //      verdict belongs to the `Classify the tally` step, which runs
 //      `gate-tally.mjs` for real and reds the build. A presenter that could
@@ -45,7 +65,7 @@
 import { existsSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { tally } from './gate-tally.mjs';
+import { tally, verdict, expectedMinFloor, defaultResultsDir, EXPECTED_MIN_FILE } from './gate-tally.mjs';
 
 /** GitHub renders `|` as a column separator and `\n` ends the row. */
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ').trim();
@@ -60,7 +80,7 @@ const clip = (s, n) => {
  * The Markdown for [t], a `tally()` result. Pure - it reads nothing and writes
  * nothing - so the shape can be asserted from a test without a CI run.
  */
-export function summarize(t, { runUrl = null } = {}) {
+export function summarize(t, { runUrl = null, expectMin = 0 } = {}) {
   const out = [];
   const say = (line = '') => out.push(line);
 
@@ -68,7 +88,7 @@ export function summarize(t, { runUrl = null } = {}) {
     // The suite did not run at all. This is the case the operator most needs
     // named, because a missing result directory reads as "0 failures" to
     // anything that counts rather than checks.
-    say('## CI gate: THE SUITE DID NOT RUN');
+    say(`## CI gate: ${verdict(t, { expectMin }).headline}`);
     say('');
     say(`\`${t.error}\``);
     say('');
@@ -79,13 +99,23 @@ export function summarize(t, { runUrl = null } = {}) {
   }
 
   const ours = t.red.length;
-  const verdict = ours || t.skippedNames.length
-    ? 'RED - this build does not ship'
-    : t.upstream.length
-      ? 'GREEN for us, with a proven upstream outage - nothing those tests name was verified'
-      : 'GREEN';
+  // THE HEADLINE IS THE GATE'S OWN, not a second opinion computed here from two
+  // of its five conditions (round 20, section 5). Same object, same expectMin,
+  // same `green` field the process exits on.
+  const v = verdict(t, { expectMin });
 
-  say(`## CI gate: ${verdict}`);
+  say(`## CI gate: ${v.headline}`);
+  say('');
+  say('| the gate fails on | this run | |');
+  say('| --- | --- | :-: |');
+  for (const c of v.conditions) {
+    say(`| ${cell(c.condition)} | ${cell(clip(c.detail, 160))} | ${c.failed ? '**RED**' : 'ok'} |`);
+  }
+  say('');
+  say('Those five are `verdict()` in `scripts/gate-tally.mjs`, and the headline above is its');
+  say('`headline` field - the same object the `Classify the tally` step exits on. This table is');
+  say('here because the headline used to be computed from two of the five, so a run that failed on');
+  say('stale results, on zero tests, or on the size floor was headed GREEN.');
   say('');
   say('| | count | meaning |');
   say('| --- | ---: | --- |');
@@ -185,6 +215,10 @@ export function summarize(t, { runUrl = null } = {}) {
   say('The verdict is the **Classify the tally** step (`scripts/gate-tally.mjs`), the same');
   say('script `scripts/loop-gate.mjs` runs locally. This summary only renders what it');
   say('computed and never decides anything. `docs/CI.md` is the long form.');
+  say('');
+  say(`This run started \`${new Date(t.runStart).toISOString()}\`, derived from ${cell(t.runStartSource)}; ` +
+    `the size floor is ${expectMin ? `**${expectMin}** test(s), from \`${EXPECTED_MIN_FILE}\`` : '**not in force**'}. ` +
+    'Both used to be flags no workflow passed.');
   if (runUrl) {
     say('');
     say(`Artifacts for this run: ${runUrl}#artifacts`);
@@ -207,13 +241,28 @@ if (isMain) {
   const warningsDir = resolve(opt('--warnings', join(repo, 'app', 'build', 'upstream', 'warnings')));
   const out = opt('--out', process.env.GITHUB_STEP_SUMMARY ?? null);
 
+  // THE SAME TWO DERIVED INPUTS THE GATE USES, resolved the same way, because a
+  // presenter given different inputs is a presenter that disagrees for a reason
+  // nobody can see (round 20, section 5). `--started-at` and `--expect-min` are
+  // accepted so a caller can drive both scripts identically; neither is needed
+  // in CI, and that is the point of deriving them.
+  const startedAtArg = opt('--started-at', null);
+  const expectMinArg = opt('--expect-min', null);
+  const ownResults = resultsDir === resolve(defaultResultsDir(repo));
+  const expectMin = expectMinArg !== null
+    ? Number(expectMinArg)
+    : (ownResults ? expectedMinFloor(repo).floor : 0);
+
   let markdown;
   try {
-    const t = tally({ resultsDir, warningsDir, repoDir: repo });
+    const t = tally({
+      resultsDir, warningsDir, repoDir: repo,
+      startedAt: startedAtArg === null ? null : Number(startedAtArg),
+    });
     const runUrl = process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
       ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
       : null;
-    markdown = summarize(t, { runUrl });
+    markdown = summarize(t, { runUrl, expectMin });
   } catch (e) {
     // A presenter that crashes must not take the run with it - the verdict is
     // the next step's, and it is about to run for real.

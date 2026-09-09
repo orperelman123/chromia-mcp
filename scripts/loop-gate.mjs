@@ -14,6 +14,12 @@
 //   node scripts/loop-gate.mjs [--dir <repo>] [--expect-min <n>]
 //   node scripts/loop-gate.mjs [--dir <repo>] --docs-only --base <commit>
 //
+// `--expect-min` is now an OVERRIDE, not the way the size check is armed. The
+// floor is read from the committed `ci/expected-min.json` and raised by this
+// script after a green full run - adversary round 20 found the flag documented,
+// recommended, and passed by nothing: not one of the four workflows, and locally
+// only by whoever remembered the previous count.
+//
 // Exits 0 only if: the suite actually executed in THIS invocation, every result
 // file is newer than the run's start, 0 failures, 0 errors, and ZERO SKIPS.
 // Prints the tally it verified, always.
@@ -27,13 +33,13 @@
 
 import { spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
-import { readdirSync, readFileSync, statSync, rmSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 // THE TALLY AND THE THIRD STATUS live in ONE file, imported here and run by CI
 // as a step of its own. Two gates with different definitions of green is one
 // gate and one bypass - that is exactly what `--allow-skip` was - and a second
 // copy of the classification would be the same mistake made by duplication.
-import { tally, report, gateLine } from './gate-tally.mjs';
+import { tally, report, gateLine, expectedMinFloor, EXPECTED_MIN_FILE } from './gate-tally.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -42,7 +48,15 @@ const opt = (name, fallback) => {
 };
 const flag = (name) => argv.includes(name);
 const repo = resolve(opt('--dir', process.cwd()));
-const expectMin = Number(opt('--expect-min', '0'));
+// THE FLOOR, READ RATHER THAN REMEMBERED (round 20, section 5). `--expect-min`
+// existed, it was the gate's only size check beyond `tests === 0`, and NOTHING
+// passed it: not one of the four workflows, and locally only whoever remembered
+// the previous run's count. So the floor lives in a committed file the gate
+// reads, this flag only OVERRIDES it, and a green FULL run RATCHETS it up (see
+// the end of this file) so the number tracks the suite without a human step.
+const committedFloor = expectedMinFloor(repo);
+const expectMinArg = opt('--expect-min', null);
+const expectMin = expectMinArg !== null ? Number(expectMinArg) : committedFloor.floor;
 const docsOnly = flag('--docs-only');
 const docsBase = opt('--base', null);
 const resultsDir = join(repo, 'app', 'build', 'test-results', 'test');
@@ -51,6 +65,13 @@ const resultsDir = join(repo, 'app', 'build', 'test-results', 'test');
 // - a warning file left over from a previous run would excuse a fresh failure.
 const upstreamDir = join(repo, 'app', 'build', 'upstream');
 const warningsDir = join(upstreamDir, 'warnings');
+// WHERE THE RUN SAYS WHEN IT STARTED. `:app:test`'s doFirst writes one row per
+// invocation here, before its first test; the tally reads the EARLIEST of them
+// as the run's start and refuses to classify at all without one. Cleared with
+// the results, for the reason they are cleared: a marker left by a run three
+// days ago would date today's evidence against the wrong window, which is the
+// round-20 finding wearing a different hat.
+const runStartDir = join(repo, 'app', 'build', 'test-run');
 
 const fail = (msg) => { console.error(`GATE FAILED: ${msg}`); process.exit(1); };
 
@@ -259,6 +280,10 @@ if (existsSync(upstreamDir)) {
   try { rmSync(upstreamDir, { recursive: true, force: true }); }
   catch (e) { fail(`could not clear stale upstream evidence (${e.code}); another build is probably running - wait for it`); }
 }
+if (existsSync(runStartDir)) {
+  try { rmSync(runStartDir, { recursive: true, force: true }); }
+  catch (e) { fail(`could not clear the stale run-start marker (${e.code}); another build is probably running - wait for it`); }
+}
 
 const startedAt = Date.now();
 console.log(`gate: running ${docsOnly ? 'the derived classes' : 'full suite'} in ${repo} (forced rerun)`);
@@ -355,6 +380,30 @@ const tests = t.tests;
 const upstreamSuffix = t.upstream.length
   ? `, ${t.upstream.length} PROVEN upstream warning(s): ${t.upstream.map((u) => u.key).join(', ')}`
   : '';
+
+// THE RATCHET. The floor is only worth having if it tracks the suite, and a
+// number a human has to remember to raise is a number that stops being true -
+// which is how `--expect-min` came to exist, be documented, and never be passed.
+// A green FULL run is the authority on how many tests this suite has, so the
+// gate writes it down itself. UP ONLY: a docs-only run covers a derived subset,
+// a partitioned gate's slice covers one slice, and either lowering the floor
+// would excuse exactly the narrowing this check exists to catch. Committing the
+// change is the author's, and it shows up in the diff.
+if (!docsOnly && tests > committedFloor.floor) {
+  const record = {
+    expectMin: tests,
+    verifiedBy: committedFloor.record?.verifiedBy ?? 'scripts/loop-gate.mjs, a green full run',
+    verifiedAt: new Date().toISOString().slice(0, 10),
+    why: committedFloor.record?.why ?? 'the floor the gate reads instead of a remembered --expect-min',
+  };
+  record.verifiedBy = `scripts/loop-gate.mjs, a green full run of ${tests} tests with 0 skips`;
+  writeFileSync(join(repo, EXPECTED_MIN_FILE), `${JSON.stringify(record, null, 2)}\n`);
+  console.log(
+    `gate: RAISED the floor in ${EXPECTED_MIN_FILE} from ${committedFloor.floor} to ${tests} - ` +
+    'this run verified it. Commit that file with your change; the gate reds any later run that ' +
+    'drops below it.'
+  );
+}
 
 if (docsOnly) {
   console.log(

@@ -4,6 +4,15 @@
 //   node scripts/gate-tally.mjs [--dir <repo>] [--results <dir>] [--warnings <dir>]
 //                               [--started-at <epoch-ms>] [--expect-min <n>] [--json]
 //
+// BOTH OPTIONAL ARGUMENTS ARE DERIVED WHEN THEY ARE NOT GIVEN, and that is the
+// round-20 fix rather than a convenience: the run's start comes from the marker
+// `:app:test` writes before its first test (RUN_START_MARKER) and the size floor
+// comes from the committed `ci/expected-min.json` (EXPECTED_MIN_FILE). No
+// workflow passed either flag - `grep -c started-at .github/workflows/*.yml` was
+// 0 in all four - so the freshness rule, the stale-results check and the only
+// size check beyond `tests === 0` were all inert in the gate that decides
+// merges. A flag nobody passes is not a check; a derivation is.
+//
 // Or, 2026-09-08: a live test whose third party is PROVEN down is neither a pass
 // nor a red. It is an UPSTREAM WARNING - a third status - and it can never be
 // produced by our own code failing.
@@ -123,12 +132,124 @@ export const UPSTREAM_SIGNATURE_NAMES = [
 ];
 
 /**
- * `timeout.set(Duration.ofMinutes(90))` in app/build.gradle.kts. Nothing this
- * run produced can be older than that, so it is the honest default window when
- * a caller does not know the run's start (CI runs on a fresh checkout; the merge
- * gate passes its real start instead).
+ * THE RUN'S START, DERIVED - never defaulted, and never a flag somebody has to
+ * remember.
+ *
+ * ADVERSARY ROUND 20, section 4, found the freshness rule inert everywhere it
+ * actually runs. It used to read:
+ *
+ *     const runStart = startedAt ?? (Math.min(...mtimes) - TEST_TASK_TIMEOUT_MS);
+ *
+ * where `startedAt` was the `--started-at` flag and TEST_TASK_TIMEOUT_MS was the
+ * test task's own 90-minute timeout. `grep -c started-at .github/workflows/*.yml`
+ * was 0 in all four, so in CI the window was "ninety minutes before the oldest
+ * result file": an evidence file written an HOUR before the run was accepted as
+ * a proven upstream outage. And `stale` - the check report() calls fatal, "you
+ * are reading someone else's evidence" - was computed only
+ * `if (startedAt !== null)`, so it could not fire in CI at all.
+ *
+ * The remedy is not to pass the flag in four more places. A gate armed by
+ * remembering an argument is a gate disarmed by forgetting one, which is the
+ * removed `--allow-skip` arrived at by omission. So the start is DERIVED from
+ * the run itself:
+ *
+ *   app/build/test-run/starts.tsv, one row per `:app:test` invocation, written
+ *   by the task's own doFirst BEFORE the first test executes (see
+ *   app/build.gradle.kts). Each row is `<epoch-ms>\t<ISO-8601>\t<task path>`.
+ *   The task TRUNCATES that file when the results directory holds no XML (a new
+ *   accumulation begins) and APPENDS otherwise, so a partitioned gate - thirteen
+ *   serial `--tests` slices into one results directory on the laptop - records
+ *   every slice, and the run's start is the EARLIEST of them.
+ *
+ * A caller may still pass `--started-at`, and it can only NARROW the window: the
+ * run start is `max(marker, flag)`. Nothing a caller says can make the gate
+ * accept evidence older than the test task itself recorded.
+ *
+ * With no marker AND no flag the tally FAILS CLOSED. That is deliberate: no
+ * marker means no `:app:test` execution wrote one in this tree, which is either
+ * "the suite did not run" or "the task was up to date and executed nothing" -
+ * both of them fake greens this file exists to refuse.
  */
-export const TEST_TASK_TIMEOUT_MS = 90 * 60 * 1000;
+export const RUN_START_MARKER = join('app', 'build', 'test-run', 'starts.tsv');
+
+/**
+ * The rows of [RUN_START_MARKER] under [repoDir], and the run's start: the
+ * EARLIEST invocation recorded there. `at` is null when the file is absent or
+ * holds no usable row; every caller in this file fails closed on that.
+ */
+export function runStartFromMarker(repoDir) {
+  const path = join(repoDir ?? process.cwd(), RUN_START_MARKER);
+  if (!existsSync(path)) return { at: null, rows: [], path, why: `no start marker at ${path}` };
+  const rows = readFileSync(path, 'utf8').split('\n')
+    .map((line) => line.trim()).filter(Boolean)
+    .map((line) => {
+      const [epoch, iso, task] = line.split('\t');
+      return { at: Number(epoch), iso: iso ?? '', task: task ?? '' };
+    })
+    .filter((r) => Number.isFinite(r.at) && r.at > 0);
+  if (rows.length === 0) {
+    return { at: null, rows, path, why: `the start marker at ${path} holds no usable row` };
+  }
+  return { at: Math.min(...rows.map((r) => r.at)), rows, path, why: null };
+}
+
+/**
+ * THE FLOOR, COMMITTED - the other flag CI never passed (round 20, section 5).
+ *
+ * `--expect-min` is the gate's only size check beyond `tests === 0`, and no
+ * workflow passed it either, so a suite narrowed from 1650 tests to ONE - by a
+ * `--tests` filter that matched almost nothing, or by a class that failed to
+ * compile - was a green build. `docs/ADVERSARY-ROUND-BRIEF.md` told a reviewer
+ * to supply the number BY HAND, which is the same check nobody makes twice.
+ *
+ * The floor is now READ, out of a committed `ci/expected-min.json`. The two
+ * candidates were weighed and this is why this one won:
+ *
+ *   the published `test-report` ARTIFACT of the last green run is authoritative,
+ *   but it EXPIRES (7 days' retention), it needs the API and a token, a fork's
+ *   first pull request has no previous run to read, and a fortnight's quiet
+ *   would silently disarm the check. A floor that can evaporate is a floor that
+ *   will.
+ *
+ *   a COMMITTED FILE is in every checkout including a fork's, never expires,
+ *   moves only in a reviewable diff, and is written by the merge gate itself -
+ *   `scripts/loop-gate.mjs` ratchets it UP after a green FULL run - so it is not
+ *   a number a human has to remember either.
+ *
+ * The committed file wins on the property that decides everything else in this
+ * file: it cannot be forgotten, because reading it is not optional and raising
+ * it is not a human step.
+ */
+export const EXPECTED_MIN_FILE = join('ci', 'expected-min.json');
+
+/**
+ * The committed floor under [repoDir], or 0 when there is none. Returns the
+ * whole record, because a number with no provenance is the estimate this
+ * replaces.
+ */
+export function expectedMinFloor(repoDir) {
+  const path = join(repoDir ?? process.cwd(), EXPECTED_MIN_FILE);
+  if (!existsSync(path)) return { floor: 0, path, source: 'none', record: null };
+  try {
+    const record = JSON.parse(readFileSync(path, 'utf8'));
+    const floor = Number(record?.expectMin);
+    if (!Number.isFinite(floor) || floor < 0) return { floor: 0, path, source: 'unusable', record };
+    return { floor: Math.trunc(floor), path, source: 'committed', record };
+  } catch (e) {
+    return { floor: 0, path, source: `unreadable: ${e.message}`, record: null };
+  }
+}
+
+/**
+ * The results directory a repository's own suite writes to. The committed floor
+ * is about THIS suite, so it is applied automatically only when the tally is
+ * reading that directory; a caller pointing `--results` somewhere else (the
+ * nested runs in UpstreamWarningGateTest, a probe harness) is classifying
+ * something that is not the suite, and has to say `--expect-min` to get a size
+ * check.
+ */
+export const defaultResultsDir = (repoDir) =>
+  join(repoDir ?? process.cwd(), 'app', 'build', 'test-results', 'test');
 
 const decode = (s) => String(s ?? '')
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -331,10 +452,27 @@ export function tally({ resultsDir, warningsDir, startedAt = null, repoDir = pro
     return { error: 'no result files - the suite did not run (a fast "BUILD SUCCESSFUL" means a cached task)' };
   }
 
-  const mtimes = files.map((f) => statSync(join(resultsDir, f)).mtimeMs);
-  // Without a caller-supplied start, nothing this run produced can predate the
-  // oldest XML by more than the test task's own timeout.
-  const runStart = startedAt ?? (Math.min(...mtimes) - TEST_TASK_TIMEOUT_MS);
+  // THE RUN'S START, DERIVED (round 20, section 4). The marker the test task
+  // wrote before its first test, narrowed by whatever the caller passed - never
+  // widened by it, and never defaulted to "ninety minutes ago".
+  const marker = runStartFromMarker(repoDir);
+  const bounds = [marker.at, startedAt].filter((v) => typeof v === 'number' && Number.isFinite(v));
+  if (bounds.length === 0) {
+    return {
+      error: `${marker.why} and no --started-at was given, so this tally cannot date its own run. ` +
+        'The marker is written by `:app:test`\'s doFirst before the first test executes; its absence ' +
+        'means the suite did not run in this tree, or the task was up to date and executed nothing. ' +
+        'The freshness rule and the stale-results check are both measured against it, so classifying ' +
+        'without one would certify evidence of unknown age',
+    };
+  }
+  const runStart = Math.max(...bounds);
+  const runStartSource = marker.at === null
+    ? '--started-at (no marker; a caller-supplied start)'
+    : runStart === marker.at
+      ? `${RUN_START_MARKER} (${marker.rows.length} invocation(s), earliest ` +
+        `${marker.rows.find((r) => r.at === marker.at)?.iso ?? new Date(marker.at).toISOString()})`
+      : `--started-at, which NARROWED the marker's ${new Date(marker.at).toISOString()}`;
   const warnings = readWarnings(warningsDir);
 
   let tests = 0, failures = 0, errors = 0, skipped = 0;
@@ -342,7 +480,10 @@ export function tally({ resultsDir, warningsDir, startedAt = null, repoDir = pro
 
   for (const f of files) {
     const path = join(resultsDir, f);
-    if (startedAt !== null && statSync(path).mtimeMs < startedAt) stale.push(f);
+    // ALWAYS computed now. It used to be guarded by `startedAt !== null`, and
+    // no workflow ever passed one, so the fatal "you are reading someone else's
+    // evidence" check was dead in CI (round 20, section 4).
+    if (statSync(path).mtimeMs < runStart) stale.push(f);
     const xml = readFileSync(path, 'utf8');
     const suite = xml.match(/<testsuite\b[^>]*>/)?.[0] ?? '';
     const num = (attr) => Number(suite.match(new RegExp(`${attr}="(\\d+)"`))?.[1] ?? 0);
@@ -384,11 +525,105 @@ export function tally({ resultsDir, warningsDir, startedAt = null, repoDir = pro
   const orphanWarnings = [...warnings.keys()].filter((k) => !usedKeys.has(k));
 
   return {
-    resultsDir, warningsDir, repoDir, files: files.length, runStart,
+    resultsDir, warningsDir, repoDir, files: files.length,
+    runStart, runStartSource, runStartMarker: marker.path, runStartInvocations: marker.rows,
     tests, failures, errors, skipped,
     skippedNames, upstream, red, stale, orphanWarnings,
     ranClasses: [...ranClasses].sort(),
   };
+}
+
+/**
+ * THE VERDICT OBJECT - every condition the gate fails on, and its state.
+ *
+ * ADVERSARY ROUND 20, section 5: `scripts/ci-summary.mjs` opens "A PRESENTER,
+ * NEVER A VERDICT" and is right that it does not set the exit code, but the
+ * first line it rendered was computed from TWO of the five conditions
+ * report() fails on:
+ *
+ *     const ours = t.red.length;
+ *     const verdict = ours || t.skippedNames.length ? 'RED ...' : ...
+ *
+ * so a run the gate failed on stale results, on `tests === 0`, or on the size
+ * floor was headed `## CI gate: GREEN` - with, in the stale case, "You are
+ * reading an earlier run's evidence. This is fatal." twenty lines below the
+ * word GREEN. Measured through both real scripts over five result directories
+ * (exploit-corpus/realworld/adversary-round20/ci): three of five disagreed.
+ *
+ * Two renderings of "what is a pass" is one gate and one bypass, exactly as two
+ * classifiers would be. So there is now ONE statement of the conditions, here,
+ * and everything downstream reads it: report() prints them and sets the exit
+ * code from `green`, the CLI exits on the same field in --json mode as well, and
+ * the presenter renders `headline` verbatim. The summary CANNOT disagree with
+ * the exit code, because it is not computing anything.
+ *
+ * [t] may be an errored tally (`{ error }`); that is the sixth condition and the
+ * one an operator most needs named, because a missing results directory reads as
+ * "0 failures" to anything that counts rather than checks.
+ */
+export function verdict(t, { expectMin = 0 } = {}) {
+  const conditions = t.error
+    ? [{
+      condition: 'the suite ran at all',
+      failed: true,
+      detail: t.error,
+      fatal: `GATE FAILED: ${t.error}`,
+    }]
+    : [
+      {
+        condition: 'every result file belongs to this run',
+        failed: t.stale.length > 0,
+        detail: t.stale.length
+          ? `${t.stale.length} of ${t.files} result file(s) predate ${new Date(t.runStart).toISOString()}` +
+            ` (run start from ${t.runStartSource})`
+          : `${t.files} result file(s), all newer than ${new Date(t.runStart).toISOString()}`,
+        fatal: t.stale.length
+          ? `GATE FAILED: ${t.stale.length} result file(s) predate this run (e.g. ${t.stale[0]}) - ` +
+            'you are reading someone else\'s evidence'
+          : null,
+      },
+      {
+        condition: 'the suite recorded tests',
+        failed: t.tests === 0,
+        detail: `tests=${t.tests}`,
+        fatal: t.tests === 0 ? 'GATE FAILED: zero tests recorded' : null,
+      },
+      {
+        condition: 'the suite was not narrowed below the floor',
+        failed: Boolean(expectMin) && t.tests < expectMin,
+        detail: expectMin
+          ? `${t.tests} ran, floor ${expectMin}`
+          : 'no floor in force (no ci/expected-min.json and no --expect-min)',
+        fatal: expectMin && t.tests < expectMin
+          ? `GATE FAILED: only ${t.tests} tests ran, expected at least ${expectMin} - a filter or a ` +
+            'compile failure silently narrowed the suite'
+          : null,
+      },
+      {
+        condition: 'no failure or error is ours',
+        failed: t.red.length > 0,
+        detail: t.red.length ? t.red.map((r) => r.key).join(', ') : 'none',
+        fatal: t.red.length ? `GATE FAILED: ${t.red.length} failure(s)/error(s) that are OURS:` : null,
+      },
+      {
+        condition: 'nothing skipped',
+        failed: t.skippedNames.length > 0,
+        detail: t.skippedNames.length ? t.skippedNames.join(', ') : 'none',
+        fatal: t.skippedNames.length
+          ? 'GATE FAILED: skipped test(s) - a skip is a test that did not run, and there is no ' +
+            `allowlist:\n  ${t.skippedNames.join('\n  ')}`
+          : null,
+      },
+    ];
+  const green = !conditions.some((c) => c.failed);
+  const headline = t.error
+    ? 'THE SUITE DID NOT RUN'
+    : !green
+      ? 'RED - this build does not ship'
+      : t.upstream.length
+        ? 'GREEN for us, with a proven upstream outage - nothing those tests name was verified'
+        : 'GREEN';
+  return { green, headline, expectMin, conditions, failed: conditions.filter((c) => c.failed) };
 }
 
 /** `gate: tests=... failures=... errors=... skipped=0 upstream=N (names...)`. */
@@ -419,28 +654,20 @@ export function report(t, { log = console.log, err = console.error, expectMin = 
     log(`  NOTE: evidence file ${o}.json matches no UPSTREAM WARNING failure in these results`);
   }
 
-  let ok = true;
-  if (t.stale.length) {
-    err(`GATE FAILED: ${t.stale.length} result file(s) predate this run (e.g. ${t.stale[0]}) - ` +
-      'you are reading someone else\'s evidence');
-    ok = false;
+  // THE VERDICT, from the one statement of the conditions (round 20, section 5).
+  // report() no longer decides anything either - it prints what verdict() says,
+  // in the same wording it always used, and so does the job summary. A presenter
+  // and a gate that agree by construction cannot disagree by drift.
+  const v = verdict(t, { expectMin });
+  log(`gate: run started ${new Date(t.runStart).toISOString()} - derived from ${t.runStartSource}`);
+  for (const c of v.conditions) {
+    if (!c.failed) continue;
+    err(c.fatal);
+    if (c.condition === 'no failure or error is ours') {
+      for (const r of t.red) err(`  ${r.key}${r.why ? ` <- ${r.why}` : ''}`);
+    }
   }
-  if (t.tests === 0) { err('GATE FAILED: zero tests recorded'); ok = false; }
-  if (expectMin && t.tests < expectMin) {
-    err(`GATE FAILED: only ${t.tests} tests ran, expected at least ${expectMin} - a filter or a ` +
-      'compile failure silently narrowed the suite');
-    ok = false;
-  }
-  if (t.red.length) {
-    err(`GATE FAILED: ${t.red.length} failure(s)/error(s) that are OURS:`);
-    for (const r of t.red) err(`  ${r.key}${r.why ? ` <- ${r.why}` : ''}`);
-    ok = false;
-  }
-  if (t.skippedNames.length) {
-    err('GATE FAILED: skipped test(s) - a skip is a test that did not run, and there is no allowlist:\n  ' +
-      t.skippedNames.join('\n  '));
-    ok = false;
-  }
+  const ok = v.green;
   if (ok && t.upstream.length) {
     log(`gate: ${t.upstream.length} PROVEN upstream outage(s). A warning is a red for the UPSTREAM, not`);
     log('  for us: nothing those tests name was verified, the ledger entry is the debt, and the');
@@ -473,8 +700,35 @@ if (isMain) {
     resultsDir, warningsDir, repoDir: repo,
     startedAt: startedAtArg === null ? null : Number(startedAtArg),
   });
+  // THE FLOOR, RESOLVED THE SAME WAY FOR EVERY CALLER (round 20, section 5).
+  // An explicit --expect-min wins; otherwise the committed ci/expected-min.json
+  // arms the check automatically, but only when this is the repository's OWN
+  // results directory - a caller pointing --results at a nested run's temp
+  // directory is not classifying the suite, and a floor of 1650 against its one
+  // test would be a red about nothing.
+  const expectMinArg = opt('--expect-min', null);
+  const floor = expectedMinFloor(repo);
+  const ownResults = resultsDir === resolve(defaultResultsDir(repo));
+  const expectMin = expectMinArg !== null
+    ? Number(expectMinArg)
+    : (ownResults ? floor.floor : 0);
   if (t.error) { console.error(`GATE FAILED: ${t.error}`); process.exit(1); }
-  if (argv.includes('--json')) { console.log(JSON.stringify(t, null, 2)); process.exit(t.red.length || t.skippedNames.length ? 1 : 0); }
-  const ok = report(t, { expectMin: Number(opt('--expect-min', '0')) });
+  const v = verdict(t, { expectMin });
+  // --json exits on the SAME verdict. It used to exit on
+  // `t.red.length || t.skippedNames.length` - two of the five conditions, the
+  // very split round 20 found in the presenter, in the mode the probe harnesses
+  // and the nested-run tests use.
+  if (argv.includes('--json')) {
+    console.log(JSON.stringify({ ...t, verdict: v }, null, 2));
+    process.exit(v.green ? 0 : 1);
+  }
+  if (expectMin) {
+    console.log(`gate: floor ${expectMin} test(s), from ` +
+      (expectMinArg !== null ? '--expect-min' : `${EXPECTED_MIN_FILE} (${floor.record?.verifiedBy ?? 'no provenance'})`));
+  } else if (ownResults) {
+    console.log(`gate: NO SIZE FLOOR - ${floor.path} is ${floor.source}. A suite narrowed to one ` +
+      'test would pass everything but the zero-tests check');
+  }
+  const ok = report(t, { expectMin });
   process.exit(ok ? 0 : 1);
 }
