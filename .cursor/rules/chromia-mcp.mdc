@@ -65,6 +65,23 @@ Rules that are not negotiable:
   ship the shape that cannot express the bug, with the drain as a must-fail test.
   A redirect to a template that does not cover the ask's exploit class is a hazard;
   name the declined class and the missing guard instead.
+- **A DESIGN NOTE IS PRODUCTION ADVICE WITH NO TEST BEHIND IT** (round 20). Agents
+  read `docs/TEMPLATE-GAPS.md` and BUILD from it. Round 20 built that file's own
+  commit-reveal raffle note, proved eleven guards load-bearing on a chain, and was
+  drained five of five draws on 4.76% of the stake - because one sentence in the
+  note ("her choice is between REVEALING and FORFEITING her deposit") is true of one
+  commitment and false of two. Write the note's INVARIANT as something a chain can
+  be made to answer, not as a sentence, or do not write the note.
+- **A class is recognised when the ask is ABOUT it, not when its word appears**
+  (round 20). `DappScaffold.closestTemplateNote` gives each concept class a role
+  from WHERE its keys landed - inside the head noun phrase (answer the ask with it),
+  named after the head (a compound ask: name every covered half, scaffold none), or
+  a merely WEAK key after the head (a note beside the scaffold, never a refusal in
+  place of it) - and a key inside a negation window is the class being ruled out.
+  Seven asks for classes this server SHIPS A TEMPLATE FOR were refused before that
+  rule, including a stablecoin ask whose own words were that it uses no VRF. Add a
+  key only with the corpus row that proves it fires and the clean-pass ask that
+  proves it does not steal.
 
 Running the server from Cursor: the `chromia-local` MCP entry in `~/.cursor/mcp.json`
 starts the local jar over stdio (no port, no token). Rebuild it with
