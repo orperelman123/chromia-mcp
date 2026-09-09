@@ -30,7 +30,10 @@ import java.util.concurrent.TimeUnit
  *    19,281 segments indexed, 540 documents and 6,542 segments left out by the
  *    F15 rule - 25,823 offered against the published 25,588, from a store of
  *    111,686,474 bytes against 147,681,194, which is 75.6% and would have been
- *    the byte gate's third refusal of a healthy ingest.
+ *    the byte gate's third refusal of a healthy ingest. It reads about 0.9%
+ *    higher than run 34344751517's 19,107 for the same corpus because a Windows
+ *    checkout carries one extra character per line (docs/CI.md); both sides of
+ *    the real gate come off the same runner.
  *  - `local-refresh-postchain-lost.provenance.json` is that same run with the
  *    `postchain` row's four numbers set to zero and the totals recomputed from
  *    the rows: what the sidecar of a run whose `postchain` clone produced

@@ -439,15 +439,24 @@ excluded segment sits in the two repositories that carry host-language sources,
 `rell` (4,601) and `postchain` (1,941); for the other six, `available` is simply
 what they indexed.
 
-**One unit seam, named rather than smoothed over.** The published 25,588 is the
-STORE's segment count — the old workflow grepped it out of `rag-eval.txt` —
-while the sidecar's `segments` is what the splitter *planned*, before the
-embedding pass drops the blank ones. The gap is the same 0.9% in both ingests:
-25,823 planned / 25,588 stored on 2026-09-04, and 19,281 planned / 19,107 stored
-on 2026-09-07 and 2026-09-09. The totals fallback therefore compares a planned
-count against a stored one and is 0.9% generous, which decides nothing against a
-20% floor, and it disappears at the first publish, when both sides are the
-generator's own number.
+**Why the local run measures 19,281 where the runner measured 19,107.** Not a
+drop, and not upstream drift: the two counts are the same corpus split from
+checkouts with different line endings. This laptop's git has
+`core.autocrlf=true` in the system config, so every text file arrives with one
+extra character per line, and a splitter that cuts at 1,000 characters
+accordingly finds a few more pieces. Cloning `chromia-cli`'s `docs` twice, once
+each way, measures it: 86,078 characters against 83,939 over 2,139 lines —
+exactly one character per line. The same 0.9% sits between the index f0ee597
+audited on this laptop (25,823 segments) and the runner's published index
+(25,588), which is what makes it a constant of the machine rather than of the
+corpus.
+
+Nothing about it is *planned versus stored*: run 34344751517 split 19,107
+segments and `rag-eval` read 19,107 straight back out of the store, and the
+local run split 19,281 and read 19,281 back. Inside the workflow both sides of
+the gate come off the same Linux runner and the effect does not exist. It exists
+only when a LOCAL sidecar is compared against a PUBLISHED one, as the proof
+above does — about 0.9% high, against a 20% floor.
 
 The fallback is weak in a second way the per-source comparison is not: a run
 that loses `postchain` outright — all 5,546 segments it offers — lands at 79.2%

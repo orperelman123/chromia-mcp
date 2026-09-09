@@ -40,15 +40,19 @@
 // comparison is per source and a single repository failing to clone can no
 // longer hide inside a healthy total.
 //
-// ONE UNIT SEAM, NAMED rather than smoothed over, because it is arithmetic. The
-// published 25,588 is the STORE's segment count - the old workflow grepped it
-// out of rag-eval.txt - while `segments` here is what the splitter PLANNED,
-// before the embedding pass drops the blank ones. Both ingests show the same
-// 0.9% between the two: 25,823 planned against 25,588 stored on 2026-09-04, and
-// 19,281 planned against 19,107 stored on 2026-09-07 and 2026-09-09. So the
-// TOTALS fallback compares a planned count against a stored one and is 0.9%
-// generous, which decides nothing against a 20% floor - and it is gone at the
-// first publish, when both sides are the generator's own number.
+// ONE THING THAT MOVES THE NUMBERS AND IS NOT AN INGEST: the line endings of
+// the checkout the segments were split from. A local run of this generator on
+// the dev laptop measured 19,281 segments on 2026-09-09; run 34344751517, the
+// same corpus the same day, measured 19,107. Not a drop and not drift - the
+// laptop's git has core.autocrlf=true (system config), so every text file
+// arrives with one extra character per line. Measured on chromia-cli's `docs`,
+// cloned twice: 86,078 characters against 83,939 over 2,139 lines, exactly one
+// per line. The same 0.9% sits between the index f0ee597 audited locally
+// (25,823) and the runner's published one (25,588). Inside the workflow both
+// sides are the same Linux runner, so the gate never sees this; a LOCAL sidecar
+// compared against a PUBLISHED one runs about 0.9% high, which against a 20%
+// floor decides nothing. Planned and stored are NOT the seam: run 34344751517
+// split 19,107 and rag-eval read 19,107 back out of the store.
 //
 // And the fallback is weak in a second way that the per-source form is not: a
 // run that loses `postchain` outright - all 5,546 segments it offers - lands at
