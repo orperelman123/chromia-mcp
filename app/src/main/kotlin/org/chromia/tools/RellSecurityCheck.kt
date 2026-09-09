@@ -1821,6 +1821,35 @@ object RellSecurityCheck {
      * one of the two numbers. A value refreshed on some paths and not others is
      * caught by who writes the state that chooses the path, which is the rule
      * rounds 16 and 17 built, and not by pessimising every branch.
+     *
+     * ROUND 20 MEASURED HOW MUCH OF THAT WAS THE CEILING AND HOW MUCH WAS THE
+     * DAPP HAVING NO AUTH AT ALL. Round 19's DAO leaves `ballot` and
+     * `settle_motion` unauthenticated, so every probe written on it also draws
+     * `unauthenticated-mutation` at HIGH - and, less visibly, `book.pot` enters
+     * [proposerControlledFields] through an untrusted `settle_motion`, which is
+     * what rejected three of the four floors that looked CAUGHT. Add ONE line
+     * to each of those two operations - the round-17 non-principal signer guard
+     * the shipped templates teach, which an attacker satisfies by signing her
+     * own transaction - and `settle_motion` becomes trusted (it is gated on a
+     * tally), `pot` leaves the set, and FIVE of the six floors go silent with
+     * the report at `ok:true` and ZERO findings. All five still drain, with the
+     * guard in place, one signature and one ballot
+     * (`realworld/adversary-round20/drain/authed_*.chain.json`).
+     *
+     * So the two halves are separated here, deliberately, and each answers on
+     * its own:
+     *  - WHAT THE TERM IS WORTH. A floor whose value, or whose CEILING
+     *    ([evalMaxBound], now composing through the operators and calls the
+     *    value walk reads), is below [SMALLEST_ABSOLUTE_FLOOR] bounds nothing
+     *    on any path. That is a finding whatever the operation's auth looks
+     *    like, and it is the one the six round-20 floors now draw.
+     *  - WHO WRITES THE TERM. A floor that resolves to state an arbitrary
+     *    signer moves ([callerWrittenFields], [proposerControlledFields]) is
+     *    not a floor either. That trace depends on the auth of the operations
+     *    that WRITE the field, which is what it is measuring, and it is a
+     *    SECOND reason with its own sentence in the finding.
+     * Neither is a precondition of the other; a floor that fails either one is
+     * not a participation floor.
      */
     private const val SMALLEST_ABSOLUTE_FLOOR = 10L
 
@@ -2103,30 +2132,72 @@ object RellSecurityCheck {
         val calls = calledNames(op.body)
         val movesValue = VALUE_MUTATION_REGEX.containsMatchIn(op.body) || calls.any { it in valueMutatingFunctions }
         if (!movesValue) return emptyList()
-        // A floor IS written here, and it is written by the proposer: say so,
-        // because "add a quorum" is useless advice to an author who has one.
+        // WHICH OF THE RULE'S TWO QUESTIONS FIRED (round 20). The three cases
+        // are disjoint and each is a different thing to fix, so each gets its
+        // own sentence: "add a quorum" is useless advice to an author who has
+        // one, and so is "the proposer writes it" to an author whose floor is
+        // nobody's to write and simply worth nothing.
+        val worthless = worthlessFloorTerm(op.body, env)
         val proposerFloor = hasParticipationFloor(op.body, env, emptySet())
         return listOf(
             Finding(
                 "MEDIUM", "majority-without-quorum", path, op.line,
-                if (proposerFloor) {
-                    "operation ${op.name} moves value gated on a participation floor the PROPOSER " +
-                        "writes - the floor is a row field some operation sets from its own caller's " +
-                        "arguments, so whoever creates the proposal also chooses the bar it has to " +
-                        "clear: propose with a floor of 1 and vote 1-0 on your own proposal"
-                } else {
-                    "operation ${op.name} moves value gated only by a bare vote majority (yes > no) - " +
-                        "no quorum, participation threshold, or vote-weight term anywhere in the check, so " +
-                        "a single account voting 1-0 on its own proposal satisfies it"
+                when {
+                    worthless != null ->
+                        "operation ${op.name} moves value gated on a participation floor that BOUNDS " +
+                            "NOTHING - `${worthless.first}` is at most ${worthless.second} on every path " +
+                            "through it, below the smallest bar a quorum can be ($SMALLEST_ABSOLUTE_FLOOR), " +
+                            "so a single account voting 1-0 on its own proposal clears it however this " +
+                            "operation is authenticated"
+                    proposerFloor ->
+                        "operation ${op.name} moves value gated on a participation floor the PROPOSER " +
+                            "writes - the floor is a row field some operation sets from its own caller's " +
+                            "arguments, so whoever creates the proposal also chooses the bar it has to " +
+                            "clear: propose with a floor of 1 and vote 1-0 on your own proposal"
+                    else ->
+                        "operation ${op.name} moves value gated only by a bare vote majority (yes > no) - " +
+                            "no quorum, participation threshold, or vote-weight term anywhere in the check, so " +
+                            "a single account voting 1-0 on its own proposal satisfies it"
                 },
-                "Add a participation floor and/or weight votes: require(yes_votes + no_votes >= quorum) " +
-                    "with quorum derived from state the proposer does not write in the same operation " +
-                    "(the member count, total stake, module args), or accumulate voting_power per voter " +
-                    "instead of 1. Advisory: whether this governance needs a quorum is a design decision " +
-                    "static analysis cannot prove - if a bare majority is intended (e.g. 2-party escrow), " +
-                    "document it and ignore this finding."
+                if (worthless != null) {
+                    "Raise the floor: `${worthless.first}` can never exceed ${worthless.second}, so the " +
+                        "require() it sits in refuses nothing. Derive it from state the proposer does not " +
+                        "write in the same operation (the member count, total stake, module args) and check " +
+                        "that EVERY branch of it is a real bar - a `when`, a min()/abs() or a helper that " +
+                        "returns 0 on any path is a floor of 0 on that path. Advisory: whether this " +
+                        "governance needs a quorum is a design decision static analysis cannot prove."
+                } else {
+                    "Add a participation floor and/or weight votes: require(yes_votes + no_votes >= quorum) " +
+                        "with quorum derived from state the proposer does not write in the same operation " +
+                        "(the member count, total stake, module args), or accumulate voting_power per voter " +
+                        "instead of 1. Advisory: whether this governance needs a quorum is a design decision " +
+                        "static analysis cannot prove - if a bare majority is intended (e.g. 2-party escrow), " +
+                        "document it and ignore this finding."
+                }
             )
         )
+    }
+
+    /**
+     * The floor term this operation is gated on and the BEST value it can take,
+     * when that best is below [SMALLEST_ABSOLUTE_FLOOR]; null when no term of
+     * the operation is worthless in that sense (including when this scan cannot
+     * read one, which keeps the benefit of the doubt).
+     *
+     * This is the half of the rule that answers WITHOUT the auth trace, and it
+     * is read only to WORD the finding: [hasParticipationFloor] has already
+     * decided that there is one. A module argument keeps its benefit of the
+     * doubt here exactly as it does there.
+     */
+    internal fun worthlessFloorTerm(body: String, env: BoundEnv): Pair<String, Long>? {
+        PARTICIPATION_FLOOR_REGEX.findAll(body).forEach { m ->
+            val term = m.groupValues[1].trim()
+            val bound = resolveBound(term, env)
+            if (bound.moduleArg != null) return@forEach
+            val best = bound.literal ?: evalMaxBound(term, env) ?: return@forEach
+            if (best < SMALLEST_ABSOLUTE_FLOOR) return term to best
+        }
+        return null
     }
 
     /**
@@ -2749,17 +2820,48 @@ object RellSecurityCheck {
      * all. The value is genuinely unknown; the CEILING is not, and a floor that
      * is at most 0 is not a floor in any branch.
      *
-     * Only the shapes where a ceiling is SOUND are answered:
-     *  - anything [evalBound] values exactly - its ceiling is that value;
-     *  - a `when` whose every arm has a ceiling - the largest of them;
-     *  - those two behind parentheses, a module-level `val`, or a callable with
-     *    no parameters (`participation_floor()`, and the same name written
-     *    without its parentheses).
+     * ROUND 20 WRAPPED THE `when` IN A CALL. Round 19 answered the ceiling for
+     * three shapes and nothing else, and `whenArmValues` - the common parse -
+     * refuses any `when` with text after its closing brace, so
+     * `min(25, when { book.pot > 0 -> 0; else -> -1 })` and
+     * `abs(when { ... })` lost the ceiling to the one `)`. Both are at most 0
+     * and 1, neither is a participation floor on any path, and both DRAINED a
+     * DAO on a real chain (`realworld/adversary-round20/drain`, pot 1000000 ->
+     * 0, ONE signature, ONE ballot). The KDoc excused only `-(when { ... })`,
+     * "because negation inverts the order and this walk does not model that" -
+     * a real reason for negation and for nothing else.
      *
-     * Everything else is null. In particular an ARITHMETIC over an unvalued
-     * `when` is not answered: `-(when { ... })` inverts the order and this walk
-     * does not model that, and a ceiling guessed there is how a rule starts
-     * firing on correct code. `when { a -> 0; else -> 25 }` has a ceiling of
+     * So the ceiling now COMPOSES the same way the value does, and it composes
+     * through a RANGE ([BoundRange], [evalBoundRange]) rather than through a
+     * maximum alone: `abs` and negation need the term's smallest value as well
+     * as its largest, and a walk that carries only one end of the interval
+     * cannot answer them soundly. The shapes answered are exactly the ones
+     * [evalBound] reads:
+     *  - anything [evalBound] values exactly - its range is that value twice;
+     *  - a `when` whose every arm has a range - the union of them;
+     *  - `+`/`-` (unary and binary) and `*`, by interval arithmetic, refused on
+     *    overflow; `/` and `%` only where [evalBound] valued them outright;
+     *  - `min`/`max`, monotone in both arguments, by their argument ranges -
+     *    and `min`'s ceiling needs only ONE argument's ceiling, because
+     *    `min(25, anything)` is at most 25 whatever the second term is;
+     *  - `abs`, by the range: |x| is at most max(-lo, hi), and exactly the
+     *    reflected interval when the term does not straddle zero;
+     *  - parentheses, a module-level `val`, a struct field off a call
+     *    ([structFieldRange]), a constant index into a list literal, and a
+     *    callable's ONE expression.
+     *
+     * A CALLABLE IS ENTERED WITHOUT ITS ARGUMENTS, and that is the one place
+     * this could invent a number, so it is fenced rather than trusted: the
+     * callee's parameter names are BLOCKED for the whole of the walk under it,
+     * so a body whose ceiling depends on an argument comes back unresolved and
+     * only a body whose ceiling holds FOR EVERY argument is read. `zero_of(n:
+     * integer): integer = 0` has a ceiling of 0 whatever it is handed;
+     * `double(n: integer): integer = n * 2` has none here. That is what makes
+     * `min(25, when { ... })`, `abs(when { ... })`, `max(zero_of(book.pot), 0)`,
+     * `limits_of(book.pot).floor` and `outer()` -> `inner(1)` all answerable
+     * without binding a single argument.
+     *
+     * `when { a -> 0; else -> 25 }` has a ceiling of
      * 25 and so is NOT a finding by value - a floor refreshed on some paths and
      * not others is caught, when it is caught, by WHO WRITES THE STATE that
      * chooses the path (the round-19 measurement: `floors()[book.pot % 2]` over
@@ -2771,34 +2873,283 @@ object RellSecurityCheck {
         env: BoundEnv,
         depth: Int = 0,
         seen: Set<String> = emptySet()
-    ): Long? {
-        if (depth > MAX_BOUND_EVAL_DEPTH) return null
-        evalBound(expr, env, emptyMap(), depth, seen)?.let { return it }
+    ): Long? = evalBoundRange(expr, env, depth, seen, emptySet()).max
+
+    /**
+     * The interval [expr] can take: its smallest and its largest value, either
+     * end null when this scan cannot read that end. UNKNOWN on both ends is
+     * "no ceiling", which is what keeps the benefit of the doubt in
+     * [hasParticipationFloor].
+     */
+    internal data class BoundRange(val min: Long?, val max: Long?) {
+        /** Both ends read - what `abs` and a multiplication need before they can answer. */
+        val closed: Boolean get() = min != null && max != null
+
+        companion object {
+            val UNKNOWN = BoundRange(null, null)
+            fun exactly(v: Long) = BoundRange(v, v)
+        }
+    }
+
+    /** Long arithmetic that refuses to wrap: an overflowed ceiling is not a ceiling. */
+    private fun exact(op: () -> Long): Long? = try {
+        op()
+    } catch (_: ArithmeticException) {
+        null
+    }
+
+    private fun addExact(a: Long?, b: Long?): Long? {
+        val x = a ?: return null
+        val y = b ?: return null
+        return exact { Math.addExact(x, y) }
+    }
+
+    private fun subExact(a: Long?, b: Long?): Long? {
+        val x = a ?: return null
+        val y = b ?: return null
+        return exact { Math.subtractExact(x, y) }
+    }
+
+    private fun mulExact(a: Long?, b: Long?): Long? {
+        val x = a ?: return null
+        val y = b ?: return null
+        return exact { Math.multiplyExact(x, y) }
+    }
+
+    private fun negExact(a: Long?): Long? {
+        val x = a ?: return null
+        return exact { Math.negateExact(x) }
+    }
+
+    /**
+     * [expr]'s range - the walk behind [evalMaxBound]. [blocked] holds the
+     * parameter names of every callable this walk entered WITHOUT binding its
+     * arguments: a term that reads one of them has no range here, so only a
+     * bound that holds for every possible argument is ever answered.
+     */
+    private fun evalBoundRange(
+        expr: String,
+        env: BoundEnv,
+        depth: Int,
+        seen: Set<String>,
+        blocked: Set<String>
+    ): BoundRange {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return BoundRange.UNKNOWN
         var e = expr.trim()
         while (e.length > 1 && e.first() == '(' && matchDelimiter(e, 0, '(', ')') == e.length - 1) {
             e = e.substring(1, e.length - 1).trim()
         }
-        if (e.isEmpty()) return null
-        if (WHEN_EXPR_HEAD_REGEX.containsMatchIn(e)) {
-            val arms = whenArmValues(e) ?: return null
-            var best: Long? = null
-            arms.forEach { arm ->
-                val v = evalMaxBound(arm, env, depth + 1, seen) ?: return null
-                best = if (best == null) v else maxOf(best!!, v)
-            }
-            return best
+        if (e.isEmpty()) return BoundRange.UNKNOWN
+        val readsABlockedName = blocked.isNotEmpty() &&
+            refsOf(e).any { it.substringBefore('.') in blocked }
+        if (!readsABlockedName) {
+            evalBound(e, env, emptyMap(), depth, seen)?.let { return BoundRange.exactly(it) }
         }
-        // The same name one hop on: a module-level `val`, or the ONE expression
-        // a parameterless function or query returns. A callable that takes
-        // arguments is not followed here - its parameters would have to be
-        // bound, and [evalBound] is the walk that does that.
+        if (WHEN_EXPR_HEAD_REGEX.containsMatchIn(e)) return whenRange(e, env, depth, seen, blocked)
+        splitBinary(e, "+-").takeIf { it.size > 1 }?.let { return additiveRange(it, env, depth, seen, blocked) }
+        splitBinary(e, "*/%").takeIf { it.size > 1 }?.let { return productRange(it, env, depth, seen, blocked) }
+        if (e.startsWith("-")) {
+            val r = evalBoundRange(e.substring(1), env, depth + 1, seen, blocked)
+            return BoundRange(negExact(r.max), negExact(r.min))
+        }
+        if (e.startsWith("+")) return evalBoundRange(e.substring(1), env, depth + 1, seen, blocked)
+        return atomRange(e, env, depth, seen, blocked)
+    }
+
+    /** The union of the arms' ranges - an arm with no ceiling loses the ceiling, and the same for the floor. */
+    private fun whenRange(
+        e: String,
+        env: BoundEnv,
+        depth: Int,
+        seen: Set<String>,
+        blocked: Set<String>
+    ): BoundRange {
+        val arms = whenArmValues(e) ?: return BoundRange.UNKNOWN
+        var lo: Long? = null
+        var hi: Long? = null
+        var loRead = true
+        var hiRead = true
+        arms.forEach { arm ->
+            val r = evalBoundRange(arm, env, depth + 1, seen, blocked)
+            val armLo = r.min
+            val armHi = r.max
+            if (armLo == null) loRead = false else lo = lo.let { if (it == null) armLo else minOf(it, armLo) }
+            if (armHi == null) hiRead = false else hi = hi.let { if (it == null) armHi else maxOf(it, armHi) }
+        }
+        return BoundRange(if (loRead) lo else null, if (hiRead) hi else null)
+    }
+
+    /** `a + b - c` by interval arithmetic: a subtraction crosses the ends over. */
+    private fun additiveRange(
+        parts: List<Pair<Char, String>>,
+        env: BoundEnv,
+        depth: Int,
+        seen: Set<String>,
+        blocked: Set<String>
+    ): BoundRange {
+        var acc = evalBoundRange(parts[0].second, env, depth + 1, seen, blocked)
+        parts.drop(1).forEach { (op, term) ->
+            val r = evalBoundRange(term, env, depth + 1, seen, blocked)
+            acc = when (op) {
+                '+' -> BoundRange(addExact(acc.min, r.min), addExact(acc.max, r.max))
+                '-' -> BoundRange(subExact(acc.min, r.max), subExact(acc.max, r.min))
+                else -> return BoundRange.UNKNOWN
+            }
+        }
+        return acc
+    }
+
+    /**
+     * `a * b` over the four corners of the two intervals - the only sound
+     * reading when either side may be negative. `/` and `%` are NOT answered:
+     * an integer division by an interval that straddles zero has no ceiling at
+     * all, and [evalBound] already values the case where both sides are one
+     * number.
+     */
+    private fun productRange(
+        parts: List<Pair<Char, String>>,
+        env: BoundEnv,
+        depth: Int,
+        seen: Set<String>,
+        blocked: Set<String>
+    ): BoundRange {
+        var acc = evalBoundRange(parts[0].second, env, depth + 1, seen, blocked)
+        parts.drop(1).forEach { (op, term) ->
+            if (op != '*') return BoundRange.UNKNOWN
+            val r = evalBoundRange(term, env, depth + 1, seen, blocked)
+            if (!acc.closed || !r.closed) return BoundRange.UNKNOWN
+            val corners = listOf(
+                mulExact(acc.min, r.min),
+                mulExact(acc.min, r.max),
+                mulExact(acc.max, r.min),
+                mulExact(acc.max, r.max)
+            )
+            if (corners.any { it == null }) return BoundRange.UNKNOWN
+            val known = corners.filterNotNull()
+            acc = BoundRange(known.min(), known.max())
+        }
+        return acc
+    }
+
+    /** A list index, a call, or a name - [evalAtom]'s shapes, answered as ranges. */
+    private fun atomRange(
+        e: String,
+        env: BoundEnv,
+        depth: Int,
+        seen: Set<String>,
+        blocked: Set<String>
+    ): BoundRange {
+        if (e.endsWith("]")) {
+            val open = matchingOpenBracket(e)
+            if (open > 0) {
+                val idx = evalBoundRange(e.substring(open + 1, e.length - 1), env, depth + 1, seen, blocked)
+                val i = idx.min ?: return BoundRange.UNKNOWN
+                if (idx.max != i) return BoundRange.UNKNOWN
+                val items = listItems(e.substring(0, open).trim(), env, depth, seen) ?: return BoundRange.UNKNOWN
+                if (i < 0 || i >= items.size) return BoundRange.UNKNOWN
+                return evalBoundRange(items[i.toInt()], env, depth + 1, seen, blocked)
+            }
+        }
+        CALL_HEAD_REGEX.find(e)?.let { m ->
+            val open = e.indexOf('(')
+            val close = matchDelimiter(e, open, '(', ')') ?: return BoundRange.UNKNOWN
+            val name = m.groupValues[1].replace(WS_REGEX, "")
+            val bare = name.substringAfterLast('.')
+            if (bare in blocked || name.substringBefore('.') in blocked) return BoundRange.UNKNOWN
+            val tail = e.substring(close + 1).trim()
+            if (tail.isNotEmpty()) {
+                // A STRUCT FIELD OFF A CALL, whatever the call was handed:
+                // `limits_of(book.pot).floor` over `limits(floor = 0)`.
+                val field = STRUCT_FIELD_TAIL_REGEX.find(tail)?.groupValues?.get(1) ?: return BoundRange.UNKNOWN
+                if (bare in seen) return BoundRange.UNKNOWN
+                val callable = env.callables[bare] ?: return BoundRange.UNKNOWN
+                val body = callable.expr ?: return BoundRange.UNKNOWN
+                return structFieldRange(
+                    body, field, env, depth + 1, seen + bare, blocked + callable.params.map { it.name }
+                )
+            }
+            val args = splitArgs(e.substring(open + 1, close)).filter { it.isNotBlank() }
+            when (bare) {
+                "min", "max" -> if (args.size == 2) {
+                    val a = evalBoundRange(args[0], env, depth + 1, seen, blocked)
+                    val b = evalBoundRange(args[1], env, depth + 1, seen, blocked)
+                    // Monotone in both arguments. One END of one argument is
+                    // enough for the end that shrinks: min(25, anything) is at
+                    // most 25, max(3, anything) is at least 3.
+                    val aLo = a.min
+                    val bLo = b.min
+                    val aHi = a.max
+                    val bHi = b.max
+                    return if (bare == "min") {
+                        BoundRange(
+                            if (aLo == null || bLo == null) null else minOf(aLo, bLo),
+                            listOfNotNull(aHi, bHi).minOrNull()
+                        )
+                    } else {
+                        BoundRange(
+                            listOfNotNull(aLo, bLo).maxOrNull(),
+                            if (aHi == null || bHi == null) null else maxOf(aHi, bHi)
+                        )
+                    }
+                }
+                "abs" -> if (args.size == 1) {
+                    val a = evalBoundRange(args[0], env, depth + 1, seen, blocked)
+                    val lo = a.min ?: return BoundRange.UNKNOWN
+                    val hi = a.max ?: return BoundRange.UNKNOWN
+                    return when {
+                        lo >= 0L -> BoundRange(lo, hi)
+                        hi <= 0L -> BoundRange(negExact(hi), negExact(lo))
+                        else -> BoundRange(0L, listOfNotNull(negExact(lo), hi).maxOrNull())
+                    }
+                }
+            }
+            if (bare in seen) return BoundRange.UNKNOWN
+            val callable = env.callables[bare] ?: return BoundRange.UNKNOWN
+            val body = callable.expr ?: return BoundRange.UNKNOWN
+            return evalBoundRange(
+                body, env, depth + 1, seen + bare, blocked + callable.params.map { it.name }
+            )
+        }
         val bare = e.replace(WS_REGEX, "").removeSuffix("()")
-        if (bare in seen || !IDENT_PATH_REGEX.matches(bare)) return null
-        env.constExprs[bare]?.let { return evalMaxBound(it, env, depth + 1, seen + bare) }
-        val callable = namedCallable(e, env) ?: return null
-        if (callable.params.isNotEmpty()) return null
-        val body = callable.expr ?: return null
-        return evalMaxBound(body, env, depth + 1, seen + bare)
+        if (bare in seen || bare in blocked || bare.substringBefore('.') in blocked) return BoundRange.UNKNOWN
+        if (!IDENT_PATH_REGEX.matches(bare)) return BoundRange.UNKNOWN
+        env.constExprs[bare]?.let { return evalBoundRange(it, env, depth + 1, seen + bare, blocked) }
+        val callable = namedCallable(e, env) ?: return BoundRange.UNKNOWN
+        val body = callable.expr ?: return BoundRange.UNKNOWN
+        return evalBoundRange(body, env, depth + 1, seen + bare, blocked + callable.params.map { it.name })
+    }
+
+    /** [structFieldValue] as a range: the named argument's own range, with the callee's parameters blocked. */
+    private fun structFieldRange(
+        ctor: String,
+        field: String,
+        env: BoundEnv,
+        depth: Int,
+        seen: Set<String>,
+        blocked: Set<String>
+    ): BoundRange {
+        if (depth > MAX_BOUND_EVAL_DEPTH) return BoundRange.UNKNOWN
+        val e = ctor.trim()
+        val open = e.indexOf('(')
+        if (open < 0) {
+            val bare = e.replace(WS_REGEX, "")
+            if (bare in seen || bare in blocked || !IDENT_PATH_REGEX.matches(bare)) return BoundRange.UNKNOWN
+            val next = env.constExprs[bare] ?: return BoundRange.UNKNOWN
+            return structFieldRange(next, field, env, depth + 1, seen + bare, blocked)
+        }
+        val close = matchDelimiter(e, open, '(', ')') ?: return BoundRange.UNKNOWN
+        if (e.substring(close + 1).isNotBlank()) return BoundRange.UNKNOWN
+        // A call is not a constructor, and reading it as one is how an
+        // evaluator invents a number - [structFieldValue]'s own refusal.
+        if (e.substring(0, open).trim().substringAfterLast('.') in env.callables) return BoundRange.UNKNOWN
+        splitArgs(e.substring(open + 1, close)).forEach { arg ->
+            NAMED_ARG_REGEX.find(arg.trim())?.let { n ->
+                if (n.groupValues[1] == field) {
+                    return evalBoundRange(n.groupValues[2], env, depth + 1, seen, blocked)
+                }
+            }
+        }
+        return BoundRange.UNKNOWN
     }
 
     /** The index of the last `->` of [text] that is not nested. */
@@ -5609,6 +5960,160 @@ object RellSecurityCheck {
         return null
     }
 
+    // ---- THE PERMISSIONLESS ENTRY POINT (round 20) ----
+    //
+    // Round 20 built the commit-reveal raffle of docs/TEMPLATE-GAPS.md from
+    // this repository's own design note and put it back through this gate
+    // (`realworld/adversary-round20/raffle`): four `unauthenticated-mutation`
+    // findings at HIGH, three of them on operations the note requires to be
+    // permissionless in so many words - "anyone may enter a raffle". A gate
+    // whose fix sentence tells an author to do the one thing their design
+    // forbids is a gate an agent routes around, which is the failure mode
+    // this whole corpus exists to prevent.
+    //
+    // `unauthenticated-mutation` is RIGHT about the general case, so the
+    // answer is not to weaken it: it is to name, structurally, the ONE shape
+    // that is permissionless BY CONSTRUCTION - an entry point anybody may
+    // call, where calling it can only take value FROM the caller or move the
+    // caller's OWN rows. Two forms, and everything outside them still fires:
+    //
+    //  S1 DEPOSIT-BACKED. The operation's FIRST state effect debits value from
+    //     the caller's own row, and every later effect is either keyed by that
+    //     same caller or a CREDIT-ONLY write to a row no identity selects (a
+    //     pot, an escrow, a counter). A commit-reveal `commit(round_id, h,
+    //     stake)` is this: `update p ( .balance -= stake + d )` on the row
+    //     `.pubkey == who`, then the entry row keyed by `who`, then
+    //     `r.pot += stake` and `book.escrow += stake + d`.
+    //
+    //  S2 CALLER-SCOPED. Every create/update/delete the operation makes is
+    //     keyed by the caller - a row selected by her, or created with her as
+    //     a field - and any object/singleton write moves an amount read out of
+    //     one of those rows. A `claim_refund(round_id)` is this: the caller's
+    //     own entry, the caller's own balance, and `book.escrow -= <her own
+    //     stake>`.
+    //
+    // THE CALLER MUST COME FROM `op_context.get_signers()`, never from a
+    // parameter: a row selected by an account the CALLER SUPPLIES is the
+    // confused deputy [confusedDeputyFindings] is named after, and reading it
+    // as "the caller's own row" would silence the drain this corpus was built
+    // on. Nothing else moves the verdict: a row another identity selects, a
+    // credit to a balance that is not the caller's, a debit of a pot for an
+    // amount that does not come from the caller's own row - each of those is
+    // enough on its own, and the operation still draws the finding.
+
+    /** `val who = op_context.get_signers()[0];` - the caller, read from the TRANSACTION and not from an argument. */
+    private val CALLER_FROM_SIGNERS_REGEX = Regex(
+        """\b(?:val|var)\s+([A-Za-z_]\w*)\s*(?::[^=;]*)?=(?!=)[^;]*?\bop_context\s*\.\s*get_signers\s*\("""
+    )
+
+    /**
+     * A name that stands for AN IDENTITY, so a row selected by it belongs to
+     * somebody. Read on the last segment of a reference and over the whole
+     * transitive closure of the selector, so `wp` <- `player @? { .pubkey == w
+     * }` <- `w` <- `e.account` is an identity three bindings away from the
+     * `update` that names only `wp`.
+     */
+    private val IDENTITY_NAME_REGEX = Regex(
+        """(?:^|_)(?:account|owner|from|sender|user|holder|wallet|member|spender|payer|recipient|""" +
+            """beneficiary|winner|pubkey|pub_key|signer|to)(?:$|_)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * True when [body] is a permissionless entry point in the sense above: an
+     * operation anybody may call because calling it can only take value from
+     * the caller (S1) or move rows keyed by the caller (S2).
+     *
+     * [body] is the operation's body with every app-owned helper INLINED, so a
+     * deposit taken one call deep is the same deposit; [params] carries the
+     * declared types, because a row selected by an account-typed PARAMETER is
+     * somebody else's row however it is named.
+     */
+    internal fun permissionlessEntryPoint(
+        body: String,
+        entities: Set<String>,
+        params: List<Pair<String, String>>
+    ): Boolean {
+        val callers = CALLER_FROM_SIGNERS_REGEX.findAll(body).map { it.groupValues[1] }.toSet()
+        if (callers.isEmpty()) return false
+        val bindings = bindingsOf(body)
+        val accountParams = params.filter { isAccountTypedParam(it.first, it.second) }.map { it.first }.toSet()
+
+        fun fromTheCaller(expr: String): Boolean =
+            refClosure(expr, bindings).any { it.substringBefore('.') in callers }
+
+        fun fromAnotherIdentity(expr: String): Boolean =
+            refClosure(expr, bindings).any { r ->
+                val head = r.substringBefore('.')
+                head !in callers &&
+                    (head in accountParams || IDENTITY_NAME_REGEX.containsMatchIn(r.substringAfterLast('.')))
+            }
+
+        var effects = 0
+        var callerKeyedEffects = 0
+        var depositIsTheFirstEffect = false
+        var outsideS1 = false
+        var outsideS2 = false
+
+        /** One state effect, in source order: does it stay inside S1, inside S2, and is it the caller's own? */
+        fun record(callerKeyed: Boolean, debitsTheCaller: Boolean, okForS1: Boolean, okForS2: Boolean) {
+            effects++
+            if (callerKeyed) callerKeyedEffects++
+            if (effects == 1 && callerKeyed && debitsTheCaller) depositIsTheFirstEffect = true
+            if (!okForS1) outsideS1 = true
+            if (!okForS2) outsideS2 = true
+        }
+
+        statementsOf(body).forEach { stmt ->
+            val mutations = MUTATION_REGEX.findAll(stmt).toList()
+            if (mutations.isEmpty()) {
+                // A plain assignment to an `object` field - `book.escrow -= back`.
+                // None of create/update/delete appears in one, and it is a write.
+                val write = DOTTED_ASSIGN_REGEX.find(stmt) ?: return@forEach
+                val base = write.groupValues[1].replace(WS_REGEX, "").substringBeforeLast('.')
+                if (base in entities) return@forEach
+                val (flow, amount) = flowOf(write.groupValues[2], write.groupValues[3])
+                val theCallersOwnMoney = fromTheCaller(amount)
+                record(false, false, flow == Flow.CREDIT || theCallersOwnMoney, theCallersOwnMoney)
+                return@forEach
+            }
+            mutations.forEachIndexed { i, m ->
+                val end = if (i + 1 < mutations.size) mutations[i + 1].range.first else stmt.length
+                val piece = stmt.substring(m.range.first, end)
+                if (m.groupValues[1] == "create") {
+                    val create = CREATE_STMT_REGEX.find(piece) ?: return@forEachIndexed
+                    if (create.groupValues[1] !in entities) return@forEachIndexed
+                    val open = piece.indexOf('(', create.range.first)
+                    val close = if (open >= 0) matchDelimiter(piece, open, '(', ')') else null
+                    val args = if (open >= 0 && close != null) piece.substring(open + 1, close) else ""
+                    val keyed = fromTheCaller(args)
+                    record(keyed, false, keyed, keyed)
+                    return@forEachIndexed
+                }
+                val brace = piece.indexOf('{')
+                val braceEnd = if (brace >= 0) matchDelimiter(piece, brace, '{', '}') else null
+                val selector = if (braceEnd != null) {
+                    piece.substring(brace + 1, braceEnd)
+                } else {
+                    piece.substring(m.range.last - m.range.first).substringBefore('(').trim()
+                }
+                val setPart = if (braceEnd != null) piece.substring(braceEnd + 1) else piece.substringAfter('(')
+                val creditOnly = m.groupValues[1] == "update" && isCreditOnly(setPart)
+                val keyed = fromTheCaller(selector)
+                val debits = keyed && updateSetList(piece)?.second.orEmpty()
+                    .any { (_, op, rhs) -> flowOf(op, rhs).first == Flow.DEBIT }
+                // A pot, an escrow or a counter taking value IN is the other
+                // half of the caller's own deposit; a balance some other
+                // identity selects never is, whatever it is called.
+                record(keyed, debits, keyed || (creditOnly && !fromAnotherIdentity(selector)), keyed)
+            }
+        }
+
+        val depositBacked = depositIsTheFirstEffect && !outsideS1
+        val callerScoped = callerKeyedEffects > 0 && !outsideS2
+        return depositBacked || callerScoped
+    }
+
     private fun operationFindings(
         path: String,
         op: OperationBlock,
@@ -5635,12 +6140,19 @@ object RellSecurityCheck {
         val mutates = mutatesState(op.body) ||
             mutatingFunctions.any { it in calls }
 
-        if (mutates && !hasAuth) {
+        // An INTENTIONALLY permissionless entry point is not an unauthenticated
+        // mutation (round 20): see [permissionlessEntryPoint] for the two
+        // shapes and for why nothing outside them is accepted.
+        if (mutates && !hasAuth && !permissionlessEntryPoint(effectiveBody, entities, parseParams(op.params))) {
             findings.add(
                 Finding(
                     "HIGH", "unauthenticated-mutation", path, op.line,
                     "operation ${op.name} mutates state without an auth check",
-                    "Authenticate the caller (ft4 auth.authenticate() or an explicit op_context.is_signer / require(...) signer check) before create/update/delete."
+                    "Authenticate the caller (ft4 auth.authenticate() or an explicit op_context.is_signer / " +
+                        "require(...) signer check) before create/update/delete - or, if the operation is meant " +
+                        "to be permissionless, make it one BY CONSTRUCTION: bind the caller from " +
+                        "op_context.get_signers(), take the deposit/stake from HER row as the first effect, and " +
+                        "touch no row another identity selects."
                 )
             )
         }

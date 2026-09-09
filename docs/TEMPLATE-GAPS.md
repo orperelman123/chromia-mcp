@@ -385,6 +385,31 @@ section naming the seam (a second prize, a rollover, a referral - each is a seco
 out of the pot and belongs INSIDE `settle_round()`, which is `insurance`'s exit queue one
 class along), the redirect moved in the same commit, and this row deleted in that commit.
 
+**WHAT `rell_security_check` ACCEPTS AS PERMISSIONLESS, so this template does not have to
+choose between its design and its own gate.** Round 20 built this design and the gate answered
+with four `unauthenticated-mutation` findings at HIGH, three of them on operations this note
+requires to be permissionless. The rule was not weakened; the shape was named. THE ACCEPTED
+SHAPE, verbatim, is:
+
+> An operation with no auth check is a PERMISSIONLESS ENTRY POINT BY CONSTRUCTION - and not an
+> unauthenticated mutation - when it binds the caller from `op_context.get_signers()` rather
+> than from a parameter, and either (S1 DEPOSIT-BACKED) its first state effect debits value
+> from that caller's own row and every later effect is keyed by that same caller or is a
+> credit-only write to a row no identity selects, or (S2 CALLER-SCOPED) every create, update
+> and delete it makes is keyed by that caller and any object or singleton write moves an
+> amount read out of one of those rows.
+
+`commit()` is S1 as written above - the stake and the deposit leave the caller's own row
+first, the entry is keyed by her, and the pot and escrow only take value in. `reveal()` and a
+per-participant refund are S2. **`settle_round()` is NEITHER**, and deliberately so: it pays a
+WINNER, which is a row the caller does not select, out of a pot. So either it carries a signer
+check, or - better for this class - the payout becomes a caller-scoped CLAIM, each winner
+claiming her own prize, and the settlement itself writes only `round.mixed`, `round.settled`
+and the winner row. Both sides are pinned in the corpus
+(`r20-permissionless-deposit-backed-entry-point`, clean, and
+`r20-permissionless-op-that-moves-someone-elses-balance`, still HIGH), and the long form is
+the `permissionlessEntryPoint` KDoc in `RellSecurityCheck.kt`.
+
 **AND THE HALF NO TEMPLATE CLOSES, stated in the header rather than discovered later:** a
 commit-reveal raffle with ONE participant is decided by that participant, and one with two
 colluding participants is decided by whichever of them reveals last. The forfeit bounds
