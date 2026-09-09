@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
  */
 class DappScaffoldSecureTemplatesTest {
 
-    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance")
+    private val secureTemplates = listOf("governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance", "raffle")
 
     /** The templates whose main module reads an oracle key from configuration. */
     private val oracleTemplates = setOf("vault", "lending", "stablecoin")
@@ -116,7 +116,8 @@ class DappScaffoldSecureTemplatesTest {
                 }
             }
         }
-        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance"), DappScaffold.templates)
+        assertEquals(listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance", "raffle"), DappScaffold.templates)
+        assertEquals("raffle", DappScaffold.toJson("draw", template = "raffle").getValue("template").toString().trim('"'), "the class round 20 drained - from this project's OWN design note - must scaffold its own template")
         assertEquals("insurance", DappScaffold.toJson("pool", template = "insurance").getValue("template").toString().trim('"'), "the class round 17 drained must scaffold its own template")
         assertEquals("escrow", DappScaffold.toJson("otc", template = "escrow").getValue("template").toString().trim('"'), "the class round 15 drained must scaffold its own template")
         assertEquals("bridge", DappScaffold.toJson("wrapped", template = "bridge").getValue("template").toString().trim('"'), "the class round 14 drained must scaffold its own template")
