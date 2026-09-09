@@ -96,13 +96,20 @@ class Round20CiVerdictProbeTest {
     fun `the job summary computes its verdict word from two of the gate's five conditions`() {
         val summary = read("scripts/ci-summary.mjs")
         val tally = read("scripts/gate-tally.mjs")
-        // The presenter's verdict expression, verbatim.
-        val verdictLine = "const verdict = ours || t.skippedNames.length"
+        // The presenter's verdict expression, verbatim. `t.stale.length` DOES appear
+        // further down the file - in the "### N result file(s) predate this run"
+        // section - which is exactly the point: the summary knows about it and its
+        // headline does not, so the statement is read on its own rather than the file.
+        val verdictHead = "const ours = t.red.length;"
+        val verdictTail = "'GREEN';"
+        val from = summary.indexOf(verdictHead)
+        val to = summary.indexOf(verdictTail, from)
+        val verdictStatement =
+            if (from < 0 || to < 0) "" else summary.substring(from, to + verdictTail.length)
         // The three conditions report() fails on that the verdict word ignores.
         val gateOnly = listOf("t.stale.length", "t.tests === 0", "expectMin && t.tests < expectMin")
         val rows = buildJsonObject {
-            put("presenter_verdict_expression", verdictLine)
-            put("presenter_has_that_expression", summary.contains(verdictLine))
+            put("presenter_verdict_statement", verdictStatement.replace(Regex("""\s+"""), " "))
             put(
                 "conditions_the_gate_fails_on_that_the_headline_ignores",
                 buildJsonArray {
@@ -111,7 +118,8 @@ class Round20CiVerdictProbeTest {
                             buildJsonObject {
                                 put("condition", c)
                                 put("in_gate_report", tally.contains(c))
-                                put("in_presenter_verdict", summary.contains(c))
+                                put("in_presenter_verdict_statement", verdictStatement.contains(c))
+                                put("anywhere_in_the_presenter", summary.contains(c))
                             }
                         )
                     }
@@ -119,7 +127,7 @@ class Round20CiVerdictProbeTest {
             )
         }
         Round20Evidence.record("ci/verdict-inputs.json", rows)
-        val missing = gateOnly.filter { tally.contains(it) && !summary.contains(it) }
+        val missing = gateOnly.filter { tally.contains(it) && !verdictStatement.contains(it) }
         assertAll(
             Executable {
                 // The finding: all three are in the gate and none in the presenter.
