@@ -9,8 +9,10 @@ name: Embeddings refresh
 # refresh it. The asset is rebuilt here with the repository's own GITHUB_TOKEN.
 #
 # Nothing is published unless the store passes scripts/rag-eval.mjs (probe
-# questions answered, segment floor) and is not drastically smaller than the
-# asset it replaces (a half-failed ingest must not overwrite a good index).
+# questions answered, segment floor) and no configured source offers materially
+# fewer segments than the published index did (a half-failed ingest must not
+# overwrite a good index) - scripts/embeddings-gate.mjs, against the per-source
+# breakdown the generator writes beside the store.
 
 on:
   schedule:
@@ -62,48 +64,71 @@ jobs:
           set -o pipefail
           node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar --embeddings app/build/embeddings.json | tee rag-eval.txt
 
-      # RED HERE: a half-failed ingest. The freshly generated store is under 80%
-      # of the published one, so publishing it would REPLACE a good index with a
-      # worse one - and every fresh `npx chromia-mcp` install downloads that
-      # asset. Refusing is correct and the run is meant to stay red until
-      # somebody looks at WHY the ingest shrank (a docs source that moved, a
-      # sitemap that 404s, a rate limit).
-      #
-      # THIS STEP HAS BEEN RED SINCE 2026-09-07 (run 34103273206), which means
-      # the published index has not been refreshed since 2026-09-04. The numbers
-      # were only in the step log; they are in the job summary now, because "how
-      # much smaller, and since when" is the first question and it should not
-      # cost a log dive.
-      - name: Gate - not drastically smaller than the published asset
+      # The published index's own account of itself. Missing only before the
+      # first sidecar was ever published, which is why this step may find
+      # nothing and must not red the run for it - the gate below says so in the
+      # summary and passes, because a first publish has nothing to shrink from.
+      - name: Download the published provenance sidecar
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          new=$(stat -c %s app/build/embeddings.json)
-          old=$(gh release view embeddings --json assets --jq '.assets[] | select(.name=="embeddings.json") | .size' 2>/dev/null || echo 0)
-          echo "new=$new bytes, published=$old bytes"
-          {
-            echo "## Embeddings refresh"
-            echo ""
-            echo "| | bytes |"
-            echo "| --- | ---: |"
-            echo "| newly generated | $new |"
-            echo "| currently published | $old |"
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$old" -gt 0 ] && [ "$new" -lt $((old * 8 / 10)) ]; then
-            pct=$((new * 100 / old))
-            echo "REFUSED: the new store is ${pct}% of the published asset (floor is 80%) - a half-failed ingest must not overwrite a good index" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::new store is ${new} bytes, ${pct}% of the published ${old} - under the 80% floor, refusing to publish"; exit 1
+          if gh release download embeddings -p embeddings.provenance.json -D published --clobber; then
+            echo "PUBLISHED_SIDECAR=published/embeddings.provenance.json" >> "$GITHUB_ENV"
+            cat published/embeddings.provenance.json
+          else
+            echo "no published provenance sidecar - treating this as a first publish"
           fi
-          echo "Passed the 80% floor." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Write provenance sidecar
+      # RED HERE: a docs source really shrank. One of the configured
+      # repositories, or the sitemap, offers materially fewer segments than the
+      # published index offered - a clone that half-arrived, a sitemap that
+      # 404s, a rate limit - so publishing would REPLACE a good index with a
+      # worse one, and every fresh `npx chromia-mcp` install downloads that
+      # asset. The failing source is named in the job summary with its numbers.
+      #
+      # THIS STEP USED TO COMPARE BYTES, and that is why it was red from
+      # 2026-09-07 (run 34103273206) through 2026-09-09 (run 34344751517) on two
+      # healthy ingests: 109,958,949 bytes against 147,681,194, 74.5% of a floor
+      # of 80%. Nothing had failed to clone. Commit f0ee597 (audit F15) had
+      # taken the host-language TEST sources out of the corpus - 540 documents,
+      # 6,481 segments - because `*Test.kt` files were outranking the `.md`
+      # pages on ten basic Rell questions, and a byte count cannot tell a
+      # deliberate exclusion from a failed fetch. Five days of staleness later,
+      # the gate compares SEGMENTS OFFERED (indexed + deliberately excluded),
+      # per source, which is the quantity that survives an ingest-rule change:
+      # 19,107 + 6,481 = 25,588 against the published 25,588. The byte figures
+      # stay in the summary as information, not as the verdict. (A sidecar
+      # generated on a Windows checkout reads about 0.9% higher than this
+      # runner's on the same corpus - one character per line, core.autocrlf -
+      # which is why the local proof in docs/CI.md shows 19,281 where run
+      # 34344751517 shows 19,107. Both sides here are this runner.)
+      - name: Gate - no source shrank against the published index
         run: |
-          segments=$(grep -o '[0-9]* segments' rag-eval.txt | head -n1 | cut -d' ' -f1)
-          probes=$(grep -o '[0-9]*/[0-9]* probes answered' rag-eval.txt | head -n1 | cut -d' ' -f1)
-          printf '{"generated_at":"%s","commit":"%s","run":"%s","segments":%s,"probes":"%s","size_bytes":%s}\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            "${segments:-0}" "${probes:-?}" "$(stat -c %s app/build/embeddings.json)" > app/build/embeddings.provenance.json
+          published=""
+          if [ -n "${PUBLISHED_SIDECAR:-}" ]; then published="--published $PUBLISHED_SIDECAR"; fi
+          # word splitting is wanted here: the flag must vanish entirely when there is no sidecar
+          # shellcheck disable=SC2086
+          node scripts/embeddings-gate.mjs --new app/build/embeddings.provenance.json $published
+
+      # The generator writes the ingest half of the sidecar - per source, with
+      # the exclusions counted - while it still has the fetched tree in front of
+      # it. Only the RUN knows the other three fields, so they are merged in
+      # here. `segments` used to be grepped out of rag-eval.txt: the published
+      # number came from a regex over a human-readable line rather than from the
+      # thing that built the store.
+      - name: Complete the provenance sidecar
+        run: |
+          # `|| true`: the default shell is `bash -e -o pipefail`, and `head -n1`
+          # closing the pipe can leave grep with SIGPIPE on a line that is there.
+          # A missing probe count must degrade to `?` in the sidecar, never red a
+          # run whose store already passed both gates.
+          probes=$(grep -o '[0-9]*/[0-9]* probes answered' rag-eval.txt | head -n1 | cut -d' ' -f1 || true)
+          jq --arg commit "$GITHUB_SHA" \
+             --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+             --arg probes "${probes:-?}" \
+             '. + {commit: $commit, run: $run, probes: $probes}' \
+             app/build/embeddings.provenance.json > app/build/embeddings.provenance.merged.json
+          mv app/build/embeddings.provenance.merged.json app/build/embeddings.provenance.json
           cat app/build/embeddings.provenance.json
 
       - name: Publish to the rolling embeddings release

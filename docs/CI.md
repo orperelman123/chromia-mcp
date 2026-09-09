@@ -359,13 +359,158 @@ No key, no funds, no configuration.
 
 ---
 
+## The embeddings refresh, and what its gate compares
+
+`embeddings-refresh.yml` rebuilds the RAG index from the live documentation
+sources every Monday and replaces the `embeddings.json` asset on the rolling
+`embeddings` release — the file a fresh `npx chromia-mcp` downloads. Two gates
+stand between a fresh store and that asset.
+
+**`Gate - probe questions and segment floor`** — `scripts/rag-eval.mjs` drives a
+real server over stdio against the fresh store and asks it 40 probe questions,
+each naming the substrings a correct answer has to contain. It also refuses a
+store under 18,000 segments. That floor is measured rather than chosen: full
+ingests reported 25,588 segments (run 33914416475, before f0ee597) and then
+19,107 twice (runs 34103273206 and 34344751517, after audit F15's exclusions),
+so it sits 5.8% under the current healthy ingest. It is the absurdity backstop
+— "this store is not half empty" — and it is deliberately independent of
+whatever happens to be published.
+
+**`Gate - no source shrank against the published index`** —
+`scripts/embeddings-gate.mjs`. This is the like-with-like comparison.
+
+### Why it does not compare bytes
+
+It used to. `Gate - not drastically smaller than the published asset` refused
+any store under 80% of the published asset's size, and it was red from
+2026-09-07 (run 34103273206) through 2026-09-09 (run 34344751517) on two
+perfectly healthy ingests: 109,958,949 bytes against 147,681,194, or 74.5%.
+
+Nothing had failed. Commit f0ee597 (audit F15) taught
+`IngestPathFilter.isTestSource` to leave the host-language TEST sources out of
+the corpus, because `ReplDefinitionTest.kt` and its neighbours were outranking
+the `.md` pages on ten basic Rell questions — 540 documents and 6,481 segments
+left out on purpose. Both failing runs cloned the same seven repositories at the
+same branches and fetched the same 381 sitemap pages, with no fetch warning in
+either log. The store was smaller because it was better.
+
+A byte count cannot tell a deliberate exclusion from a repository that
+half-arrived, which is the one thing this gate exists to detect. The cost of
+that confusion was five days of a stale published index still serving the very
+files F15 removed.
+
+### What it compares instead
+
+The generator (`RagStore.createAndUploadEmbeddings` → `IngestBreakdown`) writes a
+sidecar beside the store carrying a row per configured repository and one for
+the sitemap: the documents and segments it **indexed**, and separately the
+documents and segments `IngestPathFilter.isTestSource` **refused**. Their sum is
+what that source *offered*, and that is the quantity that survives a change to
+the ingest rules. Per source, the gate requires
+
+    new.segments + new.excluded_segments  >=  0.8 x published.available
+
+On the two failing runs, on the totals: 19,107 + 6,481 = 25,588 against the
+published 25,588. That is not a tolerance being stretched, it is the proof that
+nothing was lost.
+
+### The first breakdown, measured
+
+A full local `./gradlew :app:generateEmbeddingsNoUpload` on 2026-09-09
+reproduced both failing runs exactly — the same 2,547 documents, the same 381
+sitemap pages — and wrote the first sidecar to carry the breakdown:
+
+| source | documents | segments | ex-docs | ex-segs | available |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `chromia-cli` | 11 | 118 | 0 | 0 | 118 |
+| `directory-chain` | 490 | 3,315 | 0 | 0 | 3,315 |
+| `docs-chromia-com` | 381 | 3,216 | 0 | 0 | 3,216 |
+| `ft4-lib` | 378 | 2,263 | 0 | 0 | 2,263 |
+| `postchain` | 650 | 3,605 | 268 | 1,941 | 5,546 |
+| `postchain-client` | 4 | 21 | 0 | 0 | 21 |
+| `postchain-eif` | 20 | 191 | 0 | 0 | 191 |
+| `rell` | 613 | 6,552 | 272 | 4,601 | 11,153 |
+| **TOTAL** | **2,547** | **19,281** | **540** | **6,542** | **25,823** |
+
+25,823 segments offered against the published 25,588 is **100.9%** and the gate
+exits 0. That same store is 111,686,474 bytes against 147,681,194 — **75.6%** —
+so the byte gate would have refused this healthy ingest a third time. Every
+excluded segment sits in the two repositories that carry host-language sources,
+`rell` (4,601) and `postchain` (1,941); for the other six, `available` is simply
+what they indexed.
+
+**Why the local run measures 19,281 where the runner measured 19,107.** Not a
+drop, and not upstream drift: the two counts are the same corpus split from
+checkouts with different line endings. This laptop's git has
+`core.autocrlf=true` in the system config, so every text file arrives with one
+extra character per line, and a splitter that cuts at 1,000 characters
+accordingly finds a few more pieces. Cloning `chromia-cli`'s `docs` twice, once
+each way, measures it: 86,078 characters against 83,939 over 2,139 lines —
+exactly one character per line. The same 0.9% sits between the index f0ee597
+audited on this laptop (25,823 segments) and the runner's published index
+(25,588), which is what makes it a constant of the machine rather than of the
+corpus.
+
+Nothing about it is *planned versus stored*: run 34344751517 split 19,107
+segments and `rag-eval` read 19,107 straight back out of the store, and the
+local run split 19,281 and read 19,281 back. Inside the workflow both sides of
+the gate come off the same Linux runner and the effect does not exist. It exists
+only when a LOCAL sidecar is compared against a PUBLISHED one, as the proof
+above does — about 0.9% high, against a 20% floor.
+
+The fallback is weak in a second way the per-source comparison is not: a run
+that loses `postchain` outright — all 5,546 segments it offers — lands at 79.2%
+of the published total, 194 segments under the floor. Caught, but only just.
+Compared per source the same run is 0% of postchain and is refused by name.
+`EmbeddingsGateTest` runs exactly that pair of sidecars.
+
+The published sidecar of 2026-09-04 predates the breakdown and carries only its
+total, so the gate falls back to comparing totals the same way and says so in
+the job summary. The first run that publishes a sidecar with `sources` turns the
+comparison per source, after which a single repository failing to clone can no
+longer hide inside a healthy total; a source with no rows at all fails by name.
+
+The byte figures stay in the job summary, labelled as information and not as the
+verdict, because "the index got 25% smaller" is still something a human should
+be shown.
+
+### Running both gates locally
+
+Everything except the publish runs on a developer machine:
+
+```bash
+./gradlew :app:generateEmbeddingsNoUpload :app:shadowJar --console=plain
+# writes app/build/embeddings.json and app/build/embeddings.provenance.json
+
+node scripts/rag-eval.mjs --jar app/build/libs/chromia-mcp-server.jar \
+  --embeddings app/build/embeddings.json
+
+gh release download embeddings -p embeddings.provenance.json -D published
+node scripts/embeddings-gate.mjs \
+  --new app/build/embeddings.provenance.json \
+  --published published/embeddings.provenance.json
+```
+
+The generation clones seven repositories, fetches the docs.chromia.com sitemap
+and embeds every segment locally; budget half an hour or more and a few GB.
+`EmbeddingsGateTest` runs the gate script over real sidecars committed under
+`app/src/test/resources/embeddings-gate`, so its arithmetic is covered by the
+suite without regenerating anything, and `IngestBreakdownTest` pins the shape of
+what the generator writes.
+
+---
+
 ## Known reds that are not your commit
 
 - **`embeddings-refresh.yml`, `Gate - not drastically smaller than the published
-  asset`** — red since run 34103273206 (2026-09-07), which is why the published
-  index has not moved since 2026-09-04. Working as designed: it refuses to
-  replace a good index with a smaller one. The job summary now prints both sizes
-  and the percentage. Somebody has to find out why the ingest shrank.
+  asset`** — was red from run 34103273206 (2026-09-07) through run 34344751517
+  (2026-09-09), which is why the published index did not move for five days.
+  **Fixed, not excused:** the ingest had not shrunk, f0ee597 had deliberately
+  taken 6,481 segments of host-language test sources out of the corpus, and a
+  byte comparison cannot tell that from a failed clone. The step is now `Gate -
+  no source shrank against the published index` and compares segments offered
+  per source; see "The embeddings refresh, and what its gate compares" above.
+  Only the next scheduled or dispatched run can prove the publish itself.
 - **`ToolExecutorStrategiesTest.liveFilterBlockchainsFiltersByChainState`** —
   the explorer answers `allBlockchains(state:)` with `INTERNAL_ERROR` on every
   call. Counted as `upstream=1` under `docs/UPSTREAM.md` #3b. It does **not**

@@ -1074,10 +1074,16 @@ and fails if they disagree, so the manual cannot go stale.
   block per run. A finding opens an issue carrying the exact reproduction command.
 - `.github/workflows/embeddings-refresh.yml` — **Embeddings refresh**. Weekly RAG
   embeddings regeneration (Mondays 04:00 UTC, or manual dispatch). Runs
-  `scripts/rag-eval.mjs` (40 probe questions, segment floor) and a size check against the
-  published asset; only a store that passes both is uploaded, with `--clobber`, as
-  `embeddings.json` on the rolling `embeddings` release, next to an
-  `embeddings.provenance.json` sidecar (date, commit, segments, probe score).
+  `scripts/rag-eval.mjs` (40 probe questions, segment floor) and
+  `scripts/embeddings-gate.mjs`, which compares the SEGMENTS each configured source
+  offered — indexed plus the ones the ingest rules deliberately exclude — against the
+  published sidecar, per source. It compared file SIZES until 2026-09-09 and refused two
+  healthy runs for five days, because audit F15 (f0ee597) had taken 6,481 segments of
+  host-language test sources out of the corpus on purpose and bytes cannot tell that
+  from a half-failed clone; the sizes are still printed, as information. Only a store
+  that passes both gates is uploaded, with `--clobber`, as `embeddings.json` on the
+  rolling `embeddings` release, next to an `embeddings.provenance.json` sidecar (date,
+  commit, run, segments, probe score, size, and the per-source breakdown).
 
 **No repository secrets are required.** Nothing references `secrets.*` or `vars.*`; the
 only credential is the automatic `GITHUB_TOKEN`, and each workflow declares the narrowest
