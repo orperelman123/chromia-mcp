@@ -387,7 +387,15 @@ No key, no funds, no configuration.
 
 GitHub Actions cannot be run on a developer machine, and this repository does
 not pretend otherwise. What *can* be proven locally is checked locally: the
-workflows parse as YAML, the scripts pass `node --check`, `gh workflow list`
-resolves all four, `git add --renormalize .` is a no-op against
-`.gitattributes`, and `CiWorkflowDocumentationTest` asserts that this document
-and `ci.yml` agree. The run itself is proven by the next push to `main`.
+workflows parse as YAML (a real parser — `on:` is a YAML 1.1 boolean, so a
+grep-based check would not even find the triggers), every `run:` block that
+goes to bash passes `bash -n` with the `${{ }}` expressions substituted, the
+`shell: pwsh` block and both launchers pass the PowerShell parser, the scripts
+pass `node --check`, `gh workflow list` resolves all four, `git add
+--renormalize .` is a no-op against `.gitattributes`, and
+`CiWorkflowDocumentationTest` asserts that this document and `ci.yml` agree.
+
+A shell syntax error inside a YAML block scalar is invisible to a YAML parse
+and to every test in the suite, which is why it is checked separately and why
+it is worth checking at all. The run itself is proven by the next push to
+`main`.
