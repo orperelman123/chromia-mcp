@@ -33,8 +33,8 @@ import java.nio.file.attribute.FileTime
  *
  * WHAT ROUND 20 FOUND (sections 4 and 5 of the round README). Two of the five
  * were reachable only through flags, and NO workflow passed either -
- * `grep -c expect-min .github/workflows/*.yml`, and the same for `started-at`,
- * were `0` in all four:
+ * `grep -c expect-min` over the four files in `.github/workflows`, and the same
+ * count for `started-at`, were `0` in all four:
  *
  *   * `--expect-min` was the size check. Without it the only size assertion was
  *     `tests === 0`, so a suite narrowed from 1650 tests to ONE was a green
@@ -123,8 +123,8 @@ class Round20CiVerdictProbeTest {
 
     /**
      * One case is a MINIATURE CHECKOUT - `ci/expected-min.json`,
-     * `app/build/test-run/starts.tsv`, `app/build/test-results/test/*.xml` and an
-     * empty `app/build/upstream/warnings` - so both scripts can be run exactly as
+     * `app/build/test-run/starts.tsv`, one XML under `app/build/test-results/test`
+     * and an empty `app/build/upstream/warnings` - so both scripts run exactly as
      * CI runs them: `--dir "$PWD"` and nothing else. Pointing `--results`
      * somewhere else would not exercise the floor at all, because the committed
      * floor is applied only to a repository's OWN results directory.

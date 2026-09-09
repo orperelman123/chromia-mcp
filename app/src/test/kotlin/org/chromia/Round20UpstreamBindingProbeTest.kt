@@ -45,7 +45,7 @@ import java.time.Instant
  *     const runStart = startedAt ?? (Math.min(...mtimes) - TEST_TASK_TIMEOUT_MS);   // 90 minutes
  *
  * from the `--started-at` flag, and NO workflow passed it
- * (`grep -c started-at .github/workflows/*.yml` was `0` in all four). So in CI
+ * (`grep -c started-at` over `.github/workflows` was `0` in all four). So in CI
  * the freshness window was "ninety minutes before the oldest result file": an
  * evidence file written an HOUR before the run was accepted as a proven outage.
  * Worse, `stale` - the check `report()` calls fatal, *"you are reading someone
