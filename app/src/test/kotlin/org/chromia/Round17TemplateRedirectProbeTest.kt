@@ -159,10 +159,10 @@ class Round17TemplateRedirectProbeTest {
         val lottery = note("a weekly lottery with rewards for ticket holders")
         assertEquals("raffle", DappScaffold.closestTemplate("a weekly lottery with rewards for ticket holders"))
         assertTrue(lottery.startsWith("Use `template=raffle`"), lottery.take(120))
-        assertTrue(lottery.contains("commit-reveal") || lottery.contains("COMMIT order"), lottery.take(400))
+        assertTrue(lottery.contains("commit-reveal") || lottery.contains("COMMIT ORDER"), lottery.take(400))
         // ...and the guard round 17 asked for is what the template ships, named here so
         // this row still measures the GUARD and not just a destination.
-        assertTrue(lottery.contains("COMMIT order"), "the seed must be described, not just promised")
+        assertTrue(lottery.contains("IN COMMIT ORDER"), "the seed must be described, not just promised")
         assertTrue(lottery.contains("DENY a round by not revealing"), "the residual must still be stated")
 
         // 4. THE AIRDROP keeps `staking`, whose guards DO cover its exploit - a reward

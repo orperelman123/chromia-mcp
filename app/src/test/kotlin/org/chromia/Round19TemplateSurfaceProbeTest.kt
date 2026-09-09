@@ -81,20 +81,30 @@ class Round19TemplateSurfaceProbeTest {
         Probe(
             "r1_a_synonym_the_key_list_does_not_hold",
             "a tombola for token holders that pays out weekly",
-            "declined",
+            // ROUND 19'S COLUMN WAS `declined`, and it was right: a raffle had no
+            // template, and round 19's finding was that the SYNONYM did not even reach
+            // the class - the ask came back ok:true with four files of `template=ft4`
+            // and not one word about the draw. The synonym reaches the class now, and
+            // round 20 gave the class a template, so reaching it means SCAFFOLDING it.
+            // The finding this row records is untouched; only where the class goes has
+            // changed, and `the synonym reaches the class` below asserts which template.
+            "scaffolded",
             "`tombola` is a raffle; the key list holds lotter*, raffle*, sweepstake*, prize draw*, " +
-                "random winner*"
+                "random winner* - and since round 20 the class is `template=raffle`"
         ),
         Probe(
             "r2_the_class_in_another_language",
             "une loterie hebdomadaire pour les deposants",
-            "declined",
-            "the same ask in French - the key list is English"
+            // ROUND 20: it reaches the class, and the class has a template.
+            "scaffolded",
+            "the same ask in French - the key list is English, and since round 20 the class it " +
+                "reaches is `template=raffle`"
         ),
         Probe(
             "r3_another_language_again",
             "un sorteo semanal de premios para los depositantes",
-            "declined",
+            // ROUND 20: same as r2.
+            "scaffolded",
             "the same ask in Spanish"
         ),
         Probe(
@@ -113,16 +123,27 @@ class Round19TemplateSurfaceProbeTest {
         Probe(
             "r6_the_class_negated",
             "a lending pool without any raffle",
-            "declined",
-            "the word is present and the ask says the opposite. Declining is the conservative answer " +
-                "and costs the caller one sentence; scaffolding lending here would be the honest route. " +
-                "Recorded either way"
+            // ROUND 20 TOOK ROUND 19'S OWN ADVICE, and this row is where the negation
+            // window came from. Round 19 wrote "scaffolding lending here would be the
+            // honest route" and recorded the conservative answer either way; round 20
+            // measured what "the word is present" costs elsewhere - SEVEN asks for
+            // classes this server ships a template for were refused outright, including
+            // `a stablecoin whose peg is deterministic and USES NO VRF` - and made a key
+            // inside a three-token negation window the class being RULED OUT rather than
+            // the class being named.
+            "scaffolded",
+            "the word is present and the ask says the opposite. Round 19 recorded the conservative " +
+                "answer and named the honest one; round 20 ships the honest one, and this ask " +
+                "scaffolds `template=lending`"
         ),
         Probe(
             "r7_control_the_bare_class",
             "a weekly raffle that pays a random winner",
-            "declined",
-            "the control: the class named plainly, which round 18 pinned as declined"
+            // ROUND 20: the control still measures the same thing - the class named
+            // plainly must reach the class - and the class has a template now.
+            "scaffolded",
+            "the control: the class named plainly, which round 18 pinned as declined and round 20 " +
+                "answers with `template=raffle`"
         ),
         Probe(
             "r8_control_a_plain_lending_ask",
@@ -212,7 +233,9 @@ class Round19TemplateSurfaceProbeTest {
     /**
      * EVERY ROW'S `as_expected` IS NOW TRUE. r1 was the one false column in the eight,
      * and it is the finding: a class recognised by spelling is a class a synonym walks
-     * around.
+     * around. Round 20 moved r1's own expectation from `declined` to `scaffolded`,
+     * because the class it reaches acquired a template - the reason is written on the
+     * probe itself rather than here, so it travels with the row.
      */
     @Test
     fun `all eight asks now land where the adversary said they should`() {
