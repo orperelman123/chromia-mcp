@@ -141,7 +141,10 @@ export function summarize(t, { runUrl = null } = {}) {
       say(`<summary>What the third party said to <code>${cell(u.key)}</code></summary>`);
       say('');
       say('```');
-      say(clip(u.errorText, 1200));
+      // The third party wrote this text. A ``` inside it would close the fence
+      // and turn the rest of the summary into markup, so the fence character is
+      // the one thing that does not survive verbatim.
+      say(clip(u.errorText, 1200).replace(/`{3,}/g, "'''"));
       say('```');
       say('');
       say(`canary: \`${cell(u.canary?.outcome ?? u.canaryOutcome)}\`` +
