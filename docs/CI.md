@@ -149,8 +149,19 @@ flag the tally **fails closed**: no marker means no `:app:test` execution wrote
 one in this tree, which is either "the suite did not run" or "the task was up to
 date and executed nothing".
 
+**What starts a run is what clears the marker**, and that is deliberate rather
+than assumed. A build cannot tell "slice 2 of a partitioned gate" from "the same
+suite run again an hour later" — both find XMLs already in the results directory,
+and both append. So the two callers that decide anything clear it: `loop-gate.mjs`
+removes `app/build/test-run` and `app/build/upstream` before every gate run, and
+CI is a fresh checkout. A hand-run `./gradlew :app:test`, twice, into a build
+directory nobody cleared records both starts and dates the run from the earlier
+one — but that directory then holds two runs' XMLs as well, and it is not a
+verdict on anything. Clear the build directory, or run the gate, which does.
+
 What this arms, measured in
-`app/src/test/resources/exploit-corpus/realworld/adversary-round20`: an upstream
+`app/src/test/resources/exploit-corpus/realworld/adversary-round20` and
+re-measured by `Round20UpstreamBindingProbeTest` on every run: an upstream
 warning dated **one second** before the marker is refused as an earlier run's
 evidence (it used to be accepted up to an hour early), one written during the run
 is accepted, and the fatal stale-results check now runs on every classification.
