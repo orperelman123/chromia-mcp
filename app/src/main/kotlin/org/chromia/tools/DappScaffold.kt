@@ -10442,9 +10442,13 @@ object DappScaffold {
         //      operation. The moment a forfeited deposit is added to a prize, to a treasury a
         //      participant can reach, or to the next round's pot, denial becomes a source of
         //      income for whoever survives it - and in a sybil field that is the attacker.
-        //   4. THE STAKE CAP IS PART OF THE DEPOSIT'S ARITHMETIC. `stake <= DEPOSIT` is what makes
-        //      walking away from a losing draw cost at least what playing it costs. If you raise
-        //      MAX_STAKE, raise DEPOSIT with it, or the last revealer is paid to leave.
+        //   4. THE DEPOSIT IS THE STAKE CAP, AND THAT IS ARITHMETIC RATHER THAN POLICY.
+        //      `require(stake <= DEPOSIT)` is what makes walking away from a losing draw cost at
+        //      least what playing it costs: a walker forfeits `DEPOSIT`, a player who loses is out
+        //      `stake`. There is no separate maximum-stake constant to tune, on purpose - raising
+        //      the accepted stake means raising `DEPOSIT`, and the two can never drift apart. Round
+        //      20's module sized its deposit against `prize / participants` instead, which is a
+        //      fraction of one stake and bounded nothing.
         //   5. `settle_round` AND `claim_refund` ARE PERMISSIONLESS ON PURPOSE, and each is
         //      CALLER-KEYED where it moves money: settle pays the winner the row names and refunds
         //      every entry's own deposit, and a refund is claimed by the account whose entry it

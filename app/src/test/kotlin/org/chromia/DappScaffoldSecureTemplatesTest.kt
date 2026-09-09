@@ -2369,14 +2369,21 @@ class DappScaffoldSecureTemplatesTest {
         // ...and where the honest answer is that nothing covers it, it still is. A
         // redirect that always names SOMETHING is the round-8 hazard with better aim.
         listOf(
-            "a raffle with on-chain randomness",
+            // ROUND 20 SPLIT THE UNPREDICTABLE-OUTCOME CLASS IN TWO, and this is the half
+            // that still has no template: a raffle pays ONE winner out of a pot the
+            // entrants funded, and a BOOK takes the other side of every bet and must be
+            // SOLVENT FOR EVERY OUTCOME AT ONCE. Nothing here covers that.
             "a prediction market",
+            "sports betting",
             "a loyalty programme",
-            // ROUND 17's three measured misroutes whose honest answer is NO: a lottery
-            // reached `staking` on the word `rewards` (nothing in it makes a draw
-            // unpredictable), and a payment channel and a multisig wallet both reached
-            // `ft4` (which has neither a channel nor a signer set).
-            "a weekly lottery with rewards for ticket holders",
+            // ROUND 20's other two: a points programme MINTS its unit, so staking's
+            // "every credit is a pool debit" is vacuous on it; and a fee splitter's
+            // exploit is the weights and the rounding.
+            "a points program where the issuer mints rewards for purchases",
+            "a fee splitter that pays revenue to weighted recipients",
+            // ROUND 17's two remaining measured misroutes: a payment channel and a
+            // multisig wallet both reached `ft4`, which has neither a channel nor a
+            // signer set.
             "a payment channel",
             "a multisig wallet"
         ).forEach { ask ->
@@ -2385,12 +2392,39 @@ class DappScaffoldSecureTemplatesTest {
         }
         // ...and each honest NO names the guard that is missing, rather than shrugging.
         assertTrue(
-            noteFor("a weekly lottery with rewards for ticket holders").contains("UNPREDICTABLE OUTCOME"),
-            noteFor("a weekly lottery with rewards for ticket holders").take(200)
+            noteFor("a prediction market").contains("UNPREDICTABLE OUTCOME"),
+            noteFor("a prediction market").take(200)
+        )
+        assertTrue(
+            noteFor("a prediction market").contains("SOLVENT FOR EVERY OUTCOME AT ONCE"),
+            "a book's missing guard is solvency, and it must be the thing that is named"
         )
         assertTrue(
             noteFor("a multisig wallet").contains("SIGNER SET"),
             noteFor("a multisig wallet").take(200)
+        )
+        // ROUND 20'S OWN CLASS, which used to be in the list above: it has a template now,
+        // and TEMPLATE-GAPS.md's rule is that the redirect moves in the same commit. Round
+        // 17 measured "a weekly lottery with rewards for ticket holders" reaching `staking`
+        // on the word `rewards`, and round 19 measured "a tombola" reaching `ft4` with four
+        // files; neither template makes a draw unpredictable. Round 20 built the one that
+        // does - after building this project's own design note for the class and watching
+        // it drained FIVE OF FIVE draws on 4.76% of the stake.
+        listOf(
+            "a raffle with on-chain randomness",
+            "a weekly lottery with rewards for ticket holders",
+            "a tombola for token holders that pays out weekly",
+            "on-chain lottery",
+            "une loterie hebdomadaire avec tirage au sort"
+        ).forEach { assertRoute(it, "raffle") }
+        assertTrue(
+            noteFor("a raffle with on-chain randomness").contains("IN COMMIT ORDER"),
+            "...and it must arrive with the guard, not just the template name: " +
+                noteFor("a raffle with on-chain randomness").take(200)
+        )
+        assertTrue(
+            noteFor("a raffle with on-chain randomness").contains("DENY a round by not revealing"),
+            "a redirect that does not name its own residual is the round-8 disclaimer"
         )
         // ROUND 17'S OWN CLASS, which used to be in the list above: it has a template now,
         // and TEMPLATE-GAPS.md's rule is that the redirect moves in the same commit.
@@ -2579,7 +2613,8 @@ class DappScaffoldSecureTemplatesTest {
         "subscription" to "A MERCHANT'S WHOLE CLAIM IS THE ESCROW THE PAYER FUNDED",
         "bridge" to "THE PROCESSED-BURNS REGISTRY IS KEYED BY THE BURN'S IDENTITY",
         "escrow" to "A SWAP SETTLES IN FULL OR NOT AT ALL",
-        "insurance" to "EVERY PATH OUT OF A POLICY IS A SECOND EXIT PATH"
+        "insurance" to "EVERY PATH OUT OF A POLICY IS A SECOND EXIT PATH",
+        "raffle" to "THE SEED FOLDS IN COMMIT ORDER"
     )
 
     @Test
@@ -2619,6 +2654,77 @@ class DappScaffoldSecureTemplatesTest {
                 "$template's EXTENDING section names no identifier this module actually has: $named"
             )
         }
+    }
+
+    /**
+     * THE SIXTEENTH TEMPLATE, STRUCTURALLY. Every assertion here is a shape adversary
+     * round 20's drain needed and this module does not have. The drain was one line -
+     * `round.mixed = crypto.sha256(round.mixed + secret)` inside `reveal` - so the first
+     * assertion is that `reveal` touches no accumulator at all.
+     */
+    @Test
+    fun raffleFoldsTheCommittedSetAndDrawsOnlyACompleteRound() {
+        val files = DappScaffold.files("draw", template = "raffle")
+        val main = files.getValue("src/main.rell")
+        val code = withoutComments(main)
+        assertEquals(10, guardCount(main), "the raffle header's stated count must be the number of guards it lists")
+
+        // 1. THE SEED IS A FUNCTION OF THE COMMITTED SET, NOT OF THE REVEAL ORDER.
+        val reveal = opBody(code, "reveal")
+        assertFalse(reveal.contains("seed"), "reveal must not touch the seed: ${reveal}")
+        assertTrue(reveal.contains(".secret = secret"), "reveal stores the secret and stops: ${reveal}")
+        assertTrue(
+            code.contains("entry @* { .round == r } ( @omit @sort .seq, .secret )"),
+            "the seed must fold the entries in COMMIT order, which is `seq`"
+        )
+        // `seq` is written by commit and by nothing else, and it is not mutable: the set
+        // the seed folds over is fixed before the first secret in the round exists.
+        assertTrue(code.contains("seq: integer;"), "seq must be an immutable field")
+        assertFalse(code.contains("mutable seq"), "a mutable commit order is not a commit order")
+        listOf("reveal", "settle_round", "claim_refund").forEach { op ->
+            assertFalse(opBody(code, op).contains(".seq ="), "${op} must not write seq")
+        }
+
+        // 2. A ROUND THAT IS NOT COMPLETE DOES NOT DRAW - what turns 2^m withholding
+        //    subsets into one choice.
+        val settle = opBody(code, "settle_round")
+        assertTrue(settle.contains("r.reveals == r.commits"), "settle must refuse an incomplete round: ${settle}")
+
+        // 3. A FORFEITED DEPOSIT IS BURNED, AND NOTHING PAYS OUT OF IT.
+        assertTrue(opBody(code, "claim_refund").contains("book.burned += e.deposit"), "a forfeit must be burned")
+        assertFalse(settle.contains("burned"), "the prize must not grow with somebody else's forfeit")
+        assertEquals(
+            0,
+            Regex("burned -=").findAll(code).count(),
+            "nothing may pay out of `burned` - that is what makes denial unprofitable"
+        )
+
+        // 4. THE STAKE IS CAPPED BY THE DEPOSIT, so walking away never costs less than
+        //    playing. Round 20 sized its deposit against the prize DIVIDED BY the
+        //    participants, which is a fraction of one stake.
+        assertTrue(
+            opBody(code, "commit").contains("stake <= DEPOSIT"),
+            "a stake above the deposit pays the last revealer to walk away"
+        )
+
+        // 5. NO OPERATION WRITES A TIMESTAMP AN ENTITLEMENT IS MEASURED FROM.
+        assertTrue(code.contains("opened_at: timestamp;"), "opened_at must be immutable")
+        listOf("commit", "reveal", "settle_round", "claim_refund").forEach { op ->
+            assertFalse(
+                opBody(code, op).contains(".opened_at ="),
+                "${op} must not write opened_at - a window a caller can push is a window she can wait out"
+            )
+        }
+
+        // 6. THE DRAW READS NO BLOCK DATA. The clock appears only in inequalities.
+        assertTrue(settle.contains("pick(seed, r.pot)"), "the ticket comes from the seed and nothing else")
+        assertFalse(settle.contains("pick(op_context"), settle)
+
+        // 7. ...and the shipped suite RUNS round 20's search rather than describing it.
+        val test = files.getValue("src/test/main_test.rell")
+        assertTrue(test.contains("permutations("), "the suite must run the attacker's search")
+        assertTrue(test.contains("test_round20_raffle1_"), test.take(200))
+        assertTrue(test.contains("test_round20_raffle2_"), test.take(200))
     }
 
     @Test
@@ -2981,6 +3087,33 @@ class DappScaffoldSecureTemplatesTest {
             "test_the_relayer_set_is_configuration_not_an_input_must_fail",
             "test_r16_b1_dust_mints_cannot_stall_an_honest_burn_must_fail",
             "test_r16_b2_a_reopen_cannot_silence_a_voice_already_cast_must_fail"
+        )
+    )
+
+    /**
+     * THE SIXTEENTH TEMPLATE'S SUITE, on the honest FIRST run - which is the bar audit F4
+     * set and the reason `moduleArgs` is a top-level field. Measured with `chr test` on a
+     * real chain before the module was embedded: 15/15 green in 65 s.
+     */
+    @Test
+    fun raffleShippedTestsRunGreen() = assertShippedGreen(
+        "raffle",
+        setOf(
+            "test_round20_raffle1_a_chosen_reveal_order_cannot_move_the_draw_must_fail",
+            "test_round20_raffle2_withholding_a_subset_buys_no_draw_must_fail",
+            "test_commit_is_refused_once_the_window_has_closed",
+            "test_reveal_is_refused_before_the_window_opens",
+            "test_reveal_is_refused_once_the_window_has_closed",
+            "test_a_secret_that_does_not_match_the_commitment_is_refused",
+            "test_a_secret_cannot_be_replayed_by_another_account",
+            "test_a_second_commitment_from_the_same_account_is_refused",
+            "test_a_second_reveal_is_refused",
+            "test_settle_is_refused_while_the_reveal_window_is_open",
+            "test_a_second_settle_is_refused_and_the_seed_is_published",
+            "test_a_round_with_one_entry_pays_nothing_and_refunds",
+            "test_a_stake_larger_than_the_deposit_is_refused",
+            "test_a_refund_is_claimed_once_and_only_by_its_own_account",
+            "test_a_settled_round_cannot_also_be_refunded"
         )
     )
 
