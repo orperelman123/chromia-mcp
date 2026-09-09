@@ -32,10 +32,16 @@ import org.junit.jupiter.api.Test
  *    as a misroute: `ft4` claims `payment*`, and a token ledger has no channel,
  *    no sequence number and no dispute window, so it covers none of the class's
  *    exploit. The answer now says NO and names the missing guard.
- *  - `a raffle with on-chain randomness` and `a prediction market` stay (none)
- *    and keep scaffolding nothing; only their first sentence changed, because the
- *    honest answer is a branch that names the class rather than the roster's
- *    catch-all.
+ *  - `a raffle with on-chain randomness` (none) -> **raffle**, in round 20 and for
+ *    the same reason `insurance` moved in round 17: adversary round 20 built the
+ *    class from this server's own design note in `docs/TEMPLATE-GAPS.md`, proved
+ *    eleven guards load-bearing on a chain, and was drained FIVE OF FIVE draws on
+ *    4.76% of the stake - so it is the SIXTEENTH template and the redirect moves in
+ *    the same commit.
+ *  - `a prediction market` stays (none) and keeps scaffolding nothing. Round 20
+ *    separated the two halves of that class: a raffle pays one winner out of a pot
+ *    the entrants funded, and a BOOK takes the other side of every bet and must be
+ *    solvent for every outcome at once, which no template here covers.
  *
  * Nothing else in the twelve moved, which is the assurance this re-freeze is
  * meant to give: the round-16 fixes it pins - `an investment DAO` reaching

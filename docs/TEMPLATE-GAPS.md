@@ -1,8 +1,18 @@
 # Which classes have no template, and why that is the queue
 
-Eighteen adversary rounds. **Every un-templated class attacked has drained.** That
+Twenty adversary rounds. **Every un-templated class attacked has drained.** That
 is the whole basis for this file: the next drain is predictable from the
 redirect map, not from the last report.
+
+Round 20 made the claim sharper and more uncomfortable at once. It attacked the
+un-templated class at the top of this table **by building the design note this file
+gives for it** - eleven guards, every one proved load-bearing on a real chain - and
+drained it five of five draws on 4.76% of the stake with nothing forfeited. So the
+row was right that the class drains; and **a row's design note is production advice
+with no test behind it**, which is a second way for this file to be the hazard. A
+note here should carry the INVARIANT it claims as something a chain can be made to
+answer, not as a sentence. That row is now closed by `template=raffle`, and the
+section below keeps the note and its counterexample together on purpose.
 
 Round 18 added a second way to reach an un-templated class, and it did not need a
 missing row: **an ask that names an uncovered class ALONGSIDE a covered one used to
@@ -313,13 +323,56 @@ from.
   clarifying half-sentence in those seven descriptions is not, and neither is a
   claim-by-claim audit of the other sentences. That is the next item after the template.
 
-## The commit-reveal raffle, designed - what a future template lane builds
+## The commit-reveal raffle - BUILT, and first DRAINED FROM THIS SECTION
 
-This is the design note the top row has been owed since round 18 drained the class on a
-chain. It is a DESIGN, measured against the drain it has to make unwritable; it is not a
-template, and this lane did not build it, because a template here is a main module, a
-shipped suite, a guard-by-guard mutant for every guard, a redirect, module args and corpus
-rows, all built and measured on a real chain the way the other fifteen were.
+**STATUS, 2026-09-09: `template=raffle` ships, and the row above is retired.** Read the
+rest of this section anyway, because it is the only place in this file where the ADVICE
+was the attack surface.
+
+Adversary round 20 did what this section asks a template lane to do: it built the design
+below, exactly as written. Eleven honest guards went green on a real chain and every one
+of them was proved load-bearing. Then an attacker holding **4.76% of the stake won FIVE OF
+FIVE draws, with ZERO deposits forfeited and ZERO secrets withheld** - so the deposit, the
+whole economic mechanism this section rests on, never came up. The sentence that failed is
+in step 3 below: *"her choice is between REVEALING and FORFEITING her deposit"*. It is
+true of ONE commitment and false of two, because the mix
+
+    round.mixed = hash(round.mixed ++ secret)
+
+folds the secrets in **REVEAL ORDER**. Six commitments are 720 orderings of the same
+accumulator, every one of them reached by revealing everything and paying nothing extra.
+She read the honest secrets off the chain, ran the module's own public `pick` over each
+ordering of her own, and revealed in the one whose ticket was hers.
+
+**WHAT THE SHIPPED TEMPLATE DOES INSTEAD**, and each of these is structural rather than a
+check a later operation can forget:
+
+1. **The seed folds the COMMITTED set, in COMMIT order.** `reveal` stores the secret and
+   touches no accumulator at all; the seed is computed once, in `settle_round`, folding
+   over `@sort .seq` - an immutable field written by `commit` before any secret in the
+   round exists. There is no ordering left to choose.
+2. **A round that is not complete does not draw.** `reveals == commits` or the round
+   refunds, so the 2^m withholding subsets collapse into one choice: reveal everything, or
+   there is nothing to win.
+3. **A forfeited deposit is BURNED**, never added to the prize - the round-20 module paid
+   forfeits into the pot, which pays the survivors for the denial.
+4. **The stake is capped by the deposit**, so walking away from a losing draw never costs
+   less than playing it. Round 20 sized its deposit against `prize / participants`, a
+   fraction of one stake, which bounded nothing.
+
+Measured on a chain, in `exploit-corpus/realworld/adversary-round20/raffle-fixed`: all 24
+reveal orders of one round settle to the same seed and the same winner; and over FIFTY
+rounds the same 720-permutation search still finds a winning ordering in 50 of 50 rounds
+and wins **one round in fifty - 20000 ppm against a 47619 ppm stake share**, where the
+drained module won every draw.
+
+**THE LESSON THIS FILE OWES ITSELF:** a design note in this repository is read by agents
+and built by them, so it is production advice with no test behind it. This one had eleven
+provable guards and one false sentence, and the false sentence was the whole of it. A
+future row here should carry the *invariant* it claims - "her expected value from
+deviating is negative" - as something a chain can be made to answer, not as a sentence.
+
+The original design follows, unchanged, so the note and its counterexample sit together.
 
 **THE DRAIN IT HAS TO MAKE UNWRITABLE, in one sentence:** the entropy was
 `op_context.last_block_time`, the timestamp of the block ALREADY COMMITTED, so the
@@ -426,13 +479,13 @@ about.
 
 | Ask | Redirects to | What the target does NOT cover | Distinct exploit class |
 |---|---|---|---|
-| **a lottery, a raffle, a prize draw, a prediction market** - DRAINED ON A CHAIN, round 18 | `(none)` - it reached `staking` on the word `rewards` until 2026-09-07, it reached `lending` inside a two-class ask until 2026-09-08, and it reached `ft4` with FOUR FILES under the name `tombola` (and said nothing at all in French or Spanish) until 2026-09-09 | an UNPREDICTABLE OUTCOME. Staking's guards are about a reward being funded before it is paid; nothing in it makes a draw unpredictable, and a draw the signer can predict is a withdrawal | outcome manipulation: block data (timestamp, rid, any hash of the transaction) is chosen by whoever picks the submission block, so it is not entropy. MEASURED: trudy 100 -> 400 on 5 of 5 prizes with a 90-of-1890 stake, alice and bob 1500 -> 1350, `rell_security_check` ok:true. Commit-reveal with a forfeitable deposit is the shape; nothing ships it |
+| **a wager somebody takes the other side of** - a prediction market, a sportsbook, a casino game | `(none)` - a NAMED refusal, and since 2026-09-09 a refusal that points at `raffle` for the DRAW half and says why a book is not one | SOLVENCY FOR EVERY OUTCOME AT ONCE. A raffle pays one winner out of a pot the entrants funded, so the pot is always exactly what was staked; a book takes a position against every bettor and must be able to pay whichever side wins. `template=raffle` has no reserve, no odds and no worst case | a reserve sized against the EXPECTED outcome rather than the worst one, and a settlement source that is the house's own opinion. `insurance` is the nearest shipped shape - cover bounded by the reserve that backs it, every payout pro rata |
 | a token airdrop with a claim window | `staking` | a CLAIM WINDOW. Its guards cover the mint - a reward paid out of a pool nobody funded is round 4 - but not an allocation that expires, and not where the unclaimed remainder goes | a deadline whose two comparisons do not partition the timeline, and a remainder that stays claimable for ever. `escrow`'s deadline pair is the shape to copy |
 | a payment channel, a state channel | `(none)` - it reached `ft4` on the word `payment` until 2026-09-07 | a CHANNEL. A token ledger has no sequence number, no off-chain state and no dispute window | the CLOSE: a stale state posted by whoever profits from it, and a dispute window somebody has to be online to watch. `escrow` covers value locked between two named parties; nothing covers the close |
 | a multisig wallet, a threshold account | `(none)` - it reached `ft4` on the word `wallet` until 2026-09-07 | a SIGNER SET. The ft4 skeleton has one auth descriptor | who may add or remove a key, whether a signature counts once, and whether the set can be closed. FT4's account model has multi-signature auth descriptors and `bridge` ships M-of-N over one ACTION; neither is a template for an account |
 | a crowdfunding campaign with refunds | `(none)` - a NAMED refusal since 2026-09-08, where it used to fall to the roster | a goal, a deadline and an all-or-nothing refund | the refund race a `subscription`-style escrow does not have: many backers against one pot, so a partial refund is `insurance`'s pro-rata problem with a deadline attached |
-| a loyalty programme, points, a gaming item shop | `(none)` | an issuer who can mint the points at will | the round-4 unbacked mint in a class where minting is the POINT, so `staking`'s "every credit is a pool debit" cannot simply be carried over |
-| a fee splitter, a charity or donation pool, a yield aggregator | `(none)` | a share of an incoming stream, split by weights that can move | a weight changed between the accrual and the withdrawal - the lending template's stale-share-price drain in a class with no share price |
+| a loyalty programme, points | `(none)` - a NAMED refusal since 2026-09-09, where it fell to the roster before; **a gaming item shop still falls to the roster and is the row this one was split off from** | an issuer who can mint the points at will | the round-4 unbacked mint in a class where minting is the POINT, so `staking`'s "every credit is a pool debit" cannot simply be carried over |
+| a fee splitter, a charity or donation pool, a yield aggregator | `(none)` - a NAMED refusal since 2026-09-09, where it fell to the roster before | a share of an incoming stream, split by weights that can move | a weight changed between the accrual and the withdrawal - the lending template's stale-share-price drain in a class with no share price |
 
 That is not a claim that no other class is missing. Every drain in this project
 landed in a class this file had either not thought of or had ranked below the one

@@ -168,6 +168,13 @@ object DappScaffold {
         val stripped = COMBINING_MARKS.replace(decomposed, "")
         val out = StringBuilder(stripped.length)
         stripped.forEach { c ->
+            // ROUND 20, LAUNDERING A. Two scripts that DO have a settled Latin
+            // transliteration are folded through it. See [NON_LATIN_FOLD].
+            val transliterated = NON_LATIN_FOLD[c]
+            if (transliterated != null) {
+                out.append(transliterated)
+                return@forEach
+            }
             when (c) {
                 'ß' -> out.append("ss")
                 'ø' -> out.append('o')
@@ -184,6 +191,58 @@ object DappScaffold {
     }
 
     private val COMBINING_MARKS = Regex("\\p{Mn}+")
+
+    /**
+     * ROUND 20, LAUNDERING A - CYRILLIC AND GREEK, TRANSLITERATED RATHER THAN LEFT
+     * INVISIBLE.
+     *
+     * Round 19 folded the Latin scripts and wrote down, honestly, what that did not
+     * reach: "a script with no Latin transliteration is invisible to every key list here,
+     * covered and uncovered alike". Round 20 MEASURED the consequence over nine non-Latin
+     * asks for a class this server declines by name, and 0 of 9 reached the class
+     * paragraph. The ninth is worse than invisible:
+     *
+     *     `a weekly лотерея for token holders`  ->  ok:true, template=ft4, FOUR FILES
+     *
+     * One word in Cyrillic inside an English sentence, and `token holders` sent the ask to
+     * `ft4` with the class paragraph nowhere in the answer - round 19's synonym laundering
+     * with the synonym written in another alphabet.
+     *
+     * The two scripts below are the ones with a SETTLED, single-valued transliteration
+     * into Latin: Russian/Ukrainian/Belarusian/Bulgarian/Serbian Cyrillic, and Greek. They
+     * are written out here as a table rather than pulled in as a dependency - a
+     * transliteration library is a supply-chain surface for thirty-eight characters - and
+     * every row is exercised by the multilingual corpora in the round-19 and round-20
+     * probe tests, so a row that can never fire is a red test.
+     *
+     * The table runs AFTER Unicode NFD and after combining marks are dropped, so the
+     * accented forms decompose into the base letters first: `ё` -> `е` -> `e`, `й` -> `и`
+     * -> `i`, `ή` -> `η` -> `i`. That is why neither is listed. `лотерея` folds to
+     * `lotereya`, which the key `loter*` takes; `κλήρωση` folds to `klirosi`.
+     *
+     * WHAT THIS STILL DOES NOT REACH, written down rather than implied: Chinese, Japanese,
+     * Korean, Hebrew, Arabic and Hindi have no single-valued letter-for-letter Latin form
+     * (Chinese and Japanese are not alphabetic at all; Hebrew and Arabic drop the vowels a
+     * key would need). Those six remain the recorded gap in `docs/TEMPLATE-GAPS.md`, and
+     * the honest shape for them is a per-language key list, not a fold.
+     */
+    private val NON_LATIN_FOLD: Map<Char, String> = mapOf(
+        // Cyrillic.
+        'а' to "a", 'б' to "b", 'в' to "v", 'г' to "g", 'ґ' to "g", 'д' to "d", 'е' to "e",
+        'є' to "ye", 'ж' to "zh", 'з' to "z", 'и' to "i", 'і' to "i", 'ї' to "yi",
+        'й' to "y", 'к' to "k", 'л' to "l", 'м' to "m", 'н' to "n", 'о' to "o", 'п' to "p",
+        'р' to "r", 'с' to "s", 'т' to "t", 'у' to "u", 'ў' to "u", 'ф' to "f",
+        'х' to "kh", 'ц' to "ts", 'ч' to "ch", 'ш' to "sh", 'щ' to "shch",
+        // The two signs carry no sound and no Latin letter: they fold to nothing, which
+        // is what every transliteration standard does with them.
+        'ъ' to "", 'ь' to "", 'ы' to "y", 'э' to "e", 'ю' to "yu", 'я' to "ya",
+        // Greek. Final sigma is the same letter as medial sigma.
+        'α' to "a", 'β' to "v", 'γ' to "g", 'δ' to "d", 'ε' to "e", 'ζ' to "z",
+        'η' to "i", 'θ' to "th", 'ι' to "i", 'κ' to "k", 'λ' to "l", 'μ' to "m",
+        'ν' to "n", 'ξ' to "x", 'ο' to "o", 'π' to "p", 'ρ' to "r", 'σ' to "s",
+        'ς' to "s", 'τ' to "t", 'υ' to "y", 'φ' to "f", 'χ' to "ch", 'ψ' to "ps",
+        'ω' to "o"
+    )
 
     fun normalizeName(raw: String?): String {
         val trimmed = raw?.trim()?.lowercase().orEmpty()
@@ -226,7 +285,7 @@ object DappScaffold {
     fun chromiaYmlFor(name: String): String = chromiaYml(normalizeName(name))
 
     /** Every template scaffold_dapp accepts; anything else falls back to hello with a warning. */
-    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance")
+    val templates = listOf("hello", "ft4", "governance", "vault", "staking", "marketplace", "lending", "streaming", "amm", "stablecoin", "exchange", "subscription", "bridge", "escrow", "insurance", "raffle")
 
     /**
      * ONE LINE PER TEMPLATE, and the ONLY place the roster is written down.
@@ -271,7 +330,10 @@ object DappScaffold {
             "and the escrowed leg goes home to whoever escrowed it",
         "insurance" to "a MUTUAL POOL WITH CLAIMS: one helper computes every refund and it is the premium less " +
             "what the policy was paid, claims and refunds are both PRO RATA out of a short reserve, " +
-            "and cover is bounded by the reserve that backs it"
+            "and cover is bounded by the reserve that backs it",
+        "raffle" to "a COMMIT-REVEAL DRAW: the seed folds the committed set in COMMIT order so no " +
+            "reveal order can move it, a round that is not complete does not draw, and a forfeited " +
+            "deposit is burned rather than paid into the prize"
     )
 
     init {
@@ -288,6 +350,40 @@ object DappScaffold {
      * dropped.
      */
     internal fun hardenedTemplates(): List<String> = templates.filter { it != "hello" && it != "ft4" }
+
+    /**
+     * ROUND 20 - THE THREE WORD SETS THE HEAD/MENTION RULE READS, and they are closed
+     * lists on purpose: a rule that guessed at sentence structure would be a parser, and
+     * a parser that is wrong is worse than a keyword that is wrong because nobody can see
+     * where it went wrong.
+     *
+     * [HEAD_BOUNDARY] is where the ask's head noun phrase ends - the relative pronouns
+     * and conjunctions after which everything either modifies the head or names a second
+     * thing. [BUILD_VERBS] and [ARTICLES] are skipped before the head starts, so `build me
+     * a raffle` has the same head as `a raffle`. [NEGATORS] is the window that makes `uses
+     * no VRF` not a VRF ask, in the eight languages the concept vocabularies claim.
+     */
+    private val HEAD_BOUNDARY = setOf(
+        "that", "which", "whose", "who", "where", "when", "with", "and", "but",
+        "for", "plus", "also", "using", "uses", "use", "while", "so", "if",
+        "including", "includes", "include", "offering", "offers", "offer"
+    )
+    private val BUILD_VERBS = setOf(
+        "build", "make", "create", "scaffold", "implement", "write", "design",
+        "generate", "want", "need"
+    )
+    private val ARTICLES = setOf("a", "an", "the", "me", "my", "us", "our", "some", "one")
+    private val NEGATORS = setOf(
+        "no", "not", "never", "without", "non", "nor", "none", "neither",
+        "excludes", "exclude", "excluding", "avoids", "avoid", "avoiding",
+        // French, Spanish, German, Dutch, Italian, Portuguese, Polish.
+        "sans", "sin", "ohne", "zonder", "senza", "sem", "bez"
+    )
+
+    /** The three roles a concept class can play in an ask - see [closestTemplateNote]. */
+    private const val ROLE_HEAD = 0
+    private const val ROLE_STRONG_OUT = 1
+    private const val ROLE_MENTION = 2
 
     private val COUNT_WORDS = listOf(
         "no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
@@ -384,6 +480,11 @@ object DappScaffold {
                 "chromia.yml" to insuranceChromiaYml(chain),
                 "src/main.rell" to insuranceMainRell(),
                 "src/test/main_test.rell" to insuranceTestRell()
+            )
+            "raffle" -> linkedMapOf(
+                "chromia.yml" to ft4ChromiaYml(chain),
+                "src/main.rell" to raffleMainRell(),
+                "src/test/main_test.rell" to raffleTestRell()
             )
             else -> linkedMapOf(
                 "chromia.yml" to chromiaYml(chain),
@@ -2264,6 +2365,37 @@ object DappScaffold {
             needs an adjuster, an oracle or a parametric trigger - and that decision-maker is
             then the thing an attacker buys.
 
+            Building a RAFFLE, a lottery, a prize draw, a sweepstake - anything where a WINNER
+            IS DRAWN and the draw is meant to be unpredictable: start from template=raffle, NOT
+            template=staking and NOT template=ft4. Round 17 measured "a weekly lottery with
+            rewards for ticket holders" landing on template=staking, on the word `rewards`, and
+            round 19 measured "a tombola for token holders" landing on template=ft4 with FOUR
+            FILES and not one word about the draw. Neither template makes an outcome
+            unpredictable. THIS ONE IS BUILT FROM A DRAIN OF THIS PROJECT'S OWN ADVICE:
+            docs/TEMPLATE-GAPS.md said the shape was "commit-reveal with a deposit the revealer
+            forfeits", adversary round 20 built exactly that, proved ELEVEN guards load-bearing
+            on a chain, and was drained FIVE OF FIVE draws by an attacker holding 4.76% of the
+            stake with ZERO deposits forfeited and ZERO secrets withheld. The sentence that
+            failed was "her choice is between REVEALING and FORFEITING her deposit": the seed
+            was `round.mixed = crypto.sha256(round.mixed + secret)`, A FOLD IN REVEAL ORDER, so
+            m commitments were m! accumulators to pick between for free - she read the honest
+            secrets off the chain, ran the module's own public `pick` over each of her 720
+            orderings, and revealed in the one whose ticket was hers. The template makes that
+            unwritable rather than checked for. THE SEED IS FOLDED IN COMMIT ORDER - `seq` is
+            written by `commit` before any secret in the round exists, `reveal` touches no
+            accumulator at all, and reveal order is therefore not an input to anything. A ROUND
+            THAT IS NOT COMPLETE DOES NOT DRAW - `reveals == commits` or the round refunds, so
+            the 2^m withholding subsets collapse to one choice. A FORFEITED DEPOSIT IS BURNED,
+            never added to the prize, because a pot that grows when somebody fails to reveal
+            pays for the failure; and the STAKE IS CAPPED BY THE DEPOSIT, so walking away from
+            a losing draw never costs less than playing it. Measured on a chain: the same
+            720-permutation search still finds an ordering in fifty of fifty rounds and wins
+            ONE round in fifty, against a 4.7619% stake share. What no guard here can fix, and
+            the header says so: A PARTICIPANT CAN ALWAYS DENY A ROUND BY NOT REVEALING, for one
+            deposit a round - nobody profits from the denial, so it buys griefing and never a
+            draw, and a raffle that must not be stoppable needs a randomness BEACON read with
+            the discipline template=vault applies to a price, not a bigger deposit.
+
             NEVER import ${forbiddenModules.joinToString(", ")}.
             require_mandatory_flags only on the main auth descriptor.
             Since CLI 0.30.0, `chr deployment create` writes deployments.<net>.chains into chromia.yml.
@@ -2344,32 +2476,6 @@ object DappScaffold {
     )
 
     /**
-     * EVERY COVERED CLASS'S KEYS, in the order the routing `when` reads them, and the
-     * template each one routes to. The `when` matches on THESE LISTS - there is no
-     * second copy - so "which covered classes does this ask name" is derived from the
-     * routing rather than kept in step with it by hand. Two entries route to `staking`
-     * on purpose: a liquidity-mining programme is a reward emission, and its list has
-     * to be read ahead of `amm`.
-     */
-    internal val templateKeys: List<Pair<String, List<String>>> = listOf(
-        "bridge" to BRIDGE_KEYS,
-        "exchange" to EXCHANGE_KEYS,
-        "stablecoin" to STABLECOIN_KEYS,
-        "lending" to LENDING_KEYS,
-        "subscription" to SUBSCRIPTION_KEYS,
-        "insurance" to INSURANCE_KEYS,
-        "governance" to GOVERNANCE_KEYS,
-        "streaming" to STREAMING_KEYS,
-        "marketplace" to MARKETPLACE_KEYS,
-        "escrow" to ESCROW_KEYS,
-        "staking" to LIQUIDITY_MINING_KEYS,
-        "amm" to AMM_KEYS,
-        "vault" to VAULT_KEYS,
-        "staking" to STAKING_KEYS,
-        "ft4" to FT4_KEYS
-    )
-
-    /**
      * A VALUE CLASS THIS SERVER DOES NOT SHIP A TEMPLATE FOR, its whole-token keys,
      * and the guard an honest NO has to name. Round 17 made these BRANCHES of the
      * routing `when`; round 18 measured what an ordered `when` does with an ask that
@@ -2416,7 +2522,25 @@ object DappScaffold {
      * A key added here is in `Round18TemplateRedirectProbeTest`'s matrix and in
      * `Round19TemplateVocabularyTest`'s clean-pass corpus in the same commit.
      */
-    private val UNPREDICTABLE_OUTCOME_KEYS = listOf(
+    /**
+     * THE RAFFLE CLASS, and since round 20 it is a COVERED one: `template=raffle` ships
+     * the commit-reveal draw whose seed folds in COMMIT order. These are the keys that
+     * name THE THING ITSELF - a draw with a winner - in the languages agents write asks
+     * in, and they are read as a class rather than as words: see the head/mention rule in
+     * [closestTemplateNote].
+     *
+     * WHAT IS NOT HERE, AND WHY IT MOVED. `random`, `randomness`, `randomly*`, `rng`,
+     * `vrf`, `giveaway*` and `at random` used to sit in this one list, and round 20
+     * measured what that cost: SEVEN asks for classes this server ships a template for
+     * were refused as "an UNPREDICTABLE OUTCOME" with nothing scaffolded - an oracle
+     * sampled at random intervals, a validator chosen at random each epoch, a giveaway of
+     * free listings, order ids assigned randomly, a proposal picked at random for audit, a
+     * randomness beacon read as a price input, and - the sharpest one - `a stablecoin
+     * whose peg is deterministic and USES NO VRF`, refused for saying the word. Those
+     * seven words describe HOW something is done, not WHAT is being built, so they are
+     * [RAFFLE_WEAK_KEYS] and they can no longer decline an ask on their own.
+     */
+    private val RAFFLE_KEYS = listOf(
         // The stem that carries lottery/lotteries AND lotteria/lotterie (Italian,
         // Spanish, Portuguese, Polish) - it is the first key, and the round-18 matrix
         // derives this class's probe token from it.
@@ -2427,27 +2551,100 @@ object DappScaffold {
         "loter*", "lotto*", "loto",
         // English, by every ordinary name.
         "raffle*", "sweepstake*", "prize draw*", "prize drawing*", "lucky draw*", "lucky dip*",
-        "random winner*", "random draw*", "random selection*", "randomness", "randomly*", "random",
-        "rng", "vrf", "prediction market*", "betting*", "bettor*", "wager*", "gambl*", "casino*",
-        "jackpot*", "dice roll*", "coin flip*", "coinflip*", "tombola*", "giveaway*", "give away*",
-        "sortition", "roulette*", "bingo*", "scratch card*", "scratchcard*", "sportsbook*",
-        "sports book*", "bookmaker*", "parimutuel*", "pari mutuel*", "parlay*", "winning ticket*",
-        "raffle ticket*", "chance to win*", "odds of winning*", "pick a winner*", "picks a winner*",
-        "picks the winner*", "draws a winner*", "chosen at random*", "at random",
-        // French: loterie/tombola are above; tirage (au sort), hasard, aléatoire, pari.
-        "tirage*", "hasard", "aleatoire*", "jeu de hasard*", "pari", "parier*", "parieur*",
-        "paris sportifs*", "gagnant au hasard*",
-        // Spanish and Portuguese: sorteo/sorteio, rifa, azar, aleatorio, apuesta/aposta.
-        "sorteo*", "sorteio*", "rifa*", "azar", "aleatorio*", "aleatoria*", "juego de azar*",
-        "apuest*", "apost*", "premio mayor*",
-        // German: Lotterie is above; Verlosung, Gewinnspiel, Glücksspiel, Zufall, Wette,
-        // Ziehung. Folded, so `Glücksspiel` and `glucksspiel` are one key.
-        "verlosung*", "gewinnspiel*", "glucksspiel*", "gluecksspiel*", "zufall*", "wette*",
-        "ziehung*", "auslosung*",
-        // Italian: lotteria is above; estrazione, sorteggio, scommessa.
-        "estrazion*", "sorteggio*", "scommess*",
+        "random winner*", "random draw*", "random selection*",
+        "tombola*", "jackpot*", "scratch card*", "scratchcard*",
+        "winning ticket*", "raffle ticket*", "chance to win*", "pick a winner*", "picks a winner*",
+        "picks the winner*", "draws a winner*",
+        // French: loterie/tombola are above; tirage (au sort), gagnant au hasard.
+        "tirage*", "gagnant au hasard*",
+        // Spanish and Portuguese: sorteo/sorteio, rifa, premio mayor.
+        "sorteo*", "sorteio*", "rifa*", "premio mayor*",
+        // German: Lotterie is above; Verlosung, Gewinnspiel, Ziehung, Auslosung.
+        "verlosung*", "gewinnspiel*", "ziehung*", "auslosung*",
+        // Italian: lotteria is above; estrazione, sorteggio.
+        "estrazion*", "sorteggio*",
         // Dutch and Polish.
-        "loterij*", "losowanie*", "zaklad bukmacherski*", "trekking*"
+        "loterij*", "losowanie*", "trekking*",
+        // Greek and Russian, through the transliteration in [NON_LATIN_FOLD]: κλήρωση
+        // folds to `klirosi`, λαχείο to `lacheio`, розыгрыш to `rozygrysh`.
+        "klirosi*", "klirose*", "lacheio*", "rozygrysh*"
+    )
+
+    /**
+     * ROUND 20, FINDING C - THE WORDS THAT DESCRIBE HOW, NOT WHAT.
+     *
+     * A vault priced by an oracle SAMPLED AT RANDOM INTERVALS is a vault. A stablecoin
+     * whose peg USES NO VRF is a stablecoin. A marketplace with A GIVEAWAY of free
+     * listings is a marketplace. Every one of those was refused outright, because these
+     * words were keys of the raffle class and the class list was consulted before the
+     * routing `when` and won whatever else the ask named.
+     *
+     * A weak key can still reach the raffle class - `on-chain randomness` with no covered
+     * class in the ask is a raffle ask and is answered as one - but it can no longer take
+     * an ask AWAY from a covered class it is merely describing. Where a covered class is
+     * the head of the ask, a weak word becomes a NOTE beside the scaffold instead of a
+     * refusal in place of it.
+     */
+    private val RAFFLE_WEAK_KEYS = listOf(
+        "random", "at random", "randomly*", "randomness", "chosen at random*",
+        "rng", "vrf", "giveaway*", "give away*", "sortition",
+        // The same words in the languages the class list already claims.
+        "hasard", "aleatoire*", "azar", "aleatorio*", "aleatoria*", "zufall*"
+    )
+
+    /**
+     * WAGERING - a bet on an outcome - is the half of round 19's unpredictable-outcome
+     * class that STILL has no template, and it is separated from [RAFFLE_KEYS] because
+     * the two are different exploit classes wearing the same word. A raffle draws ONE
+     * winner from a pot the entrants funded; a prediction market, a sportsbook or a casino
+     * takes the other side of a bet and must be SOLVENT for every outcome at once, which
+     * `template=raffle` says nothing about. Round 19's `abetting` rule is unchanged: there
+     * is no `bet*` and no bare `pari*` here.
+     */
+    private val WAGERING_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "prediction market*", "betting*", "bettor*", "wager*", "gambl*", "casino*",
+        "dice roll*", "coin flip*", "coinflip*", "roulette*", "bingo*",
+        "sportsbook*", "sports book*", "bookmaker*", "parimutuel*", "pari mutuel*", "parlay*",
+        "odds of winning*",
+        // French, Spanish, German, Italian, Greek, Russian, Polish.
+        "pari", "parier*", "parieur*", "paris sportifs*", "jeu de hasard*",
+        "apuest*", "apost*", "juego de azar*",
+        "glucksspiel*", "gluecksspiel*", "wette*",
+        "scommess*", "zaklad bukmacherski*",
+        "stoichima*", "tzogos*", "stavka*", "azartn*"
+    )
+
+    /**
+     * EVERY COVERED CLASS'S KEYS, in the order the routing `when` reads them, and the
+     * template each one routes to. The `when` matches on THESE LISTS - there is no
+     * second copy - so "which covered classes does this ask name" is derived from the
+     * routing rather than kept in step with it by hand. Two entries route to `staking`
+     * on purpose: a liquidity-mining programme is a reward emission, and its list has
+     * to be read ahead of `amm`.
+     */
+    internal val templateKeys: List<Pair<String, List<String>>> = listOf(
+        // ROUND 20: the SIXTEENTH template, and it is read first. Every realistic raffle
+        // ask names a token, a holder or a reward, so `a weekly lottery with rewards for
+        // ticket holders` reached `staking` (round 17) and `a tombola for token holders`
+        // reached `ft4` (round 19) - both of them four branches before the draw was
+        // looked at, and neither template makes an outcome unpredictable.
+        "raffle" to RAFFLE_KEYS,
+        "bridge" to BRIDGE_KEYS,
+        "exchange" to EXCHANGE_KEYS,
+        "stablecoin" to STABLECOIN_KEYS,
+        "lending" to LENDING_KEYS,
+        "subscription" to SUBSCRIPTION_KEYS,
+        "insurance" to INSURANCE_KEYS,
+        "governance" to GOVERNANCE_KEYS,
+        "streaming" to STREAMING_KEYS,
+        "marketplace" to MARKETPLACE_KEYS,
+        "escrow" to ESCROW_KEYS,
+        "staking" to LIQUIDITY_MINING_KEYS,
+        "amm" to AMM_KEYS,
+        "vault" to VAULT_KEYS,
+        "staking" to STAKING_KEYS,
+        "ft4" to FT4_KEYS
     )
 
     private val PAYMENT_CHANNEL_KEYS = listOf(
@@ -2513,43 +2710,173 @@ object DappScaffold {
         "crowdfunding campagne*", "zbiorka*"
     )
 
-    internal class UntemplatedClass(
+    /**
+     * ROUND 20, LAUNDERING B - LOYALTY AND POINTS, WHICH HAD NO NAMED REFUSAL AT ALL.
+     *
+     *     `a points program where the issuer mints rewards for purchases`
+     *         ->  ok:true, template=staking, THREE FILES
+     *
+     * `docs/TEMPLATE-GAPS.md` carries this row and says the staking template's discipline
+     * - "every credit is a pool debit" - CANNOT SIMPLY BE CARRIED OVER to it, and the ask
+     * was answered with that very template on the word `rewards`. A points programme is
+     * the opposite shape: the issuer MINTS the points, so there is no pool to debit and
+     * the conservation invariant the staking notes teach is vacuous on it.
+     */
+    private val LOYALTY_POINTS_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "loyalty*", "points program*", "points programme*", "reward points*", "loyalty point*",
+        "points for purchases*", "frequent flyer*", "air miles*", "stamp card*", "punch card*",
+        "cashback*", "cash back*", "store credit*", "gift card*", "voucher*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish.
+        "programme de fidelite*", "programa de fidelidad*", "puntos de fidelidad*",
+        "treuepunkt*", "kundenbindungsprogramm*", "bonuspunkt*",
+        "programa de fidelidade*", "programma fedelta*", "punti fedelta*",
+        "spaarpunten*", "program lojalnosciowy*"
+    )
+
+    /**
+     * ROUND 20, LAUNDERING B, THE OTHER ROW - A SPLITTER OF INCOME AMONG WEIGHTED
+     * RECIPIENTS: a fee splitter, a revenue share, a donation pool, a charity.
+     *
+     * The TEMPLATE-GAPS row for it has been open since the file was written and had no
+     * entry here, so every phrasing of it fell to the generic roster - which teaches an
+     * agent that we have no template with that NAME, and nothing about the exploit class.
+     * Round 19 deliberately kept `donation*` and `charity*` out of [CROWDFUNDING_KEYS]
+     * because they belong to THIS class; this is the class they were being kept for.
+     */
+    private val FEE_SPLITTER_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "fee splitter*", "fee split*", "revenue split*", "revenue share*", "revenue sharing*",
+        "payment splitter*", "split the fee*", "splits the fee*", "splitting the fee*",
+        "split the revenue*", "splits the revenue*", "profit share*", "profit split*",
+        "donation pool*", "donation*", "charity*", "charitable*", "tip jar*",
+        "weighted recipient*", "payout split*", "split between recipients*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish.
+        "repartition des frais*", "partage des revenus*", "cagnotte caritative*",
+        "reparto de ingresos*", "division de comisiones*", "donacion*",
+        "einnahmenaufteilung*", "gebuhrenaufteilung*", "spenden*",
+        "divisao de receita*", "doacao*", "doacoes*",
+        "divisione dei ricavi*", "donazion*",
+        "opbrengstverdeling*", "podzial oplat*"
+    )
+
+    /**
+     * A VALUE CLASS THE ROUTING KNOWS BY CONCEPT, its whole-token keys, and the guard an
+     * honest answer has to name.
+     *
+     * ROUND 20 SPLIT THIS RECORD IN TWO DIRECTIONS at once. [template] is the shipped
+     * template for the class, or null when none covers it - the raffle class HAS one now,
+     * and a record that could only say "no template" could not express that. [weakKeys]
+     * are words that describe HOW the class works rather than WHAT is being built, and
+     * they cannot take an ask away from a covered class on their own: that is the seven
+     * false declines of round 20, section 3, made unwritable.
+     */
+    /**
+     * THE RAFFLE CLASS'S ANSWER, and it is the first one in this file that says YES to a
+     * class an adversary round drained. It must open with ``Use `template=raffle` `` -
+     * [closestTemplate] reads that prefix and it is what makes the ask scaffold.
+     */
+    private val RAFFLE_NOTE: String =
+        "Use `template=raffle`: it is the template for this class, and this class is the one this " +
+            "server DECLINED BY NAME until round 20 - the answer used to be \"no template covers an " +
+            "UNPREDICTABLE OUTCOME\" with nothing scaffolded, because a draw an operation's signer " +
+            "can predict is not a draw, it is a withdrawal. What changed is that the guard now " +
+            "exists as code you can read, and it exists because THE PROJECT'S OWN DESIGN NOTE FOR " +
+            "THIS CLASS WAS DRAINED. `docs/TEMPLATE-GAPS.md` said the shape was \"commit-reveal with " +
+            "a deposit the revealer forfeits\", and that \"her choice is between REVEALING and " +
+            "FORFEITING her deposit\". Adversary round 20 built exactly that note, proved ELEVEN " +
+            "guards load-bearing on a chain, and lost FIVE OF FIVE draws to an attacker holding " +
+            "4.76% of the stake - with ZERO deposits forfeited and ZERO secrets withheld, so the " +
+            "sentence the deposit was supposed to enforce never came up. It is true of ONE " +
+            "commitment and false of two: the seed was `round.mixed = crypto.sha256(round.mixed + " +
+            "secret)`, A FOLD IN REVEAL ORDER, so six commitments were 720 accumulators to choose " +
+            "between for free. She read the honest secrets off the chain, ran the module's own " +
+            "public `pick` over each ordering of her own, and revealed in the one whose ticket was " +
+            "hers. WHAT THE TEMPLATE DOES INSTEAD, and each of these is structural rather than a " +
+            "check a later operation can forget: THE SEED FOLDS THE COMMITTED SET IN COMMIT ORDER " +
+            "(`@sort .seq`, written by `commit` before any secret in the round exists) and `reveal` " +
+            "touches no accumulator at all, so reveal order is not an input to anything; A ROUND " +
+            "THAT IS NOT COMPLETE DOES NOT DRAW (`reveals == commits`, or it refunds), which " +
+            "collapses the 2^m withholding subsets into one choice; A FORFEITED DEPOSIT IS BURNED " +
+            "rather than added to the prize, because a pot that grows when somebody fails to reveal " +
+            "pays for the failure; and THE STAKE IS CAPPED BY THE DEPOSIT, so walking away from a " +
+            "losing draw never costs less than playing it. Measured on a chain: the same " +
+            "720-permutation search still finds an ordering in FIFTY of fifty rounds and now wins " +
+            "ONE round in fifty, against a 4.7619% stake share. WHAT IT STILL DOES NOT COVER, said " +
+            "plainly: a participant can always DENY a round by not revealing, for one deposit a " +
+            "round - nobody profits from the denial, so it buys griefing and never a draw, and a " +
+            "raffle that must not be stoppable needs a randomness BEACON read with the discipline " +
+            "`template=vault` applies to a price (bounded, rate-limited, staleness-halted), not a " +
+            "bigger deposit. AND IF WHAT YOU ARE BUILDING TAKES THE OTHER SIDE OF A BET - a " +
+            "prediction market, a sportsbook, a casino game - that is a DIFFERENT exploit class " +
+            "with no template here: a raffle pays one winner out of a pot the entrants funded, " +
+            "while a book must be SOLVENT FOR EVERY OUTCOME AT ONCE, and nothing in this template " +
+            "says anything about that."
+
+    internal class ConceptClass(
         val id: String,
         val label: String,
         val keys: List<String>,
         val missingGuard: String,
-        val note: String
+        val note: String,
+        /** Words that name the class only weakly - see [RAFFLE_WEAK_KEYS]. */
+        val weakKeys: List<String> = emptyList(),
+        /** The shipped template for this class, or null when none covers it. */
+        val template: String? = null
     )
 
-    internal val untemplatedClasses: List<UntemplatedClass> = listOf(
-        UntemplatedClass(
+    /**
+     * The classes the routing reads BEFORE the `when` below, covered and uncovered alike.
+     * Order matters only for the answer's wording; membership is what the rule reads.
+     */
+    internal val conceptClasses: List<ConceptClass> = listOf(
+        ConceptClass(
+            id = "raffle",
+            label = "a raffle or lottery (a draw with one winner)",
+            keys = RAFFLE_KEYS,
+            weakKeys = RAFFLE_WEAK_KEYS,
+            template = "raffle",
+            missingGuard = "a SEED NO PARTICIPANT CAN CHOOSE - and `template=raffle` now ships one",
+            note = RAFFLE_NOTE
+        ),
+        ConceptClass(
             id = "unpredictable-outcome",
-            label = "an unpredictable outcome (a raffle, a lottery, a prize draw, a prediction market)",
-            keys = UNPREDICTABLE_OUTCOME_KEYS,
-            missingGuard = "a draw NO CALLER CAN CHOOSE THE BLOCK FOR - `op_context.last_block_time` is the " +
-                "timestamp of the block ALREADY COMMITTED, so an attacker predicts nothing: she watches " +
-                "blocks land and answers the one whose ticket is hers. The shape is a COMMIT-REVEAL with a " +
-                "deposit the revealer forfeits, or an anchor on a FUTURE block read only after a delay, and " +
-                "the economic invariant test written before either",
+            label = "a wager on an unpredictable outcome (a prediction market, sports betting, a casino game)",
+            keys = WAGERING_KEYS,
+            missingGuard = "SOLVENCY FOR EVERY OUTCOME AT ONCE, and a settlement source that is not the " +
+                "house's own opinion - a book must be able to pay whichever side wins, so the guard is a " +
+                "reserve checked against the WORST outcome before a bet is accepted (never against the " +
+                "expected one), plus an oracle or adjudicator with the discipline `template=vault` applies " +
+                "to a price, and the economic invariant test written before either",
             note =
                 "No shipped template covers that name, and the honest answer is NO rather than the " +
-                    "nearest template: an ask that turns on an UNPREDICTABLE OUTCOME has an exploit " +
-                    "class no template here addresses. `template=staking` is where round 17 measured " +
-                    "\"a weekly lottery with rewards for ticket holders\" landing, on the word " +
-                    "`rewards`, and its guards are about a reward pool being FUNDED before it pays - " +
-                    "nothing in it makes a draw unpredictable, and a draw an operation's signer can " +
-                    "predict is not a draw, it is a withdrawal. On this chain a block's own data " +
-                    "(timestamp, block rid, a hash of anything in the transaction) is visible to " +
-                    "whoever chooses when to submit, so it is not entropy. If you build one anyway: " +
-                    "commit-reveal with a deposit the revealer forfeits, or an external randomness " +
-                    "source with the same discipline the vault applies to a price - bounded, " +
-                    "rate-limited, staleness-checked - and write the economic invariant test FIRST. " +
-                    "The pot's CUSTODY is a different half and is covered: money in before the draw " +
-                    "and out after it is `template=marketplace`'s escrow discipline or " +
-                    "`template=insurance`'s pro-rata payout of a short pool, neither of which makes " +
-                    "the outcome fair."
+                    "nearest template: an ask that turns on WAGERING - taking the other side of a bet " +
+                    "on an UNPREDICTABLE OUTCOME - has an exploit class no template here addresses. " +
+                    "IT IS NOT THE SAME CLASS AS A DRAW, and round 20 separated the two: a raffle " +
+                    "pays ONE winner out of a pot the entrants themselves funded, so the pot is " +
+                    "always exactly what was staked, and `template=raffle` ships it. A BOOK IS THE " +
+                    "OPPOSITE SHAPE - it takes a position against every bettor, and it must be " +
+                    "SOLVENT FOR EVERY OUTCOME AT ONCE. Nothing in `template=raffle` says anything " +
+                    "about that: it has no reserve, no odds, no exposure and no worst case, and " +
+                    "building a sportsbook on it gives you a draw with extra steps. Two things have " +
+                    "to be true and neither is a check you can add later. THE RESERVE IS SIZED " +
+                    "AGAINST THE WORST OUTCOME, not the expected one: a bet accepted because the " +
+                    "average case is covered is a bet the house cannot pay when the unlikely side " +
+                    "wins, and the entrants find that out together. AND THE SETTLEMENT IS NOT THE " +
+                    "HOUSE'S OPINION - whoever says which side won is the thing an attacker buys, so " +
+                    "that source needs the discipline `template=vault` applies to a price: bounded, " +
+                    "rate-limited, staleness-halted, and unable to move the answer in one step. On " +
+                    "this chain a block's own data (timestamp, block rid, a hash of anything in the " +
+                    "transaction) is visible to whoever chooses when to submit, so it is not entropy " +
+                    "either. The nearest shipped disciplines, and they are halves rather than " +
+                    "answers: `template=insurance` for a POOL THAT MUST COVER CLAIMS IT CANNOT ALL " +
+                    "PAY - cover bounded by the reserve that backs it, and every payout pro rata - " +
+                    "which is the closest thing here to a book's solvency problem; and " +
+                    "`template=raffle` for the draw itself if what you are building really is a draw. " +
+                    "Write the economic invariant test FIRST: a passing security check is not " +
+                    "economic soundness, and on this class it is not even a signal."
         ),
-        UntemplatedClass(
+        ConceptClass(
             id = "payment-channel",
             label = "a payment or state channel",
             keys = PAYMENT_CHANNEL_KEYS,
@@ -2569,7 +2896,7 @@ object DappScaffold {
                     "economic invariant test FIRST - a passing security check is not economic " +
                     "soundness."
         ),
-        UntemplatedClass(
+        ConceptClass(
             id = "signer-set",
             label = "a threshold-controlled account (a multisig wallet, a signer set)",
             keys = SIGNER_SET_KEYS,
@@ -2591,7 +2918,7 @@ object DappScaffold {
                     "and the action taken in the single transaction where the count EQUALS the " +
                     "threshold, so there is no flag to forget."
         ),
-        UntemplatedClass(
+        ConceptClass(
             id = "crowdfunding",
             label = "a crowdfunding campaign (an all-or-nothing raise with refunds)",
             keys = CROWDFUNDING_KEYS,
@@ -2610,8 +2937,67 @@ object DappScaffold {
                     "and `template=insurance` for the pro-rata payout of a pot that cannot cover every claim " +
                     "on it - which is what a partial refund is. Write the economic invariant test FIRST: a " +
                     "passing security check is not economic soundness."
+        ),
+        ConceptClass(
+            id = "loyalty-points",
+            label = "a loyalty or points programme (points the issuer mints)",
+            keys = LOYALTY_POINTS_KEYS,
+            missingGuard = "WHAT BACKS A POINT AND WHAT RETIRES IT - a points programme MINTS its unit, so " +
+                "there is no pool to debit and no conservation invariant to copy; the guard is a stated " +
+                "liability, a redemption path that BURNS what it pays out, and a bound on what may be " +
+                "minted per period",
+            note =
+                "No shipped template covers that name, and the nearest one is actively wrong for it. A " +
+                    "LOYALTY OR POINTS PROGRAMME's exploit class is that the ISSUER MINTS THE UNIT: " +
+                    "points appear on a purchase, out of nothing, and the only thing standing behind " +
+                    "them is the issuer's promise to honour them. Round 20 measured `a points program " +
+                    "where the issuer mints rewards for purchases` being answered `ok:true`, " +
+                    "`template=staking`, THREE FILES - and `docs/TEMPLATE-GAPS.md` had already written " +
+                    "down why that is the wrong answer: the staking template's discipline is that " +
+                    "EVERY CREDIT IS A POOL DEBIT out of a sponsor-funded pool, which is exactly what a " +
+                    "points programme does not do. Copy that invariant onto a minting issuer and it is " +
+                    "VACUOUS - it passes on a ledger that can print. The nearest shipped disciplines, " +
+                    "and they are halves rather than answers: `template=ft4` for a token whose supply " +
+                    "is explicit and whose transfers conserve, and `template=subscription` for a " +
+                    "merchant's claim bounded by what a payer actually funded. Write the invariant test " +
+                    "FIRST, and make it about the LIABILITY - how many points exist, what they may be " +
+                    "redeemed for, and what burns them - because a passing security check cannot see a " +
+                    "promise."
+        ),
+        ConceptClass(
+            id = "fee-splitter",
+            label = "a splitter of income among weighted recipients (a fee splitter, a revenue share, a donation pool)",
+            keys = FEE_SPLITTER_KEYS,
+            missingGuard = "THE WEIGHTS AND THE ROUNDING - who may change a share and from when, and where " +
+                "the remainder of a division goes; a split that pays `total * weight / total_weight` to " +
+                "each recipient in turn leaves dust behind on every distribution and pays the last " +
+                "recipient short, and a weight a later operation can move re-prices income that has " +
+                "already been earned",
+            note =
+                "No shipped template covers that name. A SPLITTER OF INCOME AMONG WEIGHTED RECIPIENTS - " +
+                    "a fee splitter, a revenue share, a donation pool, a charity - has two exploit " +
+                    "classes and neither is about authentication. THE WEIGHTS ARE RE-PRICEABLE: if a " +
+                    "share may be changed while income is already accrued, whoever may change it is " +
+                    "paid retroactively, which is the round-9 accrual hazard in a different class. AND " +
+                    "THE DIVISION HAS A REMAINDER: integer division loses dust on every distribution, " +
+                    "so `sum of payouts < amount` and the difference accumulates somewhere - a pot with " +
+                    "no owner, or the last recipient's shortfall. The nearest shipped disciplines, and " +
+                    "they are halves rather than answers: `template=insurance` for the PRO-RATA payout " +
+                    "of a pot that cannot cover everything claimed on it, which is the same arithmetic " +
+                    "and ships the remainder handling; and `template=staking` for a per-share " +
+                    "accumulator that pays a share of income WITHOUT re-pricing what is already accrued. " +
+                    "Write the economic invariant test FIRST, and make it assert that the payouts SUM " +
+                    "to the amount split - that is the assertion the dust hides from."
         )
     )
+
+    /**
+     * The classes with NO shipped template, derived from [conceptClasses] rather than
+     * kept in a second list: a class that gains a template leaves this view in the same
+     * commit, and there is no way to add one to the routing and forget the other.
+     */
+    internal val untemplatedClasses: List<ConceptClass>
+        get() = conceptClasses.filter { it.template == null }
 
     /**
      * What to do INSTEAD, for a template name we do not ship. The notes already
@@ -2645,13 +3031,17 @@ object DappScaffold {
         // investment, "govern*" is governance, "bid" has NO star because a payment
         // channel is "bidirectional" and an auction is not what that ask wants.
         val askTokens = TOKEN.findAll(t).map { it.value }.toList()
-        fun matchesKey(key: String): Boolean {
+        // ROUND 20: WHERE a key matched, not merely whether. The rule below turns on the
+        // POSITION of the match, so the matcher returns every start index rather than a
+        // boolean.
+        fun keyStarts(key: String): List<Int> {
             val prefix = key.endsWith("*")
             // The key is folded too, so a key written with an accent - `lotería` - is
             // the same key as the folded ask it has to match, and there is no way to
             // add a key that can never fire.
             val parts = TOKEN.findAll(foldAsk(if (prefix) key.dropLast(1) else key)).map { it.value }.toList()
-            if (parts.isEmpty() || parts.size > askTokens.size) return false
+            if (parts.isEmpty() || parts.size > askTokens.size) return emptyList()
+            val out = mutableListOf<Int>()
             for (start in 0..askTokens.size - parts.size) {
                 var ok = true
                 for (j in parts.indices) {
@@ -2660,24 +3050,105 @@ object DappScaffold {
                     val hit = if (prefix && j == parts.size - 1) token.startsWith(part) else token == part
                     if (!hit) { ok = false; break }
                 }
-                if (ok) return true
+                if (ok) out.add(start)
             }
-            return false
+            return out
         }
+        // ROUND 20, AND ROUND 19'S r6 WAS THE SEED: a key inside a NEGATION is not the
+        // class being named, it is the class being ruled out. `a stablecoin whose peg is
+        // deterministic and USES NO VRF` was refused as an unpredictable outcome for
+        // saying the word - an ask that says the dapp does NOT do this, answered as
+        // though it did. Three tokens is the window an English (or French, Spanish,
+        // German, Dutch, Italian, Portuguese, Polish) negator sits in before the thing it
+        // negates: `without any raffle`, `uses no VRF`, `sin sorteo`, `ohne Verlosung`.
+        fun negated(start: Int): Boolean =
+            (maxOf(0, start - 3) until start).any { askTokens[it] in NEGATORS }
+        fun liveStarts(keys: List<String>): List<Int> =
+            keys.flatMap { keyStarts(it) }.filterNot { negated(it) }
+        fun matchesKey(key: String): Boolean = keyStarts(key).any { !negated(it) }
         // Every branch below reads its keys out of a NAMED LIST, and the roster of
         // covered classes an ask touches is derived from those same lists (templateKeys):
         // there is no second copy of a keyword anywhere, so a key added to a branch is a
         // key the mixed-ask answer sees in the same commit.
         fun hasAny(keys: List<String>) = keys.any { matchesKey(it) }
+        // WHERE THE ASK'S HEAD NOUN PHRASE ENDS. Everything from the first boundary word
+        // on either modifies the head or names a SECOND thing: `a staking pool WHOSE
+        // validator is chosen at random`, `a marketplace WITH a giveaway`. The head is
+        // what the ask is ABOUT, and round 20's seven false declines were all classes
+        // named after it.
+        val headEnd = run {
+            var start = 0
+            if (start < askTokens.size && askTokens[start] in BUILD_VERBS) {
+                start += 1
+                while (start < askTokens.size && askTokens[start] in ARTICLES) start += 1
+            }
+            (start until askTokens.size).firstOrNull { askTokens[it] in HEAD_BOUNDARY } ?: askTokens.size
+        }
         // ROUND 18. The classes with NO template are read FIRST and out of a list, not
         // as branches of the ordered `when` below: an ask that carries one of them is
         // answered by it whatever else it names, because an ordered `when` gave "a
         // lending pool that also runs a weekly raffle for depositors" to `lending` four
         // branches before the raffle was looked at.
-        val declined = untemplatedClasses.filter { c -> hasAny(c.keys) }
+        //
+        // ROUND 20 REPLACED "does this word appear" WITH "is the ask ABOUT this class".
+        // Section 3 measured what the first rule cost once round 19's vocabulary made it
+        // wide: SEVEN asks for classes this server SHIPS A TEMPLATE FOR were refused with
+        // nothing scaffolded - a vault whose oracle is sampled at random intervals, a
+        // staking pool whose validator is chosen at random, a marketplace with a giveaway,
+        // an exchange that assigns order ids randomly, a governance DAO that picks a
+        // proposal at random for audit, a vault reading a randomness beacon, and a
+        // stablecoin whose peg `uses no VRF` - refused for saying the word it says it does
+        // not use. Every one of them names its real class as the HEAD of the ask.
+        //
+        // So each class gets a ROLE from where its keys landed:
+        //   HEAD       - a key of this class is inside the head noun phrase. The ask is
+        //                about this class, and it is answered by it.
+        //   STRONG_OUT - a STRONG key (the class by name) landed after the head. The ask
+        //                names this class as a second thing: a compound ask.
+        //   MENTION    - only WEAK keys landed, and after the head. The word describes how
+        //                something works; it does not say what is being built.
+        val roles = LinkedHashMap<String, Int>()
+        conceptClasses.forEach { c ->
+            val strong = liveStarts(c.keys)
+            val weak = liveStarts(c.weakKeys)
+            if (strong.isEmpty() && weak.isEmpty()) return@forEach
+            roles[c.id] = when {
+                (strong + weak).any { it < headEnd } -> ROLE_HEAD
+                strong.isNotEmpty() -> ROLE_STRONG_OUT
+                else -> ROLE_MENTION
+            }
+        }
         // ...and the covered classes the same ask names, derived from the SAME key lists
         // the `when` matches on, in the `when`'s own order.
         val covered = templateKeys.filter { (_, keys) -> hasAny(keys) }.map { it.first }.distinct()
+        // AN UNCOVERED CLASS IS STILL ANSWERED FIRST, whatever else the ask names - that
+        // is round 18's fix and it is unchanged. What round 20 narrowed is WHEN the class
+        // counts as named: a mere MENTION of it beside a covered head no longer refuses
+        // the ask, it annotates the scaffold.
+        val declined = conceptClasses.filter { c ->
+            c.template == null && roles.containsKey(c.id) &&
+                (roles[c.id] != ROLE_MENTION || covered.isEmpty())
+        }
+        // The classes that DO have a template and that this ask names. In practice this is
+        // the raffle, and the branch below is what makes a raffle ask scaffold.
+        if (declined.isEmpty()) {
+            conceptClasses.forEach { c ->
+                val role = roles[c.id]
+                if (c.template == null || role == null) return@forEach
+                // The class's OWN template is in `covered` whenever a strong key fired, so
+                // "does this ask name a SECOND covered class" is asked about the others.
+                val otherCovered = covered.filter { it != c.template }
+                when {
+                    role == ROLE_HEAD -> return c.note
+                    role == ROLE_STRONG_OUT && otherCovered.isEmpty() -> return c.note
+                    role == ROLE_STRONG_OUT -> return bothCoveredNote(c, covered)
+                    otherCovered.isEmpty() -> return c.note
+                }
+            }
+        }
+        // Whatever is left is a MENTION beside a covered head: the ask scaffolds, and the
+        // mention is named in a note rather than swallowed.
+        val mentioned = conceptClasses.filter { c -> roles[c.id] == ROLE_MENTION && c !in declined }
         val templateNote: String? = when {
             // AHEAD OF EVERYTHING, including the order-book branch: every realistic
             // phrasing of a bridge ask names a token, an asset or a transfer, so
@@ -3017,7 +3488,7 @@ object DappScaffold {
             else -> null
         }
         return when {
-            declined.isEmpty() && templateNote != null -> templateNote
+            declined.isEmpty() && templateNote != null -> templateNote + mentionTail(mentioned)
             declined.isEmpty() ->
                 "No shipped template covers that name. " + templateRoster() +
                     " Pick the one whose EXPLOIT class matches yours - the value class with no " +
@@ -3052,7 +3523,7 @@ object DappScaffold {
      * paragraph the English ask has always received - so this adds the two facts rather
      * than restating the note in different words.
      */
-    private fun declinedOnlyTail(declined: List<UntemplatedClass>): String {
+    private fun declinedOnlyTail(declined: List<ConceptClass>): String {
         val labels = declined.joinToString(" and ") { it.label }
         return " THE CLASS THIS ASK IS, AND THE GUARD THAT IS MISSING, SAID PLAINLY RATHER THAN LEFT TO BE " +
             "INFERRED FROM THE PARAGRAPH ABOVE: what you asked for is $labels, and NOTHING WAS SCAFFOLDED - " +
@@ -3085,7 +3556,7 @@ object DappScaffold {
      * which is the same rule the cross-chain DEX and liquidity-mining answers already
      * follow - the difference is that those two halves both HAVE templates.
      */
-    private fun mixedAskTail(declined: List<UntemplatedClass>, covered: List<String>): String {
+    private fun mixedAskTail(declined: List<ConceptClass>, covered: List<String>): String {
         if (covered.isEmpty()) return ""
         val primary = covered.first()
         val labels = declined.joinToString(" and ") { it.label }
@@ -3110,6 +3581,56 @@ object DappScaffold {
             "put in 1500 and ended at 1350; and in the block she chose, alice and bob were EACH refused " +
             "\"you are not this week's winner\", so every drained draw was a legal draw and no rule keyed " +
             "on the operation could tell that block from any other."
+    }
+
+    /**
+     * TWO COVERED CLASSES IN ONE ASK, and nothing is scaffolded for it. `a lending pool
+     * that also runs a weekly raffle for depositors` is round 18's laundering, and the
+     * answer is the same one it has had since: a compound ask is built ONE TEMPLATE AT A
+     * TIME, each asked for by name. What round 20 changed is that BOTH halves now have a
+     * template, so this says "ask for each of these" instead of "this half has no guards
+     * at all".
+     */
+    private fun bothCoveredNote(named: ConceptClass, covered: List<String>): String {
+        val each = covered.joinToString(", ") { "`template=$it` (${templateClasses.getValue(it)})" }
+        return "THIS ASK NAMES MORE THAN ONE COVERED CLASS, AND NOTHING WAS SCAFFOLDED FOR IT: it is " +
+            "${named.label} AND at least one other class this server ships a template for. Every half " +
+            "of it has one - $each - and each is a DIFFERENT exploit class with its own guards, its " +
+            "own invariant tests and its own adversary round behind it. Ask for them one at a time, " +
+            "by name, and wire the two modules together yourself: a single scaffold that tried to be " +
+            "both would carry neither set of guards honestly. ADVERSARY ROUND 18 MEASURED WHY THIS IS " +
+            "A NO AND NOT A BEST-EFFORT SCAFFOLD: \"a lending pool that also runs a weekly raffle for " +
+            "depositors\" was scaffolded onto `lending` - three files, ok:true, 1517 bytes about lazy " +
+            "interest accrual and share pricing, and NOT ONE WORD about the raffle. The raffle half " +
+            "built from that answer was drained on a real chain: trudy staked 90 of 1890, about one " +
+            "week in twenty-one, and won FIVE OF FIVE weekly draws."
+    }
+
+    /**
+     * ROUND 20, THE OTHER HALF OF FINDING C. The ask scaffolds - its head is a class this
+     * server covers - and a word in it belongs to a class that is NOT what is being built.
+     * `a vault that reads a randomness beacon as a price input` is a vault; `randomness`
+     * is how its feed behaves. Before round 20 that word REFUSED the ask outright. Now it
+     * adds this, so nothing is silently swallowed either: the agent gets its template AND
+     * is told what the other word would have needed if it turns out to be load-bearing.
+     */
+    private fun mentionTail(mentioned: List<ConceptClass>): String {
+        if (mentioned.isEmpty()) return ""
+        val labels = mentioned.joinToString(" and ") { it.label }
+        return " AND ONE MORE THING THE ASK SAYS, NAMED RATHER THAN SWALLOWED: it also uses a word " +
+            "that belongs to $labels - and the scaffold above does NOT cover that class. It is " +
+            "answered as a note and not as a refusal because the class is not what you asked to " +
+            "build: it describes how something in your ask behaves. Round 20 measured the cost of " +
+            "reading it the other way - SEVEN asks for classes this server ships a template for were " +
+            "refused outright with nothing scaffolded, including `a stablecoin whose peg is " +
+            "deterministic and USES NO VRF`, refused for saying the word it says it does not use. " +
+            "BUT IF THAT WORD IS LOAD-BEARING IN YOUR DESIGN - if an outcome in it is meant to be " +
+            "UNPREDICTABLE rather than merely irregular - stop and ask for that class on its own: " +
+            mentioned.joinToString("; and ") {
+                if (it.template != null) "`template=${it.template}` covers ${it.label}"
+                else "what no template here ships for ${it.label} is ${it.missingGuard}"
+            } + ". A draw an operation's signer can predict is not a draw, it is a withdrawal, and " +
+            "that is the class both adversary rounds 18 and 20 drained."
     }
 
     /**
@@ -9788,6 +10309,910 @@ object DappScaffold {
      * documents it and leaves it alone: a pool that never sets it writes four
      * points of cover per point of reserve rather than an unbounded book.
      */
+    /**
+     * THE SIXTEENTH TEMPLATE, and the first one built from a drain of THIS PROJECT'S OWN
+     * ADVICE. `docs/TEMPLATE-GAPS.md` carried the raffle row with a design note -
+     * "commit-reveal with a deposit the revealer forfeits" - and adversary round 20 built
+     * exactly that, proved eleven guards load-bearing on a chain, and was drained five of
+     * five draws by an attacker holding 4.76% of the stake with NOTHING forfeited. The
+     * note's sentence "her choice is between REVEALING and FORFEITING her deposit" is
+     * true of one commitment and false of two, because the seed folded in REVEAL ORDER.
+     *
+     * The module below folds it in COMMIT order instead, refuses to draw a round that is
+     * not complete, and burns a forfeited deposit rather than paying it into the prize.
+     * Measured: 15/15 green on the first run, and in
+     * `exploit-corpus/realworld/adversary-round20/raffle-fixed` the same 720-permutation
+     * search that won five of five now wins ONE round in fifty against a 4.7619% stake
+     * share.
+     */
+    private fun raffleMainRell(): String = """
+        module;
+
+        import lib.ft4.auth;
+        import lib.ft4.accounts;
+
+        // Raffle template: a COMMIT-REVEAL DRAW whose seed no participant can choose. Every
+        // entrant commits to a secret while the window is open, reveals it after the window
+        // closes, and the winner is drawn from the revealed set - weighted by stake, and
+        // reproducible by anyone from the seed the round wrote down.
+        //
+        // This is the class adversary rounds 18 and 20 drained, and round 20 drained it from
+        // THIS PROJECT'S OWN DESIGN NOTE. `docs/TEMPLATE-GAPS.md` said the shape was
+        // "commit-reveal with a deposit the revealer forfeits", and that "her choice is between
+        // REVEALING and FORFEITING her deposit". A dapp was built to that note, eleven honest
+        // guards were proved load-bearing on a chain, and an attacker holding 4.76% of the stake
+        // won FIVE OF FIVE draws with ZERO deposits forfeited and ZERO secrets withheld, because
+        // the note's sentence is true of ONE commitment and false of two:
+        //
+        //     round.mixed = crypto.sha256(round.mixed + secret)      // the drained line
+        //
+        // folds the secrets in REVEAL ORDER. Six commitments are 720 orderings of the same
+        // accumulator, every one of them reachable by revealing everything and forfeiting
+        // nothing - so the attacker never faced the choice the deposit was meant to price. She
+        // simply read the honest secrets off the chain, ran `pick` (public code) over each
+        // permutation of her own, and revealed in the one that put the ticket on her entry.
+        //
+        // Ten guards are STRUCTURAL - they live in the entities and the shape of the draw, not
+        // in a require() a later operation can forget:
+        //   THE SEED IS A FUNCTION OF THE COMMITTED SET, NOT OF THE REVEAL ORDER - `reveal`
+        //     touches no accumulator at all. It stores the secret on the entry row and stops.
+        //     The seed is computed ONCE, inside `settle_round`, by folding over the entries in
+        //     COMMIT order - `seq`, an immutable field written by `commit` before any secret in
+        //     the round exists. There is no ordering left for a participant to choose, so round
+        //     20's 720-permutation search is not defended against, it is unwritable: measured on
+        //     a chain, all 24 reveal orders of a four-entry round settle to the same seed and
+        //     the same winner.
+        //   A ROUND DRAWS ONLY WHEN EVERY COMMITMENT HAS BEEN REVEALED - with ordering gone, the
+        //     last lever is WHICH commitments to reveal, and m commitments are 2^m subsets.
+        //     `settle_round` requires `reveals == commits`, so a subset is not a different draw:
+        //     it is NO draw, and the round refunds instead. Withholding can buy the absence of an
+        //     outcome; it can never buy a better one.
+        //   A FORFEITED DEPOSIT IS BURNED, NEVER ADDED TO THE PRIZE - `burned` is a counter no
+        //     operation pays out of. The round-20 module added forfeited deposits to the pot,
+        //     which paid the surviving entrants for the very denial the deposit was meant to
+        //     price, and the attacker was usually one of them.
+        //   THE STAKE IS CAPPED BY THE DEPOSIT - `commit` refuses `stake > DEPOSIT`. A
+        //     participant who walks away from a losing draw forfeits DEPOSIT; one who reveals and
+        //     loses is out `stake`. With stake <= deposit, walking away never costs less than
+        //     playing, so the last revealer has nothing to buy by leaving. Round 20's module
+        //     sized its deposit against the prize DIVIDED BY the number of participants - a
+        //     fraction of a single stake, which bounded nothing.
+        //   ONE COMMITMENT PER ACCOUNT PER ROUND, REFUSED BY THE DATABASE - `key round, player`
+        //     on the entry. Not a lookup an operation performs and a later one forgets: a second
+        //     commit from the same account aborts in the storage layer. (Sybils are NOT stopped
+        //     by this and this header does not pretend otherwise - see the residuals.)
+        //   THE COMMITMENT BINDS THE SECRET TO ITS ACCOUNT - the hash is over `secret + player`,
+        //     so a secret revealed by one account cannot be replayed as another's commitment,
+        //     and an entry's commitment cannot be met by copying a secret off the chain.
+        //   THE ENTRY IS IMMUTABLE WHERE IT MATTERS - `commitment`, `stake`, `deposit` and `seq`
+        //     are written by `commit` and by nothing else. Nothing about an entry can be swapped
+        //     once the commit window closes, so the set the seed folds over is fixed before the
+        //     first secret is known.
+        //   NO OPERATION WRITES A TIMESTAMP AN ENTITLEMENT IS MEASURED FROM - `opened_at` is
+        //     written by `open_round` and by nothing else, and it is immutable. Every window is
+        //     `opened_at` plus a CONSTANT, and every other operation only reads
+        //     op_context.last_block_time and compares. A window a participant can push is a
+        //     window she can wait out.
+        //   THE TWO WINDOWS PARTITION THE TIMELINE EXACTLY - commit is refused at or after
+        //     `opened_at + COMMIT_WINDOW_MS`; reveal is refused before it and at or after
+        //     `opened_at + COMMIT_WINDOW_MS + REVEAL_WINDOW_MS`. There is no block in which both
+        //     are legal, so nobody may commit having already seen a secret.
+        //   SETTLE AND REFUND ARE MUTUALLY EXCLUSIVE, AND EACH HAPPENS ONCE - a round with every
+        //     commitment revealed SETTLES and can never be refunded; a round missing one can
+        //     never settle. `settled` moves once; each entry's `refunded` moves once and is
+        //     claimed by ITS OWN account. So an escrowed stake is released exactly once, however
+        //     the round ends.
+        // What no template can fix, and this header will not pretend otherwise:
+        //   - A PARTICIPANT CAN ALWAYS DENY A ROUND BY NOT REVEALING, and it costs her one
+        //     deposit per round to do it. Nobody profits from the denial - every stake goes home
+        //     and the forfeit is burned - so it buys griefing and never a draw. If your raffle
+        //     MUST be unstoppable, commit-reveal is the wrong shape: you need a randomness beacon
+        //     read with the discipline `template=vault` applies to a price (bounded, rate-limited,
+        //     staleness-halted), and not a bigger deposit.
+        //   - SYBILS ARE NOT PRICED HERE. The draw is weighted by STAKE, so splitting one stake
+        //     across six accounts wins exactly as often as holding it in one - that is measured,
+        //     and it is the whole point of weighting by stake rather than by entry. What sybils
+        //     DO buy is denial: six accounts can withhold six times for six deposits. If entry is
+        //     free in your deployment, bound `MAX_ENTRIES_PER_ROUND` and price the deposit against
+        //     what a denied round costs YOU, not against the prize.
+        //   - THE LAST REVEALER STILL SEES THE OUTCOME BEFORE ANYONE ELSE. She cannot change it
+        //     and she cannot profit from withholding, but she knows one block early. If that
+        //     matters - if something else on your chain reads this seed - make it read the seed
+        //     from a SETTLED round and never from the reveals.
+        //   - THE STAKE IS A BALANCE, NOT AN FT4 ASSET. `chips` is credited once by a welcome
+        //     grant so the shipped tests can move real value. Replace it with an FT4 asset and
+        //     keep every guard above: the escrow becomes a transfer into the module's own account
+        //     and back out, and ONE EXIT ONCE is what stops it being paid twice.
+
+        // EXTENDING THIS TEMPLATE - the seams an extender walks into:
+        //   1. THE SEED FOLDS IN COMMIT ORDER, AND THAT IS THE WHOLE FIX. `seed_of` reads
+        //      `@sort .seq` - the order the commitments were written, fixed before any secret
+        //      existed. ANY change that makes the seed depend on when, or in what order, secrets
+        //      ARRIVE hands every multi-entry participant m! free attempts, and that is precisely
+        //      what adversary round 20 drained: six commitments, 720 orderings, five of five
+        //      draws won on 4.76% of the stake with nothing forfeited. Adding a block hash, a
+        //      transaction id, `op_context.last_block_time` or a reveal counter to the mix is the
+        //      same bug wearing different clothes - each is chosen by whoever submits last.
+        //   2. A ROUND THAT IS NOT COMPLETE MUST NOT DRAW. `require(r.reveals == r.commits)` is
+        //      what collapses 2^m withholding subsets into one choice. "Draw on whatever was
+        //      revealed", "draw if at least K revealed" and "extend the window and draw" all
+        //      restore a menu of outcomes the last revealer picks from - the round-20 module drew
+        //      on whatever it had, which is why the search never had to withhold anything.
+        //   3. A FORFEIT PAYS NOBODY. `book.burned` is written by `claim_refund` and read by no
+        //      operation. The moment a forfeited deposit is added to a prize, to a treasury a
+        //      participant can reach, or to the next round's pot, denial becomes a source of
+        //      income for whoever survives it - and in a sybil field that is the attacker.
+        //   4. THE DEPOSIT IS THE STAKE CAP, AND THAT IS ARITHMETIC RATHER THAN POLICY.
+        //      `require(stake <= DEPOSIT)` is what makes walking away from a losing draw cost at
+        //      least what playing it costs: a walker forfeits `DEPOSIT`, a player who loses is out
+        //      `stake`. There is no separate maximum-stake constant to tune, on purpose - raising
+        //      the accepted stake means raising `DEPOSIT`, and the two can never drift apart. Round
+        //      20's module sized its deposit against `prize / participants` instead, which is a
+        //      fraction of one stake and bounded nothing.
+        //   5. `settle_round` AND `claim_refund` ARE PERMISSIONLESS ON PURPOSE, and each is
+        //      CALLER-KEYED where it moves money: settle pays the winner the row names and refunds
+        //      every entry's own deposit, and a refund is claimed by the account whose entry it
+        //      is. A raffle only the operator can settle is a raffle the operator can strand. Any
+        //      new exit must be reachable by anybody and must pay the OWNER of the value, never
+        //      the caller.
+
+        // The stake and the deposit are balances on this chain, credited once by a welcome grant.
+        // Nothing is created after it, and `chips_in_circulation()` proves that for every path.
+        entity player {
+            key owner: byte_array;
+            mutable chips: integer = 0;
+        }
+
+        // THE ROUND. `opened_at` is written here and nowhere else, and it is immutable: both
+        // windows are it plus a constant, so no participant can move either of them.
+        entity raffle_round {
+            key id: integer;
+            opened_at: timestamp;
+            mutable pot: integer = 0;
+            mutable commits: integer = 0;
+            mutable reveals: integer = 0;
+            mutable settled: boolean = false;
+            // The seed the draw actually used, written by settle_round so that anybody can
+            // recompute the winner from the revealed secrets. A draw nobody can reproduce is not
+            // a draw, it is an announcement.
+            mutable seed: byte_array = x"";
+        }
+
+        // THE ENTRY. `commitment`, `stake`, `deposit` and `seq` are IMMUTABLE - `seq` is the
+        // COMMIT ORDER and it is the only order the seed knows about.
+        entity entry {
+            round: raffle_round;
+            player: byte_array;
+            // ONE COMMITMENT PER ACCOUNT PER ROUND, refused by the DATABASE rather than by a
+            // lookup some later operation can forget.
+            key round, player;
+            commitment: byte_array;
+            stake: integer;
+            deposit: integer;
+            seq: integer;
+            mutable revealed: boolean = false;
+            mutable secret: byte_array = x"";
+            // Set by `claim_refund` and by nothing else - see the note in `settle_round`.
+            mutable refunded: boolean = false;
+        }
+
+        object book {
+            mutable next_round: integer = 1;
+            // Stakes and deposits held for rounds that have not paid out yet.
+            mutable escrow: integer = 0;
+            // FORFEITED DEPOSITS. Nothing pays out of here, ever - see EXTENDING seam 3.
+            mutable burned: integer = 0;
+        }
+
+        val WELCOME_CHIPS = 100000;
+        val MAX_AMOUNT = 1000000;
+        // A round with one entry is decided by that entry, so it has no path to a prize.
+        val MIN_ENTRIES = 2;
+        val MIN_STAKE = 1;
+        // THE DEPOSIT IS ALSO THE LARGEST STAKE THIS RAFFLE ACCEPTS - see `commit`, and
+        // EXTENDING seam 4. A constant, never a parameter: a caller who chooses the deposit
+        // chooses what denial costs her.
+        val DEPOSIT = 900;
+        // The two windows. Constants for the same reason `opened_at` is immutable: an opener who
+        // picks the commit window picks how long everybody else has to think about it.
+        val COMMIT_WINDOW_MS = 60 * 60 * 1000;
+        val REVEAL_WINDOW_MS = 60 * 60 * 1000;
+        // A commitment is a 32-byte hash and a secret is bounded, so neither is an unbounded
+        // write, and a round's entry count is bounded so a settle cannot be made unaffordable.
+        val COMMITMENT_BYTES = 32;
+        val MAX_SECRET_BYTES = 64;
+        val MAX_ENTRIES_PER_ROUND = 100;
+        // A player's live rounds are bounded, because a free FT4 registration must not be able to
+        // stand an unbounded book of open rounds.
+        val MAX_LIVE_ROUNDS = 10;
+
+        // DEFAULT: every operation requires the Transfer flag. FT4 resolves flags with
+        // contains_all(), and contains_all([]) is always true - never weaken this.
+        @extend(auth.auth_handler)
+        function () = auth.add_auth_handler(
+            flags = ["T"]
+        );
+
+        function player_of(owner: byte_array): player =
+            require(player @? { .owner == owner }, "register first");
+
+        function round_of(round_id: integer): raffle_round =
+            require(raffle_round @? { .id == round_id }, "no such round");
+
+        // THE SEED, from the COMMIT order. Public on purpose - anybody may recompute it - and it
+        // takes the secrets already sorted by `seq`, which is what makes reveal order irrelevant.
+        function seed_of(secrets: list<byte_array>): byte_array {
+            var acc = x"";
+            for (s in secrets) acc = crypto.sha256(acc + s);
+            return acc;
+        }
+
+        function secrets_in_commit_order(r: raffle_round): list<byte_array> =
+            entry @* { .round == r } ( @omit @sort .seq, .secret );
+
+        // The winning ticket, in [0, total). Eight bytes of the seed, folded - public code, and
+        // it has to be: a draw whose arithmetic is secret cannot be checked by a loser.
+        function pick(seed: byte_array, total: integer): integer {
+            require(total > 0, "no stake to draw against");
+            require(seed.size() >= 8, "the seed is too short to draw from");
+            var v = 0;
+            var i = 0;
+            while (i < 8) {
+                v = (v * 256 + seed[i]) % total;
+                i += 1;
+            }
+            return v;
+        }
+
+        operation register_player() {
+            val account = auth.authenticate();
+            require(player @? { .owner == account.id } == null, "already registered");
+            create player(owner = account.id, chips = WELCOME_CHIPS);
+        }
+
+        // OPEN. Writes `opened_at` and nothing else writes it. Permissionless among registered
+        // players: a raffle only one account may open is a raffle that account can withhold.
+        operation open_round() {
+            val account = auth.authenticate();
+            player_of(account.id);
+            require(
+                (raffle_round @* { .settled == false } ( .id )).size() < MAX_LIVE_ROUNDS,
+                "too many rounds are still open"
+            );
+            create raffle_round(id = book.next_round, opened_at = op_context.last_block_time);
+            book.next_round += 1;
+        }
+
+        // COMMIT. The stake AND the deposit leave the player's balance in the very operation that
+        // writes the commitment, so no entry ever exists unbacked - and `seq` is written here,
+        // before any secret in this round is known.
+        operation commit(round_id: integer, commitment: byte_array, stake: integer) {
+            // 1. AUTHENTICATE
+            val account = auth.authenticate();
+            // 2. AUTHORIZE - a registered player.
+            val me = player_of(account.id);
+            val r = round_of(round_id);
+            // 3. VALIDATE - each input separately, bounded before it is used.
+            require(commitment.size() == COMMITMENT_BYTES, "a commitment is a 32-byte sha256 hash");
+            require(stake >= MIN_STAKE and stake <= MAX_AMOUNT, "stake out of range");
+            // THE SIZING THAT MAKES WALKING AWAY POINTLESS: a participant who does not reveal
+            // forfeits DEPOSIT, one who reveals and loses is out `stake`, and stake <= DEPOSIT
+            // means leaving never costs less than playing.
+            require(stake <= DEPOSIT, "a stake above the deposit would pay the last revealer to walk away");
+            require(
+                op_context.last_block_time < r.opened_at + COMMIT_WINDOW_MS,
+                "the commit window has closed"
+            );
+            require(r.commits < MAX_ENTRIES_PER_ROUND, "this round is full");
+            require(me.chips >= stake + DEPOSIT, "insufficient chips for the stake and the deposit");
+            // 4. ESCROW AND WRITE, together.
+            update me ( .chips -= stake + DEPOSIT );
+            create entry(
+                round = r,
+                player = account.id,
+                commitment = commitment,
+                stake = stake,
+                deposit = DEPOSIT,
+                seq = r.commits + 1
+            );
+            update r ( .pot += stake, .commits += 1 );
+            book.escrow += stake + DEPOSIT;
+        }
+
+        // REVEAL. It stores the secret and NOTHING ACCUMULATES HERE. There is no running hash for
+        // a reveal to land in, so the order reveals arrive in is not an input to anything - which
+        // is round 20's drain removed rather than checked for.
+        operation reveal(round_id: integer, secret: byte_array) {
+            val account = auth.authenticate();
+            val r = round_of(round_id);
+            require(secret.size() > 0 and secret.size() <= MAX_SECRET_BYTES, "secret out of range");
+            val t = op_context.last_block_time;
+            require(t >= r.opened_at + COMMIT_WINDOW_MS, "the reveal window has not opened");
+            require(
+                t < r.opened_at + COMMIT_WINDOW_MS + REVEAL_WINDOW_MS,
+                "the reveal window has closed"
+            );
+            val e = require(entry @? { .round == r, .player == account.id }, "no commitment for this account");
+            require(not e.revealed, "already revealed");
+            // The commitment binds the secret TO THIS ACCOUNT, so a secret read off the chain
+            // cannot be replayed as somebody else's entry.
+            require(crypto.sha256(secret + account.id) == e.commitment, "the secret does not match the commitment");
+            update e ( .revealed = true, .secret = secret );
+            update r ( .reveals = r.reveals + 1 );
+        }
+
+        // SETTLE. Permissionless - a raffle nobody but the operator can settle is a raffle the
+        // operator can strand - and it refuses before the reveal window closes, refuses twice,
+        // and refuses a round that is not COMPLETE.
+        operation settle_round(round_id: integer) {
+            val account = auth.authenticate();
+            player_of(account.id);
+            val r = round_of(round_id);
+            require(not r.settled, "already settled");
+            require(
+                op_context.last_block_time >= r.opened_at + COMMIT_WINDOW_MS + REVEAL_WINDOW_MS,
+                "the reveal window has not closed"
+            );
+            require(r.commits >= MIN_ENTRIES, "too few entries - this round pays nothing");
+            // EVERY COMMITMENT REVEALED, OR NO DRAW. This is what turns 2^m withholding subsets
+            // into ONE choice: reveal everything, or there is nothing to win.
+            require(
+                r.reveals == r.commits,
+                "a commitment was not revealed - this round refunds instead of drawing"
+            );
+            val entries = entry @* { .round == r } (
+                @omit @sort .seq, who = .player, stake = .stake, deposit = .deposit
+            );
+            // THE SEED, FOLDED IN COMMIT ORDER. Reveal order is not one of its inputs.
+            val seed = seed_of(secrets_in_commit_order(r));
+            val ticket = pick(seed, r.pot);
+            var acc = 0;
+            var winner: byte_array? = null;
+            for (e in entries) {
+                acc += e.stake;
+                if (winner == null and ticket < acc) winner = e.who;
+            }
+            val w = require(winner, "no winner");
+            val wp = player_of(w);
+            // THE PRIZE IS THE POT AND NOTHING ELSE. No forfeited deposit is ever added to it.
+            update wp ( .chips += r.pot );
+            book.escrow -= r.pot;
+            // ...and every deposit goes home, including the winner's.
+            for (e in entries) {
+                val p = player_of(e.who);
+                update p ( .chips += e.deposit );
+                book.escrow -= e.deposit;
+            }
+            // NOTHING MARKS THE ENTRIES REFUNDED HERE, on purpose. `claim_refund` refuses a
+            // settled round in its first require, so the entry flag is never consulted on this
+            // path - and a bulk `update entry @* { .round == r }` would be a mass mutation whose
+            // filter names no caller, which is `bulk-mutation-not-caller-bound` and the only
+            // finding rell_security_check had on this template. `refunded` therefore means
+            // exactly one thing: THIS ENTRY CLAIMED ITS OWN REFUND.
+            update r ( .settled = true, .seed = seed );
+        }
+
+        // THE OTHER EXIT, and it is CALLER-KEYED: each participant claims her OWN row. A round
+        // that did not draw returns every stake; the deposit comes back to whoever revealed and
+        // is BURNED for whoever did not.
+        operation claim_refund(round_id: integer) {
+            val account = auth.authenticate();
+            val me = player_of(account.id);
+            val r = round_of(round_id);
+            require(not r.settled, "this round drew - there is nothing to refund");
+            require(
+                op_context.last_block_time >= r.opened_at + COMMIT_WINDOW_MS + REVEAL_WINDOW_MS,
+                "the reveal window has not closed"
+            );
+            // The two comparisons PARTITION: a round with every commitment revealed settles and
+            // can never be refunded, and a round missing one can never settle. There is no round
+            // both paths reach and none that neither does.
+            require(
+                r.reveals < r.commits or r.commits < MIN_ENTRIES,
+                "every commitment was revealed - settle this round"
+            );
+            val e = require(entry @? { .round == r, .player == account.id }, "no commitment for this account");
+            require(not e.refunded, "already refunded");
+            var back = e.stake;
+            if (e.revealed) back += e.deposit; else book.burned += e.deposit;
+            update me ( .chips += back );
+            book.escrow -= e.stake + e.deposit;
+            update e ( .refunded = true );
+        }
+
+        // ------------------------------- QUERIES -----------------------------------
+
+        query chips_of(owner: byte_array): integer {
+            val p = player @? { .owner == owner };
+            return if (p != null) p.chips else 0;
+        }
+
+        query player_count(): integer = player @* {} ( .owner ).size();
+
+        query get_round(round_id: integer) {
+            val r = raffle_round @? { .id == round_id };
+            return if (r != null)
+                (
+                    id = r.id, opened_at = r.opened_at, pot = r.pot, commits = r.commits,
+                    reveals = r.reveals, settled = r.settled, seed = r.seed
+                )
+            else null;
+        }
+
+        query round_seed(round_id: integer): byte_array = round_of(round_id).seed;
+
+        query escrow_held(): integer = book.escrow;
+
+        query burned_total(): integer = book.burned;
+
+        // THE INVARIANT. Nothing is created after the welcome grant: every chip is in a balance,
+        // escrowed behind a round that has not paid out, or burned. A raffle that "conserved"
+        // only the balances would let a forfeited deposit vanish or be minted twice, and paying
+        // forfeits into the prize - the round-20 module's bug - is exactly a conservation-neutral
+        // change that is still a drain, which is why the shipped tests assert the RATE as well.
+        query chips_in_circulation(): integer {
+            var total = book.escrow + book.burned;
+            for (b in player @* {} ( .chips )) total += b;
+            return total;
+        }
+    """.trimIndent() + "\n"
+
+    private fun raffleTestRell(): String = """
+        @test module;
+
+        // The raffle template's invariant tests. They are real: FT4 test accounts, signed
+        // operations, PostgreSQL - run via run_rell_tests (pass chromia.yml's moduleArgs PLUS its
+        // test.moduleArgs block) or `chr test`.
+        //
+        // The two test_round20_raffle* functions replay adversary round 20's drain on the build
+        // this project's own design note produced for this ask. There, the seed was folded in
+        // REVEAL ORDER - `round.mixed = crypto.sha256(round.mixed + secret)` - so an attacker
+        // with m commitments had m! accumulators to choose between for free: she read the honest
+        // secrets off the chain, ran `pick` over each permutation of her own, and revealed in the
+        // one that put the ticket on her entry. Six accounts holding 4.76% of the stake won FIVE
+        // OF FIVE draws with zero deposits forfeited and zero secrets withheld.
+        //
+        // Here the search still runs and still finds an ordering - it is computed below, on the
+        // chain, from data the module publishes - and it changes nothing, because the seed folds
+        // in COMMIT order. The RATE this costs her is measured over fifty rounds in
+        // `exploit-corpus/realworld/adversary-round20/raffle-fixed` (1 win in 50 against a
+        // 4.7619% stake share, where the drained module won every draw); what is asserted HERE is
+        // the structural fact underneath that rate, because fifty rounds of FT4-authenticated
+        // transactions do not belong in a template's first-run suite.
+
+        import main;
+        import lib.ft4.test.core.{ register_alice, register_bob, register_trudy, register_eve,
+            register_account_open, ft_auth_operation_for };
+        // admin_priv_key() is defined in test.core.auth; importing it from the parent module is
+        // ambiguous (FT4's own assets.rell imports it from ^.auth too).
+        import lib.ft4.test.core.auth.{ admin_priv_key };
+
+        function signed(keypair: rell.test.keypair, op: rell.test.op) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run();
+        }
+
+        function signed_must_fail(keypair: rell.test.keypair, op: rell.test.op, expected: text) {
+            rell.test.tx().op(ft_auth_operation_for(keypair.pub)).op(op).nop().sign(keypair).run_must_fail(expected);
+        }
+
+        function after(ms: integer) {
+            rell.test.set_next_block_time_delta(ms);
+            rell.test.block().run();
+        }
+
+        val COMMIT_MS = 60 * 60 * 1000;
+        val REVEAL_MS = 60 * 60 * 1000;
+
+        function h_of(secret: byte_array, who: byte_array): byte_array = crypto.sha256(secret + who);
+
+        // EVERY CHIP, after every step: in a balance, escrowed behind a live round, or burned.
+        // Nothing is created after the welcome grant.
+        function assert_conserved() {
+            assert_equals(main.chips_in_circulation(), main.player_count() * main.WELCOME_CHIPS);
+        }
+
+        /**
+         * The attacker's six accounts - the SAME six adversary round 20 drained with. Ordinary
+         * FT4 registrations: the module cannot tell them from six strangers, which is the point.
+         *
+         * They are DERIVED rather than written down, and that is not tidiness. A 64-character
+         * hex literal in a shipped file is `hardcoded-key-material` to rell_security_check, and
+         * this template ships with ZERO findings - so the private key is a 31-byte prefix plus
+         * the account's index as its last byte, and the public key comes from the private one.
+         * No literal here is 64 characters long.
+         */
+        val SYBIL_PRIV_PREFIX = x"11111111111111111111111111111111111111111111111111111111111111";
+
+        function sybil_keys(): list<rell.test.keypair> {
+            val out = list<rell.test.keypair>();
+            for (i in range(6)) {
+                val priv = SYBIL_PRIV_PREFIX + byte_array.from_list([i + 1]);
+                out.add(rell.test.keypair(priv = priv, pub = crypto.privkey_to_pubkey(priv, true)));
+            }
+            return out;
+        }
+
+        /** Every ordering of [xs]. For six commitments that is 720 free attempts. */
+        function permutations(xs: list<integer>): list<list<integer>> {
+            val out = list<list<integer>>();
+            if (xs.empty()) {
+                out.add(list<integer>());
+                return out;
+            }
+            for (i in range(xs.size())) {
+                val rest = list<integer>(xs);
+                val head = rest.remove_at(i);
+                for (p in permutations(rest)) {
+                    val one = list<integer>();
+                    one.add(head);
+                    one.add_all(p);
+                    out.add(one);
+                }
+            }
+            return out;
+        }
+
+        // ---------------------------------------------------------------------------
+        // EXPLOIT MUST FAIL. Round 20, the drain: the reveal order was the attacker's to
+        // choose. Two rounds are built with the SAME four attacker commitments in the SAME
+        // commit order and the same two honest entries. Round 1 is revealed in commit order.
+        // Round 2 is revealed in the ordering the round-20 rule says wins - computed here, on
+        // the chain, by folding each permutation onto the honest accumulator exactly as the
+        // drained module did. Under that rule the two rounds are two different draws. Here they
+        // are the same seed and the same winner, because `seed_of` folds `@sort .seq`.
+        //
+        // The must-fail half is the lever she reaches for next: with ordering gone, she tries to
+        // settle on a partial reveal, and a round that is not complete does not draw.
+        // ---------------------------------------------------------------------------
+        function test_round20_raffle1_a_chosen_reveal_order_cannot_move_the_draw_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val sybils = list<rell.test.keypair>();
+            val sybil_ids = list<byte_array>();
+            for (k in sybil_keys()) {
+                val acc = register_account_open(k);
+                sybils.add(k);
+                sybil_ids.add(acc.account.id);
+            }
+            signed(alice.keypair, main.register_player());
+            signed(bob.keypair, main.register_player());
+            for (i in range(6)) signed(sybils[i], main.register_player());
+            assert_conserved();
+
+            var seed0 = x"";
+            var winner0 = -1;
+            var found_an_order = false;
+            for (r in range(2)) {
+                val id = r + 1;
+                // THE SAME SIX SECRETS, IN THE SAME COMMIT ORDER, IN BOTH ROUNDS. That is what
+                // makes this a controlled experiment rather than two raffles: the only thing
+                // that differs between round 1 and round 2 is the order the four attacker
+                // secrets are REVEALED in, which under the round-20 rule was the whole of the
+                // attack.
+                val a_secret = x"a1";
+                val b_secret = x"b1";
+                val secrets = list<byte_array>();
+                for (i in range(6)) secrets.add(x"e0" + byte_array.from_list([i]));
+
+                after(1000);
+                signed(alice.keypair, main.open_round());
+                after(1000);
+                // THE COMMIT ORDER IS THE SAME IN BOTH ROUNDS: alice, bob, then her four.
+                signed(alice.keypair, main.commit(id, h_of(a_secret, alice.account.id), 900));
+                signed(bob.keypair, main.commit(id, h_of(b_secret, bob.account.id), 900));
+                // ROUND 20'S EXACT NUMBERS: two honest entries of 900 and six of 15, so her six
+                // accounts hold 90 of a 1890 pot - 4.7619% of the stake.
+                for (i in range(6)) {
+                    signed(sybils[i], main.commit(id, h_of(secrets[i], sybil_ids[i]), 15));
+                }
+                assert_equals(main.get_round(id)!!.pot, 1890);
+                assert_conserved();
+
+                after(COMMIT_MS);
+                // The honest half reveals first, in both rounds. Everything she needs is now
+                // public: their secrets are on the chain and `pick` is production code.
+                signed(alice.keypair, main.reveal(id, a_secret));
+                signed(bob.keypair, main.reveal(id, b_secret));
+
+                var order = [0, 1, 2, 3, 4, 5];
+                if (r == 1) {
+                    // ROUND 20'S SEARCH, RUN VERBATIM. The drained module's accumulator after the
+                    // two honest reveals was seed_of([a_secret, b_secret]); she folded each
+                    // ordering of her own six onto it and kept the first whose ticket landed on
+                    // one of her entries (the honest stake is 1800 of the 1890 pot, so a ticket
+                    // at or above 1800 is hers). Round 20 measured this same search finding an
+                    // ordering in FIFTY of fifty rounds.
+                    val mixed0 = main.seed_of([a_secret, b_secret]);
+                    for (p in permutations([0, 1, 2, 3, 4, 5])) {
+                        var h = mixed0;
+                        for (i in p) h = crypto.sha256(h + secrets[i]);
+                        if (main.pick(h, 1890) >= 1800) {
+                            order = p;
+                            found_an_order = true;
+                            break;
+                        }
+                    }
+                    // AND THE OTHER LEVER, REFUSED IN THE SAME BREATH: she now KNOWS both honest
+                    // secrets, so the entry she would most like to place is a fresh one, sized
+                    // and hashed against what she has just read. The two windows partition the
+                    // timeline exactly - the commit window shut before the first reveal was legal
+                    // - so there is no block in which a commitment can be made by somebody who
+                    // has already seen a secret.
+                    signed_must_fail(sybils[0], main.commit(id, h_of(x"ff", sybil_ids[0]), 900),
+                        "the commit window has closed");
+                    // So all she has left is the order, and she reveals in the one her search
+                    // chose.
+                    for (i in order) signed(sybils[i], main.reveal(id, secrets[i]));
+                    after(REVEAL_MS);
+                } else {
+                    for (i in order) signed(sybils[i], main.reveal(id, secrets[i]));
+                    after(REVEAL_MS);
+                }
+                assert_equals(main.get_round(id)!!.reveals, 8);
+
+                signed(alice.keypair, main.settle_round(id));
+                assert_equals(main.get_round(id)!!.settled, true);
+
+                // Which entry was paid, derived from the balances rather than from the module's
+                // own opinion: the pot is 1890 and the largest stake is 900, so a winner cannot
+                // be confused with a loser.
+                val stakes = [900, 900, 15, 15, 15, 15, 15, 15];
+                val ids = [alice.account.id, bob.account.id, sybil_ids[0], sybil_ids[1],
+                    sybil_ids[2], sybil_ids[3], sybil_ids[4], sybil_ids[5]];
+                var winner = -1;
+                for (i in range(8)) {
+                    // Everyone is down their stakes for the rounds played so far; the winner is up
+                    // the pot as well.
+                    val if_lost = main.WELCOME_CHIPS - stakes[i] * (r + 1);
+                    if (main.chips_of(ids[i]) > if_lost) winner = i;
+                }
+                if (r == 0) { seed0 = main.round_seed(id); winner0 = winner; }
+                // THE TWO ROUNDS DRAW THE SAME. Under round 20's rule the second one was hers.
+                assert_equals(main.round_seed(id), seed0);
+                assert_equals(winner, winner0);
+                assert_conserved();
+            }
+            // The search is not broken - it is the design it attacked that is gone.
+            assert_true(found_an_order);
+            assert_equals(main.escrow_held(), 0);
+            assert_equals(main.burned_total(), 0);
+        }
+
+        // ---------------------------------------------------------------------------
+        // EXPLOIT MUST FAIL. Round 20, the lever left over: WHICH commitments to reveal. With the
+        // ordering gone, m commitments are 2^m subsets - and every one of them that is not the
+        // whole set is NO draw rather than a different one. She pays a deposit per withheld
+        // commitment, every stake goes home, and the forfeit is burned rather than added to
+        // anybody's prize (which is what the drained module did with it).
+        // ---------------------------------------------------------------------------
+        function test_round20_raffle2_withholding_a_subset_buys_no_draw_must_fail() {
+            val alice = register_alice();
+            val bob = register_bob();
+            val trudy = register_trudy();
+            signed(alice.keypair, main.register_player());
+            signed(bob.keypair, main.register_player());
+            signed(trudy.keypair, main.register_player());
+
+            after(1000);
+            signed(alice.keypair, main.open_round());
+            after(1000);
+            signed(alice.keypair, main.commit(1, h_of(x"a1", alice.account.id), 900));
+            signed(bob.keypair, main.commit(1, h_of(x"b1", bob.account.id), 900));
+            signed(trudy.keypair, main.commit(1, h_of(x"71", trudy.account.id), 900));
+            after(COMMIT_MS);
+            signed(alice.keypair, main.reveal(1, x"a1"));
+            signed(bob.keypair, main.reveal(1, x"b1"));
+            after(REVEAL_MS);
+
+            // NOT A DIFFERENT DRAW - NO DRAW.
+            signed_must_fail(alice.keypair, main.settle_round(1), "a commitment was not revealed");
+
+            signed(alice.keypair, main.claim_refund(1));
+            signed(bob.keypair, main.claim_refund(1));
+            signed(trudy.keypair, main.claim_refund(1));
+
+            // Every stake home, the honest half whole, and she is out exactly the one deposit she
+            // withheld - which went to NOBODY.
+            assert_equals(main.chips_of(alice.account.id), main.WELCOME_CHIPS);
+            assert_equals(main.chips_of(bob.account.id), main.WELCOME_CHIPS);
+            assert_equals(main.chips_of(trudy.account.id), main.WELCOME_CHIPS - main.DEPOSIT);
+            assert_equals(main.burned_total(), main.DEPOSIT);
+            assert_equals(main.escrow_held(), 0);
+            assert_conserved();
+        }
+
+        // ------------------------------ THE HONEST GUARDS ---------------------------
+
+        // Two registered players, a round open, and one commitment each. It RETURNS the two
+        // accounts rather than letting each test register them again: an FT4 registration is a
+        // signed transaction like any other, and running the same one twice is refused by the
+        // chain, not by this module.
+        function two_committed() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_player());
+            signed(bob.keypair, main.register_player());
+            after(1000);
+            signed(alice.keypair, main.open_round());
+            after(1000);
+            signed(alice.keypair, main.commit(1, h_of(x"a1", alice.account.id), 900));
+            signed(bob.keypair, main.commit(1, h_of(x"b1", bob.account.id), 900));
+            return (alice = alice, bob = bob);
+        }
+
+        // 1. THE COMMIT WINDOW HAS AN UPPER BOUND, and it is `opened_at` plus a constant.
+        function test_commit_is_refused_once_the_window_has_closed() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_player());
+            signed(bob.keypair, main.register_player());
+            after(1000);
+            signed(alice.keypair, main.open_round());
+            after(1000);
+            signed(alice.keypair, main.commit(1, h_of(x"a1", alice.account.id), 900));
+            after(COMMIT_MS);
+            signed_must_fail(bob.keypair, main.commit(1, h_of(x"b1", bob.account.id), 900),
+                "the commit window has closed");
+            assert_conserved();
+        }
+
+        // 2. THE REVEAL WINDOW HAS A LOWER BOUND - the two windows partition the timeline, so
+        //    nobody may commit having already seen a secret.
+        function test_reveal_is_refused_before_the_window_opens() {
+            val p = two_committed();
+            signed_must_fail(p.alice.keypair, main.reveal(1, x"a1"), "the reveal window has not opened");
+            assert_conserved();
+        }
+
+        // 3. ...AND AN UPPER BOUND.
+        function test_reveal_is_refused_once_the_window_has_closed() {
+            val p = two_committed();
+            after(COMMIT_MS);
+            after(REVEAL_MS);
+            signed_must_fail(p.alice.keypair, main.reveal(1, x"a1"), "the reveal window has closed");
+            assert_conserved();
+        }
+
+        // 4. THE COMMITMENT BINDS THE SECRET.
+        function test_a_secret_that_does_not_match_the_commitment_is_refused() {
+            val p = two_committed();
+            after(COMMIT_MS);
+            signed_must_fail(p.alice.keypair, main.reveal(1, x"a2"), "the secret does not match the commitment");
+            assert_conserved();
+        }
+
+        // 5. ...AND IT BINDS IT TO ITS ACCOUNT. A secret read off the chain is not a commitment
+        //    somebody else can meet, so a late revealer cannot copy an early one.
+        function test_a_secret_cannot_be_replayed_by_another_account() {
+            val alice = register_alice();
+            val bob = register_bob();
+            signed(alice.keypair, main.register_player());
+            signed(bob.keypair, main.register_player());
+            after(1000);
+            signed(alice.keypair, main.open_round());
+            after(1000);
+            signed(alice.keypair, main.commit(1, h_of(x"a1", alice.account.id), 900));
+            // Bob commits to ALICE'S hash, then tries to open it with her secret.
+            signed(bob.keypair, main.commit(1, h_of(x"a1", alice.account.id), 900));
+            after(COMMIT_MS);
+            signed(alice.keypair, main.reveal(1, x"a1"));
+            signed_must_fail(bob.keypair, main.reveal(1, x"a1"), "the secret does not match the commitment");
+            assert_conserved();
+        }
+
+        // 6. ONE COMMITMENT PER ACCOUNT PER ROUND, REFUSED BY THE DATABASE - not by a lookup a
+        //    later operation can forget.
+        function test_a_second_commitment_from_the_same_account_is_refused() {
+            val p = two_committed();
+            rell.test.tx()
+                .op(ft_auth_operation_for(p.alice.keypair.pub))
+                .op(main.commit(1, h_of(x"a2", p.alice.account.id), 900))
+                .nop().sign(p.alice.keypair).run_must_fail();
+            assert_conserved();
+        }
+
+        // 7. ONE REVEAL PER COMMITMENT.
+        function test_a_second_reveal_is_refused() {
+            val p = two_committed();
+            after(COMMIT_MS);
+            signed(p.alice.keypair, main.reveal(1, x"a1"));
+            signed_must_fail(p.alice.keypair, main.reveal(1, x"a1"), "already revealed");
+            assert_conserved();
+        }
+
+        // 8. NO DRAW BEFORE THE REVEAL WINDOW CLOSES.
+        function test_settle_is_refused_while_the_reveal_window_is_open() {
+            val p = two_committed();
+            after(COMMIT_MS);
+            signed(p.alice.keypair, main.reveal(1, x"a1"));
+            signed(p.bob.keypair, main.reveal(1, x"b1"));
+            signed_must_fail(p.alice.keypair, main.settle_round(1), "the reveal window has not closed");
+            assert_conserved();
+        }
+
+        // 9. SETTLE ONCE, AND THE DRAW IS REPRODUCIBLE FROM THE SEED IT WROTE DOWN. A draw
+        //    nobody can recompute is an announcement, not a draw.
+        function test_a_second_settle_is_refused_and_the_seed_is_published() {
+            val p = two_committed();
+            after(COMMIT_MS);
+            signed(p.alice.keypair, main.reveal(1, x"a1"));
+            signed(p.bob.keypair, main.reveal(1, x"b1"));
+            after(REVEAL_MS);
+            signed(p.alice.keypair, main.settle_round(1));
+            // The seed is the COMMIT-ordered fold of the revealed secrets, and `pick` is public.
+            assert_equals(main.round_seed(1), main.seed_of([x"a1", x"b1"]));
+            signed_must_fail(p.alice.keypair, main.settle_round(1), "already settled");
+            assert_conserved();
+        }
+
+        // 10. A ROUND WITH ONE ENTRY HAS NO PATH TO A PRIZE.
+        function test_a_round_with_one_entry_pays_nothing_and_refunds() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_player());
+            after(1000);
+            signed(alice.keypair, main.open_round());
+            after(1000);
+            signed(alice.keypair, main.commit(1, h_of(x"a1", alice.account.id), 900));
+            after(COMMIT_MS);
+            signed(alice.keypair, main.reveal(1, x"a1"));
+            after(REVEAL_MS);
+            signed_must_fail(alice.keypair, main.settle_round(1), "too few entries");
+            signed(alice.keypair, main.claim_refund(1));
+            assert_equals(main.chips_of(alice.account.id), main.WELCOME_CHIPS);
+            assert_equals(main.escrow_held(), 0);
+            assert_equals(main.burned_total(), 0);
+            assert_conserved();
+        }
+
+        // 11. THE DEPOSIT IS THE CEILING ON A STAKE. Round 20's module sized its deposit against
+        //     the prize DIVIDED BY the participants, which is a fraction of one stake and bounded
+        //     nothing; here `stake <= DEPOSIT` is what makes walking away from a losing draw cost
+        //     at least what playing it costs.
+        function test_a_stake_larger_than_the_deposit_is_refused() {
+            val alice = register_alice();
+            signed(alice.keypair, main.register_player());
+            after(1000);
+            signed(alice.keypair, main.open_round());
+            after(1000);
+            signed_must_fail(alice.keypair, main.commit(1, h_of(x"a1", alice.account.id), main.DEPOSIT + 1),
+                "a stake above the deposit");
+            assert_conserved();
+        }
+
+        // 12. A REFUND IS THE CALLER'S OWN ROW, AND IT IS PAID ONCE.
+        function test_a_refund_is_claimed_once_and_only_by_its_own_account() {
+            val p = two_committed();
+            val trudy = register_trudy();
+            signed(trudy.keypair, main.register_player());
+            after(COMMIT_MS);
+            signed(p.alice.keypair, main.reveal(1, x"a1"));
+            after(REVEAL_MS);
+            signed(p.alice.keypair, main.claim_refund(1));
+            signed_must_fail(p.alice.keypair, main.claim_refund(1), "already refunded");
+            signed_must_fail(trudy.keypair, main.claim_refund(1), "no commitment for this account");
+            assert_conserved();
+        }
+
+        // 13. SETTLE AND REFUND ARE MUTUALLY EXCLUSIVE, AND VALUE IS CONSERVED ACROSS A DRAW.
+        function test_a_settled_round_cannot_also_be_refunded() {
+            val p = two_committed();
+            after(COMMIT_MS);
+            signed(p.alice.keypair, main.reveal(1, x"a1"));
+            signed(p.bob.keypair, main.reveal(1, x"b1"));
+            after(REVEAL_MS);
+            signed(p.alice.keypair, main.settle_round(1));
+            signed_must_fail(p.alice.keypair, main.claim_refund(1), "this round drew");
+            // The pot went to exactly one of them and every deposit came home.
+            assert_equals(
+                main.chips_of(p.alice.account.id) + main.chips_of(p.bob.account.id),
+                2 * main.WELCOME_CHIPS
+            );
+            assert_equals(main.escrow_held(), 0);
+            assert_equals(main.burned_total(), 0);
+            assert_conserved();
+        }
+    """.trimIndent() + "\n"
+
     private fun insuranceChromiaYml(name: String): String = ft4ChromiaYml(
         name,
         productionModuleArgsNote = buildString {

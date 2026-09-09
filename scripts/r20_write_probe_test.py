@@ -1,4 +1,56 @@
-package org.chromia
+"""ROUND 20 FIX LANE - rewrite Round20TemplateVocabularyProbeTest in its CLOSED form.
+
+The adversary round wrote every row asserting the finding was STILL THERE, with a message
+on each one saying "a row here going red means the finding was CLOSED: flip it and say
+so". This flips them.
+
+The nine non-Latin asks are spliced in FROM THE FROZEN EVIDENCE as \\uXXXX escapes rather
+than retyped: a transcription error in a Chinese or Arabic literal would be invisible in
+review and would silently turn a measurement into a different measurement.
+"""
+import io
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PROBES = ROOT / "app/src/test/resources/exploit-corpus/realworld/adversary-round20/redirect/redirect-probes.json"
+OUT = ROOT / "app/src/test/kotlin/org/chromia/Round20TemplateVocabularyProbeTest.kt"
+
+rows = json.loads(PROBES.read_text(encoding="utf-8"))
+non_latin = {r["probe"]: r["ask"] for r in rows if r["kind"] == "non-latin"}
+assert len(non_latin) == 9, non_latin.keys()
+
+
+def kt(s):
+    """A Kotlin string literal, ASCII-only: every non-ASCII character as \\uXXXX."""
+    out = ['"']
+    for ch in s:
+        if ch == '"':
+            out.append('\\"')
+        elif ch == "\\":
+            out.append("\\\\")
+        elif ch == "$":
+            out.append("${'$'}")
+        elif 0x20 <= ord(ch) < 0x7F:
+            out.append(ch)
+        else:
+            assert ord(ch) <= 0xFFFF, ch
+            out.append("\\u%04x" % ord(ch))
+    out.append('"')
+    return "".join(out)
+
+
+def listing(probes, indent):
+    return ("\n" + " " * indent).join(
+        '%s to %s,' % (kt(p), kt(non_latin[p])) for p in probes
+    ).rstrip(",")
+
+
+TRANSLITERATED = ["a4_russian", "a5_greek", "a9_mixed_script"]
+STILL_INVISIBLE = ["a1_chinese", "a2_japanese", "a3_korean", "a6_hebrew", "a7_arabic", "a8_hindi"]
+assert sorted(TRANSLITERATED + STILL_INVISIBLE) == sorted(non_latin)
+
+BODY = '''package org.chromia
 
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -43,7 +95,7 @@ import org.junit.jupiter.api.function.Executable
  * (`adversary-round20/harness/redirect_r20.py`); this drives the same asks in process,
  * which is where `closestTemplate` and `closestTemplateNote` live. The nine non-Latin
  * literals are generated from the frozen evidence by `scripts/r20_write_probe_test.py`
- * and written as \uXXXX escapes, because a mistyped character in a Chinese or Arabic
+ * and written as \\uXXXX escapes, because a mistyped character in a Chinese or Arabic
  * literal is invisible in review and would silently change what is being measured.
  */
 class Round20TemplateVocabularyProbeTest {
@@ -98,9 +150,7 @@ class Round20TemplateVocabularyProbeTest {
 
     /** The three non-Latin asks a settled transliteration reaches. */
     private val transliterated = listOf(
-        "a4_russian" to "\u0435\u0436\u0435\u043d\u0435\u0434\u0435\u043b\u044c\u043d\u0430\u044f \u043b\u043e\u0442\u0435\u0440\u0435\u044f \u0434\u043b\u044f \u0434\u0435\u0440\u0436\u0430\u0442\u0435\u043b\u0435\u0439 \u0442\u043e\u043a\u0435\u043d\u043e\u0432",
-        "a5_greek" to "\u03b5\u03b2\u03b4\u03bf\u03bc\u03b1\u03b4\u03b9\u03b1\u03af\u03b1 \u03ba\u03bb\u03ae\u03c1\u03c9\u03c3\u03b7 \u03b3\u03b9\u03b1 \u03ba\u03b1\u03c4\u03cc\u03c7\u03bf\u03c5\u03c2",
-        "a9_mixed_script" to "a weekly \u043b\u043e\u0442\u0435\u0440\u0435\u044f for token holders"
+        %(TRANSLITERATED)s
     )
 
     /**
@@ -110,12 +160,7 @@ class Round20TemplateVocabularyProbeTest {
      * rather than restated.
      */
     private val stillInvisible = listOf(
-        "a1_chinese" to "\u6bcf\u5468\u4e3a\u4ee3\u5e01\u6301\u6709\u8005\u62bd\u5956\u7684\u5f69\u7968",
-        "a2_japanese" to "\u30c8\u30fc\u30af\u30f3\u4fdd\u6709\u8005\u5411\u3051\u306e\u6bce\u9031\u306e\u62bd\u9078",
-        "a3_korean" to "\ud1a0\ud070 \ubcf4\uc720\uc790\ub97c \uc704\ud55c \uc8fc\uac04 \ucd94\ucca8",
-        "a6_hebrew" to "\u05d4\u05d2\u05e8\u05dc\u05d4 \u05e9\u05d1\u05d5\u05e2\u05d9\u05ea \u05dc\u05de\u05d7\u05d6\u05d9\u05e7\u05d9 \u05d0\u05e1\u05d9\u05de\u05d5\u05e0\u05d9\u05dd",
-        "a7_arabic" to "\u064a\u0627\u0646\u0635\u064a\u0628 \u0623\u0633\u0628\u0648\u0639\u064a \u0644\u062d\u0627\u0645\u0644\u064a \u0627\u0644\u0631\u0645\u0648\u0632",
-        "a8_hindi" to "\u091f\u094b\u0915\u0928 \u0927\u093e\u0930\u0915\u094b\u0902 \u0915\u0947 \u0932\u093f\u090f \u0938\u093e\u092a\u094d\u0924\u093e\u0939\u093f\u0915 \u0932\u0949\u091f\u0930\u0940"
+        %(STILL_INVISIBLE)s
     )
 
     /**
@@ -152,7 +197,7 @@ class Round20TemplateVocabularyProbeTest {
                 assertEquals(
                     emptyList<String>(),
                     wrong,
-                    "round 20's false declines are back:\n" + wrong.joinToString("\n")
+                    "round 20's false declines are back:\\n" + wrong.joinToString("\\n")
                 )
             },
             Executable {
@@ -188,7 +233,7 @@ class Round20TemplateVocabularyProbeTest {
         assertEquals(
             emptyList<String>(),
             wrong,
-            "a covered ask stopped routing to its template:\n" + wrong.joinToString("\n")
+            "a covered ask stopped routing to its template:\\n" + wrong.joinToString("\\n")
         )
     }
 
@@ -347,3 +392,11 @@ class Round20TemplateVocabularyProbeTest {
         )
     }
 }
+''' % {
+    "TRANSLITERATED": listing(TRANSLITERATED, 8),
+    "STILL_INVISIBLE": listing(STILL_INVISIBLE, 8),
+}
+
+assert all(ord(c) < 128 for c in BODY), "the generated test must be pure ASCII"
+io.open(OUT, "w", encoding="utf-8", newline="\r\n").write(BODY)
+print("wrote", OUT.name, len(BODY.splitlines()), "lines, ASCII-only")
