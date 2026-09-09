@@ -1,8 +1,18 @@
 # Which classes have no template, and why that is the queue
 
-Eighteen adversary rounds. **Every un-templated class attacked has drained.** That
+Twenty adversary rounds. **Every un-templated class attacked has drained.** That
 is the whole basis for this file: the next drain is predictable from the
 redirect map, not from the last report.
+
+Round 20 made the claim sharper and more uncomfortable at once. It attacked the
+un-templated class at the top of this table **by building the design note this file
+gives for it** - eleven guards, every one proved load-bearing on a real chain - and
+drained it five of five draws on 4.76% of the stake with nothing forfeited. So the
+row was right that the class drains; and **a row's design note is production advice
+with no test behind it**, which is a second way for this file to be the hazard. A
+note here should carry the INVARIANT it claims as something a chain can be made to
+answer, not as a sentence. That row is now closed by `template=raffle`, and the
+section below keeps the note and its counterexample together on purpose.
 
 Round 18 added a second way to reach an un-templated class, and it did not need a
 missing row: **an ask that names an uncovered class ALONGSIDE a covered one used to
