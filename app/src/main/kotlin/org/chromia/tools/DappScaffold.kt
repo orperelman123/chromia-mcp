@@ -168,6 +168,13 @@ object DappScaffold {
         val stripped = COMBINING_MARKS.replace(decomposed, "")
         val out = StringBuilder(stripped.length)
         stripped.forEach { c ->
+            // ROUND 20, LAUNDERING A. Two scripts that DO have a settled Latin
+            // transliteration are folded through it. See [NON_LATIN_FOLD].
+            val transliterated = NON_LATIN_FOLD[c]
+            if (transliterated != null) {
+                out.append(transliterated)
+                return@forEach
+            }
             when (c) {
                 'ß' -> out.append("ss")
                 'ø' -> out.append('o')
@@ -184,6 +191,58 @@ object DappScaffold {
     }
 
     private val COMBINING_MARKS = Regex("\\p{Mn}+")
+
+    /**
+     * ROUND 20, LAUNDERING A - CYRILLIC AND GREEK, TRANSLITERATED RATHER THAN LEFT
+     * INVISIBLE.
+     *
+     * Round 19 folded the Latin scripts and wrote down, honestly, what that did not
+     * reach: "a script with no Latin transliteration is invisible to every key list here,
+     * covered and uncovered alike". Round 20 MEASURED the consequence over nine non-Latin
+     * asks for a class this server declines by name, and 0 of 9 reached the class
+     * paragraph. The ninth is worse than invisible:
+     *
+     *     `a weekly лотерея for token holders`  ->  ok:true, template=ft4, FOUR FILES
+     *
+     * One word in Cyrillic inside an English sentence, and `token holders` sent the ask to
+     * `ft4` with the class paragraph nowhere in the answer - round 19's synonym laundering
+     * with the synonym written in another alphabet.
+     *
+     * The two scripts below are the ones with a SETTLED, single-valued transliteration
+     * into Latin: Russian/Ukrainian/Belarusian/Bulgarian/Serbian Cyrillic, and Greek. They
+     * are written out here as a table rather than pulled in as a dependency - a
+     * transliteration library is a supply-chain surface for thirty-eight characters - and
+     * every row is exercised by the multilingual corpora in the round-19 and round-20
+     * probe tests, so a row that can never fire is a red test.
+     *
+     * The table runs AFTER Unicode NFD and after combining marks are dropped, so the
+     * accented forms decompose into the base letters first: `ё` -> `е` -> `e`, `й` -> `и`
+     * -> `i`, `ή` -> `η` -> `i`. That is why neither is listed. `лотерея` folds to
+     * `lotereya`, which the key `loter*` takes; `κλήρωση` folds to `klirosi`.
+     *
+     * WHAT THIS STILL DOES NOT REACH, written down rather than implied: Chinese, Japanese,
+     * Korean, Hebrew, Arabic and Hindi have no single-valued letter-for-letter Latin form
+     * (Chinese and Japanese are not alphabetic at all; Hebrew and Arabic drop the vowels a
+     * key would need). Those six remain the recorded gap in `docs/TEMPLATE-GAPS.md`, and
+     * the honest shape for them is a per-language key list, not a fold.
+     */
+    private val NON_LATIN_FOLD: Map<Char, String> = mapOf(
+        // Cyrillic.
+        'а' to "a", 'б' to "b", 'в' to "v", 'г' to "g", 'ґ' to "g", 'д' to "d", 'е' to "e",
+        'є' to "ye", 'ж' to "zh", 'з' to "z", 'и' to "i", 'і' to "i", 'ї' to "yi",
+        'й' to "y", 'к' to "k", 'л' to "l", 'м' to "m", 'н' to "n", 'о' to "o", 'п' to "p",
+        'р' to "r", 'с' to "s", 'т' to "t", 'у' to "u", 'ў' to "u", 'ф' to "f",
+        'х' to "kh", 'ц' to "ts", 'ч' to "ch", 'ш' to "sh", 'щ' to "shch",
+        // The two signs carry no sound and no Latin letter: they fold to nothing, which
+        // is what every transliteration standard does with them.
+        'ъ' to "", 'ь' to "", 'ы' to "y", 'э' to "e", 'ю' to "yu", 'я' to "ya",
+        // Greek. Final sigma is the same letter as medial sigma.
+        'α' to "a", 'β' to "v", 'γ' to "g", 'δ' to "d", 'ε' to "e", 'ζ' to "z",
+        'η' to "i", 'θ' to "th", 'ι' to "i", 'κ' to "k", 'λ' to "l", 'μ' to "m",
+        'ν' to "n", 'ξ' to "x", 'ο' to "o", 'π' to "p", 'ρ' to "r", 'σ' to "s",
+        'ς' to "s", 'τ' to "t", 'υ' to "y", 'φ' to "f", 'χ' to "ch", 'ψ' to "ps",
+        'ω' to "o"
+    )
 
     fun normalizeName(raw: String?): String {
         val trimmed = raw?.trim()?.lowercase().orEmpty()
@@ -291,6 +350,40 @@ object DappScaffold {
      * dropped.
      */
     internal fun hardenedTemplates(): List<String> = templates.filter { it != "hello" && it != "ft4" }
+
+    /**
+     * ROUND 20 - THE THREE WORD SETS THE HEAD/MENTION RULE READS, and they are closed
+     * lists on purpose: a rule that guessed at sentence structure would be a parser, and
+     * a parser that is wrong is worse than a keyword that is wrong because nobody can see
+     * where it went wrong.
+     *
+     * [HEAD_BOUNDARY] is where the ask's head noun phrase ends - the relative pronouns
+     * and conjunctions after which everything either modifies the head or names a second
+     * thing. [BUILD_VERBS] and [ARTICLES] are skipped before the head starts, so `build me
+     * a raffle` has the same head as `a raffle`. [NEGATORS] is the window that makes `uses
+     * no VRF` not a VRF ask, in the eight languages the concept vocabularies claim.
+     */
+    private val HEAD_BOUNDARY = setOf(
+        "that", "which", "whose", "who", "where", "when", "with", "and", "but",
+        "for", "plus", "also", "using", "uses", "use", "while", "so", "if",
+        "including", "includes", "include", "offering", "offers", "offer"
+    )
+    private val BUILD_VERBS = setOf(
+        "build", "make", "create", "scaffold", "implement", "write", "design",
+        "generate", "want", "need"
+    )
+    private val ARTICLES = setOf("a", "an", "the", "me", "my", "us", "our", "some", "one")
+    private val NEGATORS = setOf(
+        "no", "not", "never", "without", "non", "nor", "none", "neither",
+        "excludes", "exclude", "excluding", "avoids", "avoid", "avoiding",
+        // French, Spanish, German, Dutch, Italian, Portuguese, Polish.
+        "sans", "sin", "ohne", "zonder", "senza", "sem", "bez"
+    )
+
+    /** The three roles a concept class can play in an ask - see [closestTemplateNote]. */
+    private const val ROLE_HEAD = 0
+    private const val ROLE_STRONG_OUT = 1
+    private const val ROLE_MENTION = 2
 
     private val COUNT_WORDS = listOf(
         "no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
@@ -2383,32 +2476,6 @@ object DappScaffold {
     )
 
     /**
-     * EVERY COVERED CLASS'S KEYS, in the order the routing `when` reads them, and the
-     * template each one routes to. The `when` matches on THESE LISTS - there is no
-     * second copy - so "which covered classes does this ask name" is derived from the
-     * routing rather than kept in step with it by hand. Two entries route to `staking`
-     * on purpose: a liquidity-mining programme is a reward emission, and its list has
-     * to be read ahead of `amm`.
-     */
-    internal val templateKeys: List<Pair<String, List<String>>> = listOf(
-        "bridge" to BRIDGE_KEYS,
-        "exchange" to EXCHANGE_KEYS,
-        "stablecoin" to STABLECOIN_KEYS,
-        "lending" to LENDING_KEYS,
-        "subscription" to SUBSCRIPTION_KEYS,
-        "insurance" to INSURANCE_KEYS,
-        "governance" to GOVERNANCE_KEYS,
-        "streaming" to STREAMING_KEYS,
-        "marketplace" to MARKETPLACE_KEYS,
-        "escrow" to ESCROW_KEYS,
-        "staking" to LIQUIDITY_MINING_KEYS,
-        "amm" to AMM_KEYS,
-        "vault" to VAULT_KEYS,
-        "staking" to STAKING_KEYS,
-        "ft4" to FT4_KEYS
-    )
-
-    /**
      * A VALUE CLASS THIS SERVER DOES NOT SHIP A TEMPLATE FOR, its whole-token keys,
      * and the guard an honest NO has to name. Round 17 made these BRANCHES of the
      * routing `when`; round 18 measured what an ordered `when` does with an ask that
@@ -2455,7 +2522,25 @@ object DappScaffold {
      * A key added here is in `Round18TemplateRedirectProbeTest`'s matrix and in
      * `Round19TemplateVocabularyTest`'s clean-pass corpus in the same commit.
      */
-    private val UNPREDICTABLE_OUTCOME_KEYS = listOf(
+    /**
+     * THE RAFFLE CLASS, and since round 20 it is a COVERED one: `template=raffle` ships
+     * the commit-reveal draw whose seed folds in COMMIT order. These are the keys that
+     * name THE THING ITSELF - a draw with a winner - in the languages agents write asks
+     * in, and they are read as a class rather than as words: see the head/mention rule in
+     * [closestTemplateNote].
+     *
+     * WHAT IS NOT HERE, AND WHY IT MOVED. `random`, `randomness`, `randomly*`, `rng`,
+     * `vrf`, `giveaway*` and `at random` used to sit in this one list, and round 20
+     * measured what that cost: SEVEN asks for classes this server ships a template for
+     * were refused as "an UNPREDICTABLE OUTCOME" with nothing scaffolded - an oracle
+     * sampled at random intervals, a validator chosen at random each epoch, a giveaway of
+     * free listings, order ids assigned randomly, a proposal picked at random for audit, a
+     * randomness beacon read as a price input, and - the sharpest one - `a stablecoin
+     * whose peg is deterministic and USES NO VRF`, refused for saying the word. Those
+     * seven words describe HOW something is done, not WHAT is being built, so they are
+     * [RAFFLE_WEAK_KEYS] and they can no longer decline an ask on their own.
+     */
+    private val RAFFLE_KEYS = listOf(
         // The stem that carries lottery/lotteries AND lotteria/lotterie (Italian,
         // Spanish, Portuguese, Polish) - it is the first key, and the round-18 matrix
         // derives this class's probe token from it.
@@ -2466,27 +2551,100 @@ object DappScaffold {
         "loter*", "lotto*", "loto",
         // English, by every ordinary name.
         "raffle*", "sweepstake*", "prize draw*", "prize drawing*", "lucky draw*", "lucky dip*",
-        "random winner*", "random draw*", "random selection*", "randomness", "randomly*", "random",
-        "rng", "vrf", "prediction market*", "betting*", "bettor*", "wager*", "gambl*", "casino*",
-        "jackpot*", "dice roll*", "coin flip*", "coinflip*", "tombola*", "giveaway*", "give away*",
-        "sortition", "roulette*", "bingo*", "scratch card*", "scratchcard*", "sportsbook*",
-        "sports book*", "bookmaker*", "parimutuel*", "pari mutuel*", "parlay*", "winning ticket*",
-        "raffle ticket*", "chance to win*", "odds of winning*", "pick a winner*", "picks a winner*",
-        "picks the winner*", "draws a winner*", "chosen at random*", "at random",
-        // French: loterie/tombola are above; tirage (au sort), hasard, aléatoire, pari.
-        "tirage*", "hasard", "aleatoire*", "jeu de hasard*", "pari", "parier*", "parieur*",
-        "paris sportifs*", "gagnant au hasard*",
-        // Spanish and Portuguese: sorteo/sorteio, rifa, azar, aleatorio, apuesta/aposta.
-        "sorteo*", "sorteio*", "rifa*", "azar", "aleatorio*", "aleatoria*", "juego de azar*",
-        "apuest*", "apost*", "premio mayor*",
-        // German: Lotterie is above; Verlosung, Gewinnspiel, Glücksspiel, Zufall, Wette,
-        // Ziehung. Folded, so `Glücksspiel` and `glucksspiel` are one key.
-        "verlosung*", "gewinnspiel*", "glucksspiel*", "gluecksspiel*", "zufall*", "wette*",
-        "ziehung*", "auslosung*",
-        // Italian: lotteria is above; estrazione, sorteggio, scommessa.
-        "estrazion*", "sorteggio*", "scommess*",
+        "random winner*", "random draw*", "random selection*",
+        "tombola*", "jackpot*", "scratch card*", "scratchcard*",
+        "winning ticket*", "raffle ticket*", "chance to win*", "pick a winner*", "picks a winner*",
+        "picks the winner*", "draws a winner*",
+        // French: loterie/tombola are above; tirage (au sort), gagnant au hasard.
+        "tirage*", "gagnant au hasard*",
+        // Spanish and Portuguese: sorteo/sorteio, rifa, premio mayor.
+        "sorteo*", "sorteio*", "rifa*", "premio mayor*",
+        // German: Lotterie is above; Verlosung, Gewinnspiel, Ziehung, Auslosung.
+        "verlosung*", "gewinnspiel*", "ziehung*", "auslosung*",
+        // Italian: lotteria is above; estrazione, sorteggio.
+        "estrazion*", "sorteggio*",
         // Dutch and Polish.
-        "loterij*", "losowanie*", "zaklad bukmacherski*", "trekking*"
+        "loterij*", "losowanie*", "trekking*",
+        // Greek and Russian, through the transliteration in [NON_LATIN_FOLD]: κλήρωση
+        // folds to `klirosi`, λαχείο to `lacheio`, розыгрыш to `rozygrysh`.
+        "klirosi*", "klirose*", "lacheio*", "rozygrysh*"
+    )
+
+    /**
+     * ROUND 20, FINDING C - THE WORDS THAT DESCRIBE HOW, NOT WHAT.
+     *
+     * A vault priced by an oracle SAMPLED AT RANDOM INTERVALS is a vault. A stablecoin
+     * whose peg USES NO VRF is a stablecoin. A marketplace with A GIVEAWAY of free
+     * listings is a marketplace. Every one of those was refused outright, because these
+     * words were keys of the raffle class and the class list was consulted before the
+     * routing `when` and won whatever else the ask named.
+     *
+     * A weak key can still reach the raffle class - `on-chain randomness` with no covered
+     * class in the ask is a raffle ask and is answered as one - but it can no longer take
+     * an ask AWAY from a covered class it is merely describing. Where a covered class is
+     * the head of the ask, a weak word becomes a NOTE beside the scaffold instead of a
+     * refusal in place of it.
+     */
+    private val RAFFLE_WEAK_KEYS = listOf(
+        "random", "at random", "randomly*", "randomness", "chosen at random*",
+        "rng", "vrf", "giveaway*", "give away*", "sortition",
+        // The same words in the languages the class list already claims.
+        "hasard", "aleatoire*", "azar", "aleatorio*", "aleatoria*", "zufall*"
+    )
+
+    /**
+     * WAGERING - a bet on an outcome - is the half of round 19's unpredictable-outcome
+     * class that STILL has no template, and it is separated from [RAFFLE_KEYS] because
+     * the two are different exploit classes wearing the same word. A raffle draws ONE
+     * winner from a pot the entrants funded; a prediction market, a sportsbook or a casino
+     * takes the other side of a bet and must be SOLVENT for every outcome at once, which
+     * `template=raffle` says nothing about. Round 19's `abetting` rule is unchanged: there
+     * is no `bet*` and no bare `pari*` here.
+     */
+    private val WAGERING_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "prediction market*", "betting*", "bettor*", "wager*", "gambl*", "casino*",
+        "dice roll*", "coin flip*", "coinflip*", "roulette*", "bingo*",
+        "sportsbook*", "sports book*", "bookmaker*", "parimutuel*", "pari mutuel*", "parlay*",
+        "odds of winning*",
+        // French, Spanish, German, Italian, Greek, Russian, Polish.
+        "pari", "parier*", "parieur*", "paris sportifs*", "jeu de hasard*",
+        "apuest*", "apost*", "juego de azar*",
+        "glucksspiel*", "gluecksspiel*", "wette*",
+        "scommess*", "zaklad bukmacherski*",
+        "stoichima*", "tzogos*", "stavka*", "azartn*"
+    )
+
+    /**
+     * EVERY COVERED CLASS'S KEYS, in the order the routing `when` reads them, and the
+     * template each one routes to. The `when` matches on THESE LISTS - there is no
+     * second copy - so "which covered classes does this ask name" is derived from the
+     * routing rather than kept in step with it by hand. Two entries route to `staking`
+     * on purpose: a liquidity-mining programme is a reward emission, and its list has
+     * to be read ahead of `amm`.
+     */
+    internal val templateKeys: List<Pair<String, List<String>>> = listOf(
+        // ROUND 20: the SIXTEENTH template, and it is read first. Every realistic raffle
+        // ask names a token, a holder or a reward, so `a weekly lottery with rewards for
+        // ticket holders` reached `staking` (round 17) and `a tombola for token holders`
+        // reached `ft4` (round 19) - both of them four branches before the draw was
+        // looked at, and neither template makes an outcome unpredictable.
+        "raffle" to RAFFLE_KEYS,
+        "bridge" to BRIDGE_KEYS,
+        "exchange" to EXCHANGE_KEYS,
+        "stablecoin" to STABLECOIN_KEYS,
+        "lending" to LENDING_KEYS,
+        "subscription" to SUBSCRIPTION_KEYS,
+        "insurance" to INSURANCE_KEYS,
+        "governance" to GOVERNANCE_KEYS,
+        "streaming" to STREAMING_KEYS,
+        "marketplace" to MARKETPLACE_KEYS,
+        "escrow" to ESCROW_KEYS,
+        "staking" to LIQUIDITY_MINING_KEYS,
+        "amm" to AMM_KEYS,
+        "vault" to VAULT_KEYS,
+        "staking" to STAKING_KEYS,
+        "ft4" to FT4_KEYS
     )
 
     private val PAYMENT_CHANNEL_KEYS = listOf(
@@ -2552,43 +2710,173 @@ object DappScaffold {
         "crowdfunding campagne*", "zbiorka*"
     )
 
-    internal class UntemplatedClass(
+    /**
+     * ROUND 20, LAUNDERING B - LOYALTY AND POINTS, WHICH HAD NO NAMED REFUSAL AT ALL.
+     *
+     *     `a points program where the issuer mints rewards for purchases`
+     *         ->  ok:true, template=staking, THREE FILES
+     *
+     * `docs/TEMPLATE-GAPS.md` carries this row and says the staking template's discipline
+     * - "every credit is a pool debit" - CANNOT SIMPLY BE CARRIED OVER to it, and the ask
+     * was answered with that very template on the word `rewards`. A points programme is
+     * the opposite shape: the issuer MINTS the points, so there is no pool to debit and
+     * the conservation invariant the staking notes teach is vacuous on it.
+     */
+    private val LOYALTY_POINTS_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "loyalty*", "points program*", "points programme*", "reward points*", "loyalty point*",
+        "points for purchases*", "frequent flyer*", "air miles*", "stamp card*", "punch card*",
+        "cashback*", "cash back*", "store credit*", "gift card*", "voucher*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish.
+        "programme de fidelite*", "programa de fidelidad*", "puntos de fidelidad*",
+        "treuepunkt*", "kundenbindungsprogramm*", "bonuspunkt*",
+        "programa de fidelidade*", "programma fedelta*", "punti fedelta*",
+        "spaarpunten*", "program lojalnosciowy*"
+    )
+
+    /**
+     * ROUND 20, LAUNDERING B, THE OTHER ROW - A SPLITTER OF INCOME AMONG WEIGHTED
+     * RECIPIENTS: a fee splitter, a revenue share, a donation pool, a charity.
+     *
+     * The TEMPLATE-GAPS row for it has been open since the file was written and had no
+     * entry here, so every phrasing of it fell to the generic roster - which teaches an
+     * agent that we have no template with that NAME, and nothing about the exploit class.
+     * Round 19 deliberately kept `donation*` and `charity*` out of [CROWDFUNDING_KEYS]
+     * because they belong to THIS class; this is the class they were being kept for.
+     */
+    private val FEE_SPLITTER_KEYS = listOf(
+        // First key: the round-18 matrix derives this class's probe token from it.
+        "fee splitter*", "fee split*", "revenue split*", "revenue share*", "revenue sharing*",
+        "payment splitter*", "split the fee*", "splits the fee*", "splitting the fee*",
+        "split the revenue*", "splits the revenue*", "profit share*", "profit split*",
+        "donation pool*", "donation*", "charity*", "charitable*", "tip jar*",
+        "weighted recipient*", "payout split*", "split between recipients*",
+        // French, Spanish, German, Portuguese, Italian, Dutch, Polish.
+        "repartition des frais*", "partage des revenus*", "cagnotte caritative*",
+        "reparto de ingresos*", "division de comisiones*", "donacion*",
+        "einnahmenaufteilung*", "gebuhrenaufteilung*", "spenden*",
+        "divisao de receita*", "doacao*", "doacoes*",
+        "divisione dei ricavi*", "donazion*",
+        "opbrengstverdeling*", "podzial oplat*"
+    )
+
+    /**
+     * A VALUE CLASS THE ROUTING KNOWS BY CONCEPT, its whole-token keys, and the guard an
+     * honest answer has to name.
+     *
+     * ROUND 20 SPLIT THIS RECORD IN TWO DIRECTIONS at once. [template] is the shipped
+     * template for the class, or null when none covers it - the raffle class HAS one now,
+     * and a record that could only say "no template" could not express that. [weakKeys]
+     * are words that describe HOW the class works rather than WHAT is being built, and
+     * they cannot take an ask away from a covered class on their own: that is the seven
+     * false declines of round 20, section 3, made unwritable.
+     */
+    /**
+     * THE RAFFLE CLASS'S ANSWER, and it is the first one in this file that says YES to a
+     * class an adversary round drained. It must open with ``Use `template=raffle` `` -
+     * [closestTemplate] reads that prefix and it is what makes the ask scaffold.
+     */
+    private val RAFFLE_NOTE: String =
+        "Use `template=raffle`: it is the template for this class, and this class is the one this " +
+            "server DECLINED BY NAME until round 20 - the answer used to be \"no template covers an " +
+            "UNPREDICTABLE OUTCOME\" with nothing scaffolded, because a draw an operation's signer " +
+            "can predict is not a draw, it is a withdrawal. What changed is that the guard now " +
+            "exists as code you can read, and it exists because THE PROJECT'S OWN DESIGN NOTE FOR " +
+            "THIS CLASS WAS DRAINED. `docs/TEMPLATE-GAPS.md` said the shape was \"commit-reveal with " +
+            "a deposit the revealer forfeits\", and that \"her choice is between REVEALING and " +
+            "FORFEITING her deposit\". Adversary round 20 built exactly that note, proved ELEVEN " +
+            "guards load-bearing on a chain, and lost FIVE OF FIVE draws to an attacker holding " +
+            "4.76% of the stake - with ZERO deposits forfeited and ZERO secrets withheld, so the " +
+            "sentence the deposit was supposed to enforce never came up. It is true of ONE " +
+            "commitment and false of two: the seed was `round.mixed = crypto.sha256(round.mixed + " +
+            "secret)`, A FOLD IN REVEAL ORDER, so six commitments were 720 accumulators to choose " +
+            "between for free. She read the honest secrets off the chain, ran the module's own " +
+            "public `pick` over each ordering of her own, and revealed in the one whose ticket was " +
+            "hers. WHAT THE TEMPLATE DOES INSTEAD, and each of these is structural rather than a " +
+            "check a later operation can forget: THE SEED FOLDS THE COMMITTED SET IN COMMIT ORDER " +
+            "(`@sort .seq`, written by `commit` before any secret in the round exists) and `reveal` " +
+            "touches no accumulator at all, so reveal order is not an input to anything; A ROUND " +
+            "THAT IS NOT COMPLETE DOES NOT DRAW (`reveals == commits`, or it refunds), which " +
+            "collapses the 2^m withholding subsets into one choice; A FORFEITED DEPOSIT IS BURNED " +
+            "rather than added to the prize, because a pot that grows when somebody fails to reveal " +
+            "pays for the failure; and THE STAKE IS CAPPED BY THE DEPOSIT, so walking away from a " +
+            "losing draw never costs less than playing it. Measured on a chain: the same " +
+            "720-permutation search still finds an ordering in FIFTY of fifty rounds and now wins " +
+            "ONE round in fifty, against a 4.7619% stake share. WHAT IT STILL DOES NOT COVER, said " +
+            "plainly: a participant can always DENY a round by not revealing, for one deposit a " +
+            "round - nobody profits from the denial, so it buys griefing and never a draw, and a " +
+            "raffle that must not be stoppable needs a randomness BEACON read with the discipline " +
+            "`template=vault` applies to a price (bounded, rate-limited, staleness-halted), not a " +
+            "bigger deposit. AND IF WHAT YOU ARE BUILDING TAKES THE OTHER SIDE OF A BET - a " +
+            "prediction market, a sportsbook, a casino game - that is a DIFFERENT exploit class " +
+            "with no template here: a raffle pays one winner out of a pot the entrants funded, " +
+            "while a book must be SOLVENT FOR EVERY OUTCOME AT ONCE, and nothing in this template " +
+            "says anything about that."
+
+    internal class ConceptClass(
         val id: String,
         val label: String,
         val keys: List<String>,
         val missingGuard: String,
-        val note: String
+        val note: String,
+        /** Words that name the class only weakly - see [RAFFLE_WEAK_KEYS]. */
+        val weakKeys: List<String> = emptyList(),
+        /** The shipped template for this class, or null when none covers it. */
+        val template: String? = null
     )
 
-    internal val untemplatedClasses: List<UntemplatedClass> = listOf(
-        UntemplatedClass(
+    /**
+     * The classes the routing reads BEFORE the `when` below, covered and uncovered alike.
+     * Order matters only for the answer's wording; membership is what the rule reads.
+     */
+    internal val conceptClasses: List<ConceptClass> = listOf(
+        ConceptClass(
+            id = "raffle",
+            label = "a raffle or lottery (a draw with one winner)",
+            keys = RAFFLE_KEYS,
+            weakKeys = RAFFLE_WEAK_KEYS,
+            template = "raffle",
+            missingGuard = "a SEED NO PARTICIPANT CAN CHOOSE - and `template=raffle` now ships one",
+            note = RAFFLE_NOTE
+        ),
+        ConceptClass(
             id = "unpredictable-outcome",
-            label = "an unpredictable outcome (a raffle, a lottery, a prize draw, a prediction market)",
-            keys = UNPREDICTABLE_OUTCOME_KEYS,
-            missingGuard = "a draw NO CALLER CAN CHOOSE THE BLOCK FOR - `op_context.last_block_time` is the " +
-                "timestamp of the block ALREADY COMMITTED, so an attacker predicts nothing: she watches " +
-                "blocks land and answers the one whose ticket is hers. The shape is a COMMIT-REVEAL with a " +
-                "deposit the revealer forfeits, or an anchor on a FUTURE block read only after a delay, and " +
-                "the economic invariant test written before either",
+            label = "a wager on an unpredictable outcome (a prediction market, sports betting, a casino game)",
+            keys = WAGERING_KEYS,
+            missingGuard = "SOLVENCY FOR EVERY OUTCOME AT ONCE, and a settlement source that is not the " +
+                "house's own opinion - a book must be able to pay whichever side wins, so the guard is a " +
+                "reserve checked against the WORST outcome before a bet is accepted (never against the " +
+                "expected one), plus an oracle or adjudicator with the discipline `template=vault` applies " +
+                "to a price, and the economic invariant test written before either",
             note =
                 "No shipped template covers that name, and the honest answer is NO rather than the " +
-                    "nearest template: an ask that turns on an UNPREDICTABLE OUTCOME has an exploit " +
-                    "class no template here addresses. `template=staking` is where round 17 measured " +
-                    "\"a weekly lottery with rewards for ticket holders\" landing, on the word " +
-                    "`rewards`, and its guards are about a reward pool being FUNDED before it pays - " +
-                    "nothing in it makes a draw unpredictable, and a draw an operation's signer can " +
-                    "predict is not a draw, it is a withdrawal. On this chain a block's own data " +
-                    "(timestamp, block rid, a hash of anything in the transaction) is visible to " +
-                    "whoever chooses when to submit, so it is not entropy. If you build one anyway: " +
-                    "commit-reveal with a deposit the revealer forfeits, or an external randomness " +
-                    "source with the same discipline the vault applies to a price - bounded, " +
-                    "rate-limited, staleness-checked - and write the economic invariant test FIRST. " +
-                    "The pot's CUSTODY is a different half and is covered: money in before the draw " +
-                    "and out after it is `template=marketplace`'s escrow discipline or " +
-                    "`template=insurance`'s pro-rata payout of a short pool, neither of which makes " +
-                    "the outcome fair."
+                    "nearest template: an ask that turns on WAGERING - taking the other side of a bet " +
+                    "on an UNPREDICTABLE OUTCOME - has an exploit class no template here addresses. " +
+                    "IT IS NOT THE SAME CLASS AS A DRAW, and round 20 separated the two: a raffle " +
+                    "pays ONE winner out of a pot the entrants themselves funded, so the pot is " +
+                    "always exactly what was staked, and `template=raffle` ships it. A BOOK IS THE " +
+                    "OPPOSITE SHAPE - it takes a position against every bettor, and it must be " +
+                    "SOLVENT FOR EVERY OUTCOME AT ONCE. Nothing in `template=raffle` says anything " +
+                    "about that: it has no reserve, no odds, no exposure and no worst case, and " +
+                    "building a sportsbook on it gives you a draw with extra steps. Two things have " +
+                    "to be true and neither is a check you can add later. THE RESERVE IS SIZED " +
+                    "AGAINST THE WORST OUTCOME, not the expected one: a bet accepted because the " +
+                    "average case is covered is a bet the house cannot pay when the unlikely side " +
+                    "wins, and the entrants find that out together. AND THE SETTLEMENT IS NOT THE " +
+                    "HOUSE'S OPINION - whoever says which side won is the thing an attacker buys, so " +
+                    "that source needs the discipline `template=vault` applies to a price: bounded, " +
+                    "rate-limited, staleness-halted, and unable to move the answer in one step. On " +
+                    "this chain a block's own data (timestamp, block rid, a hash of anything in the " +
+                    "transaction) is visible to whoever chooses when to submit, so it is not entropy " +
+                    "either. The nearest shipped disciplines, and they are halves rather than " +
+                    "answers: `template=insurance` for a POOL THAT MUST COVER CLAIMS IT CANNOT ALL " +
+                    "PAY - cover bounded by the reserve that backs it, and every payout pro rata - " +
+                    "which is the closest thing here to a book's solvency problem; and " +
+                    "`template=raffle` for the draw itself if what you are building really is a draw. " +
+                    "Write the economic invariant test FIRST: a passing security check is not " +
+                    "economic soundness, and on this class it is not even a signal."
         ),
-        UntemplatedClass(
+        ConceptClass(
             id = "payment-channel",
             label = "a payment or state channel",
             keys = PAYMENT_CHANNEL_KEYS,
@@ -2608,7 +2896,7 @@ object DappScaffold {
                     "economic invariant test FIRST - a passing security check is not economic " +
                     "soundness."
         ),
-        UntemplatedClass(
+        ConceptClass(
             id = "signer-set",
             label = "a threshold-controlled account (a multisig wallet, a signer set)",
             keys = SIGNER_SET_KEYS,
@@ -2630,7 +2918,7 @@ object DappScaffold {
                     "and the action taken in the single transaction where the count EQUALS the " +
                     "threshold, so there is no flag to forget."
         ),
-        UntemplatedClass(
+        ConceptClass(
             id = "crowdfunding",
             label = "a crowdfunding campaign (an all-or-nothing raise with refunds)",
             keys = CROWDFUNDING_KEYS,
@@ -2649,8 +2937,67 @@ object DappScaffold {
                     "and `template=insurance` for the pro-rata payout of a pot that cannot cover every claim " +
                     "on it - which is what a partial refund is. Write the economic invariant test FIRST: a " +
                     "passing security check is not economic soundness."
+        ),
+        ConceptClass(
+            id = "loyalty-points",
+            label = "a loyalty or points programme (points the issuer mints)",
+            keys = LOYALTY_POINTS_KEYS,
+            missingGuard = "WHAT BACKS A POINT AND WHAT RETIRES IT - a points programme MINTS its unit, so " +
+                "there is no pool to debit and no conservation invariant to copy; the guard is a stated " +
+                "liability, a redemption path that BURNS what it pays out, and a bound on what may be " +
+                "minted per period",
+            note =
+                "No shipped template covers that name, and the nearest one is actively wrong for it. A " +
+                    "LOYALTY OR POINTS PROGRAMME's exploit class is that the ISSUER MINTS THE UNIT: " +
+                    "points appear on a purchase, out of nothing, and the only thing standing behind " +
+                    "them is the issuer's promise to honour them. Round 20 measured `a points program " +
+                    "where the issuer mints rewards for purchases` being answered `ok:true`, " +
+                    "`template=staking`, THREE FILES - and `docs/TEMPLATE-GAPS.md` had already written " +
+                    "down why that is the wrong answer: the staking template's discipline is that " +
+                    "EVERY CREDIT IS A POOL DEBIT out of a sponsor-funded pool, which is exactly what a " +
+                    "points programme does not do. Copy that invariant onto a minting issuer and it is " +
+                    "VACUOUS - it passes on a ledger that can print. The nearest shipped disciplines, " +
+                    "and they are halves rather than answers: `template=ft4` for a token whose supply " +
+                    "is explicit and whose transfers conserve, and `template=subscription` for a " +
+                    "merchant's claim bounded by what a payer actually funded. Write the invariant test " +
+                    "FIRST, and make it about the LIABILITY - how many points exist, what they may be " +
+                    "redeemed for, and what burns them - because a passing security check cannot see a " +
+                    "promise."
+        ),
+        ConceptClass(
+            id = "fee-splitter",
+            label = "a splitter of income among weighted recipients (a fee splitter, a revenue share, a donation pool)",
+            keys = FEE_SPLITTER_KEYS,
+            missingGuard = "THE WEIGHTS AND THE ROUNDING - who may change a share and from when, and where " +
+                "the remainder of a division goes; a split that pays `total * weight / total_weight` to " +
+                "each recipient in turn leaves dust behind on every distribution and pays the last " +
+                "recipient short, and a weight a later operation can move re-prices income that has " +
+                "already been earned",
+            note =
+                "No shipped template covers that name. A SPLITTER OF INCOME AMONG WEIGHTED RECIPIENTS - " +
+                    "a fee splitter, a revenue share, a donation pool, a charity - has two exploit " +
+                    "classes and neither is about authentication. THE WEIGHTS ARE RE-PRICEABLE: if a " +
+                    "share may be changed while income is already accrued, whoever may change it is " +
+                    "paid retroactively, which is the round-9 accrual hazard in a different class. AND " +
+                    "THE DIVISION HAS A REMAINDER: integer division loses dust on every distribution, " +
+                    "so `sum of payouts < amount` and the difference accumulates somewhere - a pot with " +
+                    "no owner, or the last recipient's shortfall. The nearest shipped disciplines, and " +
+                    "they are halves rather than answers: `template=insurance` for the PRO-RATA payout " +
+                    "of a pot that cannot cover everything claimed on it, which is the same arithmetic " +
+                    "and ships the remainder handling; and `template=staking` for a per-share " +
+                    "accumulator that pays a share of income WITHOUT re-pricing what is already accrued. " +
+                    "Write the economic invariant test FIRST, and make it assert that the payouts SUM " +
+                    "to the amount split - that is the assertion the dust hides from."
         )
     )
+
+    /**
+     * The classes with NO shipped template, derived from [conceptClasses] rather than
+     * kept in a second list: a class that gains a template leaves this view in the same
+     * commit, and there is no way to add one to the routing and forget the other.
+     */
+    internal val untemplatedClasses: List<ConceptClass>
+        get() = conceptClasses.filter { it.template == null }
 
     /**
      * What to do INSTEAD, for a template name we do not ship. The notes already
@@ -2684,13 +3031,17 @@ object DappScaffold {
         // investment, "govern*" is governance, "bid" has NO star because a payment
         // channel is "bidirectional" and an auction is not what that ask wants.
         val askTokens = TOKEN.findAll(t).map { it.value }.toList()
-        fun matchesKey(key: String): Boolean {
+        // ROUND 20: WHERE a key matched, not merely whether. The rule below turns on the
+        // POSITION of the match, so the matcher returns every start index rather than a
+        // boolean.
+        fun keyStarts(key: String): List<Int> {
             val prefix = key.endsWith("*")
             // The key is folded too, so a key written with an accent - `lotería` - is
             // the same key as the folded ask it has to match, and there is no way to
             // add a key that can never fire.
             val parts = TOKEN.findAll(foldAsk(if (prefix) key.dropLast(1) else key)).map { it.value }.toList()
-            if (parts.isEmpty() || parts.size > askTokens.size) return false
+            if (parts.isEmpty() || parts.size > askTokens.size) return emptyList()
+            val out = mutableListOf<Int>()
             for (start in 0..askTokens.size - parts.size) {
                 var ok = true
                 for (j in parts.indices) {
@@ -2699,24 +3050,105 @@ object DappScaffold {
                     val hit = if (prefix && j == parts.size - 1) token.startsWith(part) else token == part
                     if (!hit) { ok = false; break }
                 }
-                if (ok) return true
+                if (ok) out.add(start)
             }
-            return false
+            return out
         }
+        // ROUND 20, AND ROUND 19'S r6 WAS THE SEED: a key inside a NEGATION is not the
+        // class being named, it is the class being ruled out. `a stablecoin whose peg is
+        // deterministic and USES NO VRF` was refused as an unpredictable outcome for
+        // saying the word - an ask that says the dapp does NOT do this, answered as
+        // though it did. Three tokens is the window an English (or French, Spanish,
+        // German, Dutch, Italian, Portuguese, Polish) negator sits in before the thing it
+        // negates: `without any raffle`, `uses no VRF`, `sin sorteo`, `ohne Verlosung`.
+        fun negated(start: Int): Boolean =
+            (maxOf(0, start - 3) until start).any { askTokens[it] in NEGATORS }
+        fun liveStarts(keys: List<String>): List<Int> =
+            keys.flatMap { keyStarts(it) }.filterNot { negated(it) }
+        fun matchesKey(key: String): Boolean = keyStarts(key).any { !negated(it) }
         // Every branch below reads its keys out of a NAMED LIST, and the roster of
         // covered classes an ask touches is derived from those same lists (templateKeys):
         // there is no second copy of a keyword anywhere, so a key added to a branch is a
         // key the mixed-ask answer sees in the same commit.
         fun hasAny(keys: List<String>) = keys.any { matchesKey(it) }
+        // WHERE THE ASK'S HEAD NOUN PHRASE ENDS. Everything from the first boundary word
+        // on either modifies the head or names a SECOND thing: `a staking pool WHOSE
+        // validator is chosen at random`, `a marketplace WITH a giveaway`. The head is
+        // what the ask is ABOUT, and round 20's seven false declines were all classes
+        // named after it.
+        val headEnd = run {
+            var start = 0
+            if (start < askTokens.size && askTokens[start] in BUILD_VERBS) {
+                start += 1
+                while (start < askTokens.size && askTokens[start] in ARTICLES) start += 1
+            }
+            (start until askTokens.size).firstOrNull { askTokens[it] in HEAD_BOUNDARY } ?: askTokens.size
+        }
         // ROUND 18. The classes with NO template are read FIRST and out of a list, not
         // as branches of the ordered `when` below: an ask that carries one of them is
         // answered by it whatever else it names, because an ordered `when` gave "a
         // lending pool that also runs a weekly raffle for depositors" to `lending` four
         // branches before the raffle was looked at.
-        val declined = untemplatedClasses.filter { c -> hasAny(c.keys) }
+        //
+        // ROUND 20 REPLACED "does this word appear" WITH "is the ask ABOUT this class".
+        // Section 3 measured what the first rule cost once round 19's vocabulary made it
+        // wide: SEVEN asks for classes this server SHIPS A TEMPLATE FOR were refused with
+        // nothing scaffolded - a vault whose oracle is sampled at random intervals, a
+        // staking pool whose validator is chosen at random, a marketplace with a giveaway,
+        // an exchange that assigns order ids randomly, a governance DAO that picks a
+        // proposal at random for audit, a vault reading a randomness beacon, and a
+        // stablecoin whose peg `uses no VRF` - refused for saying the word it says it does
+        // not use. Every one of them names its real class as the HEAD of the ask.
+        //
+        // So each class gets a ROLE from where its keys landed:
+        //   HEAD       - a key of this class is inside the head noun phrase. The ask is
+        //                about this class, and it is answered by it.
+        //   STRONG_OUT - a STRONG key (the class by name) landed after the head. The ask
+        //                names this class as a second thing: a compound ask.
+        //   MENTION    - only WEAK keys landed, and after the head. The word describes how
+        //                something works; it does not say what is being built.
+        val roles = LinkedHashMap<String, Int>()
+        conceptClasses.forEach { c ->
+            val strong = liveStarts(c.keys)
+            val weak = liveStarts(c.weakKeys)
+            if (strong.isEmpty() && weak.isEmpty()) return@forEach
+            roles[c.id] = when {
+                (strong + weak).any { it < headEnd } -> ROLE_HEAD
+                strong.isNotEmpty() -> ROLE_STRONG_OUT
+                else -> ROLE_MENTION
+            }
+        }
         // ...and the covered classes the same ask names, derived from the SAME key lists
         // the `when` matches on, in the `when`'s own order.
         val covered = templateKeys.filter { (_, keys) -> hasAny(keys) }.map { it.first }.distinct()
+        // AN UNCOVERED CLASS IS STILL ANSWERED FIRST, whatever else the ask names - that
+        // is round 18's fix and it is unchanged. What round 20 narrowed is WHEN the class
+        // counts as named: a mere MENTION of it beside a covered head no longer refuses
+        // the ask, it annotates the scaffold.
+        val declined = conceptClasses.filter { c ->
+            c.template == null && roles.containsKey(c.id) &&
+                (roles[c.id] != ROLE_MENTION || covered.isEmpty())
+        }
+        // The classes that DO have a template and that this ask names. In practice this is
+        // the raffle, and the branch below is what makes a raffle ask scaffold.
+        if (declined.isEmpty()) {
+            conceptClasses.forEach { c ->
+                val role = roles[c.id]
+                if (c.template == null || role == null) return@forEach
+                // The class's OWN template is in `covered` whenever a strong key fired, so
+                // "does this ask name a SECOND covered class" is asked about the others.
+                val otherCovered = covered.filter { it != c.template }
+                when {
+                    role == ROLE_HEAD -> return c.note
+                    role == ROLE_STRONG_OUT && otherCovered.isEmpty() -> return c.note
+                    role == ROLE_STRONG_OUT -> return bothCoveredNote(c, covered)
+                    otherCovered.isEmpty() -> return c.note
+                }
+            }
+        }
+        // Whatever is left is a MENTION beside a covered head: the ask scaffolds, and the
+        // mention is named in a note rather than swallowed.
+        val mentioned = conceptClasses.filter { c -> roles[c.id] == ROLE_MENTION && c !in declined }
         val templateNote: String? = when {
             // AHEAD OF EVERYTHING, including the order-book branch: every realistic
             // phrasing of a bridge ask names a token, an asset or a transfer, so
@@ -3056,7 +3488,7 @@ object DappScaffold {
             else -> null
         }
         return when {
-            declined.isEmpty() && templateNote != null -> templateNote
+            declined.isEmpty() && templateNote != null -> templateNote + mentionTail(mentioned)
             declined.isEmpty() ->
                 "No shipped template covers that name. " + templateRoster() +
                     " Pick the one whose EXPLOIT class matches yours - the value class with no " +
@@ -3091,7 +3523,7 @@ object DappScaffold {
      * paragraph the English ask has always received - so this adds the two facts rather
      * than restating the note in different words.
      */
-    private fun declinedOnlyTail(declined: List<UntemplatedClass>): String {
+    private fun declinedOnlyTail(declined: List<ConceptClass>): String {
         val labels = declined.joinToString(" and ") { it.label }
         return " THE CLASS THIS ASK IS, AND THE GUARD THAT IS MISSING, SAID PLAINLY RATHER THAN LEFT TO BE " +
             "INFERRED FROM THE PARAGRAPH ABOVE: what you asked for is $labels, and NOTHING WAS SCAFFOLDED - " +
@@ -3124,7 +3556,7 @@ object DappScaffold {
      * which is the same rule the cross-chain DEX and liquidity-mining answers already
      * follow - the difference is that those two halves both HAVE templates.
      */
-    private fun mixedAskTail(declined: List<UntemplatedClass>, covered: List<String>): String {
+    private fun mixedAskTail(declined: List<ConceptClass>, covered: List<String>): String {
         if (covered.isEmpty()) return ""
         val primary = covered.first()
         val labels = declined.joinToString(" and ") { it.label }
@@ -3149,6 +3581,56 @@ object DappScaffold {
             "put in 1500 and ended at 1350; and in the block she chose, alice and bob were EACH refused " +
             "\"you are not this week's winner\", so every drained draw was a legal draw and no rule keyed " +
             "on the operation could tell that block from any other."
+    }
+
+    /**
+     * TWO COVERED CLASSES IN ONE ASK, and nothing is scaffolded for it. `a lending pool
+     * that also runs a weekly raffle for depositors` is round 18's laundering, and the
+     * answer is the same one it has had since: a compound ask is built ONE TEMPLATE AT A
+     * TIME, each asked for by name. What round 20 changed is that BOTH halves now have a
+     * template, so this says "ask for each of these" instead of "this half has no guards
+     * at all".
+     */
+    private fun bothCoveredNote(named: ConceptClass, covered: List<String>): String {
+        val each = covered.joinToString(", ") { "`template=$it` (${templateClasses.getValue(it)})" }
+        return "THIS ASK NAMES MORE THAN ONE COVERED CLASS, AND NOTHING WAS SCAFFOLDED FOR IT: it is " +
+            "${named.label} AND at least one other class this server ships a template for. Every half " +
+            "of it has one - $each - and each is a DIFFERENT exploit class with its own guards, its " +
+            "own invariant tests and its own adversary round behind it. Ask for them one at a time, " +
+            "by name, and wire the two modules together yourself: a single scaffold that tried to be " +
+            "both would carry neither set of guards honestly. ADVERSARY ROUND 18 MEASURED WHY THIS IS " +
+            "A NO AND NOT A BEST-EFFORT SCAFFOLD: \"a lending pool that also runs a weekly raffle for " +
+            "depositors\" was scaffolded onto `lending` - three files, ok:true, 1517 bytes about lazy " +
+            "interest accrual and share pricing, and NOT ONE WORD about the raffle. The raffle half " +
+            "built from that answer was drained on a real chain: trudy staked 90 of 1890, about one " +
+            "week in twenty-one, and won FIVE OF FIVE weekly draws."
+    }
+
+    /**
+     * ROUND 20, THE OTHER HALF OF FINDING C. The ask scaffolds - its head is a class this
+     * server covers - and a word in it belongs to a class that is NOT what is being built.
+     * `a vault that reads a randomness beacon as a price input` is a vault; `randomness`
+     * is how its feed behaves. Before round 20 that word REFUSED the ask outright. Now it
+     * adds this, so nothing is silently swallowed either: the agent gets its template AND
+     * is told what the other word would have needed if it turns out to be load-bearing.
+     */
+    private fun mentionTail(mentioned: List<ConceptClass>): String {
+        if (mentioned.isEmpty()) return ""
+        val labels = mentioned.joinToString(" and ") { it.label }
+        return " AND ONE MORE THING THE ASK SAYS, NAMED RATHER THAN SWALLOWED: it also uses a word " +
+            "that belongs to $labels - and the scaffold above does NOT cover that class. It is " +
+            "answered as a note and not as a refusal because the class is not what you asked to " +
+            "build: it describes how something in your ask behaves. Round 20 measured the cost of " +
+            "reading it the other way - SEVEN asks for classes this server ships a template for were " +
+            "refused outright with nothing scaffolded, including `a stablecoin whose peg is " +
+            "deterministic and USES NO VRF`, refused for saying the word it says it does not use. " +
+            "BUT IF THAT WORD IS LOAD-BEARING IN YOUR DESIGN - if an outcome in it is meant to be " +
+            "UNPREDICTABLE rather than merely irregular - stop and ask for that class on its own: " +
+            mentioned.joinToString("; and ") {
+                if (it.template != null) "`template=${it.template}` covers ${it.label}"
+                else "what no template here ships for ${it.label} is ${it.missingGuard}"
+            } + ". A draw an operation's signer can predict is not a draw, it is a withdrawal, and " +
+            "that is the class both adversary rounds 18 and 20 drained."
     }
 
     /**

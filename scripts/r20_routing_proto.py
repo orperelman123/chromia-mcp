@@ -225,14 +225,17 @@ def route(ask):
     for cid in withtpl:
         r = roles[cid]
         tpl = by_id[cid][1]
+        # The class's OWN template is in `covered` whenever a strong key fired, so
+        # "does this ask name a second covered class" is asked about the others.
+        other = [c for c in covered if c != tpl]
         if r == HEAD:
             return tpl, "head:" + cid
         if r == STRONG_OUT:
-            if covered:
-                return None, "compound:" + cid + "+" + ",".join(covered)
+            if other:
+                return None, "compound:" + cid + "+" + ",".join(other)
             return tpl, "no-covered-head:" + cid
         # MENTION
-        if not covered:
+        if not other:
             return tpl, "no-covered-head:" + cid
     for name, keys in TEMPLATE_KEYS:
         if matches(keys, toks):
