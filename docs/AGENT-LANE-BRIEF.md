@@ -69,6 +69,28 @@ So split the work by whether it needs a build:
 - **Verification does not parallelise.** Applying a fix, running the gate,
   merging, pushing - one lane at a time, and prefer taking the work over
   dispatching it when a lane stalls.
+- **A killed build leaves a lock behind, and the next builds queue on it for
+  hours.** A test JVM that dies mid-test - the test task's 90-minute cap, a hand
+  kill, an OOM - leaves its PostgreSQL backend `idle in transaction`, holding the
+  locks of the test it was running. WSL2's NAT never delivers the dead Windows
+  peer's reset, so the server keeps the session, and every later test's per-test
+  schema wipe (`drop table if exists "c0.ft4...."`) waits behind it: measured
+  2026-09-10 02:20, one such session 6 h 10 min old with ten wipes queued, two
+  gate partitions red on an idle host and a lane reporting a 600 s deadline
+  "starved by load" that was this. The cluster now drops an idle transaction after
+  ten minutes (`idle_in_transaction_session_timeout`) and reaps a dead TCP peer in
+  about ninety seconds (`tcp_keepalives_idle=60`, `_interval=10`, `_count=3`, set
+  with `ALTER SYSTEM` and a reload). Before a gate chain, look anyway:
+
+      select pid, datname, state, now() - xact_start as age, left(query, 60)
+      from pg_stat_activity
+      where backend_type = 'client backend' and datname like 'chromia_mcp_test%'
+      order by xact_start nulls last;
+
+  and `pg_terminate_backend(pid)` anything `idle in transaction` or active for
+  more than ten minutes. A red partition whose failures are all the runner's
+  "database-backed runs share one schema" permit timeout, on a host that is not
+  busy, is this until proven otherwise.
 
 Give every agent the reasoning, not just the task. That means pointing it at
 GOAL.md, this file, docs/ADVERSARY-ROUND-BRIEF.md and docs/TEMPLATE-GAPS.md,
