@@ -260,9 +260,25 @@ Static security review of compiled Rell (compiles first via the embedded compile
 
 - **CRITICAL** — banned admin modules (`lib.ft4.admin`, `admin.crosschain`) and open
   registration/transfer strategies (`ras_open`, `ras_transfer_open`)
-- **HIGH** — operations mutating state (`create`/`update`/`delete`) without any auth check;
-  hardcoded 64+ char hex literals that look like key material
-- **MEDIUM** — operations with parameters but no `require(...)` input validation
+- **HIGH** — operations mutating state (`create`/`update`/`delete`) without any auth check
+  (`unauthenticated-mutation`); authorization not bound to the caller; a signer check on an
+  untrusted argument; auth on some control paths only; hardcoded 64+ char hex literals that
+  look like key material
+- **MEDIUM** — operations with parameters but no `require(...)` input validation; economic
+  advisories that never make `ok:false`, of which `majority-without-quorum` is the worked
+  example: value moved on a bare vote majority, on a participation floor the PROPOSER writes,
+  or on one that BOUNDS NOTHING because its value — or its ceiling, evaluated through `when`,
+  arithmetic, `min`/`max`/`abs`, struct fields and callables entered with their parameters
+  blocked — is below the smallest bar a quorum can be
+
+An INTENTIONALLY PERMISSIONLESS ENTRY POINT — a raffle commit, a stake, a self-service refund,
+where the design says anybody may call it — passes without a carve-out: an operation that binds
+the caller from `op_context.get_signers()` and uses the value is authenticated here (the
+filechain idiom), so taking the deposit from HER row, or touching only rows keyed by her, draws
+no finding. What still fires is an operation that reads no caller at all and moves a pot for
+somebody else. Note the limit, measured in round 20: that reading is per OPERATION, so one
+signer-derived write currently launders the others beside it — key every write off the caller
+or off a row a `require()` has bound to her.
 
 Findings are line-anchored with a concrete fix each. `ok=true` = no CRITICAL/HIGH findings.
 Heuristic static analysis — it does not replace a security audit. The agent loop is:
