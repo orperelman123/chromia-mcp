@@ -862,10 +862,21 @@ class RagStore(
         }
 
         val splitter = ragDocumentSplitter()
-        val segmentCount = documents.sumOf { splitter.split(it).size }
+        // Per source, and with the deliberate exclusions counted separately.
+        // The refresh gate cannot tell a repository that half-arrived from
+        // audit F15's excluded test sources by looking at the size of the whole
+        // store - it went red twice for exactly that reason (runs 34103273206
+        // and 34344751517). It reads these numbers now; see IngestBreakdown and
+        // scripts/embeddings-gate.mjs.
+        val breakdown = ingestBreakdown(fetchedReposPath, documents, splitter, docsFetcher.sourceNames)
+        require(breakdown.documents == documents.size) {
+            "ingest breakdown attributed ${breakdown.documents} of ${documents.size} loaded documents"
+        }
+        val segmentCount = breakdown.segments
         logger.info(
             "segments after DocumentSplitters.recursive($RAG_MAX_SEGMENT_CHARS, $RAG_MAX_OVERLAP_CHARS) --> $segmentCount"
         )
+        logger.info("ingest breakdown by source:\n${breakdown.table()}")
 
         InMemoryEmbeddingStore<TextSegment>().also { store ->
             EmbeddingStoreIngestor.builder()
@@ -876,6 +887,7 @@ class RagStore(
             logger.info("embeddings ingest complete; planned segments --> $segmentCount")
             embeddingStore = store
             persistLocalEmbeddings(store, localEmbeddingsPath)
+            logger.info("provenance sidecar --> ${writeIngestProvenance(localEmbeddingsPath, breakdown)}")
             if (upload) {
                 uploadToRegistry(store, ktorClient)
             } else {

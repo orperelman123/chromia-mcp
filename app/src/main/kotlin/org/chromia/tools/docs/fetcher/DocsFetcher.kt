@@ -19,6 +19,15 @@ class DocsFetcher {
     private val docsSettings by lazy { docsConfig.settings }
     private val gitFetcher by lazy { GitRepositoryFetcher(docsSettings) }
 
+    /**
+     * The top-level directory names [fetchRepositories] creates under its temp
+     * dir - one per configured repository, plus the sitemap mirror. This is the
+     * row list the ingest breakdown must account for: a repository that failed
+     * to clone has to show up as zeros rather than vanish from the table.
+     */
+    val sourceNames: List<String>
+        get() = docsConfig.repositories.map { it.name } + SITEMAP_DIRECTORY
+
     suspend fun fetchRepositories() = coroutineScope {
         logger.info("Fetching repositories --> ${docsConfig.repositories.map { it.name }}")
         val limiter = Semaphore(docsSettings.concurrentFetches.coerceAtLeast(1))
@@ -34,7 +43,7 @@ class DocsFetcher {
                     sitemapUrl = docsSettings.sitemapUrl,
                     concurrentFetches = docsSettings.concurrentFetches,
                     client = sitemapClient
-                ).fetchInto(gitFetcher.tempDir / "docs-chromia-com")
+                ).fetchInto(gitFetcher.tempDir / SITEMAP_DIRECTORY)
             }
         }
 
@@ -53,6 +62,11 @@ class DocsFetcher {
         } catch (e: Exception) {
             logger.warn("Sitemap ingest skipped: ${e::class.simpleName}: ${e.message}")
         }
+    }
+
+    companion object {
+        /** Where [SitemapDocsFetcher] writes the docs.chromia.com pages, and the source name they carry. */
+        const val SITEMAP_DIRECTORY = "docs-chromia-com"
     }
 
     fun cleanDocs() {

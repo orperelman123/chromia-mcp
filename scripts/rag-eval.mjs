@@ -40,9 +40,20 @@ const embeddings = productionShaped
   ? join(tmpdir(), `chromia-mcp-no-local-index-${process.pid}`, 'embeddings.json') // does not exist, by design
   : resolve(args.embeddings ?? 'app/build/embeddings.json');
 const expectOrigin = new RegExp(args['expect-origin'] ?? 'GitHub release asset', 'i');
-// 18,000, not 20,000: audit F15 took the compiler's *.kt TEST sources out of the
-// corpus (IngestPathFilter), which is why a healthy full ingest is now 19,281
-// segments and not 25,823. The floor still catches a half-failed fetch.
+// 18,000 is a MEASURED floor and this is its basis, written down because a bare
+// number that the corpus has since legitimately sunk below is a gate that reds
+// every healthy run. Full ingests, in segments, as the runs reported them:
+//
+//   25,588  run 33914416475, 2026-09-04 - before f0ee597
+//   19,107  run 34103273206, 2026-09-07 - after f0ee597, audit F15's exclusions
+//   19,107  run 34344751517, 2026-09-09 - same seven repos, same 381 sitemap pages
+//
+// The floor sits 1,107 segments (5.8%) under the current healthy ingest, so the
+// F15 exclusion does not sit under it; it is the absurdity backstop - "this
+// store is not half empty" - and it is deliberately independent of whatever is
+// published. The like-with-like verdict lives in scripts/embeddings-gate.mjs,
+// which compares segments OFFERED (indexed + deliberately excluded) per source
+// against the published sidecar. Bytes are nobody's verdict any more.
 const minSegments = Number(args['min-segments'] ?? 18000);
 
 // [question, substrings/regexes a correct answer must contain (all of them, case-insensitive)]
