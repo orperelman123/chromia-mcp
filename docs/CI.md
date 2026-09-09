@@ -196,8 +196,8 @@ step **after** the classification, so a red suite still cannot ship one.
   nodes, docs site). The sweep classifies clean upstream errors as
   `WARN-UPSTREAM` — degraded, non-fatal — with guardrails so it cannot hide real
   breakage (all-live-warn is a FAIL; more than `SWEEP_MAX_UPSTREAM_WARNS`
-  warnings is a FAIL; non-network checks never warn). See
-  `scripts/upstream-classifier.mjs`.
+  warnings is a FAIL — an environment variable, default 8; non-network checks
+  never warn). See `scripts/upstream-classifier.mjs`.
 - A `FAIL` from the sweep therefore means our contract broke — **except** a
   single transient blip, which one bounded retry absorbs. Each attempt gets a
   fresh server on a freed port. Two consecutive failures are fatal.
@@ -269,9 +269,10 @@ gate as a command. It and CI agree by construction, not by convention:
 
 The one asymmetry is **how the suite is run**, not what counts as green. CI runs
 `:app:test` once on a runner with a dedicated Postgres. On the 15 W laptop the
-suite is run **partitioned** — thirteen serial `--tests` slices, one Gradle
-build at a time — because there is one build slot, one PostgreSQL and 2 GB of
-headroom, and four concurrent builds have OOM-killed the Kotlin daemon. The
+suite is run **partitioned** — serial `--tests` slices, one Gradle build at a
+time, thirteen of them at the last full gate (GOAL.md, round 19) — because
+there is one build slot, one PostgreSQL and 2 GB of headroom, and four
+concurrent builds have OOM-killed the Kotlin daemon. The
 partitioning changes the schedule, never the verdict: each slice writes its own
 XMLs into `app/build/test-results/test/` and the tally reads the union. See
 `docs/AGENT-LANE-BRIEF.md` for the build-slot discipline.
