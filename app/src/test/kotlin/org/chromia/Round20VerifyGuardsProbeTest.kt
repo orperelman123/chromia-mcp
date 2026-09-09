@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.chromia.tools.McpTools
 import org.chromia.tools.RunRellTests
 import org.chromia.tools.VerifyGuardsStrategy
 import org.chromia.tools.callToolRequest
@@ -84,6 +85,21 @@ import java.io.File
  * CONSERVATIVE (r20b2 and r20c, honest single-operation tests refused). THIS
  * TEST IS RED UNTIL A FIX LANE LANDS; that is the round-19 shape, and the red is
  * the finding.
+ *
+ * WHAT BECAME OF IT (round-20 tool fix lane). All four are FIXED and the pins
+ * below are untouched - the verdicts moved because the TOOL moved. A helper is
+ * registered under its own namespace path and nothing else, and `resolveHelper`
+ * takes the namespace the call is READ IN: enclosing namespaces innermost first,
+ * then the module's own top level and its namespaces, then an exact import, then
+ * a wildcard one. A namespace member has NO bare spelling (sp20f), so `namespace
+ * h { function audited }` no longer shadows `import tests.aux.{ audited };`
+ * (r20a, r20a2) and no longer appends a second body to a name that has one
+ * (r20c); a bare call INSIDE a namespace still names its sibling (sp20g) and
+ * `b.f(...)` inside `namespace a` still names `a.b.f` (sp20h), because that is
+ * relative resolution and it is real. And the operation a carrier's argument
+ * names is followed through operation-returning helpers, one or a chain of them
+ * (sp20c, sp20i), so `.op(make())` carries `take` and r20b2 is load_bearing.
+ * `probes-fix.json` measures the fix's own sentences the same way.
  */
 class Round20VerifyGuardsProbeTest {
 
@@ -157,8 +173,21 @@ class Round20VerifyGuardsProbeTest {
             "sp20b_a_top_level_helper_and_a_namespaced_one_share_a_name",
             "sp20c_a_helper_returns_an_operation",
             "sp20d_a_helper_returns_a_block_the_caller_extends",
-            "sp20e_an_operation_parameter_two_helpers_deep"
+            "sp20e_an_operation_parameter_two_helpers_deep",
+            // THE FIX'S OWN, measured by `harness/spellings_r20_fix.py` before a
+            // line of Kotlin changed: relative resolution is real (a bare call
+            // inside a namespace names its sibling, and `b.f(...)` inside
+            // `namespace a` names `a.b.f`), and an operation-returning helper may
+            // call another one, so the operation is found by following the CHAIN.
+            "sp20g_a_bare_call_inside_a_namespace_names_its_sibling",
+            "sp20h_a_relative_namespace_path_inside_a_namespace",
+            "sp20i_an_operation_returning_helper_calls_another"
         )
+        // THE NEGATIVE the whole fix rests on: a suffix of a namespace path is
+        // NOT a spelling of the name, so a namespaced helper has no bare name at
+        // the module's top level. Round 18's lesson was two probes written for
+        // forms the language does not have; this one is pinned as not existing.
+        val mustNotCompile = listOf("sp20f_a_namespaced_helper_has_no_bare_spelling")
         val wrong = mutableListOf<String>()
         mustCompileAndRun.forEach { name ->
             val row = rows[name] ?: run { wrong += "$name was never measured"; return@forEach }
@@ -167,6 +196,12 @@ class Round20VerifyGuardsProbeTest {
             }
             if (row.getValue("test_ok").jsonPrimitive.content != "true") {
                 wrong += "$name compiles but its claim does not HOLD on the chain: ${row["compiler_says"]}"
+            }
+        }
+        mustNotCompile.forEach { name ->
+            val row = rows[name] ?: run { wrong += "$name was never measured"; return@forEach }
+            if (row.getValue("compiles").jsonPrimitive.content != "false") {
+                wrong += "$name COMPILES, and the fix assumes the compiler refuses it"
             }
         }
         assertEquals(
@@ -186,7 +221,7 @@ class Round20VerifyGuardsProbeTest {
     @Test
     fun `every round 20 probe has a green baseline and a red mutant on a real chain`() {
         val wrong = mutableListOf<String>()
-        for (element in probes("probes.json")) {
+        for (element in probes("probes.json") + probes("probes-fix.json")) {
             val name = element.jsonObject["probe"]!!.jsonPrimitive.content
             val file = File(dir, "$name.chain.json")
             if (!file.isFile) {
@@ -205,6 +240,120 @@ class Round20VerifyGuardsProbeTest {
             emptyList<String>(),
             wrong,
             "round-20 probe(s) are not valid mutant experiments:\n" + wrong.joinToString("\n")
+        )
+    }
+
+    /**
+     * THE FIX LANE'S OWN PROBES. The four false verdicts round 20 found are
+     * measured by `probes.json` above, which is the adversary's evidence and does
+     * not move. The FIX says more than those four probes measure: it claims a
+     * resolution ORDER (enclosing namespace, then the module's own top level and
+     * namespaces, then an exact import, then a wildcard one), it claims a
+     * namespace member has no bare spelling at all, and it claims the operation a
+     * carrier's argument names is followed through operation-returning helpers. A
+     * sentence in the long form, the advertised description or the README that no
+     * probe measures is a claim, not a measurement.
+     *
+     * `probes-fix.json` is one probe per form those sentences name - r20a
+     * MIRRORED, so that the import wins and the honest test is certified (f20a);
+     * a bare call inside a namespace naming its SIBLING while the module's top
+     * level declares the same name (f20b); the two-segment form of it, `b.f(...)`
+     * inside `namespace a` (f20c); and an operation reached through a CHAIN of
+     * operation-returning helpers (f20d) - plus two controls in the direction
+     * that must still refuse: an operation-returning helper feeding a transaction
+     * that already carries one operation, which following the argument must not
+     * collapse into one (f20e), and a QUALIFIED `h.audited(...)` whose namespaced
+     * body really does add the second operation, which dropping the suffix
+     * registration must not stop expanding (f20f).
+     *
+     * Every one was written to disk and run on a REAL chain first
+     * (`harness/vg_r20_fix.py`, this worktree's own database, one schema per
+     * probe): baseline green, mutant red, recorded in `vg/<probe>.chain.json`.
+     * And every Rell form any of them uses was put in front of the compiler on
+     * its own first (`harness/spellings_r20_fix.py`, merged into
+     * `vg/spellings.json` as sp20f..sp20i), so the fix models no spelling the
+     * language does not have - sp20f is pinned as NOT compiling.
+     */
+    @Test
+    fun `the resolution order and the operation returning helpers the fixed tool claims are each measured`() {
+        driveEveryProbe("probes-fix.json")
+    }
+
+    /**
+     * EVERY SENTENCE ROUND 20 ADDED, WHERE AN AGENT READS IT, ATTACHED TO A PROBE
+     * THAT MEASURED IT - the round-17/18/19 pattern applied to round 20's own
+     * sentences. A sentence edited away is a red here, not a quiet drift into
+     * prose that no longer describes the tool.
+     */
+    @Test
+    fun `every verify_guards sentence round 20 added is present where an agent reads it`() {
+        val long = McpTools.fullDescription("verify_guards").orEmpty()
+        val advertised = McpTools.advertisedDescription("verify_guards").orEmpty()
+        val readme = File("../README.md").readText()
+        fun flat(text: String) = text.replace(Regex("\\s+"), " ").trim()
+        val sources = mapOf("long" to flat(long), "advertised" to flat(advertised), "readme" to flat(readme))
+
+        // (id, which text, the sentence verbatim, the probe that measured it)
+        val claims = listOf(
+            // the resolution order (r20a, r20a2, r20c, f20a, f20b, f20c)
+            listOf("long-order", "long", "A NAME BINDS THE WAY THE COMPILER BINDS IT", "f20b"),
+            listOf("long-relative-bare", "long", "a bare f(...) is h.f even when the module declares a top-level f", "f20b"),
+            listOf("long-relative-path", "long", "b.f(...) is a.b.f", "f20c"),
+            listOf("long-no-bare-spelling", "long", "A NAMESPACE MEMBER HAS NO BARE SPELLING", "f20a"),
+            listOf("long-never-shadows-an-import", "long", "so a local namespace never shadows an `import a.b.{ f };`", "r20a"),
+            // the operation-returning helpers (r20b2, f20d, f20e)
+            listOf(
+                "long-operation-followed", "long",
+                "THE OPERATION A CARRIER'S ARGUMENT NAMES IS FOLLOWED THROUGH OPERATION-RETURNING HELPERS", "r20b2"
+            ),
+            listOf("long-operation-chain", "long", "a CHAIN of such helpers is followed to the end", "f20d"),
+            listOf(
+                "long-operation-not-followed", "long",
+                "A helper whose body builds or runs a transaction of its own is not followed", "f20e"
+            ),
+            // the same order in the 1200-byte description an agent sees first
+            listOf(
+                "advertised-order", "advertised",
+                "in the COMPILER'S order: enclosing namespace, then module, then imports, a member has no bare name", "f20a"
+            ),
+            // and in the README's own account of the two shapes
+            listOf(
+                "readme-order", "readme",
+                "**A name binds the way the compiler binds it, and the tool follows that order**", "f20b"
+            ),
+            listOf("readme-no-bare-spelling", "readme", "**A namespace member has no bare spelling**", "f20a"),
+            listOf(
+                "readme-operation-followed", "readme",
+                "**The operation a carrier's argument names is followed through operation-returning helpers**", "r20b2"
+            ),
+            listOf("readme-operation-chain", "readme", "a chain of such helpers is followed to the end", "f20d")
+        )
+        val rows = buildJsonArray {
+            for (claim in claims) {
+                add(
+                    buildJsonObject {
+                        put("claim", claim[0])
+                        put("where", claim[1])
+                        put("present", sources.getValue(claim[1]).contains(flat(claim[2])))
+                        put("measured_by", claim[3])
+                        put("text", flat(claim[2]))
+                    }
+                )
+            }
+        }
+        Round20Evidence.record("describe/verify_guards_claims.json", rows)
+        val missing = claims.filterNot { sources.getValue(it[1]).contains(flat(it[2])) }
+            .map { "${it[0]} (${it[1]}, measured by ${it[3]}): ${it[2]}" }
+        assertAll(
+            Executable {
+                assertEquals(
+                    emptyList<String>(),
+                    missing,
+                    "verify_guards sentence(s) round 20 added are no longer in the text an agent reads:\n" +
+                        missing.joinToString("\n")
+                )
+            },
+            Executable { Round20Evidence.assertFrozen("describe/verify_guards_claims.json", rows) }
         )
     }
 
