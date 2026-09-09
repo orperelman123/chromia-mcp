@@ -62,8 +62,30 @@ class UpstreamWarningGateTest {
      * and returns it. This is a REAL run of a REAL live test - it calls the
      * explorer - so its verdict is whatever the third party is doing right now.
      */
+    /**
+     * Where the nested run's evidence goes. The outer gradle run of [liveClass]
+     * has already written its own file under `app/build/upstream/warnings`, and
+     * its JUnit XML binds THAT file's digest; a nested run writing the same name
+     * there would replace it with a file of a different timestamp and turn the
+     * real upstream warning into a red of ours. So the nested run gets its own
+     * directory through [LiveEnv.UPSTREAM_DIR_PROPERTY], and everything this
+     * test reads comes from here.
+     */
+    private val nestedUpstreamDir: Path by lazy { Files.createTempDirectory("upstream-gate-evidence") }
+
     private fun realJUnitXmlForOneLiveTest(): Path {
         val reports = Files.createTempDirectory("upstream-gate-xml")
+        val previous = System.getProperty(LiveEnv.UPSTREAM_DIR_PROPERTY)
+        System.setProperty(LiveEnv.UPSTREAM_DIR_PROPERTY, nestedUpstreamDir.toString())
+        try {
+            return launchNested(reports)
+        } finally {
+            if (previous == null) System.clearProperty(LiveEnv.UPSTREAM_DIR_PROPERTY)
+            else System.setProperty(LiveEnv.UPSTREAM_DIR_PROPERTY, previous)
+        }
+    }
+
+    private fun launchNested(reports: Path): Path {
         val request = LauncherDiscoveryRequestBuilder.request()
             .selectors(DiscoverySelectors.selectMethod(liveClass, liveMethod))
             .build()
@@ -166,7 +188,7 @@ class UpstreamWarningGateTest {
         LiveChromia.requireLive("runs one real live explorer test and classifies its real JUnit XML")
         val startedAt = System.currentTimeMillis() - 5_000
         val results = realJUnitXmlForOneLiveTest()
-        val warnings = LiveEnv.upstreamDir.resolve("warnings")
+        val warnings = nestedUpstreamDir.resolve("warnings")
         val key = "${liveClass.simpleName}.$liveMethod"
 
         val (exit, tally) = classify(results, warnings, startedAt)

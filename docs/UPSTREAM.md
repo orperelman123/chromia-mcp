@@ -269,6 +269,8 @@ from the artifacts and refuses on any one of them:
    `some.Exception: ` prefix allowed, because Gradle and JUnit's own reporter
    spell it differently);
 2. an evidence file exists at `app/build/upstream/warnings/<Class>.<method>.json`
+
+One file per warning, written by the test that failed, in the directory the test JVM was started with (`app/build/upstream` unless `-Dchromia.upstream.dir` says otherwise - the property exists so a test that re-runs a live test through a nested launcher does not overwrite the evidence the outer run bound by digest).
    and names that test;
 3. its `signature` is one of the four allowlisted names — things only the third
    party can say;

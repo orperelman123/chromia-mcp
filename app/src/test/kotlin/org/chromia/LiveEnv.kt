@@ -323,8 +323,26 @@ object LiveEnv {
                 " in ${elapsedMs}ms at $at: ${explorerSaid.take(160)}"
     }
 
-    /** Everything this file writes for the gate to read. */
-    val upstreamDir: Path get() = RepoFiles.root.resolve("app/build/upstream")
+    /**
+     * Everything this file writes for the gate to read.
+     *
+     * Read from [UPSTREAM_DIR_PROPERTY] on EVERY access, defaulting to
+     * `app/build/upstream`. The property exists for one caller:
+     * [UpstreamWarningGateTest] runs the real live test again through a nested
+     * JUnit launcher in the same JVM, and that nested run used to write its
+     * evidence over the file the OUTER run of the same test had written - a
+     * different timestamp, so a different digest, so the outer run's XML no
+     * longer matched its file and the gate called the real upstream warning
+     * OURS (the partitioned gate of 2026-09-09 03:05; a single-JVM CI run would
+     * do the same, in alphabetical order). The nested run now gets its own
+     * directory, and the property is restored in a `finally`.
+     */
+    val upstreamDir: Path
+        get() = System.getProperty(UPSTREAM_DIR_PROPERTY)?.let { Path.of(it) }
+            ?: RepoFiles.root.resolve("app/build/upstream")
+
+    /** Overrides where [upstreamDir] points; see its KDoc for the one legitimate use. */
+    const val UPSTREAM_DIR_PROPERTY = "chromia.upstream.dir"
 
     private val canary: Canary by lazy { probeExplorer() }
 
