@@ -395,8 +395,10 @@ XMLs into `app/build/test-results/test/` and the tally reads the union. See
 `docs/AGENT-LANE-BRIEF.md` for the build-slot discipline - including the one
 failure mode that looks like load and is not: a slice killed mid-test leaves a
 PostgreSQL session holding its locks, and every later slice's schema wipe queues
-behind it. The laptop cluster now times such sessions out; the brief says how to
-see and clear one before a chain.
+behind it. The suite guards against it on any cluster: the runner's sessions
+expire on their own (`DatabaseSessionGuards`) and the first database-backed test
+of a JVM reaps what an earlier run abandoned (`LiveEnv.reapAbandonedSessions`);
+the brief says how to see one by hand.
 
 ### `--docs-only`
 

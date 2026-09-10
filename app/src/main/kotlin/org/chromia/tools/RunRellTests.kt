@@ -489,7 +489,9 @@ object RunRellTests {
             .cliEnv(quietEnv)
             .outPrinter(printer)
             .logPrinter(printer)
-            .databaseUrl(databaseUrl)
+            // The session the runner opens carries its own expiry and keepalives, so a JVM
+            // that dies mid-run cannot leave it holding the schema's locks (DatabaseSessionGuards).
+            .databaseUrl(databaseUrl?.let { DatabaseSessionGuards.withSessionGuards(it) })
             .printTestCases(false)
             // The runner's own selector (what `chr test --tests` passes through).
             .apply { if (tests.isNotEmpty()) testPatterns(tests) }

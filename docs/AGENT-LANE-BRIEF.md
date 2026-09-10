@@ -92,6 +92,15 @@ So split the work by whether it needs a build:
   "database-backed runs share one schema" permit timeout, on a host that is not
   busy, is this until proven otherwise.
 
+  Since 2026-09-10 the suite does both of these itself, on any cluster: the
+  runner's sessions carry `idle_in_transaction_session_timeout=10min` and TCP
+  keepalives through the JDBC URL (`DatabaseSessionGuards`, so a killed JVM's
+  session expires on its own within minutes), and the first database-backed
+  test of every JVM terminates and prints whatever an earlier run left idle in
+  a transaction or waiting on a lock for more than ten minutes
+  (`LiveEnv.reapAbandonedSessions`). Both are pinned against real abandoned
+  sessions by `DatabaseSessionGuardsTest` and `AbandonedSessionReaperTest`.
+
 Give every agent the reasoning, not just the task. That means pointing it at
 GOAL.md, this file, docs/ADVERSARY-ROUND-BRIEF.md and docs/TEMPLATE-GAPS.md,
 and telling it **what is already known** so it does not spend a budget

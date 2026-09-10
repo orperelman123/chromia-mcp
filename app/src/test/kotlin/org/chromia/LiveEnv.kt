@@ -83,7 +83,64 @@ object LiveEnv {
             "needs $DATABASE_URL - $what. The gate refuses to run without it; set it in " +
                 "local-test-env.properties (gitignored, one per worktree)."
         )
-        return url!!
+        reapedOnce.getOrPut(url!!) { reapAbandonedSessions(url) }
+        return url
+    }
+
+    private val reapedOnce = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
+    /**
+     * Terminates the sessions an earlier, killed JVM left in THIS database, and says which.
+     *
+     * 2026-09-10 02:20: a test JVM killed at the 90-minute cap left its session `idle in
+     * transaction` for 6 h 10 min, holding the locks of the test it had been running; every later
+     * run's per-test schema wipe queued behind it, and two gate partitions were red on an idle
+     * host. The runner's own sessions now carry an expiry (DatabaseSessionGuards), so this is the
+     * belt to that brace: once per JVM, before the first database-backed test, anything in this
+     * database that is idle inside a transaction, or waiting on a lock, for longer than
+     * [olderThan] is terminated and printed. A fresh CI database has nothing to reap and prints
+     * nothing. `AbandonedSessionReaperTest` proves it against a real abandoned session.
+     */
+    fun reapAbandonedSessions(url: String, olderThan: java.time.Duration = java.time.Duration.ofMinutes(10)): List<String> {
+        val reaped = mutableListOf<String>()
+        try {
+            java.sql.DriverManager.getConnection(url).use { connection ->
+                connection.prepareStatement(
+                    """
+                    SELECT pid, state, wait_event_type, now() - xact_start AS age, left(query, 80) AS query,
+                           pg_terminate_backend(pid) AS terminated
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                      AND pid <> pg_backend_pid()
+                      AND backend_type = 'client backend'
+                      AND (
+                            (state = 'idle in transaction' AND now() - state_change > make_interval(secs => ?))
+                         OR (state = 'active' AND wait_event_type = 'Lock' AND now() - query_start > make_interval(secs => ?))
+                      )
+                    """.trimIndent()
+                ).use { statement ->
+                    val seconds = olderThan.toMillis() / 1000.0
+                    statement.setDouble(1, seconds)
+                    statement.setDouble(2, seconds)
+                    statement.executeQuery().use { rs ->
+                        while (rs.next()) {
+                            reaped += "pid=${rs.getInt("pid")} state='${rs.getString("state")}' wait=${rs.getString("wait_event_type")} " +
+                                "age=${rs.getString("age")} terminated=${rs.getBoolean("terminated")} query=${rs.getString("query")}"
+                        }
+                    }
+                }
+            }
+        } catch (e: java.sql.SQLException) {
+            // A cluster that refuses this query (no pg_stat_activity rights) is reported, not fatal:
+            // the run that follows will say what the database can and cannot do.
+            System.err.println("[gate] abandoned-session reap skipped: ${e.javaClass.simpleName}: ${e.message}")
+            return emptyList()
+        }
+        if (reaped.isNotEmpty()) {
+            System.err.println("[gate] reaped ${reaped.size} abandoned database session(s) left by an earlier run:")
+            reaped.forEach { System.err.println("[gate]   $it") }
+        }
+        return reaped
     }
 
     /** Skips only when the live flag is unset; with it set every failure is a failure. */
