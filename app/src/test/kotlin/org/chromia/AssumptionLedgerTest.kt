@@ -80,6 +80,24 @@ class AssumptionLedgerTest {
      */
     private val ledger = listOf(
         Row(
+            "AbandonedSessionReaperTest.kt", "anIdleInTransactionSessionIsTerminatedAndNamedAnIdleConnectionIsNot",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "opens a real second connection, leaves it idle in transaction and requires pg_terminate_backend " +
+                "to end it: what a killed test JVM leaves behind can only be reproduced on the real server."
+        ),
+        Row(
+            "AbandonedSessionReaperTest.kt", "aDatabaseWithNothingAbandonedReapsNothing",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "reads pg_stat_activity on the real server and requires the reaper to name nothing on a clean " +
+                "database; the negative half of the same contract."
+        ),
+        Row(
+            "DatabaseSessionGuardsTest.kt", "theServerConfirmsTheSessionCarriesTheGuards",
+            "requireDatabaseUrl", Resource.POSTGRES,
+            "connects with the guarded URL and asks the server for the session's own " +
+                "idle_in_transaction_session_timeout: only PostgreSQL can say what the options= token became."
+        ),
+        Row(
             "DappBuildToolsTest.kt", "chrVersionLiveProbe", "requireChrOnPath", Resource.CHR_CLI,
             "launches the installed chr the way the server does, through ChrLocator - the launcher agents " +
                 "depend on. With CHROMIA_REQUIRE_CHR set, an absent chr fails; a chr that is present but " +

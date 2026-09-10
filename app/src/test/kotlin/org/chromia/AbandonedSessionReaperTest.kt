@@ -22,7 +22,7 @@ import java.time.Duration
 class AbandonedSessionReaperTest {
 
     @Test
-    fun `an idle-in-transaction session is terminated and named, an idle connection is not`() {
+    fun anIdleInTransactionSessionIsTerminatedAndNamedAnIdleConnectionIsNot() {
         val url = LiveEnv.requireDatabaseUrl("an abandoned session is reaped on the real server")
 
         val abandoned: Connection = DriverManager.getConnection(url)
@@ -57,7 +57,7 @@ class AbandonedSessionReaperTest {
     }
 
     @Test
-    fun `a database with nothing abandoned reaps nothing`() {
+    fun aDatabaseWithNothingAbandonedReapsNothing() {
         val url = LiveEnv.requireDatabaseUrl("the reaper is quiet on a clean database")
         // Ten minutes: the gate's own threshold. Nothing in this JVM is that old inside a transaction.
         assertEquals(emptyList<String>(), LiveEnv.reapAbandonedSessions(url, olderThan = Duration.ofMinutes(10)))

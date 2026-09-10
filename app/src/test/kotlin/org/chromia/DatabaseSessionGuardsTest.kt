@@ -51,7 +51,7 @@ class DatabaseSessionGuardsTest {
     }
 
     @Test
-    fun `the server confirms the session carries the guards`() {
+    fun theServerConfirmsTheSessionCarriesTheGuards() {
         val url = DatabaseSessionGuards.withSessionGuards(LiveEnv.requireDatabaseUrl("the session guards are proven on the real server"))
         DriverManager.getConnection(url).use { connection ->
             fun show(setting: String): String = connection.createStatement().use { statement ->
