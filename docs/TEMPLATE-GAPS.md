@@ -245,7 +245,9 @@ named first, the covered half is named by template, nothing is scaffolded) is a 
 the ANSWER, not to the class. An agent that reads the refusal, builds the raffle anyway
 and asks this server to check it still gets ok:true. Until a sixteenth template ships,
 the honest position is that this server can tell an agent the guard is missing and
-cannot tell it that the guard is absent from the code in front of it.
+cannot tell it that the guard is absent from the code in front of it. (Written on
+2026-09-08. The sixteenth template shipped on 2026-09-10 as `template=raffle`, after round
+20 drained the design note below - see "The commit-reveal raffle" further down.)
 
 **WHY NOT IN THIS ROUND.** A commit-reveal raffle whose draw no caller can choose the
 block for is the shape (an entry commits `hash(secret)`, the reveal is bounded by a
