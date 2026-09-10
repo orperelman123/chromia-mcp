@@ -195,6 +195,44 @@ Not "fewer than last round". Coverage moving is not a pass.
    and the loyalty/points and fee-splitter rows that still have no named refusal.
    Then build the commit-reveal raffle from the round-19 design note with ONLY
    this server's guidance, and drain it.
+   **Round 21 attacks the compiler's own resolution order, the range, the
+   about-ness rule, the marker, and the sixteenth template.** Round 20 made
+   `verify_guards` resolve a helper the way the compiler does (enclosing
+   namespaces innermost first, the module's top level, an exact import, a
+   wildcard) and follow an operation-returning helper to the end of a chain;
+   made the evaluator's ceiling the top of a RANGE with a callable's parameters
+   blocked; made the redirect recognise a class when the ask is ABOUT it (head
+   noun phrase, named after the head, a mention, a negation window); derived
+   the gate's run start from the marker `:app:test` writes and its floor from
+   `ci/expected-min.json`; and shipped the raffle. So attack each of those as
+   the thing it now claims to be. Resolution: two wildcard imports that both
+   offer the name (the compiler refuses - does the tool?); an import that
+   RENAMES (`import a.{f as g}`) and a namespace member spelled like the
+   original; a helper reached through a namespace ALIAS; a chain of
+   operation-returning helpers that crosses a module boundary and one whose
+   last link builds a transaction of its own (must NOT be followed, and the
+   count must say why). The range: `abs(x - y)` where both are state; a
+   `when` with a call in the condition and a constant in every arm; a callable
+   whose one expression is `min(n, CAP)` - the ceiling is CAP, and only when
+   the parameter is really blocked; a list literal indexed by a call; and ten
+   more CORRECT dapps at the boundary, this time with the floor computed rather
+   than written. About-ness: an ask whose head noun is a covered class and whose
+   modifier is the uncovered one ("a staking pool for raffle tickets"); a
+   negation window that ends one token too early; a compound the folder splits
+   in the other direction; the scripts round 20 recorded as the GAP, measured
+   again, and a Latin-script ask in a language the vocabulary does not know.
+   The marker: a run whose FIRST slice is killed after doFirst wrote the row
+   (the row is there, the XML is not - what does the tally say?); two chains
+   interleaved in one build directory; a result file touched by hand after the
+   run; a floor file lowered in a branch (the diff must be argued, so make the
+   probe read the ratchet's own history). The raffle: a reveal that arrives in
+   a later block than the settle it races; a commit whose `seq` is reused after
+   a forfeit; the deposit cap against a stake paid in a different asset; the
+   burn against an FT4 account that cannot receive; and its EXTENDING section
+   identifiers against the closed taxonomy, as round 19 did for the fifteen.
+   Then the gate's own preflight: a session left `idle in transaction` on the
+   test cluster by a killed JVM must be reaped before the first slice, and the
+   report must show it was - build one on purpose and prove the chain sees it.
 3. **Pin.** Every exploit becomes a row in
    `app/src/test/resources/exploit-corpus/` with a verdict (`MUST_FLAG` /
    `MUST_STAY_CLEAN`) and a status (`CAUGHT` / `GAP` / `CLEAN` /
