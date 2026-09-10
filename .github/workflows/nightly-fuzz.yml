@@ -76,12 +76,16 @@ concurrency:
 jobs:
   fuzz:
     runs-on: ubuntu-latest
-    # Measured on this workflow's own runs: the build step was 7m33s
-    # (34200056218) and 8m28s (34096782190) before rounds 17-19 landed and
-    # 43m41s (34325133558) after; the fuzz step 19-20s. Budgets below are per
-    # step so a hang is attributed, with the job set above their sum
-    # (50 + 30 + ~1m setup) so a step timeout always fires first.
-    timeout-minutes: 85
+    # Measured on this workflow's own runs: the suite step was 7m33s
+    # (34200056218) and 8m28s (34096782190) before rounds 17-19 landed, 43m41s
+    # (34325133558) after, and on 2026-09-10 (34451056782) it was KILLED by the
+    # old 50-minute budget - the same night ci.yml ran the same suite in 23m20s,
+    # so the spread between two runners is more than 2x. The fuzz step is
+    # 19-20s. Budgets below are per step so a hang is attributed, with the job
+    # set above their sum (75 + 30 + ~1m setup) so a step timeout always fires
+    # first. A run killed by its budget writes no report (the HTML report is
+    # written when the task ends), which is why test-results/ is uploaded too.
+    timeout-minutes: 110
     # Same database and chr as ci.yml: the build step runs the full suite (the
     # jar is never built untested), and the template mutant tests REQUIRE a
     # database rather than skipping without one. Run 33849222724 (2026-09-04)
@@ -129,7 +133,7 @@ jobs:
       # the verdict is the tally, not the exit code. See note 3 in the header.
       # RED HERE: only infrastructure or the 50-minute budget.
       - name: Run the unit suite
-        timeout-minutes: 50
+        timeout-minutes: 75
         env:
           CHROMIA_TEST_DATABASE_URL: jdbc:postgresql://localhost:5432/postgres?user=postgres&password=postchain
           # Network-only live tests (dry runs and public reads; no key, nothing spent).
@@ -239,6 +243,7 @@ jobs:
           name: nightly-test-report
           path: |
             app/build/reports/tests/test
+            app/build/test-results/test
             app/build/upstream
           if-no-files-found: warn
           retention-days: 14

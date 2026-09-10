@@ -341,8 +341,15 @@ Measured over the last twelve CI runs (34032465035 … 34274736432, 2026-09-06 t
 | `Run the unit suite` | 18m27s and 32m51s since rounds 17-19 landed (5m43s – 8m02s on the ten runs before) | 45 | worst measured plus the 1.8x spread seen between two consecutive runs |
 | the e2e sweep step | 8m51s median, 17m32s worst | 30 | two attempts of the worst single pass (~9m) plus the 30s pause is ~19m |
 | setup + jar + tail | ~1m00s + 39s + ~35s | — | |
-| nightly fuzz: suite | 7m33s, 8m28s, then 43m41s after rounds 17-19 | 50 | |
+| nightly fuzz: suite | 7m33s, 8m28s, then 43m41s after rounds 17-19, then killed at 50m on 2026-09-10 while CI ran the same suite in 23m20s | 75 | the worst measured run plus the 2x spread seen between two runners on the same night; the job budget (110) sits above 75 + 30 + setup |
 | nightly fuzz: the fuzzer | 19s and 20s for 600 iterations | 30 | |
+
+**The nightly's suite budget was too tight as well.** Its suite is CI's plus the four live
+provisioning tests, and on 2026-09-09 it measured 43m41s; on 2026-09-10 the 50-minute step budget
+killed it (run 34451056782) on a night CI's identical suite took 23m20s - a hosted runner can be
+twice as slow as the next. It is 75 now, and the upload step carries `app/build/test-results/test`
+as well as the HTML report, because a run killed by its budget never writes the report and left
+nothing to read.
 
 **The old `timeout-minutes: 50` was provably too tight.** Worst measured unit
 suite + worst measured e2e + the fixed cost is 52m37s, above the budget; the
